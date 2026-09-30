@@ -1,6 +1,7 @@
 import {
   GAME_TIMEZONE,
   ITEM_CATALOG,
+  discountedCaps,
   type ItemSpec,
   type VendorAuction,
   type VendorOffer,
@@ -42,6 +43,7 @@ export function VendorAuctionWindow({
   now,
   caps,
   bidCeiling,
+  discountPercent = 0,
   atLotCap,
   onClose,
 }: {
@@ -51,6 +53,8 @@ export function VendorAuctionWindow({
   caps: number;
   /** `MarketResponse.bidCeiling`: the caps stretched by the crew's market ground. */
   bidCeiling?: number | undefined;
+  /** `MarketResponse.marketDiscountPercent`: what comes off a won lot at the close. */
+  discountPercent?: number;
   /** `pastLotCap` over this visit's barrow. */
   atLotCap: boolean;
   onClose: () => void;
@@ -105,6 +109,7 @@ export function VendorAuctionWindow({
             name={name}
             caps={caps}
             bidCeiling={bidCeiling}
+            discountPercent={discountPercent}
             now={now}
             atLotCap={atLotCap}
           />
@@ -160,6 +165,7 @@ function BarrowBidPanel({
   name,
   caps,
   bidCeiling,
+  discountPercent,
   now,
   atLotCap,
 }: {
@@ -167,6 +173,7 @@ function BarrowBidPanel({
   name: string;
   caps: number;
   bidCeiling: number | undefined;
+  discountPercent: number;
   now: Date;
   atLotCap: boolean;
 }) {
@@ -181,10 +188,13 @@ function BarrowBidPanel({
       now={now}
       pending={bid.isPending}
       error={bid.error}
-      shortMessage={(purse) =>
-        `You have ${purse.toLocaleString()} caps. He will want the whole figure when he packs up.`
+      shortMessage={(purse, most) =>
+        most > purse
+          ? `You have ${purse.toLocaleString()} caps, which covers a bid of up to ${most.toLocaleString()} once your ground comes off.`
+          : `You have ${purse.toLocaleString()} caps. He will want the whole figure when he packs up.`
       }
       atLotCap={atLotCap}
+      payFor={(amount) => discountedCaps(amount, discountPercent)}
       onPlace={(amount) => bid.mutate({ lineId: auction.lineId, amount })}
     />
   );

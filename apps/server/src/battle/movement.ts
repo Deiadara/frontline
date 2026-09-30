@@ -3,14 +3,17 @@ import {
   columnSpeed,
   emptyDeployment,
   fittedFor,
+  fleetCapacity,
   leading,
   movementArrived,
   movementCancellable,
   movementForce,
   findDistrict,
   officerBattleStats,
+  ridingUnitSlots,
   travelMinutesBetween,
   unitColumnSpeed,
+  unitSlotsUsed,
   type Army,
   type Base,
   type BattleSide,
@@ -24,10 +27,11 @@ import {
 import type { Repositories } from '../db/repos/index.js';
 import { standingEffectsFor } from '../crew/standing.js';
 import { railRideBetween } from '../city/railway.js';
-import { tallyRailJourney } from '../feats/tally.js';
-import { mergeArmies } from './forces.js';
+import { tallyDeployed, tallyRailJourney } from '../feats/tally.js';
+import { forceSize, mergeArmies } from './forces.js';
 import { settleEach } from '../world/guard.js';
 import { fightPlaceFor } from './alignment.js';
+import { adminSeconds } from '../admin/mode.js';
 
 /**
  * Columns on the road, and what happens when they stop walking (§A4).
@@ -241,8 +245,8 @@ function roadMs(
  * §D1: how long the officer named to lead takes to reach the fight, in whole minutes.
  *
  * A column of one, through the same two functions a column goes through. The pace is the officer's
- * own `speed` off their sheet, which is the figure a scouting run is already clocked with
- * (`scouting/scouting.ts`): sending the Head of Finance across the city is a slow night and sending
+ * own `speed` off their sheet, which is the figure a spy job's walk is clocked with
+ * (`spying/spying.ts`): sending the Head of Finance across the city is a slow night and sending
  * somebody quick is not. `columnSpeed` then offers them a seat in whatever this crew has committed
  * to this fight, so they ride when a machine is quicker than their legs and walk when it is not,
  * which is the rule the rest of the yard follows.
@@ -284,6 +288,8 @@ export function sendColumn(
     now: Date;
     /** Ride Terminus's line if there is a ride to take. Optional, and marching is the default. */
     byRail?: boolean;
+    /** Testing mode: the column arrives in five seconds, like every other clock (`admin/mode.ts`). */
+    admin?: boolean;
   },
 ): Movement {
   /*
@@ -340,8 +346,10 @@ export function sendColumn(
           committed?.officerId != null,
         )
       : null;
-  const clock = riding === null ? travel : riding * MINUTE_MS;
-  if (riding !== null) tallyRailJourney(repos, input.base.id);
+  // Admin mode flattens the march like every other clock (maintainer ruling, 2026-09-29).
+  const clock =
+    adminSeconds((riding === null ? travel : riding * MINUTE_MS) / 1000, input.admin === true) *
+    1000;
   const movement: Movement = {
     id: randomUUID(),
     baseId: input.base.id,
@@ -375,6 +383,8 @@ export function retimeColumns(
   battleId: string,
   vehicles: Fleet,
   now: Date,
+  /** Testing mode: a five-second column stays one whatever the yard adds (`sendColumn`). */
+  admin = false,
 ): void {
   for (const movement of repos.movements.forBattle(battleId)) {
     if (movement.baseId !== base.id || movementArrived(movement, now)) continue;
@@ -391,9 +401,53 @@ export function retimeColumns(
     // A column already on the road to ground the map cannot price is left exactly as it is.
     // Re-timing it is the only thing this does, and there is no new time to give it.
     if (travel === null) continue;
-    const arrivesAt = Math.max(now.getTime(), Date.parse(movement.departedAt) + travel);
+    const clock = adminSeconds(travel / 1000, admin) * 1000;
+    const arrivesAt = Math.max(now.getTime(), Date.parse(movement.departedAt) + clock);
     repos.movements.put({ ...movement, arrivesAt: new Date(arrivesAt).toISOString() });
   }
+}
+
+/**
+ * §C3: whether this set of machines would be sold twice over to this crew's columns still on the
+ * road to the fight, which are the ones {@link retimeColumns} puts on it.
+ *
+ * Each column is re-timed on the whole set, so a seat one column fills is offered again to the
+ * next (bug pass, 2026-09-29): a crew that sent the column in pieces and *then* loaded the yard,
+ * or loaded five bikes and narrowed to one once the pieces were out, had one Scrappy at two seats
+ * carry five separate one-Warden columns at its own speed. The deploy door caps a batch against
+ * the seats (`battle/deploy.ts`); this is the check from the other door.
+ *
+ * What it counts is what the columns would *take*, each capped at the set: a single column larger
+ * than the set is not refused, because it can only ever fill the seats once and the walkers left
+ * over set its pace (`columnSpeed`). Only the columns still walking: whoever has landed rides
+ * nothing, and a train carries its own. An empty set is the walk and has no ceiling.
+ */
+export function oversellsSeats(
+  repos: Repositories,
+  base: Base,
+  battleId: string,
+  side: BattleSide,
+  vehicles: Fleet,
+  now: Date,
+): boolean {
+  const seats = fleetCapacity(vehicles);
+  if (seats === 0) return false;
+  const { anyRide } = standingEffectsFor(repos, base, now);
+  const taken = repos.movements
+    .forBattle(battleId)
+    .filter(
+      (movement) =>
+        movement.baseId === base.id &&
+        movement.side === side &&
+        movement.byRail !== true &&
+        !movementArrived(movement, now),
+    )
+    .reduce(
+      (total, movement) =>
+        total + Math.min(seats, ridingUnitSlots(movementForce(movement), anyRide)),
+      0,
+    );
+  return taken > seats;
 }
 
 /**
@@ -449,8 +503,28 @@ export function settleMovements(repos: Repositories, now: Date): number {
         updatedAt: movement.arrivesAt,
       });
       repos.movements.remove(movement.id);
+      tallyColumnLanded(repos, movement);
     },
   );
+}
+
+/**
+ * Feats: what this column put on the ground, counted now that it is standing there.
+ *
+ * Counted at the landing rather than at the muster (audit, 2026-09-28). A column can be turned
+ * round in its first tenth and walks home in the time it had spent, so counting at the send let a
+ * crew post two hundred Razors, recall them, and bank two hundred `bodies_deployed` (and a
+ * `rail_journeys`) every few seconds without a fight anywhere. A column that arrives after the
+ * mark, or whose fight is called off, never stood in the fight and adds nothing to the deployed
+ * ladders; a late one that was on the train still counts its ride when it lands (`carryOn`).
+ */
+function tallyColumnLanded(repos: Repositories, movement: Movement): void {
+  const force = movementForce(movement);
+  tallyDeployed(repos, movement.baseId, {
+    units: forceSize(force),
+    unitSlots: unitSlotsUsed(force),
+  });
+  if (movement.byRail) tallyRailJourney(repos, movement.baseId);
 }
 
 /**
@@ -514,6 +588,8 @@ export function carryOn(repos: Repositories, movement: Movement, battle: Schedul
     arrivesAt: movement.arrivesAt,
     travelMinutes: Math.max(1, Math.round((arrives - departed) / MINUTE_MS)),
     recalledAt: null,
+    // Still on the train, so the ride is counted when this move lands (`moves/moves.ts`).
+    byRail: movement.byRail === true,
   });
 }
 

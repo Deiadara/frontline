@@ -22,16 +22,12 @@ import { chooseOverseer } from '../testing/overseer.js';
 /**
  * One officer, one job.
  *
- * Three systems dispatch an officer and each used to check only its own table. `/battles/lead`
- * refused an officer already leading another unresolved battle, `/missions` checked injury and
- * nothing else, and `sendScout` checked that the *crew* had no run out rather than that the officer
- * was free. So a crew with one good officer could launch a six-hour mission with them at 15:00,
- * send them scouting at 15:05, and name them to lead the 21:00 fight at 15:10: at the mark
- * `leaderFor` finds them on the books and not injured and puts their sheet and their leading perks
- * into a battle they are nowhere near. One wage, three officers' worth of sheet.
- *
- * §D4 is checked here too, because `sendScout` was also the one door of the three that never asked
- * whether the officer was injured, and `scoutRunMinutes` reads their full sheet.
+ * The systems that dispatch an officer each used to check only their own table. `/battles/lead`
+ * refused an officer already leading another unresolved battle and `/missions` checked injury and
+ * nothing else. So a crew with one good officer could launch a six-hour mission with them at 15:00
+ * and name them to lead the 21:00 fight at 15:10: at the mark `leaderFor` finds them on the books
+ * and not injured and puts their sheet and their leading perks into a battle they are nowhere near.
+ * One wage, two officers' worth of sheet. §D4, the injury, is checked here too.
  */
 
 const instances: { app: FastifyInstance; db: AppDatabase }[] = [];
@@ -96,6 +92,8 @@ async function launch(stack: Stack, leaderId: string | undefined) {
     payload: {
       areaId: area.id,
       templateId: offer.templateId,
+      boardKey: offer.boardKey,
+      grade: offer.grade,
       force: { razors: 4 },
       ...(leaderId === undefined ? {} : { leaderId }),
     },
@@ -123,7 +121,6 @@ async function declareFight(stack: Stack): Promise<string> {
    * this helper wants an ordinary location fight to name an officer on. Chrome Row is the one
    * contested district left with a seam, and the Exchange is in its squatted half.
    */
-  stack.app.repos.city.markScouted(stack.baseId, 'chrome-row', new Date().toISOString());
   const target: BattleTarget = {
     kind: 'location',
     districtId: 'chrome-row',
@@ -193,7 +190,7 @@ describe('an officer who is already committed', () => {
     expect(free.held).toBeNull();
     expect(free.heldUntil).toBeNull();
 
-    // The launch is the door that reads the hold; scouting stopped being one on 2026-09-22.
+    // The launch is the door that reads the hold.
     const sent = await launch(stack, stack.officerId);
     expect(sent.statusCode, sent.body.slice(0, 300)).toBe(200);
   });
@@ -202,7 +199,7 @@ describe('an officer who is already committed', () => {
 /**
  * The other direction, and the reason on the wire (maintainer, 2026-09-10).
  *
- * The launch used to refuse an officer who was at a fight, out scouting or laid up with the same
+ * The launch used to refuse an officer who was at a fight or laid up with the same
  * shrug, and the board said only whether somebody was out on a *run*: an officer standing by for
  * tonight's siege looked free on the missions screen right up to the 409. One reason per leader
  * now, with the mark they are free at where the server knows one, and the launch says the same

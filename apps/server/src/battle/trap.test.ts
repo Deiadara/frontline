@@ -15,6 +15,7 @@ import {
   type ItemId,
   type ScrapyardResponse,
   type SkirmishEngine,
+  type SkirmishInput,
   scrapyardPrice,
 } from '@frontline/shared';
 import { readdirSync, readFileSync } from 'node:fs';
@@ -119,7 +120,7 @@ async function signUp(app: FastifyInstance, username: string): Promise<Crew> {
 /**
  * One app, two crews, and a fight the second is defending.
  *
- * The attacker scouts and declares; the defender is handed the location first, which is what makes
+ * The attacker declares; the defender is handed the location first, which is what makes
  * `battle.defender` a named crew rather than the looters and therefore what makes `sideOf` answer
  * `'defender'` for their token.
  */
@@ -162,7 +163,6 @@ async function makeStack(engine?: SkirmishEngine): Promise<Stack> {
   const attacker = await signUp(app, 'raider');
   const defender = await signUp(app, 'holder');
 
-  app.repos.city.markScouted(attacker.id, 'steelbelt', new Date().toISOString());
   for (const locationId of RUSTYARD_LOCATIONS) app.repos.city.control(locationId);
   const control = app.repos.city.control(SQUATTED)!;
   app.repos.city.put({
@@ -851,5 +851,95 @@ describe('§I1: what a trap is worth on the ledger', () => {
     // ...and the feat counter that asks how many units this crew has killed sees them too.
     const killsAfter = stack.app.repos.feats.tallies(stack.defender.id)['kills'] ?? 0;
     expect(killsAfter - killsBefore, 'the kill counter missed the trap').toBe(killed);
+  });
+
+  /*
+   * Bug pass, 2026-09-29: an ally's trap paid its infamy and its `kills` to the principal, with
+   * the rest of the side's ledger. Measured before the fix: 16 Razors under an ally's Prepared
+   * Collapse took the principal from 800 infamy to 858 and left the ally at 800.
+   */
+  it('pays an ally who set it, and leaves the principal only what the fight paid', async () => {
+    const stack = await makeStack(bloodless());
+    const battleId = await declareOn(stack);
+    const ally = await signUp(stack.app, 'setter');
+    atTheDefendersTable(stack, ally);
+    give(stack, ally.id, TRAP_ITEM, 1);
+    stack.app.repos.sieges.putDeployment({
+      battleId,
+      baseId: ally.id,
+      side: 'defender',
+      army: {},
+      perimeter: {},
+      boostIds: [],
+      officerId: null,
+      trapId: null,
+      vehicles: {},
+      updatedAt: new Date().toISOString(),
+    });
+    expect((await setTrap(stack, ally.token, battleId, TRAP.id)).statusCode).toBe(200);
+
+    const infamyOf = (crew: Crew) => stack.app.repos.bases.findById(crew.id)!.economy.infamy;
+    const tally = (crew: Crew, measure: string) =>
+      stack.app.repos.feats.tallies(crew.id)[measure] ?? 0;
+    const before = {
+      principal: infamyOf(stack.defender),
+      ally: infamyOf(ally),
+      principalKills: tally(stack.defender, 'kills'),
+      allyKills: tally(ally, 'kills'),
+      allyEarned: tally(ally, 'infamy_earned'),
+    };
+    await sendAttackers(stack, battleId, { razors: 30 });
+    bringForward(stack, battleId, new Date(Date.now() - 60_000));
+    const [resolved] = settleBattles(stack.app.repos, stack.app.skirmishEngine, new Date());
+
+    const killed = resolved!.analysis.trap!.killed;
+    expect(killed, 'the trap bit nobody, so there is nothing to pay').toBeGreaterThan(0);
+    const ranHalf = Math.floor(resolved!.analysis.attacker.fled * 0.5);
+
+    // Razors are one slot each, so the ally is owed one infamy a head; the principal keeps the rout.
+    expect(infamyOf(ally) - before.ally, "the ally's trap paid the ally nothing").toBe(killed);
+    expect(infamyOf(stack.defender) - before.principal, 'the principal was paid the trap').toBe(
+      ranHalf,
+    );
+    expect(resolved!.analysis.defender.infamy).toBe(ranHalf);
+    expect(tally(ally, 'infamy_earned') - before.allyEarned).toBe(killed);
+    expect(tally(ally, 'trap_kills')).toBe(killed);
+
+    // The kills go with the infamy.
+    expect(tally(ally, 'kills') - before.allyKills, 'the kills went to the principal').toBe(killed);
+    expect(tally(stack.defender, 'kills') - before.principalKills).toBe(0);
+  });
+
+  /**
+   * Razor Wire (maintainer, 2026-09-29): "Nobody dies of it; everybody slows down in it." It took
+   * four units like every other trap and paid them as `trap_kills`. It is spent, it takes nobody,
+   * pays nobody, and the engine is handed the slow.
+   */
+  it('spends Razor Wire, kills nobody with it, and hands the engine the slow', async () => {
+    let seen: SkirmishInput | null = null;
+    const engine = bloodless();
+    const stack = await makeStack({
+      resolve: (input) => {
+        seen = input;
+        return engine.resolve(input);
+      },
+    });
+    const wire = findTrap('trap_razor_wire')!;
+    const battleId = await declareOn(stack);
+    give(stack, stack.defender.id, wire.id as ItemId, 1);
+    expect((await setTrap(stack, stack.defender.token, battleId, wire.id)).statusCode).toBe(200);
+    await sendAttackers(stack, battleId, { razors: 30 });
+    bringForward(stack, battleId, new Date(Date.now() - 60_000));
+    const [resolved] = settleBattles(stack.app.repos, stack.app.skirmishEngine, new Date());
+
+    expect(resolved!.analysis.trap).toEqual({ name: wire.name, killed: 0, slowed: true });
+    const bag = stack.app.repos.bases.findById(stack.defender.id)!.inventory;
+    expect(bag[wire.id as ItemId] ?? 0, 'the wire was not spent').toBe(0);
+    const input = seen as SkirmishInput | null;
+    expect(input?.attacking).toEqual({ razors: 30 });
+    if (wire.effect.kind !== 'wire') throw new Error('fixture error: Razor Wire is not the wire');
+    const { speedCut, moraleCut, rounds } = wire.effect;
+    expect(input?.attackerSlowed).toEqual({ speedCut, moraleCut, rounds });
+    expect(stack.app.repos.feats.tallies(stack.defender.id)['trap_kills'] ?? 0).toBe(0);
   });
 });

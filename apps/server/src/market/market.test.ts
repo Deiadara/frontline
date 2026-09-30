@@ -3,7 +3,10 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import {
   BARTER_RATE,
+  BLUEPRINTS,
+  MAX_LOCATION_LEVEL,
   barterQuote,
+  brokerRate,
   UNIT_MODIFICATIONS,
   marketDay,
   instantAtHourInZone,
@@ -24,7 +27,11 @@ import {
   createCommander,
   makeAttributes,
   supplyPrice,
+  supplyRationCost,
+  supplyUnitPrice,
   wasteWarning,
+  NO_TRADER_TEXT,
+  DEFAULT_CITY_ID,
   type ApiError,
 } from '@frontline/shared';
 import type { FastifyInstance } from 'fastify';
@@ -234,6 +241,9 @@ describe('the Broker, over HTTP', () => {
     const app = await makeApp();
     const token = await signIn(app);
     stock(app, 'trader', { oil: 1000, scrap: 0 });
+    // Half, less whatever the crew's market discount takes off his cut (2026-09-29).
+    const rate = (await board(app, token)).barterRate;
+    expect(rate).toBeGreaterThanOrEqual(BARTER_RATE);
 
     const res = await app.inject({
       method: 'POST',
@@ -245,9 +255,9 @@ describe('the Broker, over HTTP', () => {
 
     const after = baseOf(app, 'trader');
     expect(after.resources.oil).toBe(600);
-    // By value: oil is worth less than scrap, so fewer come back than half the count.
-    expect(after.resources.scrap).toBe(barterQuote('oil', 'scrap', 400, BARTER_RATE));
-    expect(after.resources.scrap).toBeLessThan(400 * BARTER_RATE);
+    // By value: oil is worth less than scrap, so fewer come back than the rate times the count.
+    expect(after.resources.scrap).toBe(barterQuote('oil', 'scrap', 400, rate));
+    expect(after.resources.scrap).toBeLessThan(400 * rate);
   });
 
   /**
@@ -264,7 +274,8 @@ describe('the Broker, over HTTP', () => {
     stock(app, 'trader', { supplies: 900_000, highQualityMetal: 0 });
     // The ceiling the till reads, the crew's own Logistics folded in.
     const ceiling = storeCeilingsOf(app.repos, baseOf(app, 'trader'), new Date()).highQualityMetal;
-    const quote = barterQuote('supplies', 'highQualityMetal', 900_000, BARTER_RATE);
+    const rate = (await board(app, token)).barterRate;
+    const quote = barterQuote('supplies', 'highQualityMetal', 900_000, rate);
     expect(quote).toBeGreaterThan(ceiling);
 
     const res = await app.inject({
@@ -401,6 +412,58 @@ describe('the board', () => {
       headers: auth(token),
       payload: acceptWaste === undefined ? { claimId } : { claimId, acceptWaste },
     });
+
+  /**
+   * "Need the officer seated" (maintainer, 2026-09-29): a new deal needs this crew's own Trader fit
+   * to work. What is already up stays up, and another crew may still take it; the poster may
+   * still withdraw it.
+   */
+  it('shuts posting and accepting while the Trader is out, and leaves standing listings be', async () => {
+    const { app, seller, buyer } = await twoCrews();
+    const offer = {
+      give: { resources: { scrap: 100 }, items: {} },
+      want: { resources: { caps: 50 }, items: {} },
+    };
+    expect((await post(app, seller, offer)).statusCode).toBe(200);
+    const standing = (await board(app, buyer)).offers[0]!;
+    expect((await board(app, seller)).traderAtWork).toBe(true);
+
+    // The seller's Trader to hospital, and the buyer's off the books altogether.
+    const tomorrow = new Date(Date.now() + 86_400_000).toISOString();
+    const hurt = baseOf(app, 'seller');
+    app.repos.bases.updateCommanders(
+      hurt.id,
+      hurt.commanders.map((one) =>
+        one.role === 'trader' ? { ...one, injuredUntil: tomorrow } : one,
+      ),
+    );
+    const bare = baseOf(app, 'buyer');
+    app.repos.bases.updateCommanders(
+      bare.id,
+      bare.commanders.filter((one) => one.role !== 'trader'),
+    );
+
+    for (const [token, url, payload] of [
+      [seller, '/api/market/offer', offer],
+      [buyer, '/api/market/offer', { ...offer, counterTo: standing.id }],
+      [buyer, '/api/market/accept', { offerId: standing.id }],
+    ] as const) {
+      const refused = await app.inject({ method: 'POST', url, headers: auth(token), payload });
+      expect(refused.statusCode, url).toBe(409);
+      expect(refused.json<{ error: { message: string } }>().error.message).toBe(NO_TRADER_TEXT);
+    }
+    expect((await board(app, seller)).traderAtWork).toBe(false);
+
+    // The buyer seats a Trader, and takes the listing the seller's absent Trader put up.
+    app.repos.bases.updateCommanders(bare.id, bare.commanders);
+    const taken = await app.inject({
+      method: 'POST',
+      url: '/api/market/accept',
+      headers: auth(buyer),
+      payload: { offerId: standing.id },
+    });
+    expect(taken.statusCode, taken.body).toBe(200);
+  });
 
   it('escrows what a listing gives, the moment it is posted', async () => {
     const { app, seller } = await twoCrews();
@@ -713,8 +776,8 @@ describe('the board', () => {
         .prepare(
           `INSERT INTO market_offers (id, seller_base_id, seller_name, give_json, want_json, status,
              created_at, counter_to, directed_at)
-           VALUES ('broken', ?, 'Somebody', '{"resources":{},"items":{"retired_part":1}}',
-             '{"resources":{"caps":1},"items":{}}', 'open', ?, NULL, NULL)`,
+           VALUES ('broken', ?, 'Somebody', '{"resources":{"caps":1},"items":{}}',
+             '{"resources":{"caps":-1},"items":{}}', 'open', ?, NULL, NULL)`,
         )
         .run(baseOf(app, 'buyer').id, new Date(Date.now() - 1_000).toISOString());
 
@@ -724,6 +787,72 @@ describe('the board', () => {
       expect((await board(app, buyer)).claims).toEqual([]);
       const read = await app.inject({ method: 'GET', url: '/api/market', headers: auth(seller) });
       expect(read.statusCode, read.body.slice(0, 200)).toBe(200);
+    });
+
+    /*
+     * A retired good in what a listing gives is dropped on read (bug pass, 2026-09-29), so a listing
+     * that gave nothing else expires like any other, and the poster is not handed a claim of nothing.
+     */
+    it('expires a listing whose goods were all retired, with no empty claim behind it', async () => {
+      const { app, buyer } = await twoCrews();
+      app.db
+        .prepare(
+          `INSERT INTO market_offers (id, seller_base_id, seller_name, give_json, want_json, status,
+             created_at, counter_to, directed_at)
+           VALUES ('emptied', ?, 'Somebody', '{"resources":{},"items":{"retired_part":1}}',
+             '{"resources":{"caps":1},"items":{}}', 'open', ?, NULL, NULL)`,
+        )
+        .run(baseOf(app, 'buyer').id, new Date(Date.now() - 1_000).toISOString());
+
+      const later = new Date(Date.now() + (OFFER_LIFETIME_HOURS + 1) * 3_600_000);
+      expect(settleMarketBoard(app.repos, later)).toBe(1);
+      expect(app.repos.market.findById('emptied')?.status).toBe('expired');
+      expect((await board(app, buyer)).claims).toEqual([]);
+      const told = app.repos.social
+        .notifications(baseOf(app, 'buyer').ownerId, 20)
+        .filter((one) => one.kind === 'market_claim');
+      expect(told).toEqual([]);
+    });
+
+    /*
+     * A retired good is dropped from what an open listing asks for as well (maintainer,
+     * 2026-09-29: "drop whatever is removed"). One left asking for nothing closes on the next sweep,
+     * long before its 48 hours, with its escrow held for the poster, and nobody can take it free.
+     */
+    it('closes a listing that asked only for a retired good, and holds its escrow', async () => {
+      const { app, buyer } = await twoCrews();
+      const insert = (id: string, want: string) =>
+        app.db
+          .prepare(
+            `INSERT INTO market_offers (id, seller_base_id, seller_name, give_json, want_json,
+               status, created_at, counter_to, directed_at, city_id)
+             VALUES (?, ?, 'The Seller', '{"resources":{"scrap":40},"items":{}}', ?, 'open', ?,
+               NULL, NULL, ?)`,
+          )
+          .run(id, baseOf(app, 'seller').id, want, new Date().toISOString(), DEFAULT_CITY_ID);
+      insert('asks-nothing', '{"resources":{},"items":{"retired_part":1}}');
+      insert('asks-less', '{"resources":{"caps":5},"items":{"retired_part":1}}');
+
+      expect(app.repos.market.findById('asks-less')?.want).toEqual({
+        resources: { caps: 5 },
+        items: {},
+      });
+      const refused = await app.inject({
+        method: 'POST',
+        url: '/api/market/accept',
+        headers: auth(buyer),
+        payload: { offerId: 'asks-nothing' },
+      });
+      expect(refused.statusCode, refused.body).toBe(409);
+      expect(baseOf(app, 'buyer').resources.scrap).toBe(0);
+
+      expect(settleMarketBoard(app.repos, new Date())).toBe(1);
+      expect(app.repos.market.findById('asks-nothing')?.status).toBe('expired');
+      expect(app.repos.market.findById('asks-less')?.status).toBe('open');
+      const [held] = app.repos.market.claimsFor(baseOf(app, 'seller').id);
+      expect(held).toMatchObject({ reason: 'expired', goods: { resources: { scrap: 40 } } });
+      // Swept once, not again on the next tick.
+      expect(settleMarketBoard(app.repos, new Date())).toBe(0);
     });
 
     it('warns before a supply run the store cannot take, and charges the whole order', async () => {
@@ -750,7 +879,8 @@ describe('the board', () => {
       expect((await buy(true)).statusCode).toBe(200);
       const after = baseOf(app, 'trader').resources;
       expect(after.scrap).toBe(ceiling);
-      expect(after.caps).toBe(100_000 - supplyPrice('scrap', 10));
+      const { marketDiscountPercent } = await board(app, token);
+      expect(after.caps).toBe(100_000 - supplyPrice('scrap', 10, marketDiscountPercent));
     });
   });
 
@@ -805,9 +935,263 @@ describe('the board', () => {
         payload: { offerId: counter?.id ?? '' },
       });
       expect(res.statusCode).toBe(200);
-      // The seller paid the counter's price in scrap and took the caps.
-      expect(baseOf(app, 'seller').resources.scrap).toBe(sellerScrap - 100);
+      // The seller paid the counter's price in scrap out of the listing it replaced, and took the
+      // caps: the stockpile's own scrap is untouched and the listing is off the board.
+      expect(baseOf(app, 'seller').resources.scrap).toBe(sellerScrap);
       expect(baseOf(app, 'seller').resources.caps).toBeGreaterThan(1000);
+      expect(app.repos.market.findById(listing?.id ?? '')?.status).toBe('withdrawn');
+    });
+
+    /*
+     * Bug pass, 2026-09-29: taking a counter left the listing it answered standing. A seller whose
+     * scrap was all in that listing's escrow was told they could not pay, and one who could pay was
+     * charged from the stockpile while a third crew took the listing as well: the same hundred scrap
+     * sold twice.
+     */
+    it('pays a counter out of the listing it replaces, and closes that listing', async () => {
+      const { app, seller, buyer } = await twoCrews();
+      const third = await signIn(app, 'third');
+      // A page rides in the listing and comes home unsold, which is not a page found.
+      const page = BLUEPRINTS[0].pages[0].id as ItemId;
+      stock(app, 'seller', { scrap: 100, caps: 0 }, { rotor_hub: 1, [page]: 1 });
+      stock(app, 'third', { caps: 9000 });
+      const listing = (
+        await post(app, seller, {
+          give: { resources: { scrap: 100 }, items: { rotor_hub: 1, [page]: 1 } },
+          want: { resources: { caps: 5000 }, items: {} },
+        })
+      ).json<{ market: MarketResponse }>().market.mine[0]!;
+      await post(app, buyer, {
+        give: { resources: { caps: 2000 }, items: {} },
+        want: { resources: { scrap: 60 }, items: { rotor_hub: 1 } },
+        counterTo: listing.id,
+      });
+      const counter = (await board(app, seller)).offers.find(
+        (one) => one.counterTo === listing.id,
+      )!;
+      expect(baseOf(app, 'seller').resources.scrap).toBe(0);
+
+      const res = await app.inject({
+        method: 'POST',
+        url: '/api/market/accept',
+        headers: auth(seller),
+        payload: { offerId: counter.id },
+      });
+      expect(res.statusCode, res.body).toBe(200);
+      // Sixty of the escrowed hundred and the hub paid the counter; the other forty came home.
+      expect(baseOf(app, 'seller').resources).toMatchObject({ scrap: 40, caps: 2000 });
+      expect(baseOf(app, 'seller').inventory).toEqual({ [page]: 1 });
+      const bells = app.repos.social.notifications(baseOf(app, 'seller').ownerId, 50);
+      expect(bells.filter((bell) => bell.kind === 'page_found')).toEqual([]);
+      expect(app.repos.market.findById(listing.id)?.status).toBe('withdrawn');
+      expect(app.repos.market.claimsFor(baseOf(app, 'seller').id)).toEqual([]);
+
+      const again = await app.inject({
+        method: 'POST',
+        url: '/api/market/accept',
+        headers: auth(third),
+        payload: { offerId: listing.id },
+      });
+      expect(again.statusCode).toBe(409);
+      expect(baseOf(app, 'third').resources.caps).toBe(9000);
+    });
+
+    it('lets nobody but the crew it is aimed at answer a counter', async () => {
+      const { app, seller, buyer } = await twoCrews();
+      const third = await signIn(app, 'third');
+      stock(app, 'third', { caps: 9000 });
+      const listing = (
+        await post(app, seller, {
+          give: { resources: { scrap: 100 }, items: {} },
+          want: { resources: { caps: 5000 }, items: {} },
+        })
+      ).json<{ market: MarketResponse }>().market.mine[0]!;
+      const counter = (
+        await post(app, buyer, {
+          give: { resources: { caps: 2000 }, items: {} },
+          want: { resources: { scrap: 100 }, items: {} },
+          counterTo: listing.id,
+        })
+      ).json<{ market: MarketResponse }>().market.mine[0]!;
+
+      const res = await post(app, third, {
+        give: { resources: { caps: 100 }, items: {} },
+        want: { resources: { caps: 2000 }, items: {} },
+        counterTo: counter.id,
+      });
+      expect(res.statusCode).toBe(409);
+      expect(baseOf(app, 'third').resources.caps).toBe(9000);
+      expect(app.repos.market.countersTo(counter.id)).toEqual([]);
+    });
+
+    it('closes a reply to a counter when the listing both answered is taken', async () => {
+      const { app, seller, buyer } = await twoCrews();
+      const third = await signIn(app, 'third');
+      stock(app, 'third', { caps: 9000 });
+      const listing = (
+        await post(app, seller, {
+          give: { resources: { scrap: 100 }, items: {} },
+          want: { resources: { caps: 3000 }, items: {} },
+        })
+      ).json<{ market: MarketResponse }>().market.mine[0]!;
+      const counter = (
+        await post(app, buyer, {
+          give: { resources: { caps: 1000 }, items: {} },
+          want: { resources: { scrap: 100 }, items: {} },
+          counterTo: listing.id,
+        })
+      ).json<{ market: MarketResponse }>().market.mine[0]!;
+      const reply = (
+        await post(app, seller, {
+          give: { resources: { scrap: 100 }, items: {} },
+          want: { resources: { caps: 2000 }, items: {} },
+          counterTo: counter.id,
+        })
+      )
+        .json<{ market: MarketResponse }>()
+        .market.mine.find((one) => one.counterTo === counter.id)!;
+
+      const taken = await app.inject({
+        method: 'POST',
+        url: '/api/market/accept',
+        headers: auth(third),
+        payload: { offerId: listing.id },
+      });
+      expect(taken.statusCode).toBe(200);
+      expect(app.repos.market.findById(reply.id)?.status).toBe('withdrawn');
+      // The reply's escrow waits for the seller, and the buyer can no longer take it.
+      expect(
+        app.repos.market
+          .claimsFor(baseOf(app, 'seller').id)
+          .find((one) => one.offer.id === reply.id)?.goods.resources,
+      ).toEqual({ scrap: 100 });
+      const late = await app.inject({
+        method: 'POST',
+        url: '/api/market/accept',
+        headers: auth(buyer),
+        payload: { offerId: reply.id },
+      });
+      expect(late.statusCode).toBe(409);
+    });
+
+    /*
+     * Bug pass, 2026-09-29: taking a counter closed the listing it answered and nothing above it.
+     * The seller lists, the buyer counters, the seller counters back, and the buyer takes that: the
+     * buyer's counter closed, and the seller's first listing stayed up with its own escrow for a
+     * third crew to take.
+     */
+    it('closes the whole chain above a taken reply, and holds each escrow for its poster', async () => {
+      const { app, seller, buyer } = await twoCrews();
+      const third = await signIn(app, 'third');
+      stock(app, 'seller', { scrap: 200, caps: 0 });
+      stock(app, 'buyer', { caps: 5000 });
+      stock(app, 'third', { caps: 9000 });
+      const listing = (
+        await post(app, seller, {
+          give: { resources: { scrap: 100 }, items: {} },
+          want: { resources: { caps: 3000 }, items: {} },
+        })
+      ).json<{ market: MarketResponse }>().market.mine[0]!;
+      const counter = (
+        await post(app, buyer, {
+          give: { resources: { caps: 1000 }, items: {} },
+          want: { resources: { scrap: 100 }, items: {} },
+          counterTo: listing.id,
+        })
+      ).json<{ market: MarketResponse }>().market.mine[0]!;
+      const reply = (
+        await post(app, seller, {
+          give: { resources: { scrap: 100 }, items: {} },
+          want: { resources: { caps: 2000 }, items: {} },
+          counterTo: counter.id,
+        })
+      )
+        .json<{ market: MarketResponse }>()
+        .market.mine.find((one) => one.counterTo === counter.id)!;
+      expect(baseOf(app, 'seller').resources.scrap, 'both listings escrowed').toBe(0);
+
+      const taken = await app.inject({
+        method: 'POST',
+        url: '/api/market/accept',
+        headers: auth(buyer),
+        payload: { offerId: reply.id },
+      });
+      expect(taken.statusCode, taken.body).toBe(200);
+      expect(app.repos.market.findById(counter.id)?.status).toBe('withdrawn');
+      expect(app.repos.market.findById(listing.id)?.status, 'the first listing stood').toBe(
+        'withdrawn',
+      );
+
+      // The seller is owed the reply's price and the first listing's hundred scrap back: nothing
+      // of theirs is sold twice and nothing is left locked in a closed listing.
+      const owed = app.repos.market.claimsFor(baseOf(app, 'seller').id);
+      expect(owed.find((one) => one.offer.id === reply.id)?.goods.resources).toEqual({
+        caps: 2000,
+      });
+      expect(owed.find((one) => one.offer.id === listing.id)).toMatchObject({
+        reason: 'closed',
+        goods: { resources: { scrap: 100 } },
+      });
+      const bells = app.repos.social.notifications(baseOf(app, 'seller').ownerId, 50);
+      expect(bells.map((bell) => bell.title)).toContainEqual(
+        expect.stringMatching(/^A deal on a counter closed your listing: 100 /),
+      );
+      // The buyer's own counter paid half the price out of its escrow, into the buyer's hands.
+      expect(baseOf(app, 'buyer').resources.caps).toBe(3000);
+      expect(app.repos.market.claimsFor(baseOf(app, 'buyer').id)).toEqual([]);
+
+      const again = await app.inject({
+        method: 'POST',
+        url: '/api/market/accept',
+        headers: auth(third),
+        payload: { offerId: listing.id },
+      });
+      expect(again.statusCode).toBe(409);
+      expect(baseOf(app, 'third').resources.caps).toBe(9000);
+    });
+
+    it('closes every listing up a chain four deep, whoever posted each', async () => {
+      const { app, seller, buyer } = await twoCrews();
+      stock(app, 'seller', { scrap: 300, caps: 0 });
+      stock(app, 'buyer', { caps: 5000 });
+      const mine = async (token: string, payload: Record<string, unknown>) =>
+        (await post(app, token, payload))
+          .json<{ market: MarketResponse }>()
+          .market.mine.find((one) => one.counterTo === (payload['counterTo'] ?? null))!;
+      const scrap = (amount: number) => ({ resources: { scrap: amount }, items: {} });
+      const caps = (amount: number) => ({ resources: { caps: amount }, items: {} });
+      const listing = await mine(seller, { give: scrap(100), want: caps(3000) });
+      const first = await mine(buyer, {
+        give: caps(1000),
+        want: scrap(100),
+        counterTo: listing.id,
+      });
+      const second = await mine(seller, {
+        give: scrap(100),
+        want: caps(2500),
+        counterTo: first.id,
+      });
+      const third = await mine(buyer, { give: caps(2000), want: scrap(100), counterTo: second.id });
+
+      const taken = await app.inject({
+        method: 'POST',
+        url: '/api/market/accept',
+        headers: auth(seller),
+        payload: { offerId: third.id },
+      });
+      expect(taken.statusCode, taken.body).toBe(200);
+      for (const closed of [second, first, listing]) {
+        expect(app.repos.market.findById(closed.id)?.status, closed.id).toBe('withdrawn');
+      }
+      // The seller's own reply paid for the deal in their hands; the two above it wait as claims,
+      // beside the buyer's payment for the counter the seller took.
+      const heldFor = (username: string) =>
+        app.repos.market
+          .claimsFor(baseOf(app, username).id)
+          .map((one) => `${one.offer.id}:${one.reason}`)
+          .sort();
+      expect(heldFor('seller')).toEqual([`${listing.id}:closed`]);
+      expect(heldFor('buyer')).toEqual([`${first.id}:closed`, `${third.id}:taken`].sort());
     });
   });
 });
@@ -1396,6 +1780,47 @@ describe('an offer that has stood too long', () => {
     });
     expect(app.repos.bases.findById(id!)!.resources.caps).toBe(after.resources.caps);
   });
+
+  it('takes the counters to it down with it, swept or not', async () => {
+    const app = await makeApp();
+    await signIn(app, 'seller');
+    await signIn(app, 'buyer');
+    stock(app, 'seller', { scrap: 500 });
+    stock(app, 'buyer', { caps: 500 });
+    const posted = new Date('2026-09-29T08:00:00.000Z');
+    // A counter posted an hour before its listing runs out still has most of its own two days.
+    const lastHour = new Date(posted.getTime() + (OFFER_LIFETIME_HOURS - 1) * 3_600_000);
+    const pastIt = new Date(posted.getTime() + (OFFER_LIFETIME_HOURS + 1) * 3_600_000);
+    const countered = () => {
+      const listing = postOffer(
+        app.repos,
+        baseOf(app, 'seller'),
+        { resources: { scrap: 100 }, items: {} },
+        { resources: { caps: 300 }, items: {} },
+        undefined,
+        posted,
+      ).offer!;
+      return postOffer(
+        app.repos,
+        baseOf(app, 'buyer'),
+        { resources: { caps: 200 }, items: {} },
+        { resources: { scrap: 100 }, items: {} },
+        listing.id,
+        lastHour,
+      ).offer!;
+    };
+    const first = countered();
+    const second = countered();
+
+    // Inside the listing's lifetime a counter is taken: the refusal below is the clock's.
+    expect(acceptOffer(app.repos, baseOf(app, 'seller'), first.id, lastHour).kind).toBe('done');
+    const seller = baseOf(app, 'seller');
+    expect(acceptOffer(app.repos, seller, second.id, pastIt)).toMatchObject({
+      kind: 'refused',
+      reason: 'unknown_offer',
+    });
+    expect(baseOf(app, 'seller').resources).toEqual(seller.resources);
+  });
 });
 
 /**
@@ -1414,7 +1839,7 @@ describe('the supply run and the crew that widened the store', () => {
     await signIn(app);
     const base = baseOf(app, 'trader');
 
-    const rungs = RESEARCH_ITEMS.filter((item) => item.payout.bonus.kind === 'storage_capacity');
+    const rungs = RESEARCH_ITEMS.filter((item) => item.payout.bonus?.kind === 'storage_capacity');
     expect(rungs.length, 'no research rung raises the store').toBeGreaterThan(0);
     // The independent half, read off the research catalogue rather than off the server's own fold:
     // these rungs really do widen a store, so `bare` below is genuinely the wrong answer.
@@ -1451,5 +1876,57 @@ describe('the supply run and the crew that widened the store', () => {
 
     // And the till agrees with the board: a run the panel offers is a run the server takes.
     expect(buySupply(app.repos, kitted, 'scrap', 1, at).kind).toBe('done');
+  });
+});
+
+/*
+ * Maintainer, 2026-09-29: "market prices" discounts reach every shop, not only the Runner's close.
+ * The supply run's price and the Broker's cut both come down, the board quotes the figure the till
+ * charges, and the day's ration is spent in worth rather than in units.
+ */
+describe('the market discount, in every shop', () => {
+  it('quotes the supply run and the Broker after it, and the till takes what the board said', async () => {
+    const app = await makeApp();
+    const token = await signIn(app);
+    const control = app.repos.city.control('chrome-row-exchange');
+    if (!control) throw new Error('fixture: no control row for the Downtown Market');
+    app.repos.city.put({
+      ...control,
+      holder: { kind: 'crew', baseId: baseOf(app, 'trader').id },
+      level: MAX_LOCATION_LEVEL,
+      garrison: {},
+    });
+    stock(app, 'trader', { caps: 100_000, scrap: 0, oil: 1_000 });
+
+    const quoted = await board(app, token);
+    const percent = quoted.marketDiscountPercent;
+    expect(percent, 'holding the Exchange bought no discount').toBeGreaterThan(0);
+    const scrap = quoted.supply.lines.find((line) => line.key === 'scrap')!;
+    expect(scrap.capsPerUnit).toBeLessThan(supplyUnitPrice('scrap'));
+    expect(scrap.capsPerUnit).toBe(supplyUnitPrice('scrap', percent));
+
+    const bought = await app.inject({
+      method: 'POST',
+      url: '/api/market/supply',
+      headers: auth(token),
+      payload: { key: 'scrap', units: 20 },
+    });
+    expect(bought.statusCode, bought.body.slice(0, 200)).toBe(200);
+    expect(baseOf(app, 'trader').resources.caps).toBe(100_000 - supplyPrice('scrap', 20, percent));
+    // Twenty scrap spend fifty caps' worth of the day's ration, not twenty.
+    expect((await board(app, token)).supply.used).toBe(supplyRationCost('scrap', 20));
+
+    expect(quoted.barterRate).toBe(brokerRate(baseOf(app, 'trader').level, percent));
+    expect(quoted.barterRate).toBeGreaterThan(BARTER_RATE);
+    const bartered = await app.inject({
+      method: 'POST',
+      url: '/api/market/barter',
+      headers: auth(token),
+      payload: { give: 'oil', want: 'scrap', amount: 400 },
+    });
+    expect(bartered.statusCode, bartered.body.slice(0, 200)).toBe(200);
+    expect(baseOf(app, 'trader').resources.scrap).toBe(
+      20 + barterQuote('oil', 'scrap', 400, quoted.barterRate),
+    );
   });
 });

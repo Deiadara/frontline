@@ -96,3 +96,57 @@ describe('the mailbox, arrived at from an invitation', () => {
     await waitFor(() => expect(screen.queryByTestId('message-open')).toBeNull());
   });
 });
+
+/**
+ * Replying goes to the account that wrote, by the name it holds now (bug pass, 2026-09-29).
+ *
+ * The composer used to be addressed with the letter's signature. A sender who had renamed left
+ * that name for anybody to register, and the reply went to them; the seeded faction's invitation
+ * is signed with the faction's name, and every reply to it was refused.
+ */
+describe('replying to a letter', () => {
+  const [, letter] = F.messagesScreen.inbox;
+  if (!letter) throw new Error('the mailbox fixture has no second letter');
+  /* Pulled out of the narrowed const, as above: the narrowing does not reach inside closures. */
+  const LETTER_ID = letter.id;
+  const SIGNED = letter.senderName;
+
+  function serve(replyTo: string | null) {
+    const screenWith = {
+      ...F.messagesScreen,
+      inbox: F.messagesScreen.inbox.map((message) =>
+        message.id === LETTER_ID ? { ...message, replyTo } : message,
+      ),
+    };
+    fetchMock.mockImplementation(() =>
+      Promise.resolve({
+        headers: new Headers(),
+        ok: true,
+        status: 200,
+        statusText: '',
+        json: () => Promise.resolve(screenWith),
+      } as Response),
+    );
+  }
+
+  it('addresses the reply to the name the sender holds now, not the one they signed with', async () => {
+    serve('Vex_Renamed');
+    open('/game/messages');
+
+    (await screen.findByTestId(`message-${LETTER_ID}`)).click();
+    (await screen.findByTestId('reply')).click();
+
+    const form = await screen.findByTestId('compose-form');
+    expect(within(form).getByTestId('compose-recipient-Vex_Renamed')).toBeInTheDocument();
+    expect(within(form).queryByTestId(`compose-recipient-${SIGNED}`)).toBeNull();
+  });
+
+  it('offers no reply when there is nobody at the other end', async () => {
+    serve(null);
+    open('/game/messages');
+
+    (await screen.findByTestId(`message-${LETTER_ID}`)).click();
+    await screen.findByTestId('message-open');
+    expect(screen.queryByTestId('reply')).toBeNull();
+  });
+});

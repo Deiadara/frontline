@@ -65,6 +65,7 @@ function marketWith(
       Math.round(10_000 * (STORAGE_SHARES[key] ?? 0)),
     ),
     barterRate: 0.5,
+    marketDiscountPercent: 0,
   };
 }
 

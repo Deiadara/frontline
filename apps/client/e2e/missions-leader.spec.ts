@@ -147,6 +147,8 @@ test('the dial reads what the launch is priced with, and moves with the leader',
     {
       templateId: offer.templateId,
       areaId: board.areas[0]?.id ?? '',
+      boardKey: offer.boardKey,
+      grade: offer.grade,
       force: { razors: 3 },
       leaderId: away.id,
     },
@@ -170,7 +172,7 @@ test('the dial reads what the launch is priced with, and moves with the leader',
 /**
  * The hold with no clock on it (maintainer, 2026-09-10).
  *
- * A run and a scouting party both end at a mark the server can name, so the picker counts down to
+ * A run and an injury both end at a mark the server can name, so the picker counts down to
  * it. A declared fight does not: what frees that officer is the fight resolving. The row has to
  * say which of the two it is looking at rather than printing a countdown to a time it does not
  * have, and the launch has to refuse the same person in the same words.
@@ -213,6 +215,8 @@ test('a leader who is at a fight is dimmed with no countdown, and refused on the
     {
       templateId: offer.templateId,
       areaId: board.areas[0]?.id ?? '',
+      boardKey: offer.boardKey,
+      grade: offer.grade,
       force: { razors: 3 },
       leaderId: fighting.id,
     },

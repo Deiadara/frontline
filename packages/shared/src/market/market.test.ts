@@ -23,17 +23,21 @@ import {
   SUPPLY_MIN_PERCENT,
   SUPPLY_RESOURCES,
   SUPPLY_DEEP_POCKETS_PERCENT,
+  SUPPLY_RATION_UNIT_VALUE,
   supplyAffordable,
   supplyAllowance,
   supplyAllowancePercent,
   supplyBoard,
   supplyPrice,
+  supplyRationCost,
   supplyRefusal,
 } from './supply.js';
+import { MAX_MARKET_DISCOUNT } from './discount.js';
 import {
   BARTER_RATE,
   BARTER_RATE_RESPECTED,
   barterRateFor,
+  brokerRate,
   VENDOR_SESSIONS_PER_DAY,
   VENDOR_SESSION_HOURS,
   VENDOR_STOCK_SIZE,
@@ -169,6 +173,24 @@ describe('the Runner', () => {
       // The pool without the blueprints still finds a page once in a while: the odds are on the
       // day rather than on the pool, so removing six goods cannot have removed the pages with them.
       expect(pages).toBeGreaterThan(0);
+    });
+
+    /**
+     * Maintainer, 2026-09-29: a line lives one day and sells one unit a visit, so it never carries
+     * more than the day's two visits can sell. The 2 is written out rather than read off
+     * `VENDOR_SESSIONS_PER_DAY`, so a third session cannot quietly widen the roll with it.
+     */
+    it('never stocks more of a line than two visits can sell, and rolls both counts', () => {
+      expect(VENDOR_SESSIONS_PER_DAY).toBe(2);
+      const seen = new Set<number>();
+      for (const day of DAYS) {
+        for (const line of vendorStockFor(day)) {
+          expect(line.stock, `${day} ${line.item}`).toBeGreaterThanOrEqual(1);
+          expect(line.stock, `${day} ${line.item}`).toBeLessThanOrEqual(2);
+          if (ITEM_CATALOG[line.item as ItemId].kind !== 'page') seen.add(line.stock);
+        }
+      }
+      expect([...seen].sort()).toEqual([1, 2]);
     });
 
     /** He is not a charity and not a robbery: every price is above the item's worth, and sane. */
@@ -475,6 +497,7 @@ describe('listings', () => {
       createdAt: '2026-08-16T00:00:00.000Z',
       counterTo: null,
       directedAt: null,
+      cityId: 'ashfall',
       ...over,
     });
 
@@ -526,13 +549,54 @@ describe('the supply run: caps into materials', () => {
     }
   });
 
-  it('measures the ration against the warehouse, in whole units', () => {
-    expect(supplyAllowance(1, 1000)).toBe(300);
-    expect(supplyAllowance(36, 1000)).toBe(1000);
-    // A district with nothing left standing can still buy a single thing. A zero allowance is a
-    // dead account, not a setback.
-    expect(supplyAllowance(1, 0)).toBe(1);
+  it('measures the ration against the warehouse, in caps of worth a unit of supplies spends', () => {
+    // 30% of a thousand is 300 units, which is 450 caps' worth at a supply's 1.5.
+    expect(supplyAllowance(1, 1000)).toBe(300 * SUPPLY_RATION_UNIT_VALUE);
+    expect(supplyAllowance(36, 1000)).toBe(1000 * SUPPLY_RATION_UNIT_VALUE);
+    // A district with nothing left standing can still buy a single thing, the dearest included. A
+    // zero allowance is a dead account, not a setback.
+    for (const key of SUPPLY_RESOURCES) {
+      expect(supplyAffordable(key, rich, supplyAllowance(1, 0), 10_000), key).toBeGreaterThan(0);
+    }
     expect(Number.isInteger(supplyAllowance(7, 977))).toBe(true);
+  });
+
+  /*
+   * Maintainer, 2026-09-29: the ration counts worth, not units. It counted units, so a day spent on
+   * high-quality metal (12 caps each) and bartered down at the Broker came to four or five days of
+   * supplies (1.5 each). Measured at the levels the bug pass quoted, with the best discount a crew
+   * can stack on the Broker's cut, and on every route from a dear material to a cheap one.
+   */
+  it('lets no dear material bartered down beat buying the cheap one directly', () => {
+    for (const level of [15, 36, 60, 70]) {
+      for (const discount of [0, MAX_MARKET_DISCOUNT]) {
+        const ration = supplyAllowance(level, 860);
+        const rate = brokerRate(level, discount);
+        for (const dear of SUPPLY_RESOURCES) {
+          for (const cheap of SUPPLY_RESOURCES) {
+            if (RESOURCE_CAP_VALUE[dear] <= RESOURCE_CAP_VALUE[cheap]) continue;
+            const bought = supplyAffordable(dear, rich, ration, 1_000_000, discount);
+            const bartered = barterQuote(dear, cheap, bought, rate);
+            const direct = supplyAffordable(cheap, rich, ration, 1_000_000, discount);
+            expect(
+              bartered,
+              `${dear} into ${cheap} at level ${level}, ${discount}% off`,
+            ).toBeLessThan(direct);
+          }
+        }
+      }
+    }
+  });
+
+  it('spends a metal at eight supplies of ration', () => {
+    expect(supplyRationCost('highQualityMetal', 1)).toBe(12);
+    expect(supplyRationCost('supplies', 8)).toBe(12);
+    expect(
+      supplyRefusal({ key: 'highQualityMetal', units: 2, stock: rich, allowanceLeft: 23 }),
+    ).toBe('over_allowance');
+    expect(
+      supplyRefusal({ key: 'highQualityMetal', units: 2, stock: rich, allowanceLeft: 24 }),
+    ).toBeNull();
   });
 
   it('§I3: Deep Pockets at 70 lifts the ceiling past a full store', () => {
@@ -575,7 +639,8 @@ describe('the supply run: caps into materials', () => {
   it('refuses past the ration and past the wallet, in that order, and never for the warehouse', () => {
     const order = { key: 'scrap' as const, stock: rich };
     expect(supplyRefusal({ ...order, units: 0, allowanceLeft: 100 })).toBe('nothing_ordered');
-    expect(supplyRefusal({ ...order, units: 101, allowanceLeft: 100 })).toBe('over_allowance');
+    // Forty scrap is a hundred caps' worth, so forty-one is over a ration of a hundred.
+    expect(supplyRefusal({ ...order, units: 41, allowanceLeft: 100 })).toBe('over_allowance');
     // Inside the ration and far over any shelf: warned about at the till, not refused here
     // (maintainer ruling, 2026-09-28).
     expect(supplyRefusal({ ...order, units: 9_999, allowanceLeft: 99_999 })).toBeNull();
@@ -587,7 +652,7 @@ describe('the supply run: caps into materials', () => {
         allowanceLeft: 99_999,
       }),
     ).toBe('cannot_afford');
-    expect(supplyRefusal({ ...order, units: 100, allowanceLeft: 100 })).toBeNull();
+    expect(supplyRefusal({ ...order, units: 40, allowanceLeft: 100 })).toBeNull();
   });
 
   it('quotes a board whose "most" is actually buyable on every line', () => {
@@ -609,10 +674,52 @@ describe('the supply run: caps into materials', () => {
   });
 
   it('spends the ration as one pooled budget rather than a quota a line', () => {
-    const board = supplyBoard(1, rich, 1_000, 290, shelf);
-    // 300 allowed, 290 spent: ten left, for whichever line the player wants them on.
-    expect(board.allowance - board.used).toBe(10);
-    for (const line of board.lines) expect(line.most).toBeLessThanOrEqual(10);
+    const board = supplyBoard(1, rich, 1_000, 435, shelf);
+    // 450 allowed, 435 spent: fifteen caps' worth left, for whichever line the player wants.
+    expect(board.allowance - board.used).toBe(15);
+    for (const line of board.lines) {
+      expect(line.most).toBe(Math.floor(15 / RESOURCE_CAP_VALUE[line.key]));
+    }
+  });
+
+  /*
+   * Maintainer, 2026-09-29: "market prices" discounts reach every shop. The supply run's price is
+   * quoted after the discount, the till charges the same figure, and the stack stops at the cap.
+   */
+  it('quotes and charges the supply run after the market discount, capped', () => {
+    const plain = supplyBoard(20, rich, 2_000, 0, shelf);
+    const cheap = supplyBoard(20, rich, 2_000, 0, shelf, 20);
+    for (const [index, line] of cheap.lines.entries()) {
+      const full = plain.lines[index]!;
+      expect(line.capsPerUnit).toBeCloseTo(full.capsPerUnit * 0.8, 6);
+      expect(supplyPrice(line.key, 100, 20)).toBe(Math.ceil(full.capsPerUnit * 0.8 * 100 - 1e-6));
+    }
+    expect(supplyPrice('scrap', 100, 90)).toBe(supplyPrice('scrap', 100, MAX_MARKET_DISCOUNT));
+    // A purse that covers the discounted order is sold it, and refused one cap short.
+    const price = supplyPrice('oil', 50, 20);
+    const purse = { ...STARTING_RESOURCES, caps: price };
+    const order = { key: 'oil' as const, units: 50, allowanceLeft: 10_000, discountPercent: 20 };
+    expect(supplyRefusal({ ...order, stock: purse })).toBeNull();
+    expect(supplyRefusal({ ...order, stock: { ...purse, caps: price - 1 } })).toBe('cannot_afford');
+  });
+});
+
+describe('the Broker after the market discount', () => {
+  it('takes the discount off his cut, so a trade gets nearer even and never past it', () => {
+    expect(brokerRate(1)).toBe(BARTER_RATE);
+    expect(brokerRate(60)).toBe(BARTER_RATE_RESPECTED);
+    expect(brokerRate(1, 20)).toBeCloseTo(1 - (1 - BARTER_RATE) * 0.8, 6);
+    for (const level of [1, 60]) {
+      for (const discount of [0, 10, MAX_MARKET_DISCOUNT, 100, 500]) {
+        expect(brokerRate(level, discount)).toBeLessThan(1);
+        expect(brokerRate(level, discount)).toBeGreaterThanOrEqual(barterRateFor(level));
+      }
+    }
+    // Round and round the Broker at the best rate a crew can reach still loses goods.
+    const rate = brokerRate(60, MAX_MARKET_DISCOUNT);
+    expect(
+      barterQuote('oil', 'scrap', barterQuote('scrap', 'oil', 1_000, rate), rate),
+    ).toBeLessThan(1_000);
   });
 });
 

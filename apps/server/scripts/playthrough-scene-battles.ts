@@ -27,7 +27,6 @@ import {
   addOfficer,
   addUnits,
   grantResources,
-  markScouted,
   setBuildings,
   setInfamy,
   setLevel,
@@ -98,7 +97,6 @@ export async function battles(h: Harness, cast: Cast): Promise<void> {
       makeAttributes(70),
     ),
   );
-  markScouted(h, e, ground.districtId);
   addItems(h, a, { [TRAP]: 1 });
   const vehicle = first(VEHICLES, 'vehicle');
   h.repos.bases.updateFleet(a.baseId, { ...(await baseOf(h, a)).fleet, [vehicle.id]: 2 });
@@ -128,7 +126,9 @@ export async function battles(h: Harness, cast: Cast): Promise<void> {
   await declare(e, { target, scheduledFor: new Date(markMs - 7 * HOUR).toISOString() });
   await declare(e, { target, scheduledFor: new Date(markMs + 30 * HOUR).toISOString() });
   await declare(a, { target, scheduledFor: mark });
-  await declare(d, { target, scheduledFor: mark });
+  // The location named under a district it is not in: a place the map does not have.
+  const elsewhere = ground.districtId === 'neon-docks' ? 'steelbelt' : 'neon-docks';
+  await declare(d, { target: { ...target, districtId: elsewhere }, scheduledFor: mark });
   await h.refuseMalformed(e, '/api/battles/declare', {
     target: { kind: 'moon' },
     scheduledFor: mark,
@@ -671,11 +671,14 @@ async function pendingCap(h: Harness, e: Player): Promise<void> {
   const read = await board(h, e);
   const mark = read?.slots[0];
   if (!read || !mark) return;
-  // Ground an NPC party is standing on, in the districts E can see.
+  // Ground an NPC party is standing on, anywhere in E's city, outside a shut district: inside one
+  // the gate is the only thing to call on.
   const map = await h.ok<CityResponse>({ as: e, method: 'GET', route: '/api/city' });
+  const shut = new Set(read.gates.filter((gate) => gate.shut).map((gate) => gate.districtId));
   const targets: BattleTarget[] = [];
   for (const summary of map?.districts ?? []) {
-    if (!summary.scouted || summary.isHome || summary.district.kind !== 'contested') continue;
+    if (summary.isHome || summary.district.kind !== 'contested') continue;
+    if (shut.has(summary.district.id)) continue;
     const detail = await h.ok<DistrictDetailResponse>({
       as: e,
       method: 'GET',
@@ -779,13 +782,7 @@ async function npcFight(h: Harness, a: Player): Promise<void> {
   const map = await h.ok<CityResponse>({ as: a, method: 'GET', route: '/api/city' });
   let target: BattleTarget | undefined;
   for (const summary of map?.districts ?? []) {
-    if (
-      !summary.scouted ||
-      summary.isHome ||
-      !summary.held ||
-      summary.held.mine === summary.held.total
-    )
-      continue;
+    if (summary.isHome || summary.held.mine === summary.held.total) continue;
     const detail = await h.ok<DistrictDetailResponse>({
       as: a,
       method: 'GET',

@@ -169,7 +169,6 @@ describe('no fight is called for after its gate comes back up', () => {
     const raider = await register(world, 'raider');
     const resident = await register(world, 'resident');
     const home = world.app.repos.bases.findById(resident.baseId)!.districtId;
-    world.app.repos.city.markScouted(raider.baseId, home, new Date().toISOString());
     const mark = declarableSlots(new Date())[4]!;
     world.app.repos.sieges.breakGate(home, mark.toISOString());
     const raid: BattleTarget = { kind: 'district', districtId: home };
@@ -188,7 +187,6 @@ describe('no fight is called for after its gate comes back up', () => {
     const raider = await register(world, 'raider');
     const resident = await register(world, 'resident');
     const home = world.app.repos.bases.findById(resident.baseId)!.districtId;
-    world.app.repos.city.markScouted(raider.baseId, home, new Date().toISOString());
     const slots = declarableSlots(new Date());
     world.app.repos.sieges.breakGate(home, slots[6]!.toISOString());
     const gate: BattleTarget = { kind: 'gate', districtId: home };

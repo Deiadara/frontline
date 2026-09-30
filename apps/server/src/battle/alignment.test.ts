@@ -1,5 +1,7 @@
 import {
+  RESEARCH_ITEMS,
   SPY_SLEEPERS_RESEARCH_ID,
+  emptyDeployment,
   featMeasureKey,
   findDistrict,
   findLocation,
@@ -7,6 +9,8 @@ import {
   type BattlesResponse,
 } from '@frontline/shared';
 import { afterEach, describe, expect, it } from 'vitest';
+import { settleSleepers } from '../city/sleepers.js';
+import { standingEffectsFor } from '../crew/standing.js';
 import { groundBehind } from '../spying/spying.js';
 import {
   PLOT,
@@ -254,6 +258,67 @@ describe('Sleepers that were not there at the mark (bug pass, 2026-09-28)', () =
     expect(world.app.repos.sleepers.waitingAt(mate.baseId, PLOT)?.army).toEqual({ sleepers: 2 });
   });
 
+  const H = 3_600_000;
+
+  /** A faction-mate's fight on the plot whose mark passed an hour ago and has not been settled. */
+  async function aFightAnHourGone() {
+    const world = await makeWorld('attacker');
+    const caller = await register(world, 'caller');
+    const planter = await register(world, 'planter');
+    const holder = await register(world, 'holder');
+    faction(world, 'f1', [caller, planter]);
+    holdPlot(world, holder, { razors: 3 });
+    const battleId = await declare(world, caller);
+    const mark = Date.now() - H;
+    world.app.db
+      .prepare('UPDATE scheduled_battles SET scheduled_for = ? WHERE id = ?')
+      .run(new Date(mark).toISOString(), battleId);
+    /** A cell of the planter's on its way to the plot. */
+    const walk = (id: string, sleepers: number, departedAt: number, travelMs: number) =>
+      world.app.repos.sleepers.insert({
+        id,
+        baseId: planter.baseId,
+        locationId: PLOT,
+        army: { sleepers },
+        phase: 'outbound',
+        departedAt: new Date(departedAt).toISOString(),
+        arrivesAt: new Date(departedAt + travelMs).toISOString(),
+        travelMs,
+      });
+    return { world, planter, walk, mark };
+  }
+
+  it('stay out of it when they land late beside a cell of their own that was there in time', async () => {
+    const { world, planter, walk, mark } = await aFightAnHourGone();
+    // On the ground since the day before.
+    walk('00000000-0000-4000-8000-00000000000a', 2, mark - 48 * H, H);
+    settleSleepers(world.app.repos, new Date(mark - 40 * H));
+    // Due twenty minutes after the mark, and the world only ticks now: it lands, then the fight runs.
+    walk('00000000-0000-4000-8000-00000000000b', 10, mark - H, H + 20 * 60_000);
+    settleSleepers(world.app.repos, new Date());
+
+    expect(settleBattles(world.app.repos, world.engine, new Date())).toHaveLength(1);
+
+    expect(world.seen().attacking).toEqual({ sleepers: 2 });
+    expect(world.app.repos.sleepers.forBase(planter.baseId).map((cell) => cell.army)).toEqual([
+      { sleepers: 10 },
+    ]);
+  });
+
+  it('merge into the cell already there when both were on the ground by the mark', async () => {
+    const { world, planter, walk, mark } = await aFightAnHourGone();
+    walk('00000000-0000-4000-8000-00000000000a', 2, mark - 48 * H, H);
+    settleSleepers(world.app.repos, new Date(mark - 40 * H));
+    // Twenty minutes early this time.
+    walk('00000000-0000-4000-8000-00000000000b', 10, mark - H, H - 20 * 60_000);
+    settleSleepers(world.app.repos, new Date());
+    expect(world.app.repos.sleepers.forBase(planter.baseId)).toHaveLength(1);
+
+    expect(settleBattles(world.app.repos, world.engine, new Date())).toHaveLength(1);
+
+    expect(world.seen().attacking).toEqual({ sleepers: 12 });
+  });
+
   it('are held on the ground in the last hour, like everybody else there', async () => {
     const world = await makeWorld('attacker');
     const caller = await register(world, 'caller');
@@ -296,7 +361,6 @@ describe('a raid, and the crews who share the district', () => {
       world.db.prepare('UPDATE bases SET district_id = ? WHERE id = ?').run(HOME, crew.baseId);
     }
     faction(world, 'f3', [resident, friend]);
-    world.app.repos.city.markScouted(raider.baseId, HOME, new Date().toISOString());
     world.app.repos.sieges.breakGate(HOME, new Date(Date.now() + 48 * 3_600_000).toISOString());
 
     const battleId = await declare(world, raider, { kind: 'district', districtId: HOME });
@@ -535,5 +599,94 @@ describe('survivors of a fight', () => {
     expect(convoy?.army).toEqual({});
     expect(convoy?.vehicles).toEqual({ motorcycle: 1 });
     expect(convoy?.recalledAt, 'an empty convoy could be recalled home in seconds').not.toBeNull();
+  });
+});
+
+describe('a finished fight, read back later (bug pass, 2026-09-28)', () => {
+  it('keeps the side a crew fought on after it has left the faction it fought for', async () => {
+    const world = await makeWorld('defender');
+    const attacker = await register(world, 'attacker', { razors: 5 });
+    const holder = await register(world, 'holder');
+    const ally = await register(world, 'ally', { razors: 10 });
+    faction(world, 'f1', [holder, ally]);
+    holdPlot(world, holder, { razors: 3 });
+    const battleId = await declare(world, attacker);
+    world.app.repos.sieges.putDeployment({
+      ...emptyDeployment(battleId, ally.baseId, 'defender', new Date().toISOString()),
+      army: { razors: 4 },
+    });
+    runTheFight(world, battleId);
+    const reports = async () =>
+      (await world.app.inject({ method: 'GET', url: '/api/battles', headers: auth(ally.token) }))
+        .json<BattlesResponse>()
+        .reports.map((report) => ({ side: report.side, won: report.won }));
+    expect(await reports()).toEqual([{ side: 'defender', won: true }]);
+
+    world.db.prepare('DELETE FROM faction_members WHERE user_id = ?').run(ally.userId);
+
+    // Read off today's factions it was an attack, lost, under the attacker's redaction.
+    expect(await reports()).toEqual([{ side: 'defender', won: true }]);
+  });
+});
+
+describe('allied_offense, paid when another crew is in the line (bug pass, 2026-09-28)', () => {
+  const ECHELON = RESEARCH_ITEMS.find((item) => item.name === 'Echelon Attack')!.id;
+
+  /** A defender holding the rung, and what its line fields in a fight on its own. */
+  async function defenderWithTheRung(world: World) {
+    const attacker = await register(world, 'attacker', { razors: 5 });
+    const defender = await register(world, 'defender', { razors: 5 });
+    const ally = await register(world, 'ally', { razors: 5 });
+    faction(world, 'f1', [defender, ally]);
+    const { repos } = world.app;
+    const base = repos.bases.findById(defender.baseId)!;
+    repos.bases.updateResearch(base.id, {
+      ...base.research,
+      technologies: [...base.research.technologies, ECHELON],
+    });
+    const effects = standingEffectsFor(repos, repos.bases.findById(defender.baseId)!);
+    expect(effects.alliedOffensePercent).toBeGreaterThan(0);
+    return { attacker, defender, ally, effects };
+  }
+
+  const defenderOffense = (world: World) => world.seen().defenderTerritory?.unitOffensePercent;
+
+  it('at a home gate, where the defender has no row of its own', async () => {
+    const world = await makeWorld('defender');
+    const { attacker, defender, ally, effects } = await defenderWithTheRung(world);
+    const home = world.app.repos.bases.findById(defender.baseId)!.districtId;
+    const battleId = await declare(world, attacker, { kind: 'gate', districtId: home });
+    world.app.repos.sieges.putDeployment({
+      ...emptyDeployment(battleId, ally.baseId, 'defender', new Date().toISOString()),
+      army: { razors: 3 },
+    });
+
+    runTheFight(world, battleId);
+
+    expect(defenderOffense(world)).toBe(effects.unitOffensePercent + effects.alliedOffensePercent);
+  });
+
+  it("for an ally's posting on the plot, which fights without a row", async () => {
+    const world = await makeWorld('defender');
+    const { attacker, defender, ally, effects } = await defenderWithTheRung(world);
+    holdPlot(world, defender, { razors: 1 });
+    world.app.repos.alliedGarrisons.set(PLOT, ally.baseId, { razors: 3 });
+    const battleId = await declare(world, attacker);
+
+    runTheFight(world, battleId);
+
+    expect(world.seen().defending).toEqual({ razors: 4 });
+    expect(defenderOffense(world)).toBe(effects.unitOffensePercent + effects.alliedOffensePercent);
+  });
+
+  it('and not to a defender standing alone', async () => {
+    const world = await makeWorld('defender');
+    const { attacker, defender, effects } = await defenderWithTheRung(world);
+    holdPlot(world, defender, { razors: 1 });
+    const battleId = await declare(world, attacker);
+
+    runTheFight(world, battleId);
+
+    expect(defenderOffense(world)).toBe(effects.unitOffensePercent);
   });
 });

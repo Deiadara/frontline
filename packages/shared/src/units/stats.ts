@@ -224,7 +224,10 @@ export const UNIT_MODIFIERS = {
   },
   terror: {
     label: 'Terror',
-    description: 'Hits harder against a shaken enemy, and finishes what fear started.',
+    // Two tiers (maintainer, 2026-09-29): `terrorShare` in `battle/matchup.ts`, which a test holds
+    // these figures to.
+    description:
+      'Hits a shaken enemy (morale under 60) 14% harder, and a wavering one (under 35) 35% harder.',
     context: 'vs_low_morale',
     percent: 35,
   },

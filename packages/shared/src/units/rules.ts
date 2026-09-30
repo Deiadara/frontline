@@ -45,7 +45,7 @@ export const UNIT_RULES = {
   taunts: {
     label: 'Shield Line',
     description:
-      "Draws the enemy's fire. Most of their shots land on this stack before anything behind it.",
+      "Draws the enemy's fire by its share of the line. A wall half the line takes three quarters of their shots before anything behind it, and a bigger one a little more.",
   },
   mends: {
     label: 'Field Medic',
@@ -77,7 +77,7 @@ export const UNIT_RULES = {
   jammer: {
     label: 'Jamming',
     description:
-      "Weakens enemy modifications by the jam percent. Against Wonders of Engineering, once your Netrunners cover a machine's unit slots: 10% off its damage and armour, +10% per extra Netrunner, up to 50%.",
+      "Weakens every figure the enemy's modifications add by the jam percent. Against Wonders of Engineering, each Netrunner covers three unit slots of machine: a covered machine loses 55% of its damage and armour, and every extra Netrunner on it cuts deeper, towards 75%. Nothing else.",
   },
   loud: {
     label: 'Loud',

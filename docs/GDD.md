@@ -89,6 +89,9 @@ Conventions used below:
 - **D6 [SPEC]** **High-quality metal**: a resource, distinct from scrap.
 - **D7 [SPEC]** **Infamy**: a meter raised by infamous actions: things that are usually not morally
   good, but that get your name passed around the street.
+  - **D7a [BOARD, 2026-09-29]** Feats never pay infamy. A name is made in fights and on battle jobs;
+    the feats that paid it now pay units, experience or resources of the same value
+    (`packages/shared/src/feats/catalog.ts`), and the reward schema has no infamy field.
 - **D8 [SPEC]** **Reputation**: a _word_, not a number, applied to your group by its actions, and it
   changes over time. Named examples: **Revolutionary**, **Anti-systemic** (lots of anti-government
   action), **Hostile** (attacks other players a lot), **Cautious**, **Opportunist**, **Honorable**,

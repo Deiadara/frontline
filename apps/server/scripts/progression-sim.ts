@@ -177,7 +177,7 @@ function train(leaders: Leader[], profiles: readonly MissionProfile[]): void {
 function hire(leaders: Leader[], day: number, level: number, profiles: readonly MissionProfile[]) {
   // A city of one: the room is pitched at this crew's level and rank, and it may only sign
   // somebody whose rank door it clears and whose infamy ask its wallet covers.
-  const room = barRoster(`2026-10-${String(day)}`, 8, flatRoom(level, rank)).filter(
+  const room = barRoster(`2026-10-${String(day)}`, flatRoom(level, rank)).filter(
     (one) => one.requirement.minNotoriety <= rank && one.requirement.minInfamy <= infamy,
   );
   if (room.length === 0) return;

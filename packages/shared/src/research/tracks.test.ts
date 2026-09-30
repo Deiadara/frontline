@@ -265,18 +265,35 @@ describe('§C4a: what a rung pays', () => {
   });
 
   it('is not a slider: the rewards come in many kinds, and every track mixes them', () => {
-    const kinds = new Set(RESEARCH_ITEMS.map((spec) => spec.payout.bonus.kind));
+    /*
+     * A rung that pays nothing but a door is its own kind, one per door: two rungs opening two
+     * different things are not a slider. The Master of Whispers' track is eight such rungs out of
+     * ten since the maintainer took the intel percentages off it (2026-09-28: "generally from this
+     * tree remove the +% intel"), and it is the least slider-like track in the Lab.
+     */
+    const kindOf = (spec: (typeof RESEARCH_ITEMS)[number]): string =>
+      spec.payout.bonus?.kind ?? `opens ${spec.payout.unlocks}`;
+    const kinds = new Set(RESEARCH_ITEMS.map((spec) => spec.payout.bonus?.kind).filter(Boolean));
     expect(kinds.size).toBeGreaterThan(30);
     for (const role of OFFICER_ROLES) {
-      const own = new Set(itemsInTrack(role).map((spec) => spec.payout.bonus.kind));
+      const own = new Set(itemsInTrack(role).map(kindOf));
       expect(own.size, role).toBeGreaterThanOrEqual(4);
+    }
+  });
+
+  /** ...and a door with no bonus says what it opens, or it would be a rung that pays nothing. */
+  it('names what every bonus-less rung opens', () => {
+    for (const spec of RESEARCH_ITEMS) {
+      if (spec.payout.bonus !== undefined) continue;
+      expect(spec.payout.unlocks.length, spec.id).toBeGreaterThan(10);
+      expect(payoutFamily(spec.payout), spec.id).toBe('unlock');
     }
   });
 
   it('names units, structures and attributes that exist', () => {
     for (const spec of RESEARCH_ITEMS) {
       const bonus = spec.payout.bonus;
-      if (bonus.kind === 'unit_kind') expect(findUnit(bonus.unitId), spec.id).toBeDefined();
+      if (bonus?.kind === 'unit_kind') expect(findUnit(bonus.unitId), spec.id).toBeDefined();
       expect(describeResearchPayout(spec), spec.id).not.toMatch(/undefined/);
     }
   });
@@ -285,11 +302,11 @@ describe('§C4a: what a rung pays', () => {
     // A second crew out, another chair, another fight called: the grants a crew plans around,
     // and none of them on a rung a fresh recruit can reach.
     const doors = RESEARCH_ITEMS.filter((spec) =>
-      ['mission_slots', 'recruit_slots', 'declarations'].includes(spec.payout.bonus.kind),
+      ['mission_slots', 'recruit_slots', 'declarations'].includes(spec.payout.bonus?.kind ?? ''),
     );
     expect(doors.length).toBeGreaterThanOrEqual(5);
     for (const spec of doors) expect(spec.step, spec.id).toBeGreaterThanOrEqual(6);
-    expect(doors.some((spec) => spec.payout.bonus.kind === 'mission_slots')).toBe(true);
+    expect(doors.some((spec) => spec.payout.bonus?.kind === 'mission_slots')).toBe(true);
   });
 
   it('folds into one crew fold, skipping ids it does not know', () => {
@@ -316,6 +333,40 @@ describe('§C4a: what a rung pays', () => {
     );
   });
 
+  /*
+   * An unlock is printed inside a sentence ("Opens X, and -5% market prices"), so a full stop at
+   * its end read "...what others post., and" on the Lab card of the Trader's first rung.
+   */
+  it('prints every unlock as a clause, with no full stop inside the line', () => {
+    for (const spec of RESEARCH_ITEMS) {
+      if (spec.payout.unlocks !== undefined)
+        expect(spec.payout.unlocks, spec.id).not.toMatch(/\.$/);
+    }
+    expect(describeResearchPayout(findResearchItem(TECH_DISTRICT_OFFERS)!)).toBe(
+      'Opens the district offers board, to post what you will trade and take what others post, and -5% market prices',
+    );
+  });
+
+  /*
+   * A teaching perk says "every other officer" because it never lifts its carrier. A Lab rung is
+   * not a person and lifts every officer, the one who ran it included (`liftedOfficerSheet`, and
+   * `crew.test.ts` measures it on a crew of one), so the perk's wording was wrong on the Lab card.
+   */
+  it('says a Lab lesson reaches every officer, not every other one', () => {
+    const lessons = RESEARCH_ITEMS.filter(
+      (spec) => spec.payout.bonus?.kind === 'officer_attribute',
+    );
+    expect(lessons.map((spec) => spec.id)).toEqual([
+      'tech_field_promotions',
+      'tech_the_reading_year',
+    ]);
+    for (const spec of lessons)
+      expect(describeResearchPayout(spec), spec.id).not.toContain('other');
+    expect(describeResearchPayout(findResearchItem('tech_the_reading_year')!)).toBe(
+      '+5 Encyclopedia to every officer',
+    );
+  });
+
   it('opens something on the rungs that say they do, and nowhere else', () => {
     const opening = RESEARCH_ITEMS.filter((spec) => spec.payout.unlocks !== undefined);
     expect(opening.length).toBeGreaterThan(3);
@@ -328,9 +379,11 @@ describe('§C4a: what a rung pays', () => {
     // is the reason to climb it.
     for (const role of OFFICER_ROLES) {
       const rungs = itemsInTrack(role);
+      if (rungs.length === 0) throw new Error('missing rung');
+      // A door at either end has no amount to compare (the Master of Whispers' track, both ends).
       const first = rungs[0]?.payout.bonus;
       const last = rungs[rungs.length - 1]?.payout.bonus;
-      if (!first || !last) throw new Error('missing rung');
+      if (!first || !last) continue;
       if (first.kind === last.kind && 'percent' in first && 'percent' in last) {
         expect(last.percent, role).toBeGreaterThan(first.percent);
       }
@@ -358,7 +411,7 @@ describe('§C4a: what a rung pays', () => {
         .filter((value): value is string => typeof value === 'string')
         .join(':');
     const magnitudeOf = (bonus: Record<string, unknown>): number | null => {
-      for (const field of ['percent', 'flat', 'perHour', 'districts', 'minutes', 'levels']) {
+      for (const field of ['percent', 'flat', 'perHour', 'minutes', 'levels']) {
         const value = bonus[field];
         if (typeof value === 'number') return value;
       }
@@ -368,6 +421,7 @@ describe('§C4a: what a rung pays', () => {
     for (const role of OFFICER_ROLES) {
       const ladders = new Map<string, { step: number; id: string; paid: number }[]>();
       for (const rung of itemsInTrack(role)) {
+        if (rung.payout.bonus === undefined) continue;
         const bonus = rung.payout.bonus as unknown as Record<string, unknown>;
         const paid = magnitudeOf(bonus);
         if (paid === null) continue;
@@ -533,7 +587,7 @@ describe('§C: the Chief Medic rung that brings the pack back', () => {
 
   it('folds like the other switch rung on the tree, and changes nothing else', () => {
     // `carriers_fight` is the sibling: a permission a rung grants, ored into the same struct.
-    const sibling = RESEARCH_ITEMS.find((spec) => spec.payout.bonus.kind === 'carriers_fight');
+    const sibling = RESEARCH_ITEMS.find((spec) => spec.payout.bonus?.kind === 'carriers_fight');
     if (!sibling) throw new Error('expected a carriers_fight rung');
     expect(researchEffects([sibling.id])).toEqual({ ...noCrewEffects(), carriersFight: true });
     expect(researchEffects([rung.id])).toEqual({ ...noCrewEffects(), recoveredCarryLoot: true });
@@ -591,5 +645,152 @@ describe('the rung that opens the district offers board', () => {
   it('is filed as an unlock, because opening a screen is what it is for', () => {
     expect(rung?.payout.unlocks).toBeDefined();
     if (rung) expect(payoutFamily(rung.payout)).toBe('unlock');
+  });
+});
+
+/**
+ * The Master of Whispers' track, as the maintainer's ledger of 2026-09-28 wrote it.
+ *
+ * Every figure written out: this track is the one priced by hand rather than by
+ * `researchItemCost`, so nothing else in this file would notice a price or a clock drifting.
+ */
+describe("the Master of Whispers' track, off the ledger", () => {
+  const LEDGER = [
+    ['tech_written_reports', 'Written Reports', { caps: 600, planks: 200 }, 45, null],
+    ['tech_paid_informants', 'Paid Informants', { caps: 2000 }, 70, null],
+    [
+      'tech_traffic_analysis',
+      'Traffic Analysis',
+      { caps: 2650, scrap: 1000, supplies: 500 },
+      130,
+      null,
+    ],
+    [
+      'tech_second_source',
+      'Second Source',
+      { caps: 3900, supplies: 2000, highQualityMetal: 30 },
+      200,
+      'E',
+    ],
+    [
+      'tech_two_sets_of_eyes',
+      'Two Sets of Eyes',
+      { caps: 5250, supplies: 2500, highQualityMetal: 70 },
+      280,
+      'E',
+    ],
+    [
+      'tech_counting_the_empty_beds',
+      'Counting the Empty Beds',
+      { caps: 6750, supplies: 1500, highQualityMetal: 130 },
+      350,
+      'D+',
+    ],
+    [
+      'tech_sleeper_lists',
+      'Sleeper Lists',
+      { caps: 7000, scrap: 3000, highQualityMetal: 180 },
+      450,
+      'C-',
+    ],
+    [
+      'tech_shared_knowledge',
+      'Shared Knowledge',
+      { caps: 10000, supplies: 2000, scrap: 5400 },
+      600,
+      'B',
+    ],
+    ['tech_turned_runners', 'Turned Runners', { caps: 12000, scrap: 2200 }, 800, 'B+'],
+    [
+      'tech_the_whole_wire',
+      'The Whole Wire',
+      { caps: 15000, scrap: 3000, highQualityMetal: 500 },
+      1000,
+      'A',
+    ],
+  ] as const;
+
+  it('carries the ledger rung for rung: id, name, price, clock and the Head of Research mark', () => {
+    const track = itemsInTrack('master_of_whispers');
+    expect(track.map((spec) => spec.id)).toEqual(LEDGER.map(([id]) => id));
+    for (const [index, [id, name, cost, minutes, head]] of LEDGER.entries()) {
+      const spec = track[index]!;
+      expect(spec.name, id).toBe(name);
+      expect(spec.cost, id).toEqual(cost);
+      expect(spec.minutes, id).toBe(minutes);
+      expect(spec.requiresHeadMark, id).toBe(head);
+      // The track officer's own ladder is the ordinary one: the ledger moved no track mark.
+      expect(spec.requiresMark, id).toBe(TRACK_MARKS[index]);
+    }
+  });
+
+  it('keeps the blurbs the maintainer wrote, word for word', () => {
+    const blurb = (id: string) => findResearchItem(id)?.description;
+    expect(blurb('tech_written_reports')).toBe(
+      'Making the spies try to remember what they saw did not make a lot of sense, so we gave them a paper to write it down.',
+    );
+    expect(blurb('tech_traffic_analysis')).toBe(
+      "Just because you figured it out doesn't mean you should shout it on the way back.",
+    );
+    expect(blurb('tech_two_sets_of_eyes')).toBe('Pay twice the caps, get twice the spying groups!');
+    expect(blurb('tech_shared_knowledge')).toBe(
+      'Everyone would benefit from a lesson or two, especially from someone that has "Master" in their title',
+    );
+    expect(blurb('tech_turned_runners')).toBe(
+      'Their courier still runs their route. He stops here first.',
+    );
+  });
+
+  it('pays no intel on any rung: the chair is where intel comes from now', () => {
+    for (const spec of itemsInTrack('master_of_whispers')) {
+      expect(spec.payout.bonus?.kind, spec.id).not.toBe('intel');
+    }
+  });
+
+  it('folds a second spy party and the lesson, filed under the chair', () => {
+    const folded = researchEffects(['tech_two_sets_of_eyes', 'tech_shared_knowledge']);
+    expect(folded.spyPartiesFlat).toBe(1);
+    expect(folded.chairTeaches).toEqual([
+      {
+        role: 'master_of_whispers',
+        attributes: { stealth: 5, deception: 3, cryptography: 3 },
+      },
+    ]);
+    // Neither lands on the ordinary per-attribute channel, which would lift the teacher too.
+    expect(folded.officerAttributeFlat).toEqual({});
+    expect(describeResearchPayout(findResearchItem('tech_two_sets_of_eyes')!)).toBe(
+      '+1 spying party out at once',
+    );
+    expect(describeResearchPayout(findResearchItem('tech_shared_knowledge')!)).toBe(
+      '+5 Stealth, +3 Deception and +3 Cryptography on every other officer seated and working',
+    );
+  });
+});
+
+/**
+ * Spy points and medic points are not percentages, and the cards stopped saying they were (bug pass,
+ * 2026-09-29). The spy contest adds both intel channels to a chair's fit as points
+ * (`spying/spying.ts`), and the medics' points go through a curve before they are a share of the
+ * dead (`casualtyRecoveryShare`). A "+8% intel" card promised something on top of the chair.
+ */
+describe('the rungs that pay points, worded as points', () => {
+  const WORDING = {
+    intel: 'spy points',
+    intel_resistance: 'spy points against enemy spies',
+    casualty_recovery: 'medic points',
+  } as const;
+
+  it('names the points on every such rung, and never a percentage', () => {
+    const paying = RESEARCH_ITEMS.filter((spec) => {
+      const kind = spec.payout.bonus?.kind;
+      return kind !== undefined && kind in WORDING;
+    });
+    expect(paying.length, 'no rung pays spy or medic points').toBeGreaterThan(10);
+    for (const spec of paying) {
+      const bonus = spec.payout.bonus as { kind: keyof typeof WORDING; percent: number };
+      const card = describeResearchPayout(spec);
+      expect(card, spec.id).toContain(`+${bonus.percent} ${WORDING[bonus.kind]}`);
+      expect(card, spec.id).not.toContain(`${bonus.percent}%`);
+    }
   });
 });

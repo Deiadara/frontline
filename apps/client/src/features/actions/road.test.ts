@@ -13,14 +13,15 @@ import { fightPhase, onTheRoad, roadCounts, roadIsEmpty } from './road';
 describe('who is on the road', () => {
   const now = new Date(F.BOARD_NOW);
 
-  it('gathers columns, active jobs, manned fights and the scout', () => {
+  it('gathers columns, active jobs, manned fights and the spy job', () => {
     const road = onTheRoad(F.actionsResponse, F.missionsResponse(now), F.battles);
     expect(road.columns).toHaveLength(F.actionsResponse.movements.length);
     expect(road.jobs.every((job) => job.status === 'active')).toBe(true);
     expect(road.jobs.length).toBeGreaterThan(0);
     // The fixture's press fight has a muster; the Bonefield one has nobody deployed.
     expect(road.fights.map((fight) => fight.battle.id)).toEqual(['press']);
-    expect(road.scout?.officerName).toBe('Scout Party');
+    expect(road.spies.map((run) => run.id)).toEqual(F.actionsResponse.spyRuns.map((run) => run.id));
+    expect(road.spies).not.toHaveLength(0);
   });
 
   it('leaves out what is home, what is settled and what has nobody at it', () => {
@@ -52,8 +53,7 @@ describe('who is on the road', () => {
     const nobody: ActionsResponse = {
       ...F.actionsResponse,
       movements: [],
-      scoutingRun: null,
-      spyRun: null,
+      spyRuns: [],
       moves: [],
       sleepers: [],
       stationed: [],
@@ -65,7 +65,7 @@ describe('who is on the road', () => {
       expect(roadIsEmpty(onTheRoad({ ...nobody, ...patch }, home, settled)), what).toBe(false);
     only({ sleepers: F.actionsResponse.sleepers }, 'a planted cell read as nobody out');
     only({ stationed: F.actionsResponse.stationed }, 'a posting read as nobody out');
-    only({ spyRun: F.actionsResponse.spyRun }, 'runners on a job read as nobody out');
+    only({ spyRuns: F.actionsResponse.spyRuns }, 'runners on a job read as nobody out');
     only({ moves: F.actionsResponse.moves }, 'a column on the move read as nobody out');
   });
 
@@ -115,7 +115,7 @@ describe('who is on the road', () => {
       ) +
       (press?.muster?.size ?? 0);
     expect(counts.unitSlots).toBeGreaterThan(heads);
-    expect(counts.scouts).toBe(1);
+    expect(counts.spies).toBe(1);
   });
 
   it('says whether a force at a fight is waiting for the mark or in it', () => {

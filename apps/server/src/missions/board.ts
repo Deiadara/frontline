@@ -10,9 +10,12 @@ import {
   templateTimings,
   ALL_DISTRICTS,
   areaIsOpen,
-  districtHolder,
+  isContested,
+  isHeldBy,
   missionBoardKey,
   missionOffers,
+  missionWalkMinutes,
+  missionSpeedPercentIn,
   missionRewards,
   payoutSlots,
   scaledSpoils,
@@ -23,9 +26,7 @@ import {
   type MissionOffer,
   type MissionTemplate,
   type AreaAvailability,
-  type LocationHolder,
 } from '@frontline/shared';
-import { cityContextFor } from '../city/view.js';
 import type { Repositories } from '../db/repos/index.js';
 import type { StoredMission } from '../db/repos/missions.js';
 import { pricedTimings } from './pricing.js';
@@ -33,10 +34,9 @@ import { pricedTimings } from './pricing.js';
 /**
  * The mission board, per area (GDD §E, §A4).
  *
- * One board for work that belongs to nobody, and one for every *contested* district this crew has
- * scouted that nobody holds end to end. A district behind an armed gate comes off the board,
- * whoever armed it, and a residential district was never work in the first place: see
- * `areaIsOpen` in `missions.areas.ts` for the rule and why it moved (maintainer, 2026-09-21).
+ * One board for work that belongs to nobody, and one for every *contested* district this crew
+ * holds at least one location in, whole or not (maintainer, 2026-09-29). A residential district
+ * was never work in the first place: see `areaIsOpen` in `missions.areas.ts` for the rule.
  *
  * What an area offers is a function of the area, its key and this crew's level (`missionOffers`),
  * so the board is stable for a crew and a player can plan against it. What it *pays* is set by the
@@ -44,45 +44,23 @@ import { pricedTimings } from './pricing.js';
  * outwards worth the walk.
  */
 
-/** Everything the board needs to know about a district, read once per request. */
-export interface AreaState extends AreaAvailability {
-  /**
-   * Who holds it end to end, when somebody does. `null` while it is still split.
-   *
-   * Carried beside the boolean so the launch route can word its refusal for the party actually
-   * behind the gate: "you own every inch of it" and "the Combine holds every inch of it" are the
-   * same rule and very different sentences.
-   */
-  wholeHolder: LocationHolder | null;
-}
-
 /**
- * Whether there is work to be had in a district, read off the world and not off the reader.
+ * How much of each district this crew holds, which is all the board needs to know about one.
  *
- * One party holding every location is what arms its gate (`city/control.ts`), and that is the
- * whole of the rule: it does not matter whether the party is the Combine, the looters, a rival or
- * this crew. `districtHolder` is the same function the §A4 unified bonus turns on, so a district
- * that pays somebody the unified bonus is exactly a district with no board, and the two cannot
- * drift apart.
- *
- * Every district in the world rather than Ashfall's twelve (2026-09-24). This is a lookup keyed by
- * district id and both its callers ask it about ground they name: the read hands it to
- * `projectAreas` beside the districts of the city being read, and the launch route asks it about
- * the one area a request named, which may be in any city the crew may enter. Taking a city
- * parameter instead would put the same "which city is this" decision at two call sites, and the
- * one that got it wrong would refuse a real Terminus district as unscouted. The whole atlas is
- * thirty-odd districts against one already-loaded control map, so the walk costs nothing.
+ * Every district in the world rather than one city's (2026-09-24). Both callers ask it about ground
+ * they name: the read hands it to `projectAreas` beside the districts of the city being read, and
+ * the launch route asks it about the one area a request named, which may be in any city. The whole
+ * atlas is thirty-odd districts against one already-loaded control map, so the walk costs nothing.
  */
-export function areaStatesFor(repos: Repositories, base: Base): Map<string, AreaState> {
-  const context = cityContextFor(repos, base);
-  const states = new Map<string, AreaState>();
+export function areaStatesFor(repos: Repositories, base: Base): Map<string, AreaAvailability> {
+  const controls = repos.city.controls();
+  const states = new Map<string, AreaAvailability>();
   for (const district of ALL_DISTRICTS) {
-    const holder = districtHolder(district, context.controls);
-    states.set(district.id, {
-      scouted: context.visible.has(district.id),
-      heldWhole: holder !== null,
-      wholeHolder: holder,
-    });
+    const heldByCrew = district.locations.filter((location) => {
+      const control = controls.get(location.id);
+      return control !== undefined && isHeldBy(control, base.id);
+    }).length;
+    states.set(district.id, { heldByCrew });
   }
   return states;
 }
@@ -97,6 +75,8 @@ export function areaStatesFor(repos: Repositories, base: Base): Map<string, Area
 export function offerFor(
   template: MissionTemplate,
   grade: Grade,
+  /** The board it was dealt from, which the launch names back (`MissionOffer.boardKey`). */
+  boardKey: string,
   payPercent: number,
   /**
    * What the crew's own standing does to the clock, off `standingEffectsFor`.
@@ -121,8 +101,10 @@ export function offerFor(
    * and the launch freezes.
    */
   ramp: EarlyRampBand | null = null,
+  /** The walk to a job in another city (`missionWalkMinutes`), on the raw road and the price. */
+  walkMinutes = 0,
 ): MissionOffer {
-  const timings = pricedTimings(template, grade, speedPercent, ramp);
+  const timings = pricedTimings(template, grade, speedPercent, ramp, walkMinutes);
   const rewards = scaledSpoils(
     missionRewards(template, 'success', timings.totalMinutes, grade),
     payPercent,
@@ -130,6 +112,7 @@ export function offerFor(
   const xp = missionXp(template, timings.totalMinutes, grade);
   return {
     templateId: template.id,
+    boardKey,
     name: template.name,
     brief: template.brief,
     kind: template.kind,
@@ -139,7 +122,7 @@ export function offerFor(
     totalMinutes: timings.totalMinutes,
     // The same numbers before anything was taken off them, so the send dialog can run the launch's
     // own arithmetic rather than approximating it on figures already reduced and rounded once.
-    rawTravelMinutes: TRAVEL_BAND_MINUTES[template.travelBand],
+    rawTravelMinutes: TRAVEL_BAND_MINUTES[template.travelBand] + walkMinutes,
     rawDurationMinutes: templateTimings(template, grade).durationMinutes,
     // The band itself, so the send dialog can apply it to the figures above the way the
     // launch does. Without it the dialog quotes the bare template and a crew in the opening
@@ -165,10 +148,13 @@ export function offerFor(
  */
 export function projectAreas(
   districts: readonly District[],
-  states: Map<string, AreaState>,
+  states: Map<string, AreaAvailability>,
   active: readonly StoredMission[],
-  /** The crew reading it: its level decides which grades each board deals. */
-  level: number,
+  /**
+   * The crew reading it: its level decides which grades each board deals, and its home district
+   * how far away a job in another city is (`missionWalkMinutes`).
+   */
+  crew: Pick<Base, 'level' | 'districtId'>,
   /**
    * When the boards are being read, which is what each one's key is derived from.
    *
@@ -186,12 +172,19 @@ export function projectAreas(
    * widens the pay. Defaulted so a caller that does not have them still gets the old, bare quote
    * rather than a compile error at every call site.
    */
-  standing: { speedPercent?: number; spoilsPercent?: number; ramp?: EarlyRampBand | null } = {},
+  standing: {
+    speedPercent?: number;
+    /** Speed that pays only on one city's boards, by city id (`missionSpeedPercentByCity`). */
+    citySpeedPercent?: Record<string, number>;
+    spoilsPercent?: number;
+    ramp?: EarlyRampBand | null;
+  } = {},
 ): MissionArea[] {
   const runningIn = new Map(active.map((stored) => [stored.mission.areaId, stored.mission.id]));
 
   const board = (id: string, name: string, blurb: string, difficulty: number): MissionArea => {
     const activeMissionId = runningIn.get(id) ?? null;
+    const key = missionBoardKey(id, now);
     // The ground's premium and the crew's own cut, folded into one figure the card quotes.
     const payPercent =
       areaPayPercent(id) +
@@ -207,13 +200,21 @@ export function projectAreas(
       payPercent,
       offers:
         activeMissionId === null
-          ? missionOffers(id, missionBoardKey(id, now), level).map((job) =>
+          ? missionOffers(id, key, crew.level).map((job) =>
               offerFor(
                 job.template,
                 job.grade,
+                key,
                 payPercent,
-                standing.speedPercent ?? 0,
+                missionSpeedPercentIn(
+                  {
+                    missionSpeedPercent: standing.speedPercent ?? 0,
+                    missionSpeedPercentByCity: standing.citySpeedPercent ?? {},
+                  },
+                  id,
+                ),
                 standing.ramp ?? null,
+                missionWalkMinutes(crew.districtId, id),
               ),
             )
           : [],
@@ -225,10 +226,11 @@ export function projectAreas(
     board(
       MISC_AREA_ID,
       'Miscellaneous Missions',
-      'Work that belongs to nobody. Somebody always needs a wall stripped or a bay emptied.',
+      'Work that belongs to nobody. Hold a place in a district and its board opens too.',
       1,
     ),
     ...districts
+      .filter(isContested)
       .filter((district) => {
         const state = states.get(district.id);
         return state !== undefined && areaIsOpen(district, state);

@@ -57,7 +57,13 @@ import { rollName } from './names.js';
  */
 const SEAT_GENERATION = 0;
 
-/** How many people are drinking here on any given day. */
+/**
+ * How many people are drinking here on any given day, for every crew.
+ *
+ * Fixed. A crew's Charisma and a few perks used to add up to four more seats on top of these
+ * (`recruitPoolPercent`); the maintainer took that out on 2026-09-30, and what paid it pays other
+ * channels now.
+ */
 export const BAR_ROSTER_SIZE = 8;
 
 /** Recruits whose §H3 gate is simply "anyone may approach me". */
@@ -81,15 +87,13 @@ export const BAR_OPEN_DOOR_FLOOR = 3;
  *
  * The room used to be eight people drawn off one curve, so the best seat on a given night was the
  * best of eight ordinary rolls and a player had no reason to come back on a night they could not
- * afford anybody. The last two seats of the base roster are **standouts**: rolled at a calibre well
+ * afford anybody. The last two seats of the roster are **standouts**: rolled at a calibre well
  * above the room, guaranteed a couple of perks, and behind all three §H3 doors including the
  * faction's, the one that is not about the player alone.
  *
- * Fixed seat indices, and that is load-bearing. §H2 says the room is the same for every player, and
- * a crew whose Charisma has widened its room (`barSeatsFor`) must see the same people in the same
- * chairs as a crew that has not. Anything counted from the *end* of a room whose length varies
- * would put a different person behind these doors for two players looking at the same night. The
- * seats a widened room adds are ordinary people who happened to be in.
+ * Fixed seat indices: §H2 says the room is the same for every player, and the seat index is baked
+ * into every recruit id and seed, so moving these would put a different person behind the doors
+ * of a table that is already being bid on.
  */
 export const BAR_STANDOUT_SEATS = 2;
 
@@ -140,12 +144,12 @@ export const STANDOUT_ROLL: RollShape = {
  *
  * "If 3 players are max level and one is a beginner have an officer appear for him as well, so make
  * it so that 2 officers appear for outliers (1 for the lowest and 1 for the highest) and the rest
- * appear based on the average with some deviation." The eight base seats are:
+ * appear based on the average with some deviation." The eight seats are:
  *
  * - seat 0, **low**: pitched at the weakest crew with a stake in the city, with an open door, so a
  *   beginner in a finished city has somebody they can clear and afford;
- * - seats 1 to 4 and every seat a widened room adds, **average**: the city's weighted middle with
- *   the grade ladder's spread up and down, the first two with open doors;
+ * - seats 1 to 4, **average**: the city's weighted middle with the grade ladder's spread up and
+ *   down, the first two with open doors;
  * - seat 5, **high**: pitched at the strongest crew, behind a rank at or just under theirs, so it
  *   is something they would want and a real ask of them;
  * - seats 6 and 7, **standout**: above the average, behind all three doors, which climb with the
@@ -343,11 +347,12 @@ const STANDOUT_RANK_FLOOR = Math.ceil((RECRUIT_MIN_NOTORIETY_GATE + RECRUIT_MAX_
 
 /**
  * The rank band a standout's door is rolled in, for a city whose crews average `averageRank` and
- * whose strongest crew stands at `highestRank`.
+ * whose highest-ranked crew holds `highestRank` (`RoomProfile.highestRank`).
  *
- * The top never sits more than one rung past the strongest crew in town. Late in the game a rung
- * is weeks of infamy, so a door three rungs past everybody would be a chair nobody in the city can
- * sign before the roster turns over.
+ * The top never sits more than one rung past the highest rank in town. Late in the game a rung is
+ * weeks of infamy, so a door three rungs past everybody would be a chair nobody in the city can
+ * sign before the roster turns over. It never sits below the floor either: `randomInt` over an
+ * inverted band answers outside it.
  */
 export function standoutRankBand(
   averageRank: number,
@@ -355,10 +360,9 @@ export function standoutRankBand(
 ): { floor: number; top: number } {
   const average = Math.round(averageRank);
   const reach = Math.min(average + STANDOUT_RANK_REACH, Math.round(highestRank) + 1);
-  return {
-    floor: Math.min(MAX_NOTORIETY, Math.max(STANDOUT_RANK_FLOOR, average)),
-    top: Math.min(MAX_NOTORIETY, Math.max(RECRUIT_LEGEND_NOTORIETY, reach)),
-  };
+  const floor = Math.min(MAX_NOTORIETY, Math.max(STANDOUT_RANK_FLOOR, average));
+  const top = Math.min(MAX_NOTORIETY, Math.max(RECRUIT_LEGEND_NOTORIETY, reach));
+  return { floor, top: Math.max(floor, top) };
 }
 
 /** What the wallet doors are multiplied by, for a city whose crews average `averageRank`. */
@@ -480,7 +484,7 @@ function seatRequirement(
   room: RoomProfile,
 ): JoinRequirement {
   if (kind === 'standout') {
-    return rollStandoutRequirement(rng, room.average.notoriety, room.highest.notoriety);
+    return rollStandoutRequirement(rng, room.average.notoriety, room.highestRank);
   }
   if (kind === 'high') return rollHighSeatRequirement(rng, room.highest.notoriety);
   // The low seat is always inside the open floor: it is the chair a beginner has to be able to use.
@@ -574,29 +578,13 @@ export function recruitId(day: string, index: number, cityId: string = DEFAULT_C
  */
 export function barRoster(
   day: string,
-  seats: number = BAR_ROSTER_SIZE,
   room: RoomProfile | number = 0,
   cityId: string = DEFAULT_CITY_ID,
 ): BarCharacter[] {
   const profile = typeof room === 'number' ? flatRoom(room) : room;
-  return Array.from({ length: Math.max(BAR_ROSTER_SIZE, seats) }, (_, index) =>
+  return Array.from({ length: BAR_ROSTER_SIZE }, (_, index) =>
     recruitAt(day, index, profile, cityId),
   );
-}
-
-/**
- * §F2: how many extra seats a well-known crew fills.
- *
- * Extra seats are *added* to the eight, never substituted for them: the room a crew with no
- * reputation walks into is the same room it always was, so a Charisma bonus cannot quietly change
- * who is in seat three. Rounded down and capped, because the Bar is a room and not a job fair.
- */
-export const MAX_EXTRA_BAR_SEATS = 4;
-export const RECRUIT_POOL_PERCENT_PER_SEAT = 15;
-
-export function barSeatsFor(recruitPoolPercent: number): number {
-  const extra = Math.floor(Math.max(0, recruitPoolPercent) / RECRUIT_POOL_PERCENT_PER_SEAT);
-  return BAR_ROSTER_SIZE + Math.min(MAX_EXTRA_BAR_SEATS, extra);
 }
 
 /**
@@ -662,10 +650,9 @@ export function seatOf(day: string, id: string): number | null {
 export function findBarRecruit(
   day: string,
   recruitId: string,
-  seats: number = BAR_ROSTER_SIZE,
   room: RoomProfile | number = 0,
 ): BarCharacter | undefined {
   const cityId = cityOfRecruit(recruitId);
   if (cityId === null) return undefined;
-  return barRoster(day, seats, room, cityId).find((recruit) => recruit.id === recruitId);
+  return barRoster(day, room, cityId).find((recruit) => recruit.id === recruitId);
 }

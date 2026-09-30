@@ -294,6 +294,38 @@ describe('over HTTP', () => {
 
     expect(owner.statusCode).toBe(200);
   });
+
+  /**
+   * Each password change bumps the session version and answers with a token at the new one, and
+   * the bucket was keyed on the version, so a caller who followed the returned token started every
+   * change with a fresh budget and hashed without limit (bug pass, 2026-09-29).
+   */
+  it('keeps one password budget across the changes it makes', async () => {
+    const app = await makeApp();
+    const registered = await app.inject({
+      method: 'POST',
+      url: '/api/auth/register',
+      payload: { username: 'rehasher', password: 'hunter2pass' },
+    });
+    let token = registered.json<{ token: string }>().token;
+
+    const statuses: number[] = [];
+    for (let i = 0; i < AUTH_LIMIT.quota + 2; i += 1) {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/api/settings/password',
+        headers: { authorization: `Bearer ${token}` },
+        payload: { newPassword: `password-${i}` },
+      });
+      statuses.push(res.statusCode);
+      const next = res.headers['x-session-token'];
+      if (typeof next === 'string') token = next;
+    }
+
+    // The first changes go through and hand over the next token; the budget then runs out.
+    expect(statuses.slice(0, 3)).toEqual([200, 200, 200]);
+    expect(statuses.at(-1)).toBe(429);
+  });
 });
 
 describe('the limiter under a flood of callers', () => {

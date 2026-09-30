@@ -157,7 +157,7 @@ const LINES: Record<
     value: `${perHour(buildingProduction('generator', buildings))} · ${round(generatorTimeDiscount('quarters', buildings))}%`,
   }),
   gate: (buildings) => ({
-    label: 'A raider has to beat, and a scout has to see past',
+    label: 'A raider has to beat, and a spy has to see past',
     value: `${round(districtDefense(buildings))} defence · ${round(gateIntelResistancePercent(buildings))}% cover`,
   }),
   lab: (buildings) => ({

@@ -27,6 +27,7 @@ import {
   startingResearch,
   type Base,
   type Building,
+  type BuildingKind,
   type BuildQueue,
   type Resources,
   startingTraining,
@@ -38,14 +39,14 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { openDatabase, runMigrations, type AppDatabase } from '../db/index.js';
 import { createRepositories, type Repositories } from '../db/repos/index.js';
 import { settleBase } from './settle.js';
-import { queueBuild, buildClocksFor } from './build.js';
+import { cancelBuild, queueBuild, buildClocksFor } from './build.js';
 import { buyBuildBoost } from './boost.js';
 import { clearSlot } from './modifications.js';
 import { districtUnitSlots } from './unit-slots.js';
 import { sendMove, settleMoves } from '../moves/moves.js';
 import { projectUnits } from '../units/roster.js';
 import { cancelTraining, queueTraining, settleTraining } from '../units/training.js';
-import { PRODUCTION_MIN_STEP_MS, settleDistrict } from './settle.js';
+import { PRODUCTION_MIN_STEP_MS, productionRatesFor, settleDistrict } from './settle.js';
 
 /**
  * The district's server half (GDD §A1): ordering a level, and everything that lands lazily on the
@@ -209,6 +210,62 @@ describe('ordering a level (§A1, §D3)', () => {
       kind: 'refused',
       reason: 'at_max_level',
     });
+  });
+
+  /*
+   * Admin mode waives the Nexus and the unlock clauses, and must still stop at the last rung. A
+   * Garage it had raised to 10 under a Nexus that authorises 3 was refused `locked`, the waiver let
+   * it through and the order went in for an eleventh; a Lab at 20 went in for a twenty-first,
+   * which no stored level parses, so the crew's next read threw (bug pass, 2026-09-29).
+   */
+  it('stops admin mode at the structure’s own ceiling, whatever else it waives', () => {
+    for (const [kind, level] of [
+      ['garage', 10],
+      ['lab', BUILDING_MAX_LEVEL],
+    ] as const) {
+      const repos = openStack();
+      const base = seedBase(repos, {
+        buildings: [build('nexus', 12), build(kind, level)],
+        level: 30,
+      });
+      expect(queueBuild(repos, { base, structure: kind, id: 'q1', now: NOW, admin: true })).toEqual(
+        {
+          kind: 'refused',
+          reason: 'at_max_level',
+        },
+      );
+      const later = new Date(NOW.getTime() + HOUR_MS);
+      const settled = settleBase(repos, repos.bases.findById(base.id)!, later).base;
+      expect(buildingLevel(settled.buildings, kind)).toBe(level);
+    }
+  });
+
+  /*
+   * Admin mode charges nothing, parts included. The part gate was waived and the parts were still
+   * written onto the entry, so a cancel handed back two Gyro Assemblies the crew never held.
+   */
+  it('takes no parts in admin mode, so a cancel hands none back', () => {
+    const repos = openStack();
+    const base = seedBase(repos, {
+      buildings: [build('nexus', BUILDING_MAX_LEVEL), build('garage', 4)],
+      level: 30,
+    });
+    const queued = queueBuild(repos, {
+      base,
+      structure: 'garage',
+      id: 'q1',
+      now: NOW,
+      admin: true,
+    });
+    expect(queued.kind).toBe('queued');
+    if (queued.kind !== 'queued') return;
+    expect(queued.entry.level).toBe(5);
+    expect(queued.entry.parts).toEqual({});
+
+    const cancelled = cancelBuild(repos, queued.base, 'q1', NOW);
+    expect(cancelled.kind).toBe('cancelled');
+    if (cancelled.kind !== 'cancelled') return;
+    expect(cancelled.base.inventory).toEqual({});
   });
 
   /**
@@ -502,6 +559,43 @@ describe('settling the district (§A1)', () => {
     for (const key of RESOURCE_KEYS) {
       expect(settled.base.resources[key], key).toBeGreaterThanOrEqual(base.resources[key]);
     }
+  });
+
+  /*
+   * The host clock stepping back while a build lands. `walk` starts at the earlier of the stamp
+   * and `now`, so the landing read pays nothing, and it used to stamp `now` anyway: the next read
+   * paid the stretch between the two again. An hour's step back was an hour paid twice.
+   */
+  it('never moves the production stamp backwards, so a stepped-back clock pays nothing twice', () => {
+    const repos = openStack();
+    // The Apothecary so eleven hours of scrap fits: the figure measured is the rate, not a ceiling.
+    const buildings = [
+      build('nexus', BUILDING_MAX_LEVEL),
+      build('scrapyard', 10),
+      build('apothecary', BUILDING_MAX_LEVEL),
+    ];
+    const start = seedBase(repos, {
+      buildings,
+      resources: { ...STARTING_RESOURCES, scrap: 0 },
+      level: 30,
+    });
+    const at = (hours: number) => new Date(NOW.getTime() + hours * HOUR_MS);
+
+    settleBase(repos, start, at(10));
+    const queued = queueBuild(repos, {
+      base: repos.bases.findById(start.id)!,
+      structure: 'gate',
+      id: 'q1',
+      now: at(9),
+      admin: true,
+    });
+    expect(queued.kind).toBe('queued');
+    const landed = settleBase(repos, repos.bases.findById(start.id)!, at(9.01));
+    expect(landed.completed).toHaveLength(1);
+    expect(landed.base.economy.productionSettledAt).toBe(at(10).toISOString());
+
+    const after = settleBase(repos, repos.bases.findById(start.id)!, at(11)).base;
+    expect(after.resources.scrap).toBe((districtProduction(buildings).perHour.scrap ?? 0) * 11);
   });
 
   it('starts the clock rather than back-paying a base that predates production', () => {
@@ -853,6 +947,74 @@ describe('§B4: the Generator’s two-hour burn', () => {
     if (unboosted.kind !== 'queued') return;
     expect(during.entry.durationSeconds).toBeLessThan(unboosted.entry.durationSeconds);
   });
+
+  /**
+   * The burn buys time for oil and nothing else (maintainer, 2026-09-29). It used to rewrite the
+   * clock the XP was priced on, so a crew that paid to speed its queue up earned less for the same
+   * builds. Two orders queued before the burn and one placed during it, against the same three with
+   * no burn at all: the clocks differ and the XP does not.
+   */
+  it('does not change the XP the queued builds pay', () => {
+    const run = (burn: boolean) => {
+      const repos = openStack();
+      // Level 9 orders: long enough that a quarter off the clock is a quarter-ish off the XP.
+      // Short early builds sit on the curve's floor, where the old bug did not show.
+      let base = seedBase(repos, {
+        resources: RICH,
+        buildings: [
+          build('nexus', 12),
+          build('generator', 4),
+          build('quarters', 8),
+          build('greenhouse', 8),
+          build('gate', 8),
+        ],
+      });
+      const order = (structure: BuildingKind, id: string) => {
+        const placed = queueBuild(repos, { base, structure, id, now: NOW });
+        if (placed.kind !== 'queued') throw new Error(placed.reason);
+        base = placed.base;
+      };
+      order('quarters', 'q1');
+      order('greenhouse', 'q2');
+      if (burn) {
+        const lit = buyBuildBoost(repos, base, NOW);
+        if (lit.kind !== 'lit') throw new Error(lit.reason);
+        base = lit.base;
+      }
+      order('gate', 'q3');
+      const clock = base.buildQueue.map((queued) => queued.durationSeconds);
+      const settled = settleDistrict(repos, base, new Date(NOW.getTime() + 72 * HOUR_MS));
+      return { clock, xp: settled.awards.map((award) => award.xpGained) };
+    };
+
+    const plain = run(false);
+    const burned = run(true);
+    // The burn did move every clock, far enough that pricing off it would pay less, or the
+    // comparison below proves nothing.
+    burned.clock.forEach((seconds, index) => {
+      expect(seconds).toBeLessThan(plain.clock[index]!);
+      expect(xpForClock('buildingConstructed', seconds)).toBeLessThan(plain.xp[index]!);
+    });
+    expect(plain.xp).toHaveLength(3);
+    expect(burned.xp).toEqual(plain.xp);
+  });
+
+  it('pins an order from before the XP was frozen at what its own clock paid', () => {
+    const repos = openStack();
+    const started = new Date(NOW.getTime() - HOUR_MS);
+    const legacy = entry('quarters', 1, started, 9 * 3600);
+    const base = seedBase(repos, {
+      resources: RICH,
+      buildings: [build('nexus', 6), build('generator', 4)],
+      buildQueue: [legacy],
+    });
+
+    const lit = buyBuildBoost(repos, base, NOW);
+    if (lit.kind !== 'lit') throw new Error(lit.reason);
+    expect(lit.base.buildQueue[0]!.durationSeconds).toBeLessThan(legacy.durationSeconds);
+    const settled = settleDistrict(repos, lit.base, new Date(NOW.getTime() + 12 * HOUR_MS));
+    expect(settled.awards[0]!.xpGained).toBe(xpForClock('buildingConstructed', 9 * 3600));
+  });
 });
 
 describe('the build clock a player is quoted is the one they get', () => {
@@ -1175,6 +1337,23 @@ describe('what the ground makes (§A4)', () => {
     ).base;
 
     expect(after.resources.caps).toBe(base.resources.caps);
+  });
+
+  /*
+   * The Production panel's figure (`/me`'s `productionRates`). It read the structures alone, so a
+   * crew with nothing built and the whole city held was told nothing was being made while the
+   * caps below climbed by the hour.
+   */
+  it('quotes the hourly rate the settle then pays, the ground included', () => {
+    const repos = openStack();
+    const base = holdingEverything(repos);
+    const since = Date.parse(base.economy.productionSettledAt!);
+    const rates = productionRatesFor(repos, base, new Date(since));
+    expect(rates.caps ?? 0).toBeGreaterThan(0);
+    expect(districtProduction(base.buildings).perHour.caps ?? 0).toBe(0);
+
+    const after = settleBase(repos, base, new Date(since + HOURS * 3600_000)).base;
+    expect(after.resources.caps - base.resources.caps).toBeCloseTo((rates.caps ?? 0) * HOURS, 6);
   });
 
   /** And the ground's output is added to what is built rather than replacing it. */

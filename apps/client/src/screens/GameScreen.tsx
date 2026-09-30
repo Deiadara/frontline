@@ -2,7 +2,7 @@ import { useLayoutEffect } from 'react';
 import { Outlet } from 'react-router-dom';
 import { Patina } from '../components/ui/Ambience';
 import { useLiveEvents } from '../lib/live';
-import { useMe, usePrefetchScreens } from '../lib/queries';
+import { useAdmin, useMe, usePrefetchScreens } from '../lib/queries';
 import { useMeasuredHeight } from '../lib/useMeasuredHeight';
 import { BottomNav } from '../features/game/BottomNav';
 import { SceneBackdrop } from '../features/game/PageShell';
@@ -23,6 +23,8 @@ import { useViewedCity } from '../store/viewedCity';
  */
 export function GameScreen() {
   const me = useMe();
+  // The bench's own snapshot, which the bottom bar has already asked for in an admin build.
+  const admin = useAdmin();
   // Warm the screens behind the nav so opening one is instant (`usePrefetchScreens`), but only
   // once there is a district to read them against: every one of those endpoints needs a base, so
   // firing them during overseer selection is eight requests that can only fail, and a failed
@@ -92,6 +94,7 @@ export function GameScreen() {
             economy={base.economy}
             buildings={base.buildings}
             live={live}
+            adminSeconds={admin.data?.state.actionSeconds}
             {...(me.data?.unread ? { unread: me.data.unread } : {})}
           />
         </div>

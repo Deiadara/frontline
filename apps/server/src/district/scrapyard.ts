@@ -5,6 +5,7 @@ import {
   removeItems,
   MODIFICATIONS,
   TRAP_CATALOG,
+  trapEffectLine,
   UNIT_MODIFICATIONS,
   blueprintForModification,
   blueprintForTrap,
@@ -65,6 +66,7 @@ import {
   type UnitLoadouts,
   type UnitModificationSpec,
 } from '@frontline/shared';
+import { adminCost, adminWaives } from '../admin/mode.js';
 import type { Repositories } from '../db/repos/index.js';
 import { tallyAddonBuilt } from '../feats/tally.js';
 import { officerFitReader } from '../crew/standing.js';
@@ -177,7 +179,7 @@ function documentFor(spec: ModificationSpec | UnitModificationSpec): string | nu
  * for the same reason: sending somebody to the Lab for a rung when they are four pages short of
  * the drawings sends them to the wrong building.
  */
-function trapBlockerFor(base: Base, spec: TrapSpec, cut: number): string | null {
+function trapBlockerFor(base: Base, spec: TrapSpec, cut: number, admin = false): string | null {
   const shut = scrapyardLevelRefusal(yardLevel(base), scrapyardLevelForTrap(spec));
   if (shut !== null) return shut;
   if (!blueprintGateMet(base.inventory, 'trap', spec.id)) {
@@ -186,17 +188,8 @@ function trapBlockerFor(base: Base, spec: TrapSpec, cut: number): string | null 
   if (!base.research.technologies.includes(spec.requiresTech)) {
     return `Needs ${findTech(spec.requiresTech)?.name ?? spec.requiresTech} from the Lab`;
   }
+  if (adminWaives('cannot_afford', admin)) return null;
   return canAfford(base.resources, trapBill(base, spec, cut)) ? null : 'You cannot cover that';
-}
-
-/**
- * What one trap does, in the line the yard's rows print.
- *
- * Read off `killShare` and `maxKills` rather than written out per trap, so a tuning pass on the
- * catalogue cannot leave three sentences behind saying the old numbers.
- */
-function describeTrap(spec: TrapSpec): string {
-  return `Takes ${Math.round(spec.killShare * 100)}% off the attack, up to ${spec.maxKills} units`;
 }
 
 /**
@@ -279,6 +272,7 @@ function upgradeMessage(
     case 'gauntlet_too_low':
       return describeModificationRequirementRefusal('building_too_low', named);
     case 'crew_too_low':
+    case 'crew_unknown':
     case 'no_officer':
     case 'officer_too_green':
       return describeModificationRequirementRefusal(reason, named);
@@ -297,8 +291,10 @@ function upgradeMessage(
     }
     case 'cannot_afford':
       return 'You cannot cover that';
-    default:
-      return 'You cannot cover that';
+    // No `default`: a catch-all here is how `crew_unknown` came to read as the money sentence, so a
+    // refusal added to `UPGRADE_REFUSALS` without a line fails the typecheck instead.
+    case 'unknown_upgrade':
+      return 'No such add-on';
   }
 }
 
@@ -478,7 +474,7 @@ export function projectScrapyard(
     name: spec.name,
     description: spec.description,
     building: null,
-    effect: describeTrap(spec),
+    effect: trapEffectLine(spec),
     cost: trapBill(base, spec, cut),
     advanced: (spec.cost.highQualityMetal ?? 0) > 0,
     rarity: null,
@@ -515,6 +511,11 @@ export function buildAddon(
   standing: YardStanding = NO_STANDING,
   /** The structure or the unit it is being bolted to. A trap names nothing. */
   target?: string,
+  /**
+   * Testing mode: the bill is quoted and not taken, and neither are the parts (`admin/mode.ts`).
+   * The yard was the one bench that still charged in admin mode (bug pass, 2026-09-29).
+   */
+  admin = false,
 ): AddonBuildResult {
   /*
    * The Fabricator's cut, taken here as well as on the read.
@@ -536,12 +537,12 @@ export function buildAddon(
   if (kind === 'trap') {
     const spec = findTrap(id);
     if (!spec) return { kind: 'refused', reason: 'No such trap' };
-    const blocker = trapBlockerFor(base, spec, cut);
+    const blocker = trapBlockerFor(base, spec, cut, admin);
     if (blocker !== null) return { kind: 'refused', reason: blocker };
 
     const built: Base = {
       ...base,
-      resources: spendResources(base.resources, trapBill(base, spec, cut)),
+      resources: spendResources(base.resources, adminCost(trapBill(base, spec, cut), admin)),
       inventory: addItems(base.inventory, { [spec.id]: 1 }),
     };
     repos.bases.updateHoldings(built.id, built.resources, built.inventory);
@@ -570,7 +571,9 @@ export function buildAddon(
       // §D7: the top two bands ask for a rank, which is the gate the ladder never had.
       notoriety: base.economy.notoriety,
       markFor: officerFitReader(repos, base).markFor,
-      affordable: (one) => canAfford(base.resources, modificationBill(base, one, cut)),
+      affordable: (one) =>
+        adminWaives('cannot_afford', admin) ||
+        canAfford(base.resources, modificationBill(base, one, cut)),
     });
     if (refusal !== null) {
       return { kind: 'refused', reason: boltInMessage(refusal, base, spec, into) };
@@ -587,7 +590,10 @@ export function buildAddon(
     const buildings = withModificationFitted(base.buildings, into, spec.id);
     const built: Base = {
       ...base,
-      resources: spendResources(base.resources, modificationBill(base, spec, cut)),
+      resources: spendResources(
+        base.resources,
+        adminCost(modificationBill(base, spec, cut), admin),
+      ),
       buildings,
     };
     repos.bases.updateResources(built.id, built.resources);
@@ -616,8 +622,11 @@ export function buildAddon(
     crewLevel: base.level,
     notoriety: base.economy.notoriety,
     markFor: officerFitReader(repos, base).markFor,
-    affordable: (one) => canAfford(base.resources, upgradeBill(base, one, standing, cut)),
+    affordable: (one) =>
+      adminWaives('cannot_afford', admin) ||
+      canAfford(base.resources, upgradeBill(base, one, standing, cut)),
     hasParts: (parts) =>
+      adminWaives('missing_parts', admin) ||
       Object.entries(parts).every(
         ([item, count]) => (base.inventory[item as ItemId] ?? 0) >= count,
       ),
@@ -633,10 +642,13 @@ export function buildAddon(
   };
   const built: Base = {
     ...base,
-    resources: spendResources(base.resources, upgradeBill(base, spec, standing, cut)),
+    resources: spendResources(
+      base.resources,
+      adminCost(upgradeBill(base, spec, standing, cut), admin),
+    ),
     // Spent, not merely checked. A requirement that is verified and never consumed is a one-off
-    // toll that buys every card in the catalogue for ever.
-    inventory: removeItems(base.inventory, spec.parts),
+    // toll that buys every card in the catalogue for ever. Not in admin mode, which waived them.
+    inventory: removeItems(base.inventory, admin ? {} : spec.parts),
     unitLoadouts: loadouts,
   };
   repos.bases.updateHoldings(built.id, built.resources, built.inventory);

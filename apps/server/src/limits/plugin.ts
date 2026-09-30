@@ -56,18 +56,26 @@ export function registerRateLimits(app: FastifyInstance, limiter = new RateLimit
 /**
  * The account this request belongs to, or the address it came from.
  *
- * Keyed by the token's session version too (security pass, 2026-09-28). Keyed by the account
- * alone, a token revoked by "log out everywhere" or a password change still verified here, so
- * whoever held it could spend the owner's whole budget and the owner's fresh session met a 429
- * for as long as the old token had left to run, which is up to thirty days. A revoked token now
- * spends a bucket nobody current shares.
+ * Only a token at the account's current session version counts as the account (security pass,
+ * 2026-09-28). A token revoked by "log out everywhere" or a password change still verifies here,
+ * and counted against the account, whoever held it could spend the owner's whole budget and the
+ * owner's fresh session met a 429 for as long as the old token had left to run, which is up to
+ * thirty days. A revoked token is counted against its address instead.
+ *
+ * The bucket itself is the account's and never the version's (bug pass, 2026-09-29). It used to be
+ * keyed `user:<id>:<version>`, and a password change bumps the version and hands the caller a token
+ * at the new one, so every change opened a fresh bucket: following the returned token, forty-five
+ * changes in a row all went through, each one a bcrypt hash on the loop every player shares, which
+ * is the cost `PASSWORD_PATHS` puts them on the sign-in budget to stop.
  */
 function callerOf(app: FastifyInstance, request: FastifyRequest): string {
   const header = request.headers.authorization;
   if (header?.startsWith('Bearer ')) {
     try {
       const payload = app.jwt.verify<{ sub?: string; ver?: number }>(header.slice(7));
-      if (payload.sub) return `user:${payload.sub}:${payload.ver ?? 'none'}`;
+      if (payload.sub && payload.ver === app.repos.users.sessionVersion(payload.sub)) {
+        return `user:${payload.sub}`;
+      }
     } catch {
       // Not a token this server issued, or an expired one. The address will do.
     }

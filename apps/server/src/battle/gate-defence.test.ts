@@ -110,7 +110,6 @@ async function makeWorld(): Promise<World> {
   const raider = await register(app, 'raider');
   const victim = await register(app, 'victim');
   db.prepare('UPDATE bases SET district_id = ? WHERE id = ?').run(HOME, victim.baseId);
-  app.repos.city.markScouted(raider.baseId, HOME, new Date().toISOString());
 
   return { app, db, raiderToken: raider.token, victimBaseId: victim.baseId, seen };
 }

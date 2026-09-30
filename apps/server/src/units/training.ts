@@ -19,6 +19,7 @@ import {
   heldPlaceKindsOf,
   isHeldBy,
   isUnitUnlocked,
+  LEGENDARY_CAP,
   spendResources,
   splitDueTraining,
   trainingCancellable,
@@ -304,11 +305,9 @@ export interface TrainInput {
   count: number;
   now: Date;
   /**
-   * Testing mode: five seconds on the bench, no materials (`admin/mode.ts`).
-   *
-   * The unit-slot cap is *not* waived. A free army that ignores housing is not the game with the
-   * waiting removed, it is a different game, and housing is one of the things a reviewer is here
-   * to feel.
+   * Testing mode: five seconds on the bench, no materials, and the progress and capacity gates on
+   * `WAIVED_REFUSALS` let through (`admin/mode.ts`), the unit-slot cap (`no_unit_slots`) among
+   * them. A second unique unit is still refused: that is a save that cannot be parsed, not a door.
    */
   admin?: boolean;
 }
@@ -430,6 +429,22 @@ export function queueVehicle(
   return { kind: 'queued', base: queued, order };
 }
 
+/**
+ * How many more of a legendary this crew may hold: none once it has one anywhere.
+ *
+ * Everywhere the crew has people, not only at home (bug pass, 2026-09-27): a legendary standing on
+ * a location, at the gate or out on a job was invisible to the training door, so a second could be
+ * trained and the first brought home beside it. The Console's unit grant asks the same question
+ * (bug pass, 2026-09-29), so there is one answer to it.
+ */
+export function legendaryRoom(repos: Repositories, base: Base, unit: UnitSpec): number {
+  const everywhere = mergeArmies(
+    mergeArmies(base.army, garrisonedUnits(repos, base)),
+    mergeArmies(unitsAbroad(repos, base), base.gateArmy ?? {}),
+  );
+  return Math.max(0, LEGENDARY_CAP - alreadyHolds(unit, everywhere, base.trainingQueue));
+}
+
 export function queueTraining(repos: Repositories, input: TrainInput): TrainingResult {
   const { base, unit, count, now, admin = false } = input;
 
@@ -448,14 +463,7 @@ export function queueTraining(repos: Repositories, input: TrainInput): TrainingR
     const refused = refuse('queue_full');
     if (refused) return refused;
   }
-  // Everywhere the crew has people, not only at home (bug pass, 2026-09-27): a legendary standing
-  // on a location, at the gate or out on a job was invisible to this check, so a second could be
-  // trained and the first brought home beside it.
-  const everywhere = mergeArmies(
-    mergeArmies(base.army, garrisonedUnits(repos, base)),
-    mergeArmies(unitsAbroad(repos, base), base.gateArmy ?? {}),
-  );
-  if (unit.unique && alreadyHolds(unit, everywhere, base.trainingQueue) + count > 1) {
+  if (unit.unique && count > legendaryRoom(repos, base, unit)) {
     return { kind: 'refused', reason: 'already_have_one' };
   }
 

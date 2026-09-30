@@ -95,3 +95,14 @@ export const DEFAULT_CITY_ID = 'ashfall';
 export function findCity(cityId: string): City | undefined {
   return CITIES.find((city) => city.id === cityId);
 }
+
+/**
+ * Whether anybody may act in this city yet: call a fight, walk a column in, plant a cell, send a spy.
+ *
+ * Saltmarch is the case this exists for. Its ground is in the atlas and its control rows are real,
+ * so every door that only asked "is this a place on the map" let a crew into a city no screen draws
+ * (bug pass, 2026-09-29). The doors that start a journey there ask this instead.
+ */
+export function cityIsOpen(cityId: string): boolean {
+  return findCity(cityId)?.open === true;
+}

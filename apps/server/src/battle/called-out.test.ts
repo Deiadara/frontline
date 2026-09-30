@@ -136,7 +136,6 @@ async function makeWorld(withBot: boolean): Promise<World> {
   db.prepare('UPDATE bases SET district_id = ? WHERE id = ?').run(HOME, victim.baseId);
   // People to put into the defence, and somewhere for them to be put from.
   app.repos.bases.updateArmy(victim.baseId, { razors: 6 }, []);
-  app.repos.city.markScouted(raider.baseId, HOME, new Date().toISOString());
   return { app, raider, victim };
 }
 

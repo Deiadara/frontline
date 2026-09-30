@@ -3,6 +3,7 @@ import {
   MESSAGE_REFUSAL_TEXT,
   MESSAGE_SUBJECT_MAX,
   formatDayClock,
+  hasVisibleText,
   quoted,
   replySubject,
   type Message,
@@ -24,7 +25,7 @@ import {
   useReadMessage,
   useSendMessage,
 } from '../../lib/queries';
-import { LoadFailure } from '../../components/ui/LoadFailure';
+import { ScreenLoad } from '../../components/ui/LoadFailure';
 import { PageShell } from '../game/PageShell';
 import { usePlayerZone } from '../settings/usePlayerZone';
 import { InviteCard } from './InviteCard';
@@ -168,13 +169,18 @@ export function MessagesPage() {
    * A failure is said out loud rather than rendered as a blank sheet.
    *
    * `return null` here drew *nothing at all* on a failed read: no heading, no text, no way to tell
-   * a broken request from an empty inbox. See `LoadFailure` for the bug that taught us.
+   * a broken request from an empty inbox. See `LoadFailure` for the bug that taught us. The read
+   * still in flight got the same blank sheet until 2026-09-29, so it says so too.
    */
   if (!data) {
-    if (!query.isError) return null;
     return (
       <PageShell title="Messages" wide>
-        <LoadFailure what="Your mail" onRetry={() => void query.refetch()} />
+        <ScreenLoad
+          what="Your mail"
+          loading="Opening the mail…"
+          isError={query.isError}
+          onRetry={() => void query.refetch()}
+        />
       </PageShell>
     );
   }
@@ -195,14 +201,18 @@ export function MessagesPage() {
         open.message.invite)
       : undefined;
 
+  /** Who a reply to the open letter goes to. Null draws no Reply: there is nobody to answer. */
+  const replyTo = open?.folder === 'inbox' ? open.message.replyTo : null;
+
   /** Opens a message and marks it read in the same gesture, which is what a mailbox does. */
   const openMessage = (message: Message) => {
     setOpen({ folder: 'inbox', message });
     if (message.readAt === null) read.mutate({ id: message.id });
   };
 
-  const startReply = (message: Message) => {
-    setRecipients([message.senderName]);
+  // `to` is the account's name now, not the signature on the letter (`MessageSchema.replyTo`).
+  const startReply = (message: Message, to: string) => {
+    setRecipients([to]);
     setToFaction(false);
     setSubject(replySubject(message.subject));
     setBody(quoted(message));
@@ -412,9 +422,15 @@ export function MessagesPage() {
             <div className="flex shrink-0 gap-2 border-t border-surface-600/60 px-5 py-3">
               {open.folder === 'inbox' && (
                 <>
-                  <Button size="sm" data-testid="reply" onClick={() => startReply(open.message)}>
-                    Reply
-                  </Button>
+                  {replyTo !== null && (
+                    <Button
+                      size="sm"
+                      data-testid="reply"
+                      onClick={() => startReply(open.message, replyTo)}
+                    >
+                      Reply
+                    </Button>
+                  )}
                   <Button
                     size="sm"
                     variant="danger"
@@ -501,6 +517,13 @@ export function MessagesPage() {
               />
             </label>
 
+            {/* A subject or body with nothing in it that draws, a zero-width space say, is refused
+                by the server (maintainer, 2026-09-29), so it is said here before the press. Only
+                when something was typed: an empty field is the ordinary state of a fresh letter. */}
+            {((subject !== '' && !hasVisibleText(subject)) ||
+              (body !== '' && !hasVisibleText(body))) && (
+              <ErrorNote data-testid="compose-blank">{MESSAGE_REFUSAL_TEXT.blank_letter}</ErrorNote>
+            )}
             {send.error && (
               <ErrorNote data-testid="compose-error">{refusalText(send.error.message)}</ErrorNote>
             )}
@@ -509,8 +532,8 @@ export function MessagesPage() {
               <Button
                 disabled={
                   send.isPending ||
-                  subject.trim().length === 0 ||
-                  body.trim().length === 0 ||
+                  !hasVisibleText(subject) ||
+                  !hasVisibleText(body) ||
                   (!toFaction && recipients.length === 0)
                 }
                 data-testid="send-message"

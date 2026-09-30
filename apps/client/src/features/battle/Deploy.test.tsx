@@ -144,8 +144,7 @@ const nothingWalking: ActionsResponse = {
   movements: [],
   sleepers: [],
   stationed: [],
-  scoutingRun: null,
-  spyRun: null,
+  spyRuns: [],
   moves: [],
   serverNow: NOW,
 };
@@ -154,8 +153,7 @@ const nothingWalking: ActionsResponse = {
 const walking: ActionsResponse = {
   sleepers: [],
   stationed: [],
-  scoutingRun: null,
-  spyRun: null,
+  spyRuns: [],
   moves: [],
   movements: [
     {

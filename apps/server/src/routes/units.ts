@@ -144,9 +144,11 @@ export function registerUnitRoutes(app: FastifyInstance): void {
         throw new AppError(code, message);
       }
 
-      const burnt = burnUpgrade(base.unitLoadouts, base.fittedUpgrades, unitId, upgradeId);
-      app.repos.bases.updateUnitLoadouts(base.id, burnt.loadouts);
-      return projectUnits(app.repos, { ...base, unitLoadouts: burnt.loadouts }, now);
+      // The brackets only. `fittedUpgrades` is the old shelf, emptied by 0097 and written by
+      // nothing since the yard went to one press, so there is no `built` to keep in step.
+      const { loadouts } = burnUpgrade(base.unitLoadouts, [], unitId, upgradeId);
+      app.repos.bases.updateUnitLoadouts(base.id, loadouts);
+      return projectUnits(app.repos, { ...base, unitLoadouts: loadouts }, now);
     })();
   });
 }

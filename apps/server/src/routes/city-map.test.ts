@@ -22,10 +22,8 @@ import { chooseOverseer } from '../testing/overseer.js';
  * map needs is ground *drawn* for it.
  *
  * The bug this was found through: with the read answering the crew's own city whatever was asked,
- * every district of an away city arrived with no summary at all, so every tag on that map fell
- * through to the district page, which read the district, found it unscouted and bounced straight
- * back to the map with the scout sheet open. The player saw a page flash past. The same hole left
- * the away map with no live data on it at all: no fog, no holdings, no crew names.
+ * every district of an away city arrived with no summary at all, so the away map carried no live
+ * data on it: no holdings and no crew names.
  */
 
 const PASSWORD = 'hunter2pass';
@@ -117,14 +115,10 @@ describe('which city’s map a crew may read', () => {
   });
 
   /**
-   * The door: a stranger to the city gets the map, with nothing on it.
-   *
-   * Both halves matter. A refusal here would be a city a player can never decide to go to, and a
-   * map that answered with anything but fog would be handing out ground nobody of theirs has
-   * walked. Every field the fog covers is checked, because `scouted: false` beside a real holder
-   * or a real count is the leak this projection exists to prevent.
+   * The door: a stranger to the city gets the whole map (maintainer, 2026-09-29: "whole city
+   * visible"). A refusal here would be a city a player can never decide to go to.
    */
-  it('lets a crew that holds nothing there look, and shows them nothing but fog', async () => {
+  it('lets a crew that holds nothing there look, and shows them all of it', async () => {
     const app = await makeApp();
     const one = await player(app, 'map_stranger');
 
@@ -134,31 +128,24 @@ describe('which city’s map a crew may read', () => {
     const map = response.json<CityResponse>();
     expect(map.districts.length).toBeGreaterThan(0);
     for (const row of map.districts) {
-      expect(row.scouted, `${row.district.id} is not fogged`).toBe(false);
-      expect(row.held).toBeNull();
-      expect(row.holder).toBeNull();
+      expect(row.held).toEqual({ mine: 0, total: row.district.locations.length });
       // And a real road, not the zero a home district the map does not hold used to be quoted.
       expect(row.travelMinutes).toBeGreaterThan(0);
     }
   });
 
-  /** One location abroad, and that district is ground this crew can see and count. */
-  it('carries the fog and the holdings of the city being looked at', async () => {
+  /** One location abroad, and the map of that city counts it. */
+  it('carries the holdings of the city being looked at', async () => {
     const app = await makeApp();
     const one = await player(app, 'map_holder');
     const [plot] = AWAY.locations;
-
-    const before = (await readMap(app, one.token, TERMINUS_CITY_ID)).json<CityResponse>();
-    expect(before.districts.find((row) => row.district.id === AWAY.id)?.scouted).toBe(false);
 
     give(app, plot!.id, one.baseId);
 
     const after = (await readMap(app, one.token, TERMINUS_CITY_ID)).json<CityResponse>();
     const walked = after.districts.find((row) => row.district.id === AWAY.id);
-    expect(walked?.scouted).toBe(true);
     expect(walked?.held).toEqual({ mine: 1, total: AWAY.locations.length });
-    // The fog lifts off the district they are standing in and nowhere else.
-    expect(after.districts.filter((row) => row.scouted)).toHaveLength(1);
+    expect(after.districts.filter((row) => row.held.mine > 0)).toHaveLength(1);
   });
 
   it('refuses a city nobody has drawn', async () => {

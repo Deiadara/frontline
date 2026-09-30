@@ -3,7 +3,7 @@ import {
   LOCATION_CATALOG,
   MAX_LOCATION_LEVEL,
   UNIT_MODIFIERS,
-  armySize,
+  spyReportSummary,
   battlefieldFor,
   findUnit,
   cancelWindowMs,
@@ -22,6 +22,7 @@ import { CostLine } from '../../components/Resources';
 import { Button } from '../../components/ui/Button';
 import { CancelMark } from '../../components/ui/CancelMark';
 import { Icon, type IconName } from '../../components/ui/Icon';
+import { Insignia, hasInsignia } from '../../components/ui/Insignia';
 import { Characteristics } from '../../components/ui/LabelChip';
 import { cn } from '../../lib/cn';
 import {
@@ -268,7 +269,7 @@ export function LocationSheet({
               view.garrisonSize !== null
                 ? String(view.garrisonSize)
                 : view.latestSpyReport && !view.latestSpyReport.failed
-                  ? `${armySize(view.latestSpyReport.exposed)} seen`
+                  ? spyReportSummary(view.latestSpyReport)
                   : 'Unknown'
             }
           />
@@ -392,10 +393,11 @@ export function LocationSheet({
              * won. Shown only to a crew that actually has Sleepers, since a control that
              * refuses everybody who presses it is a control nobody should be offered.
              *
-             * Not disabled behind the gate. A cell is not a fight: it goes to ground whether or
-             * not the district's front door is shut, which is most of why anybody plants one.
+             * Not offered behind a shut gate (maintainer, 2026-09-29): a district held end to end
+             * has one way in, and a cell cannot be planted behind the wall. The route refuses it
+             * as `district_shut`; the control is gone so nobody is offered a press that refuses.
              */}
-            {sleepersHeld > 0 && (
+            {sleepersHeld > 0 && !shut && (
               <Button
                 size="sm"
                 variant="ghost"
@@ -429,7 +431,7 @@ export function LocationSheet({
       {planting && (
         <ForcePicker
           title={`Send Sleepers into ${view.location.name}`}
-          blurb="They walk there, go to ground, and wait. Nothing finds them: no scout counts them and no digging turns them up. Call a fight on this place and they are already standing in it."
+          blurb="They walk there, go to ground, and wait. Nothing finds them: no spy counts them without the right rung, and no digging turns them up. Call a fight on this place and they are already standing in it."
           army={Object.fromEntries(
             Object.entries(army).filter(([unitId]) => cellCanHold(findUnit(unitId))),
           )}
@@ -512,7 +514,13 @@ function HolderPlate({ view, mine }: { view: LocationView; mine: boolean }) {
           tone.plate,
         )}
       >
-        <Icon name={mine ? 'check' : reading.icon} />
+        {/* The Combine and the looters sign with their own mark (maintainer, 2026-09-30), in the
+            plate's ink; everybody else keeps the icon that says what kind of holder they are. */}
+        {!mine && hasInsignia(view.holder.kind) ? (
+          <Insignia holder={view.holder.kind} tone={false} className="h-5 w-5" />
+        ) : (
+          <Icon name={mine ? 'check' : reading.icon} />
+        )}
       </span>
       <div className="flex min-w-0 flex-1 flex-col">
         <span className={cn('font-display text-[10px] uppercase tracking-[0.2em]', tone.plate)}>

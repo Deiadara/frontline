@@ -24,7 +24,7 @@ import { describe, expect, it } from 'vitest';
 import { openDatabase, runMigrations } from '../db/index.js';
 import { createRepositories, type Repositories } from '../db/repos/index.js';
 import { districtsHeldWhole } from './gates.js';
-import { cityContextFor, projectCity, projectDistrict } from './view.js';
+import { projectCity, projectDistrict } from './view.js';
 import { standingEffectsFor } from '../crew/standing.js';
 import { districtUnitSlots } from '../district/unit-slots.js';
 import { garrisonedUnits } from '../units/roster.js';
@@ -104,13 +104,10 @@ const AWAY_TRAINING: Location = districtsOfCity(TERMINUS_CITY_ID)
   .flatMap((district) => district.locations)
   .find((location) => bonusesAt(location.kind, 1).some((bonus) => bonus.kind === 'training_cost'))!;
 
-function stack(
-  districtId = 'neon-docks',
-  options: { admin?: boolean } = {},
-): { repos: Repositories; base: Base } {
+function stack(districtId = 'neon-docks'): { repos: Repositories; base: Base } {
   const db = openDatabase(':memory:');
   runMigrations(db);
-  const repos = createRepositories(db, options);
+  const repos = createRepositories(db);
   repos.users.insert({ id: 'u', username: 'holder', passwordHash: 'x', createdAt: HOUR });
   const base: Base = {
     id: 'b',
@@ -391,40 +388,11 @@ describe('the roster and the file read the second city too', () => {
       LOCATION_CATALOG[AWAY_UNLOCKS.kind].label,
     );
   });
-
-  /**
-   * The Console's see-everything read used to enumerate Ashfall whoever was being looked at, so a
-   * testing build pointed at a crew in Terminus lifted the fog off a map that crew is not on.
-   */
-  it('lifts the admin fog off the city being looked at', () => {
-    const { repos, base } = stack(AWAY_HOME.id, { admin: true });
-
-    const seen = repos.city.visibleDistricts(base.id, TERMINUS_CITY_ID);
-    expect([...seen].sort()).toEqual(
-      districtsOfCity(TERMINUS_CITY_ID)
-        .map((district) => district.id)
-        .sort(),
-    );
-  });
 });
 
-describe('the board can see and price the ground a crew took abroad', () => {
-  /**
-   * The fog is the one narrowing the board applies, and it composes from three sources
-   * (`visibleDistricts`). The "anywhere you are standing" source walked one city's catalogue, so a
-   * crew that had taken a Terminus platform could not see the district it was standing in.
-   */
-  it('sees the district it is standing in abroad', () => {
-    const { repos, base } = stack();
-    expect(cityContextFor(repos, base).visible.has(PLAIN.districtId)).toBe(false);
-
-    take(repos, base.id, PLAIN);
-
-    expect(cityContextFor(repos, base).visible.has(PLAIN.districtId)).toBe(true);
-  });
-
-  /** The front door of a district the crew can see. Absent, the screen offers no gate at all. */
-  it('draws the front door of a district it can see abroad', () => {
+describe('the board prices the ground a crew took abroad', () => {
+  /** The front door of a district abroad. Absent, the screen offers no gate at all. */
+  it('draws the front door of a district abroad', () => {
     const { repos, base } = stack();
     take(repos, base.id, PLAIN);
 

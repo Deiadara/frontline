@@ -26,7 +26,7 @@ import { chooseOverseer } from '../testing/overseer.js';
  *
  * What is deliberately absent is as load-bearing as what is here. The faction screen a member
  * sees carries ally armies, ally battles and open invitations, and a rival reading those would be
- * scouting five crews with one request. See the note on the route.
+ * spying on five crews with one request. See the note on the route.
  */
 
 const PASSWORD = 'hunter2pass';
@@ -244,7 +244,7 @@ describe('GET /factions/:id/profile', () => {
     });
 
     const body = response.json<Record<string, unknown>>();
-    // The three that would make this a free scout of every crew under the badge.
+    // The three that would make this a free spy report on every crew under the badge.
     expect(body).not.toHaveProperty('armies');
     expect(body).not.toHaveProperty('battles');
     expect(body).not.toHaveProperty('invites');

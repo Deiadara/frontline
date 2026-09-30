@@ -16,9 +16,10 @@ import { garrisonedUnits } from '../units/roster.js';
 /**
  * Who the district is housing (GDD §A1 the Quarters, §H the officers, §A5 the army, §C the yard).
  *
- * One definition of "used", read by every gate that enforces it: ordering a unit and laying down a
- * machine. Separate counts would drift, and the failure would be silent: a district that let you
- * build past its beds and then refused to train anybody reads as a bug rather than as a rule.
+ * One definition of "used", read by every gate that enforces it: ordering a unit, laying down a
+ * machine, and bidding on or signing an officer at the Bar. Separate counts would drift, and the
+ * failure would be silent: a district that let you build past its beds and then refused to train
+ * anybody reads as a bug rather than as a rule.
  *
  * The army is in the same pool as the people now. It used to have a Gauntlet-driven ceiling of its
  * own, which meant a crew could fill both to the brim without either counter noticing.

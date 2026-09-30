@@ -204,8 +204,9 @@ export type LotOutcome = z.infer<typeof LotOutcomeSchema>;
 /**
  * How a lot this reader bid on ended.
  *
- * `passed` is a crew whose bid was highest and who could not cover it when he packed up, so the
- * lot went to the next crew; `unsold` is a lot nobody in the ranking could pay for.
+ * `passed` is a crew whose bid was over the winner's and who could not cover it when he packed up,
+ * so the lot went further down; on a lot nobody could pay for, the top crew passed and `unsold` is
+ * everybody behind it.
  */
 export const VendorAuctionResultSchema = z.object({
   day: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),

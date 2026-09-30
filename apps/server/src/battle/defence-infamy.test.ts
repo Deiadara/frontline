@@ -87,7 +87,6 @@ describe('what a successful defence pays', () => {
       upgradingUntil: null,
       garrison: { razors: 1 },
     });
-    app.repos.city.markScouted(attacker.baseId, spire.id, new Date().toISOString());
 
     const before = app.repos.bases.findById(defender.baseId)?.economy.infamy ?? 0;
     const target: BattleTarget = {
@@ -170,7 +169,6 @@ describe('what a successful defence pays', () => {
       upgradingUntil: null,
       garrison: { razors: 1 },
     });
-    app.repos.city.markScouted(attacker.baseId, spire.id, new Date().toISOString());
 
     // Enough at home on both sides: a line for the attacker, a ring for the defender.
     for (const crew of [attacker, defender]) {

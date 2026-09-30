@@ -5,14 +5,16 @@ import {
   travelMinutes,
   type VehicleId,
   type BattleBoostOption,
+  type TrapOption,
   type BattleLeader,
   type BattleReportView,
   type BattleView,
   type BattlesResponse,
+  type LocationHolderKind,
   type MovementView,
   type StructureDefence,
   type SpyReport,
-  SPY_TIER_SPECS,
+  spyReportSource,
   armySize,
   type UnitLoadouts,
   combineLeaderOf,
@@ -28,6 +30,7 @@ import { Confirm } from '../../components/ui/Confirm';
 import { LoadFailure } from '../../components/ui/LoadFailure';
 import { Dropdown } from '../../components/ui/Dropdown';
 import { Icon } from '../../components/ui/Icon';
+import { Insignia, hasInsignia } from '../../components/ui/Insignia';
 import { HoverCard } from '../../components/ui/HoverCard';
 import { Panel } from '../../components/ui/Panel';
 import { PanelSection } from '../../components/ui/PanelSection';
@@ -415,6 +418,7 @@ export function BattlePage() {
         <BattleReportModal
           analysis={reading.analysis}
           side={reading.side}
+          defenderKind={reading.defenderKind}
           onClose={() => setReading(null)}
         />
       )}
@@ -534,7 +538,14 @@ function ComingRow({
           {view.targetName}
         </span>
         <span className="block break-words font-display text-[10px] uppercase tracking-[0.14em] text-ink-300">
-          {view.districtName} · {view.opponentName}
+          {view.districtName} ·{' '}
+          {/* The mark and the name wrap as one, so a mark is never left at the end of a line. Only
+              the Combine and the looters have one, and both names are short; a crew's name still
+              wraps where it needs to. */}
+          <span className={cn(hasInsignia(opponentOf(view)) && 'whitespace-nowrap')}>
+            <Insignia holder={opponentOf(view)} className="mr-1 h-3 w-3 align-[-2px]" />
+            {view.opponentName}
+          </span>
         </span>
       </span>
       <span
@@ -547,6 +558,14 @@ function ComingRow({
       </span>
     </button>
   );
+}
+
+/**
+ * Who the reader is up against, as a holder: whoever holds the ground, unless the reader is the one
+ * holding it, in which case it is the crew that called the fight (`attackerBaseId`).
+ */
+function opponentOf(view: BattleView): LocationHolderKind {
+  return view.side === 'defender' ? 'crew' : view.battle.defender.kind;
 }
 
 /** The one fight the player has opened: the ground, who is on it, and what a name would buy. */
@@ -660,7 +679,11 @@ function BattleDetail({
             label="Goes off in"
             value={formatRemaining(Date.parse(view.battle.scheduledFor) - now)}
           />
-          <Figure label="Against" value={view.opponentName} />
+          <Figure
+            label="Against"
+            value={view.opponentName}
+            mark={<Insignia holder={opponentOf(view)} className="h-4 w-4" />}
+          />
           <Figure
             label="They have there"
             value={view.enemySize === null ? 'Unknown' : `~${view.enemySize}`}
@@ -1025,12 +1048,24 @@ function OfficerSheet({ stats }: { stats: BattleLeader['stats'] }) {
   );
 }
 
-function Figure({ label, value, note }: { label: string; value: string; note?: string }) {
+function Figure({
+  label,
+  value,
+  note,
+  mark,
+}: {
+  label: string;
+  value: string;
+  note?: string;
+  /** Drawn before the value: the Combine's or the looters' insignia beside their name. */
+  mark?: React.ReactNode;
+}) {
   return (
     <div className="flex min-w-0 flex-col gap-0.5 rounded-sm border border-surface-700 bg-surface-950/40 px-2.5 py-2">
       <p className="font-display text-[10px] uppercase tracking-[0.16em] text-ink-300">{label}</p>
-      <p className="break-words font-display text-[15px] font-bold leading-tight tabular-nums text-brass-100">
-        {value}
+      <p className="flex items-center gap-1.5 break-words font-display text-[15px] font-bold leading-tight tabular-nums text-brass-100">
+        {mark}
+        <span className="min-w-0">{value}</span>
       </p>
       {note !== undefined && note !== '' && (
         <p className="font-body text-[11px] leading-snug text-ink-300">{note}</p>
@@ -1530,6 +1565,7 @@ function TrapPicker({ view }: { view: BattleView }) {
               <p className="font-display text-[12px] uppercase tracking-[0.14em] text-brass-300">
                 {chosen.name}
               </p>
+              <TrapEffect option={chosen} testId="trap-set-effect" />
               <p className="mt-0.5 font-body text-[12px] leading-snug text-ink-100">
                 It goes off before anybody is in contact, and it never turns an attack back. Nothing
                 leaves the bag until then, so moving it to another fight costs you nothing.
@@ -1577,7 +1613,9 @@ function TrapPicker({ view }: { view: BattleView }) {
               options={view.traps.map((option) => ({
                 value: option.trapId,
                 label: option.name,
-                hint: option.available ? `${option.held} in the bag` : option.blocker,
+                // What it does as well as whether it can go down, so a player comparing traps
+                // reads the Scrapyard's line for the ones they hold none of too.
+                hint: `${option.available ? `${option.held} in the bag` : option.blocker} · ${option.effect}`,
                 disabled: !option.available,
               }))}
               onChange={setPicked}
@@ -1585,7 +1623,8 @@ function TrapPicker({ view }: { view: BattleView }) {
             />
             {choice && (
               <div className="rounded-sm border border-surface-700 bg-surface-950/60 p-2.5">
-                <p className="font-body text-[12px] leading-relaxed text-ink-100">
+                <TrapEffect option={choice} testId="trap-choice-effect" />
+                <p className="mt-1 font-body text-[12px] italic leading-relaxed text-ink-300">
                   {choice.description}
                 </p>
                 <p className="mt-1.5 font-display text-[11px] uppercase tracking-[0.14em] text-brass-300">
@@ -1598,6 +1637,22 @@ function TrapPicker({ view }: { view: BattleView }) {
         {set.error && <ErrorNote>{set.error.message}</ErrorNote>}
       </div>
     </FileSection>
+  );
+}
+
+/**
+ * What a trap does to the attack, in the Scrapyard row's own words and type (bug pass, 2026-09-29).
+ * The picker printed only the flavour line, so the screen a trap is chosen on was the one screen
+ * that did not say what any of them took.
+ */
+function TrapEffect({ option, testId }: { option: TrapOption; testId: string }) {
+  return (
+    <p
+      className="break-words font-display text-[12px] uppercase tracking-[0.08em] text-brass-300"
+      data-testid={testId}
+    >
+      {option.effect}
+    </p>
   );
 }
 
@@ -1657,6 +1712,10 @@ function Reports({
               </span>
               <span className="min-w-0 flex-1">
                 <span className="block truncate font-display text-[13px] tracking-[0.06em] text-ink-100">
+                  <Insignia
+                    holder={report.defenderKind}
+                    className="mr-1.5 h-3.5 w-3.5 align-[-2px]"
+                  />
                   {report.targetName}
                 </span>
                 <span className="block truncate font-body text-[11px] text-ink-300">
@@ -1716,16 +1775,21 @@ function SpyReports({
                     : 'border-brass-300/70 bg-brass-300/10 text-brass-300',
                 )}
               >
-                {report.failed ? 'Nothing' : `${armySize(report.exposed)} seen`}
+                {report.failed
+                  ? 'Nothing'
+                  : report.unitsShown
+                    ? `${armySize(report.exposed)} seen`
+                    : `${report.exposedSlots} slots`}
               </span>
               <span className="min-w-0 flex-1">
                 <span className="block truncate font-display text-[13px] tracking-[0.06em] text-ink-100">
                   {report.placeName}, {report.districtName}
                 </span>
                 <span className="block truncate font-body text-[11px] text-ink-300">
+                  <Insignia holder={report.holder.kind} className="mr-1 h-3 w-3 align-[-2px]" />
                   {report.holder.name}
                   {report.holder.faction ? ` · ${report.holder.faction}` : ''} ·{' '}
-                  {SPY_TIER_SPECS[report.tier].label} · {report.writtenAt.slice(0, 10)}
+                  {spyReportSource(report)} · {report.writtenAt.slice(0, 10)}
                 </span>
               </span>
               <Icon name="chevron-down" className="h-4 w-4 shrink-0 -rotate-90 text-ink-300" />

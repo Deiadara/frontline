@@ -24,7 +24,6 @@ import {
   STANDOUT_MIN_PERKS,
   barCalibre,
   barRoster,
-  barSeatsFor,
   doorCeilingFor,
   gradeOf,
   isStandoutSeat,
@@ -65,7 +64,7 @@ describe('the room spreads across skill levels', () => {
   const sheets = (cityLevel: number): number[] => {
     const points: number[] = [];
     for (const day of DAYS) {
-      barRoster(day, BAR_ROSTER_SIZE, cityLevel).forEach((recruit, seat) => {
+      barRoster(day, cityLevel).forEach((recruit, seat) => {
         if (!isStandoutSeat(seat)) points.push(total(recruit.attributes));
       });
     }
@@ -125,7 +124,7 @@ describe('the room spreads across skill levels', () => {
   it('never lets a recruit ask for more rank than their grade and their tags allow', () => {
     for (const cityLevel of [0, 12, 30]) {
       for (const day of DAYS) {
-        barRoster(day, BAR_ROSTER_SIZE, cityLevel).forEach((recruit, seat) => {
+        barRoster(day, cityLevel).forEach((recruit, seat) => {
           if (isStandoutSeat(seat)) return;
           const grade = gradeOf(seedFrom(`${day}:${seat}:0:grade`));
           expect(
@@ -152,7 +151,7 @@ describe('the room spreads across skill levels', () => {
   it('lets a middling sheet carrying a great tag ask for more than its grade would', () => {
     const lifted: string[] = [];
     for (const day of DAYS) {
-      barRoster(day, BAR_ROSTER_SIZE, 12).forEach((recruit, seat) => {
+      barRoster(day, 12).forEach((recruit, seat) => {
         if (isStandoutSeat(seat)) return;
         const grade = gradeOf(seedFrom(`${day}:${seat}:0:grade`));
         if (recruit.requirement.minNotoriety > grade.maxNotoriety) {
@@ -167,7 +166,7 @@ describe('the room spreads across skill levels', () => {
   it('prices the room across a range a player can feel', () => {
     const wages: number[] = [];
     for (const day of DAYS) {
-      barRoster(day, BAR_ROSTER_SIZE, 12).forEach((recruit, seat) => {
+      barRoster(day, 12).forEach((recruit, seat) => {
         if (!isStandoutSeat(seat)) wages.push(askingWage(recruit.attributes));
       });
     }
@@ -192,25 +191,13 @@ describe('the room spreads across skill levels', () => {
 });
 
 describe('the standout seats', () => {
-  it('are the last two of the base roster, wherever the room ends', () => {
+  it('are the last two seats of the room', () => {
     for (let seat = 0; seat < BAR_ROSTER_SIZE; seat += 1) {
       expect(isStandoutSeat(seat), `seat ${seat}`).toBe(
         seat >= BAR_ROSTER_SIZE - BAR_STANDOUT_SEATS,
       );
     }
-    /*
-     * §H2: the room is the same for every player, so a crew whose Charisma has widened it must see
-     * the same person behind the same doors as a crew that has not. Anything counted from the end
-     * of a room whose length varies would break that, and this is the assertion that would fail.
-     */
-    const widest = barSeatsFor(1000);
-    expect(widest).toBeGreaterThan(BAR_ROSTER_SIZE);
-    for (let seat = BAR_ROSTER_SIZE; seat < widest; seat += 1) {
-      expect(isStandoutSeat(seat), `widened seat ${seat}`).toBe(false);
-    }
-    const narrow = barRoster('2026-03-04', BAR_ROSTER_SIZE, 12);
-    const wide = barRoster('2026-03-04', widest, 12);
-    expect(wide.slice(0, BAR_ROSTER_SIZE)).toEqual(narrow);
+    expect(barRoster('2026-03-04', 12)).toHaveLength(BAR_ROSTER_SIZE);
   });
 
   /**
@@ -230,7 +217,7 @@ describe('the standout seats', () => {
       let standoutPoints = 0;
       let ordinaryPoints = 0;
       for (const day of DAYS) {
-        const roster = barRoster(day, BAR_ROSTER_SIZE, cityLevel);
+        const roster = barRoster(day, cityLevel);
         const standouts = roster.filter((_, seat) => isStandoutSeat(seat));
         const ordinary = roster.filter((_, seat) => !isStandoutSeat(seat));
         expect(standouts).toHaveLength(BAR_STANDOUT_SEATS);
@@ -273,7 +260,7 @@ describe('the standout seats', () => {
       for (const cityLevel of [0, 12, 30, 60, 110]) {
         const ceiling = recruitmentCeiling(barCalibre(cityLevel) + STANDOUT_CALIBRE_LIFT);
         if (cityLevel <= 12) expect(ceiling).toBe(MAX_RECRUITMENT_ATTRIBUTE);
-        for (const recruit of barRoster(day, BAR_ROSTER_SIZE, cityLevel)) {
+        for (const recruit of barRoster(day, cityLevel)) {
           const highest = Math.max(...Object.values(recruit.attributes));
           expect(highest, `${day} ${recruit.id}`).toBeLessThanOrEqual(ceiling);
         }
@@ -283,7 +270,7 @@ describe('the standout seats', () => {
 
   it('ask for the wallet and the badge, and every ordinary seat asks for neither', () => {
     for (const day of DAYS) {
-      const roster = barRoster(day, BAR_ROSTER_SIZE, 10);
+      const roster = barRoster(day, 10);
       roster.forEach((recruit, seat) => {
         const want: JoinRequirement = recruit.requirement;
         if (!isStandoutSeat(seat)) {
@@ -310,7 +297,7 @@ describe('the standout seats', () => {
   });
 
   it('are shut to a crew with nothing, and the faction door needs a faction', () => {
-    const roster = barRoster('2026-05-19', BAR_ROSTER_SIZE, 10);
+    const roster = barRoster('2026-05-19', 10);
     const standout = roster[BAR_ROSTER_SIZE - 1];
     if (!standout) throw new Error('expected a standout seat');
 
@@ -347,7 +334,7 @@ describe('the standout seats', () => {
   it('leave a brand-new crew the open seats it has always had', () => {
     for (const day of DAYS) {
       for (const cityLevel of [0, 8, 30]) {
-        const roster = barRoster(day, BAR_ROSTER_SIZE, cityLevel);
+        const roster = barRoster(day, cityLevel);
         const willing = roster.filter(
           (recruit) => assessJoin(recruit.requirement, NEW_CREW).interested,
         );

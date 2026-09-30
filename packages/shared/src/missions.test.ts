@@ -25,6 +25,7 @@ import {
   missionRemainingMs,
   missionRewards,
   missionTimings,
+  offerOfMission,
   RESOURCE_CAP_VALUE,
   RESOURCE_KEYS,
   rewardScale,
@@ -470,5 +471,26 @@ describe('the board is priced on one rule (§E5)', () => {
       );
     });
     expect(Math.max(...rates) / Math.min(...rates)).toBeLessThan(10);
+  });
+});
+
+/**
+ * The card a run that is out was taken off, rebuilt from the row (`offerOfMission`).
+ *
+ * Its raw time on site is the figure the send window re-runs the launch from, and the board quotes
+ * it at the card's grade (`offerFor`). The rebuilt card quoted the authored figure, which is the
+ * job's lowest grade only, so the same job read two different raw clocks at any harder mark.
+ */
+describe('the card a running job was taken off', () => {
+  it('quotes the raw time on site at the grade the row froze, as the board does', () => {
+    // A job whose harder mark moves its clock by at least a whole minute.
+    const template = MISSION_TEMPLATES.find(
+      (one) => templateTimings(one, one.grades[1]).durationMinutes > one.durationMinutes,
+    );
+    if (!template) throw new Error('fixture: no job runs longer at its hardest mark');
+    const grade = template.grades[1];
+    const card = offerOfMission({ ...missionAt(5, 30), templateId: template.id, grade }, template);
+    expect(card.rawDurationMinutes).toBe(templateTimings(template, grade).durationMinutes);
+    expect(card.rawDurationMinutes).toBeGreaterThan(template.durationMinutes);
   });
 });

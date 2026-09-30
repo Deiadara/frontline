@@ -103,6 +103,8 @@ interface RoomRow {
   highest_notoriety: number;
   average_level: number;
   average_notoriety: number;
+  /** Null on a room frozen before 0128. */
+  top_notoriety: number | null;
 }
 
 interface BidRow {
@@ -214,14 +216,14 @@ export function createBarRepo(db: AppDatabase): BarRepo {
   };
   const roomStmt = lazy(
     `SELECT lowest_level, lowest_notoriety, highest_level, highest_notoriety,
-            average_level, average_notoriety
+            average_level, average_notoriety, top_notoriety
        FROM bar_rooms WHERE day = ? AND city_id = ?`,
   );
   const freezeRoomStmt = lazy(
     `INSERT INTO bar_rooms
        (day, city_id, lowest_level, lowest_notoriety, highest_level, highest_notoriety,
-        average_level, average_notoriety)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        average_level, average_notoriety, top_notoriety)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT (day, city_id) DO NOTHING`,
   );
 
@@ -275,6 +277,7 @@ export function createBarRepo(db: AppDatabase): BarRepo {
         lowest: { level: row.lowest_level, notoriety: row.lowest_notoriety },
         highest: { level: row.highest_level, notoriety: row.highest_notoriety },
         average: { level: row.average_level, notoriety: row.average_notoriety },
+        highestRank: row.top_notoriety ?? row.highest_notoriety,
       };
     },
     freezeRoom(day, cityId, room) {
@@ -287,6 +290,7 @@ export function createBarRepo(db: AppDatabase): BarRepo {
         room.highest.notoriety,
         room.average.level,
         room.average.notoriety,
+        room.highestRank,
       );
     },
   };

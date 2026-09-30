@@ -1,9 +1,11 @@
 import { CITIES, DEFAULT_CITY_ID } from '../city/cities.js';
 import { z } from 'zod';
-import { BLUEPRINTS } from '../blueprints/catalog.js';
+import { BLUEPRINT_CATEGORIES } from '../blueprints/catalog.js';
+import { pagesIn } from '../blueprints/prize.js';
 import { ITEM_CATALOG, ITEM_IDS, type ItemId } from '../items/catalog.js';
 import { MILESTONE_BROKERS_RESPECT, isPlayerUnlockActive } from '../progression/unlocks.js';
 import { RESOURCE_KEYS, type ResourceKey } from '../resources.js';
+import { effectiveMarketDiscount } from './discount.js';
 import { RESOURCE_CAP_VALUE, withoutFloatNoise } from './offers.js';
 import { seedFrom } from '../rng.js';
 import {
@@ -70,6 +72,25 @@ function pick<T>(rng: () => number, items: readonly T[]): T {
   if (chosen === undefined) throw new Error('cannot pick from an empty list');
   return chosen;
 }
+
+/** {@link pick} over a weighted pool, one draw off the same stream. */
+function pickWeighted<T>(rng: () => number, pool: readonly { id: T; weight: number }[]): T {
+  let at = rng() * pool.reduce((sum, entry) => sum + entry.weight, 0);
+  for (const entry of pool) {
+    at -= entry.weight;
+    if (at < 0) return entry.id;
+  }
+  const last = pool.at(-1);
+  if (last === undefined) throw new Error('cannot pick from an empty list');
+  return last.id;
+}
+
+/**
+ * Every page, weighted by rarity (maintainer, 2026-09-29: "Runner pages by rarity"): the same
+ * {@link pagesIn} ladder the mission prize and the fence draw on, so a Masterpiece sheet is as much
+ * rarer on the barrow as it is through the other two doors.
+ */
+const RUNNER_PAGES = BLUEPRINT_CATEGORIES.flatMap(pagesIn);
 
 /**
  * The game day an instant belongs to, `YYYY-MM-DD`. The market's unit of time.
@@ -315,9 +336,11 @@ export function vendorStockFor(day: string, cityId: string = DEFAULT_CITY_ID): V
     const low = dear ? VENDOR_DEAR_MARKUP_MIN : VENDOR_MARKUP_MIN;
     const high = dear ? VENDOR_DEAR_MARKUP_MAX : VENDOR_MARKUP_MAX;
     const markup = low + rng() * (high - low);
-    // One of a page, a handful of anything else: a page is one particular sheet of paper and
-    // there is only ever one of it on the barrow.
-    const stock = spec.kind === 'page' ? 1 : 1 + Math.floor(rng() * 4);
+    // One of a page, one or two of anything else. A page is one particular sheet of paper and
+    // there is only ever one of it on the barrow. Everything else tops out at the number of
+    // visits in a day: a line lives one day and sells one unit a visit, so a third unit was a
+    // "3 left" label over stock nobody could ever buy (maintainer, 2026-09-29).
+    const stock = spec.kind === 'page' ? 1 : 1 + Math.floor(rng() * VENDOR_SESSIONS_PER_DAY);
     return {
       // The city is in the id for the reason the Bar's recruit ids carry it: two cities on one day
       // would otherwise mint the same six ids, and a bid filed against one would name a different
@@ -396,8 +419,7 @@ export function findVendorLine(day: string, lineId: string): VendorLine | undefi
  */
 function dearLineFor(rng: () => number, taken: readonly ItemId[]): ItemId {
   if (rng() < VENDOR_PAGE_ODDS) {
-    const pages = BLUEPRINTS.flatMap((blueprint) => blueprint.pages.map((page) => page.id));
-    const page = pick(rng, pages) as ItemId;
+    const page = pickWeighted(rng, RUNNER_PAGES) as ItemId;
     if (!taken.includes(page)) return page;
   }
   const dear = VENDOR_DEAR_GOODS.filter((id) => !taken.includes(id));
@@ -419,6 +441,19 @@ export function barterRateFor(level: number): number {
   return isPlayerUnlockActive(MILESTONE_BROKERS_RESPECT, level)
     ? BARTER_RATE_RESPECTED
     : BARTER_RATE;
+}
+
+/**
+ * What the Broker gives back once the crew's market discount is applied (maintainer, 2026-09-29).
+ *
+ * The discount comes off his **cut**, not on top of what he pays: half kept at a 45% discount is a
+ * cut of 27.5%. Taken off the goods instead, 65% back at level 60 over a 45% discount would pay
+ * more than a trade put in, and two barters in a loop would print materials. This way a trade gets
+ * closer to even and can never reach it.
+ */
+export function brokerRate(level: number, discountPercent = 0): number {
+  const cut = 1 - barterRateFor(level);
+  return withoutFloatNoise(1 - cut * (1 - effectiveMarketDiscount(discountPercent) / 100));
 }
 
 /**

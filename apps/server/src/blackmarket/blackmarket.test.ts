@@ -14,7 +14,7 @@ import {
 import type { FastifyInstance } from 'fastify';
 import { afterEach, describe, expect, it } from 'vitest';
 import { buildApp } from '../app.js';
-import { settleBlackMarketLots } from './shelf.js';
+import { placeBlackMarketBid, settleBlackMarketLots } from './shelf.js';
 import { standingEffectsFor } from '../crew/standing.js';
 import { loadConfig } from '../config.js';
 import { openDatabase, runMigrations, type AppDatabase } from '../db/index.js';
@@ -463,6 +463,15 @@ describe('the close', () => {
     const winner = await shelf(app, solvent.token);
     expect(winner.takenToday).toBe(1);
     expect(winner.infamy).toBe(500_000 - opening);
+    // The leader is told it could not take the crate, not that operator_two outbid it (bug pass,
+    // 2026-09-29): its own bid was the higher one.
+    const brokeId = app.repos.users.findByUsername('operator_one')!.id;
+    const told = app.repos.social
+      .notifications(brokeId, 20)
+      .find((entry) => entry.kind === 'market_outbid');
+    expect(told?.title).toMatch(
+      new RegExp(`^You could not take .+ at the close, so operator_two did at ${opening} infamy$`),
+    );
   });
 
   it('turns the slot over for the whole city once it has gone', async () => {
@@ -552,5 +561,84 @@ describe('the black market day is the house clock', () => {
     const after = await shelf(app, token);
     expect(after.day, 'the shelf reseeded on the player’s own calendar').toBe(before.day);
     expect(after.takenToday, 'a timezone change bought a second crate').toBe(1);
+  });
+});
+
+/**
+ * The fence's blueprint lots sell whole documents that cannot be traded and unlock once, so a crew
+ * that already holds one is refused at the table and walked past at the close (bug pass,
+ * 2026-09-28). Driven through `placeBlackMarketBid` on a day whose shelf carries a blueprint lot:
+ * the route bids on today's shelf, and today's may not have one.
+ */
+describe('a blueprint the crew already holds', () => {
+  const zone = 'Europe/Athens';
+  const blueprintDay = (() => {
+    for (let offset = 0; offset < 400; offset += 1) {
+      const noon = new Date(Date.UTC(2026, 9, 1, 10) + offset * 86_400_000);
+      const day = blackMarketDay(noon, zone);
+      const slot = blackMarketBoard(day, []).find(
+        (entry) => findBlackMarketGood(entry.goodId)?.kind === 'blueprint',
+      );
+      if (slot) return { noon, day, slot };
+    }
+    throw new Error('fixture: no blueprint lot in 400 days of shelves');
+  })();
+  const { noon, day, slot } = blueprintDay;
+  const spec = findBlackMarketGood(slot.goodId)!;
+  const documentId = Object.keys(spec.grants ?? {})[0]!;
+
+  const baseOf = (app: FastifyInstance, username: string) => {
+    const user = app.repos.users.findByUsername(username)!;
+    return { user, base: app.repos.bases.findByOwnerId(user.id)! };
+  };
+  const holdDocument = (app: FastifyInstance, username: string) => {
+    const { base } = baseOf(app, username);
+    app.repos.bases.updateHoldings(base.id, base.resources, {
+      ...base.inventory,
+      [documentId]: 1,
+    });
+  };
+  const place = (app: FastifyInstance, username: string, amount: number) => {
+    const { user, base } = baseOf(app, username);
+    return placeBlackMarketBid(app.repos, {
+      base,
+      userId: user.id,
+      slotIndex: slot.index,
+      goodId: slot.goodId,
+      amount,
+      now: noon,
+      zone,
+    });
+  };
+
+  it('refuses the bid, and says why', async () => {
+    const { app } = await makeApp();
+    const one = await crew(app, 'plans_holder');
+    await giveInfamy(app, one.token, 500_000);
+    holdDocument(app, 'plans_holder');
+
+    expect(place(app, 'plans_holder', 100_000)).toEqual({
+      kind: 'refused',
+      reason: 'already_known',
+    });
+  });
+
+  it('passes the lot to the next crew when the leader came by the plans after bidding', async () => {
+    const { app } = await makeApp();
+    const one = await crew(app, 'plans_leader');
+    const two = await crew(app, 'plans_second');
+    await giveInfamy(app, one.token, 500_000);
+    await giveInfamy(app, two.token, 500_000);
+
+    expect(place(app, 'plans_second', 50_000)).toEqual({ kind: 'placed' });
+    expect(place(app, 'plans_leader', 60_000)).toEqual({ kind: 'placed' });
+    holdDocument(app, 'plans_leader');
+
+    settleBlackMarketLots(app.repos, blackMarketClosesAt(day), zone);
+
+    expect(baseOf(app, 'plans_leader').base.economy.infamy).toBe(500_000);
+    const second = baseOf(app, 'plans_second').base;
+    expect(second.inventory[documentId as keyof typeof second.inventory]).toBe(1);
+    expect(second.economy.infamy).toBeLessThan(500_000);
   });
 });

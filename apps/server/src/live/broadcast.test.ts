@@ -44,7 +44,7 @@ describe('broadcastKindFor', () => {
 
   /** Nobody else can see these, so nobody else is told. */
   it('says nothing for a write that changes only the writer', () => {
-    expect(broadcastKindFor('POST', '/api/city/scout')).toBeNull();
+    expect(broadcastKindFor('POST', '/api/city/spy')).toBeNull();
     expect(broadcastKindFor('POST', '/api/base/build')).toBeNull();
     expect(broadcastKindFor('POST', '/api/units/train')).toBeNull();
     expect(broadcastKindFor('POST', '/api/research/start')).toBeNull();

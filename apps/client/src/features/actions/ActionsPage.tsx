@@ -7,7 +7,6 @@ import {
   missionRemainingMs,
   movementCancelWindowMs,
   recallWindowMs,
-  scoutRecallWindowMs,
   SPY_TIER_SPECS,
   spyRecallWindowMs,
   moveRecallWindowMs,
@@ -18,7 +17,6 @@ import {
   type Mission,
   type MissionPhase,
   type MovementView,
-  type ScoutingRunView,
   type SleeperCellView,
   type Fleet,
 } from '@frontline/shared';
@@ -40,7 +38,6 @@ import {
   useMissions,
   useRecallColumn,
   useRecallMission,
-  useRecallScout,
   useRecallSpy,
   useRecallMove,
   useRecallSleepers,
@@ -64,14 +61,14 @@ import { ErrorNote } from '../../components/ui/ErrorNote';
  *
  * The board answers "what is coming and what came back". This answers "where is everybody right
  * now": columns walking to a fight, crews out on a job, forces standing at a fight they have
- * reached or fighting it, and the scout on the road. It listed only the first, so a player whose
+ * reached or fighting it, and the runners on a spy job. It listed only the first, so a player whose
  * whole army was out on missions was told nobody was out. Four reads, one clock (`useServerClock`
  * off the road's own `serverNow`), and every countdown on the page ticks.
  *
  * Anything on the road can be turned round in the first tenth of its walk out (maintainer request,
  * 2026-09-12), and every row wears the same X for it. A column's units go straight back onto the
  * roster: they have not reached anybody's ring, so unlike a withdrawal from ground already held,
- * nothing is owed for leaving. A crew on a job and the scout walk home the distance covered.
+ * nothing is owed for leaving. A crew on a job and a spy job walk home the distance covered.
  */
 /**
  * The two pages the Monitor is, and the drawn strip that switches between them (maintainer,
@@ -127,9 +124,7 @@ type MonitorPage = (typeof MONITOR_PAGES)[number]['id'];
  */
 function roadRows(road: Road): number {
   const counts = roadCounts(road);
-  return (
-    counts.columns + counts.jobs + counts.fights + counts.scouts + counts.cells + counts.stationed
-  );
+  return counts.columns + counts.jobs + counts.fights + counts.cells + counts.stationed;
 }
 
 /**
@@ -191,8 +186,7 @@ export function ActionsPage() {
   const now = useServerClock(query.data?.serverNow, query.dataUpdatedAt);
   const data = query.data;
   const road = onTheRoad(data, missions.data, battles.data);
-  const recallScout = useRecallScout(road.scout?.districtId);
-  const recallSpy = useRecallSpy(road.spy?.districtId);
+  const recallSpy = useRecallSpy();
   const recallMove = useRecallMove();
   const recallCell = useRecallSleepers();
   const { pathname } = useLocation();
@@ -209,7 +203,7 @@ export function ActionsPage() {
      * The same sheet Battles and Notifications get: `wide` and `fills`.
      *
      * This opened on the narrow default, so a page that lists every column on the road, every fight
-     * in flight and the scout, sat in a column about half the width of the screen beside a field of
+     * in flight and the spy job, sat in a column about half the width of the screen beside a field of
      * empty backdrop, while the two screens it is most like ran the full sheet. `wide` gives it the
      * width, and `fills` makes the list do its own scrolling instead of the whole sheet growing,
      * which is what a live board of things in flight wants (maintainer request, 2026-09-14).
@@ -280,7 +274,7 @@ export function ActionsPage() {
               built and `/actions` polls at 5s, while the row's own `canRecall` is recomputed every
               second: for up to five seconds after the window shuts the row reads "0s left to
               decide" beside a live button. `DeclareDialog` renders this same mutation's error. */}
-          {[recall, recallJob, recallScout, recallSpy, recallMove, recallCell].map(
+          {[recall, recallJob, recallSpy, recallMove, recallCell].map(
             (write, index) =>
               write.error && <ErrorNote key={index}>{write.error.message}</ErrorNote>,
           )}
@@ -383,24 +377,6 @@ export function ActionsPage() {
             </Section>
           )}
 
-          {road.scout !== null && (
-            <Section
-              icon="eye"
-              title="Looking"
-              note="The Master of Whispers' party, out. The ground opens the moment they are back, unless they were turned round in the first tenth of the way."
-              count={1}
-            >
-              <ul className="flex flex-col gap-2.5">
-                <Scout
-                  run={road.scout}
-                  now={now}
-                  pending={recallScout.isPending}
-                  onRecall={() => recallScout.mutate({})}
-                />
-              </ul>
-            </Section>
-          )}
-
           {road.moves.length > 0 && (
             <Section
               icon="actions"
@@ -422,15 +398,18 @@ export function ActionsPage() {
             </Section>
           )}
 
-          {road.spy !== null && (
-            <Section icon="eye" title="Spying" count={1}>
+          {road.spies.length > 0 && (
+            <Section icon="eye" title="Spying" count={road.spies.length}>
               <ul className="flex flex-col gap-2.5">
-                <SpyJob
-                  run={road.spy}
-                  now={now}
-                  pending={recallSpy.isPending}
-                  onRecall={() => recallSpy.mutate({})}
-                />
+                {road.spies.map((run) => (
+                  <SpyJob
+                    key={run.id}
+                    run={run}
+                    now={now}
+                    pending={recallSpy.isPending}
+                    onRecall={() => recallSpy.mutate({ runId: run.id, districtId: run.districtId })}
+                  />
+                ))}
               </ul>
             </Section>
           )}
@@ -446,7 +425,6 @@ function Counts({ road }: { road: Road }) {
     counts.columns > 0 && `${counts.columns} walking`,
     counts.fights > 0 && `${counts.fights} at a fight`,
     counts.jobs > 0 && `${counts.jobs} on a job`,
-    counts.scouts > 0 && 'a scout party out',
     counts.spies > 0 && 'runners on a job',
     counts.moves > 0 && `${counts.moves} moving`,
     // §A4: the two the header used to leave out, so the summary adds up to the page under it.
@@ -912,50 +890,6 @@ function SpyJob({
             pending={pending}
             onCancel={onRecall}
             data-testid="recall-spy"
-          />
-        </div>
-      )}
-    </Row>
-  );
-}
-
-/** The scout on the road: one person, one mark, home and the ground open at the same moment. */
-function Scout({
-  run,
-  now,
-  pending,
-  onRecall,
-}: {
-  run: ScoutingRunView;
-  now: Date;
-  pending: boolean;
-  onRecall: () => void;
-}) {
-  const left = Math.max(0, Date.parse(run.returnsAt) - now.getTime());
-  const total = Math.max(1, Date.parse(run.returnsAt) - Date.parse(run.departedAt));
-  const window = scoutRecallWindowMs(run, now);
-  const turned = run.recalledAt !== null;
-  return (
-    <Row testId="scout-run" name={run.officerName} status={turned ? 'Turned round' : 'Scouting'}>
-      <Route from="Home" to={run.districtName} remaining={formatRemaining(left)} />
-      <ProgressBar
-        progress={Math.min(1, Math.max(0, 1 - left / total))}
-        label={run.districtName}
-        tone="brass"
-      />
-      <p className="font-body text-[12px] text-ink-300">
-        {turned
-          ? `Walking home, in ${formatRemaining(left)}. The ground stays shut.`
-          : `Back with the ground open in ${formatRemaining(left)}.`}
-      </p>
-      {window > 0 && (
-        <div className="border-t border-surface-700/70 pt-2.5">
-          <CancelMark
-            windowMs={window}
-            label={`Turn the ${run.officerName} round`}
-            pending={pending}
-            onCancel={onRecall}
-            data-testid="recall-scout"
           />
         </div>
       )}

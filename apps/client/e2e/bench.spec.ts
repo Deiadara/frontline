@@ -123,7 +123,7 @@ test('lists what is on the road, and offers to turn back only what is still clos
   await expect(page.getByTestId(`recall-${late!.id}`)).toHaveCount(0);
 
   // Everything else that is away is on the same page: the crews out on jobs, the force standing at
-  // the fight it has reached, and the scout on the road. The page used to list the columns alone.
+  // the fight it has reached, and the spy job on the road. The page used to list the columns alone.
   await expect(page.locator('[data-testid^="job-"]').first()).toBeVisible();
   await expect(page.getByTestId('job-m-1')).toContainText('Deep Expedition');
   await expect(page.getByTestId('working-razors')).toBeVisible();
@@ -133,9 +133,8 @@ test('lists what is on the road, and offers to turn back only what is still clos
   // listed the walkers and nothing they were riding in.
   await expect(page.getByTestId('walking-ride-motorcycle')).toContainText('The Scrappy');
   await expect(page.getByTestId('posted-ride-motorcycle')).toContainText('The Scrappy');
-  await expect(page.getByTestId('scout-run')).toContainText('Scout Party');
-  await expect(page.getByTestId('scout-run')).toContainText('The Rustyard');
-  await expect(page.getByTestId('road-counts')).toContainText('a scout party out');
+  await expect(page.getByTestId('spy-run')).toContainText('The Rustyard');
+  await expect(page.getByTestId('road-counts')).toContainText('runners on a job');
 
   const sent: string[] = [];
   page.on('request', (request) => {

@@ -173,7 +173,6 @@ async function makeStack(winner: 'attacker' | 'defender', homeGate: number): Pro
     infamy: DECLARE_INFAMY_COST * 8,
     notoriety: NOTORIETY_TO_FIELD.legendary,
   });
-  app.repos.city.markScouted(baseId, 'steelbelt', new Date().toISOString());
   for (const locationId of RUSTYARD_LOCATIONS) app.repos.city.control(locationId);
 
   app.repos.users.insert({
@@ -363,7 +362,7 @@ describe('a Colossus walking into a trap', () => {
     const { resolved, sent, held } = await trappedFight({ razors: 30, [COLOSSUS]: 1 });
     expect(held, 'the trap was not spent').toBe(1);
     expect(sent, 'the trap bit a column with a Colossus in it').toBe(31);
-    expect(resolved.analysis.trap).toEqual({ name: TRAP.name, killed: 0 });
+    expect(resolved.analysis.trap).toEqual({ name: TRAP.name, killed: 0, slowed: false });
     expect(resolved.analysis.log).toContain(`The Colossus walked through the ${TRAP.name}.`);
   });
 

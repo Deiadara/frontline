@@ -13,7 +13,7 @@ import { settleWorld } from '../world/settle.js';
  *
  * The faction answer to `/crews/:id`, and deliberately a separate route from `/factions`, which is
  * the screen for the table you sit at. That one carries ally armies, ally battles and open
- * invitations, and all three are the point of membership: a rival reading them would be scouting
+ * invitations, and all three are the point of membership: a rival reading them would be spying on
  * five crews with one request. This one carries what the standings already print, plus who is at
  * the table, so a player can decide whether to pick a fight with it or ask it for a seat.
  *
@@ -28,10 +28,11 @@ export function registerFactionProfileRoutes(app: FastifyInstance): void {
     (request): FactionProfileResponse => {
       const now = new Date();
       const userId = request.currentUser.id;
-      // Levels and infamy are both settle-on-read, and this page prints a member's own numbers
-      // beside the faction's: a file quoting a level the crew's own screen would not agree with is
-      // two screens arguing about one number.
-      settleWorld(app.repos, app.skirmishEngine, now);
+      // This page prints a member's own numbers beside the faction's: a file quoting a level the
+      // crew's own screen would not agree with is two screens arguing about one number. Infamy
+      // moves with the fights settled here; levels are banked by the world clock's finished-work
+      // sweep (`district/finished.ts`), which reaches a crew whose owner is not looking.
+      settleWorld(app.repos, app.skirmishEngine, now, undefined, app.config.admin);
 
       const faction = app.repos.factions.find(request.params.id);
       if (!faction) throw new AppError('NOT_FOUND', 'No such faction');

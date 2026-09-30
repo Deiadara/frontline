@@ -84,6 +84,10 @@ describe('sections', () => {
       'plate-district-ironmouth',
       'plate-district-marshalling-yards',
       'plate-district-bonded-row',
+      'plate-district-telemetry-hill',
+      'plate-district-viaduct',
+      'plate-district-last-platform',
+      'plate-district-blockhouse',
     ]);
     // The officer pool is opaque and croppable and lands here too, all of it. Read off the pool
     // rather than typed: the board added ten faces once and has three times since.

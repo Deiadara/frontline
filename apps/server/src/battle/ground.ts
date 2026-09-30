@@ -154,12 +154,18 @@ function districtLabel(districtId: string, resident: Base | undefined): string {
  * only matters in a database from before that; it goes with the bots (the TODO in `seed/index.ts`).
  */
 export function residentOf(repos: Repositories, districtId: string): Base | undefined {
-  const living = repos.bases
-    .listSummaries()
-    .filter((candidate) => candidate.districtId === districtId);
-  const summary = living.find((candidate) => !candidate.isBot) ?? living[0];
+  const summary = residentAmong(repos.bases.listSummaries(), districtId);
   return summary ? repos.bases.findById(summary.id) : undefined;
 }
+
+/** {@link residentOf}'s rule over summaries already read: nothing in a crew's row is parsed. */
+function residentAmong(summaries: readonly CrewTag[], districtId: string): CrewTag | undefined {
+  const living = summaries.filter((candidate) => candidate.districtId === districtId);
+  return living.find((candidate) => !candidate.isBot) ?? living[0];
+}
+
+/** What a summary row says about a crew, and all the call's price needs of one. */
+type CrewTag = Pick<Base, 'id' | 'districtId' | 'isBot'>;
 
 /**
  * A home plot nobody lives on, from where `viewer` stands: closed to them until a crew claims it
@@ -209,6 +215,23 @@ export function crewCalledOut(
 }
 
 /**
+ * {@link crewCalledOut}, answered off summaries already read rather than off each crew's row.
+ *
+ * For the board's price list, which asks it of every target in the world since the whole city
+ * became visible (2026-09-29). Reading each crew's full row there meant one unparseable save took
+ * every other player's battle board down with it (`robustness/simulation.test.ts`).
+ */
+export function crewCalledOutAmong(
+  summaries: readonly CrewTag[],
+  target: BattleTarget,
+  defender: LocationHolder,
+): CrewTag | undefined {
+  if (defender.kind === 'crew') return summaries.find((one) => one.id === defender.baseId);
+  if (target.kind !== 'location') return residentAmong(summaries, target.districtId);
+  return undefined;
+}
+
+/**
  * The crew standing behind the defending side of a declared fight, if one is.
  *
  * Lives here rather than in `declare.ts` because `sideOf` (`deploy.ts`) has to ask it too, and
@@ -219,4 +242,24 @@ export function crewCalledOut(
  */
 export function defendingBaseOf(repos: Repositories, battle: ScheduledBattle): Base | undefined {
   return crewCalledOut(repos, battle.target, battle.defender);
+}
+
+/**
+ * Every crew with a stake in a declared fight: the caller, every crew with a row on either side,
+ * and the crew being called out.
+ *
+ * The last is the one a list of rows misses. A raid or a gate call writes the defending row with
+ * no crew on it (`declare.ts`), so a resident who never deployed has no row at all, and yet they
+ * are the one crew certain to have heard about the fight: `district_attacked` rang for them at the
+ * call, and a player cannot switch it off. A fight called off without them in this list vanished
+ * from their board with nothing said.
+ */
+export function crewsInFight(repos: Repositories, battle: ScheduledBattle): Set<string> {
+  return new Set(
+    [
+      battle.attackerBaseId,
+      ...repos.sieges.deployments(battle.id).map((row) => row.baseId),
+      defendingBaseOf(repos, battle)?.id,
+    ].filter((id): id is string => typeof id === 'string'),
+  );
 }

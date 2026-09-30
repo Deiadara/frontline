@@ -21,6 +21,7 @@ import { plantSleepers } from '../city/sleepers.js';
 import { moveMinutes, sendMove, settleMoves } from '../moves/moves.js';
 import { chooseOverseer } from '../testing/overseer.js';
 import { settleMovements } from './movement.js';
+import { cardOn } from '../testing/card.js';
 
 /**
  * The last hour before a fight, over everything leaving the place of it, and nothing that moves
@@ -81,7 +82,6 @@ async function register(app: FastifyInstance, username: string, army: Army): Pro
   const base = app.repos.bases.findById(baseId)!;
   app.repos.bases.updateEconomy(baseId, { ...base.economy, infamy: DECLARE_INFAMY_COST * 8 });
   app.repos.bases.updateArmy(baseId, army, []);
-  app.repos.city.markScouted(baseId, 'steelbelt', new Date().toISOString());
   return { token: body.token, userId: body.user.id, baseId };
 }
 
@@ -226,6 +226,7 @@ describe('the gate and the district are held by their own fights', () => {
         payload: {
           templateId: job.template.id,
           areaId: MISC_AREA_ID,
+          ...cardOn(MISC_AREA_ID, job.grade),
           force: { razors: 1 },
           leaderId: 'off-1',
         },

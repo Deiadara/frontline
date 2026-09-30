@@ -1,5 +1,7 @@
 import {
   GAME_TIMEZONE,
+  NO_FREE_BED_TEXT,
+  committedWage,
   formatClock,
   nextMinimumBid,
   notorietyTier,
@@ -14,6 +16,7 @@ import { Confirm } from '../../components/ui/Confirm';
 import { Icon } from '../../components/ui/Icon';
 import { Modal } from '../../components/ui/Modal';
 import { NumberField } from '../../components/ui/NumberField';
+import { YouPay } from '../../components/ui/YouPay';
 import { OfficerPortrait } from '../overseer/OfficerPortrait';
 import { PerkTags } from '../../components/PerkTags';
 import { cn } from '../../lib/cn';
@@ -46,9 +49,11 @@ export function AuctionWindow({
   auction,
   now,
   bidCeiling,
+  wageDiscountPercent = 0,
   auctionsUsed,
   auctionsAllowed,
   chairsFree,
+  bedsFree,
   onClose,
 }: {
   recruit: BarRecruit;
@@ -56,10 +61,14 @@ export function AuctionWindow({
   now: Date;
   /** The most this crew can put on a table: the book after its own negotiators (`bidCeiling`). */
   bidCeiling: number;
+  /** `BarResponse.wageDiscountPercent`: what the crew's negotiators take off a won table. */
+  wageDiscountPercent?: number;
   auctionsUsed: number;
   auctionsAllowed: number;
   /** Chairs left on the books. A win with none free passes to the next crew at the close. */
   chairsFree: number;
+  /** Beds left in the district. An officer takes one, so at zero the table refuses a bid. */
+  bedsFree: number | undefined;
   onClose: () => void;
 }) {
   // Bid times are printed on the player's own clock, never the wire's UTC.
@@ -120,9 +129,11 @@ export function AuctionWindow({
             standing={standing}
             inThisOne={inThisOne}
             bidCeiling={bidCeiling}
+            wageDiscountPercent={wageDiscountPercent}
             auctionsUsed={auctionsUsed}
             auctionsAllowed={auctionsAllowed}
             chairsFree={chairsFree}
+            bedsFree={bedsFree}
           />
           <BidHistory auction={auction} zone={zone} />
         </div>
@@ -331,9 +342,11 @@ function BidPanel({
   standing,
   inThisOne,
   bidCeiling,
+  wageDiscountPercent,
   auctionsUsed,
   auctionsAllowed,
   chairsFree,
+  bedsFree,
 }: {
   recruit: BarRecruit;
   auction: BarAuction;
@@ -341,9 +354,12 @@ function BidPanel({
   standing: ReturnType<typeof standingOf>;
   inThisOne: boolean;
   bidCeiling: number;
+  /** `BarResponse.wageDiscountPercent`: what the crew's negotiators take off a won table. */
+  wageDiscountPercent: number;
   auctionsUsed: number;
   auctionsAllowed: number;
   chairsFree: number;
+  bedsFree: number | undefined;
 }) {
   const bid = usePlaceBid();
   const seal = useSealBid();
@@ -382,13 +398,21 @@ function BidPanel({
     ? 'They will not sit down with your crew. Nothing you bid changes that.'
     : chairsFree <= 0
       ? 'Your books are full. Let somebody go before you bid on anybody.'
-      : atCap
-        ? `You are at ${auctionsAllowed} tables already. Let one close first.`
-        : null;
+      : bedsFree === 0
+        ? NO_FREE_BED_TEXT
+        : atCap
+          ? `You are at ${auctionsAllowed} tables already. Let one close first.`
+          : null;
   // A win the crew cannot seat passes to the next final at the close. Said before the bid, not
   // after midnight: two tables and one chair is a choice, and it should be made on purpose.
   const tables = auctionsUsed + (inThisOne ? 0 : 1);
-  const overChairs = shut === null && chairsFree < tables;
+  // A bed runs out the same way a chair does and the close refuses it the same way, so the warning
+  // names whichever is shorter. It used to count chairs alone: three chairs and one bed at two
+  // tables said nothing, and the second win passed at midnight.
+  const beds = bedsFree ?? Number.POSITIVE_INFINITY;
+  const room = Math.min(chairsFree, beds);
+  const scarce = beds < chairsFree ? 'bed' : 'chair';
+  const overChairs = shut === null && room < tables;
   /*
    * Leading stops an open bid and nothing else.
    *
@@ -415,8 +439,8 @@ function BidPanel({
           className="font-body text-[12px] leading-relaxed text-brass-100"
           data-testid="chairs-warning"
         >
-          {chairsFree === 1 ? 'One chair' : `${chairsFree} chairs`} free for {tables} tables. A win
-          you cannot seat passes to the next crew.
+          {room === 1 ? `One ${scarce}` : `${room} ${scarce}s`} free for {tables} tables. A win you
+          cannot seat passes to the next crew.
         </p>
       )}
 
@@ -446,6 +470,11 @@ function BidPanel({
               disabled={refusal !== null}
               className="min-w-0 flex-1"
               data-testid="bid-amount"
+            />
+            <YouPay
+              bid={amount}
+              pay={committedWage(amount, wageDiscountPercent)}
+              testId="bid-you-pay"
             />
             <span className="shrink-0 font-display text-[10px] uppercase tracking-[0.16em] text-ink-300">
               / wk
@@ -524,6 +553,11 @@ function BidPanel({
                 disabled={shut !== null}
                 className="min-w-0 flex-1"
                 data-testid="seal-amount"
+              />
+              <YouPay
+                bid={sealAmount}
+                pay={committedWage(sealAmount, wageDiscountPercent)}
+                testId="seal-you-pay"
               />
               <span className="shrink-0 font-display text-[10px] uppercase tracking-[0.16em] text-ink-300">
                 / wk

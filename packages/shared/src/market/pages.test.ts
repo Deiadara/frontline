@@ -10,8 +10,10 @@
  * odds constant says what was intended, and what a player sees is what the whole deck does with it.
  */
 import { describe, expect, it } from 'vitest';
-import { BLUEPRINTS } from '../blueprints/catalog.js';
+import { BLUEPRINTS, pageRarity } from '../blueprints/catalog.js';
+import { CITIES } from '../city/cities.js';
 import { ITEM_CATALOG, type ItemId } from '../items/catalog.js';
+import type { ItemRarity } from '../items/rarity.js';
 
 /** The kind of an item on a barrow line, looked up once rather than indexed inline. */
 const kindOf = (item: string): string => ITEM_CATALOG[item as ItemId].kind;
@@ -43,15 +45,16 @@ describe('the Black Market sells pages (§F2)', () => {
       }
     }
     const share = (kinds.get('blueprint_page') ?? 0) / slots;
-    // Measured at 18.9% when this was written and 19.7% over two years of real dates; the band is
-    // wide because the shelf is a whole deal rather than one constant. The floor is the interesting
-    // half: every page went into the deck at first and nine tenths of the shelf became pages.
+    // Pages are one kind of five, at weight 1 of 14 (maintainer, 2026-09-29: "fence kinds by
+    // weight"), so 7.1% of slots; 7.1% measured over two years of real dates in five rooms. It was
+    // 19% while every good in the deal stood an even chance of opening a slot, and nine tenths of
+    // the shelf when every page went into the deck.
     //
     // Structurally independent of how many pages the catalogue has, and that is worth knowing when
     // documents are added: `pagesOnShelf` always deals `PAGES_ON_THE_SHELF` of them, whatever the
     // total, so a longer catalogue makes a *named* page rarer and the page share identical.
-    expect(share, `pages are ${(100 * share).toFixed(1)}% of the shelf`).toBeGreaterThan(0.08);
-    expect(share, `pages are ${(100 * share).toFixed(1)}% of the shelf`).toBeLessThan(0.3);
+    expect(share, `pages are ${(100 * share).toFixed(1)}% of the shelf`).toBeGreaterThan(0.04);
+    expect(share, `pages are ${(100 * share).toFixed(1)}% of the shelf`).toBeLessThan(0.11);
   });
 
   it('carries only a handful of the catalogue on any one day', () => {
@@ -117,5 +120,35 @@ describe('the Runner sometimes has a page (§F3)', () => {
       // One sheet of paper, and only ever one.
       expect(line.stock).toBe(1);
     }
+  });
+
+  /*
+   * "Runner pages by rarity" (maintainer, 2026-09-29), on `PAGE_DRAW_WEIGHT`'s 6 to 3 between a
+   * Basic and a Masterpiece sheet. Ten years of barrows in every city: drawn flat, each Basic page
+   * came up 1.02 times a year and each Masterpiece 1.07; weighted, 1.46 and 0.70.
+   */
+  it('carries a rare page less often than a common one', () => {
+    const rarityOf = new Map<string, ItemRarity>(
+      BLUEPRINTS.flatMap((blueprint) =>
+        blueprint.pages.map((page) => [page.id, pageRarity(blueprint, page)] as const),
+      ),
+    );
+    const lines = new Map<ItemRarity, number>();
+    const start = Date.UTC(2026, 0, 1, 12);
+    for (let day = 0; day < 3650; day += 1) {
+      const date = new Date(start + day * 86_400_000).toISOString().slice(0, 10);
+      for (const city of CITIES) {
+        for (const line of vendorStockFor(date, city.id)) {
+          const rarity = rarityOf.get(line.item);
+          if (rarity) lines.set(rarity, (lines.get(rarity) ?? 0) + 1);
+        }
+      }
+    }
+    const perPage = (rarity: ItemRarity) =>
+      (lines.get(rarity) ?? 0) / [...rarityOf.values()].filter((one) => one === rarity).length;
+    const ratio = perPage('basic') / perPage('masterpiece');
+    expect(ratio, `a Basic page ${ratio.toFixed(2)}x a Masterpiece`).toBeGreaterThan(1.6);
+    expect(ratio, `a Basic page ${ratio.toFixed(2)}x a Masterpiece`).toBeLessThan(2.5);
+    expect(perPage('intricate')).toBeGreaterThan(perPage('advanced'));
   });
 });

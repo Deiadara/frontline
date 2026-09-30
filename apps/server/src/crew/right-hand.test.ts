@@ -1,5 +1,4 @@
 import {
-  CITY_DISTRICTS,
   MAX_OVERSEER_LIFT,
   MAX_RIGHT_HAND_LIFT,
   createCommander,
@@ -70,7 +69,6 @@ function stack(rightHandRating: number | null): { repos: Repositories; base: Bas
     createdAt: now,
   };
   repos.bases.insert(base);
-  for (const district of CITY_DISTRICTS) repos.city.markScouted(base.id, district.id, now);
   return { repos, base };
 }
 

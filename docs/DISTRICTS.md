@@ -65,8 +65,8 @@ frame**, so a lower `y` is further up the city.
 
 The layout is a climb. Water and crews at the bottom (the Docks, Kettle Row, the Steelbelt: the
 cheapest ground in the game), the Combine at the top, with the Combine Spire looking down the
-middle of the frame from the highest point on it. Difficulty rises with height almost monotonically,
-which `city.test.ts` pins as a rank correlation above 0.85, so "further up" and "harder" are the
+middle of the frame from the highest point on it. Difficulty rises with height almost monotonically
+across the contested districts, which `city.test.ts` pins as a rank correlation above 0.85, so "further up" and "harder" are the
 same direction and a player can read the next rung off the map without opening anything. Distance
 costs time: `geography.ts` charges 85 minutes per map unit, so the corner-to-corner journey is about
 two hours before any travel bonus.
@@ -95,11 +95,14 @@ are handed out in. It is not map order and not difficulty order.
 the district's gate is armed: one party holding all of it is what arms a gate, and a gate is the
 only thing a crew can hit on shut ground. Chrome Row and Glasshouse Fields are the two ways in.
 
+`Difficulty` is a number the server reads (garrison size, musters, spy counters, mission pay) and
+no screen prints (maintainer, 2026-09-30). Plots have none, so their cell is empty.
+
 | District                           | Kind        | Held by                | Difficulty | Position (x, y) | Holds | Open | Leader          |
 | ---------------------------------- | ----------- | ---------------------- | ---------- | --------------- | ----- | ---- | --------------- |
 | Neon Docks                         | contested   | Combine                | 1          | 0.15, 0.9       | 7     | 0    |                 |
-| Player District (`ashen-terraces`) | residential | independent            | 4          | 0.84, 0.62      | none  |      |                 |
-| Player District (`kettle-row`)     | residential | independent            | 2          | 0.38, 0.82      | none  |      |                 |
+| Player District (`ashen-terraces`) | residential | independent            |            | 0.84, 0.62      | none  |      |                 |
+| Player District (`kettle-row`)     | residential | independent            |            | 0.38, 0.82      | none  |      |                 |
 | Steelbelt                          | contested   | Combine                | 2          | 0.63, 0.83      | 7     | 0    |                 |
 | Chrome Row                         | contested   | looters                | 4          | 0.3, 0.62       | 8     | 4    |                 |
 | The Undergrid                      | contested   | looters                | 5          | 0.55, 0.58      | 7     | 0    |                 |
@@ -107,8 +110,8 @@ only thing a crew can hit on shut ground. Chrome Row and Glasshouse Fields are t
 | Glasshouse Fields                  | contested   | Combine                | 3          | 0.1, 0.58       | 8     | 2    |                 |
 | Blacksite                          | contested   | Combine, seat of power | 8          | 0.33, 0.3       | 8     | 0    | The Executioner |
 | CCS                                | contested   | Combine, seat of power | 10         | 0.57, 0.13      | 8     | 0    | Directive Xero  |
-| Player District (`upper-roofs`)    | residential | independent            | 2          | 0.91, 0.79      | none  |      |                 |
-| Player District (`south-quay`)     | residential | independent            | 1          | 0.78, 0.93      | none  |      |                 |
+| Player District (`upper-roofs`)    | residential | independent            |            | 0.91, 0.79      | none  |      |                 |
+| Player District (`south-quay`)     | residential | independent            |            | 0.78, 0.93      | none  |      |                 |
 
 ## The Combine
 
@@ -126,22 +129,53 @@ from the Blacksite, all three in the CCS. How _many_ is `combineSlotBudget`, and
 **unit slots** rather than bodies, which matters: a Suppressor is four slots and a Levy is one, so
 counting heads made the Blacksite four times the army the Annexes was at two rungs' difference.
 
+The looters stand on the same budget (maintainer, 2026-09-29), in their own Razors and Scrapers
+(`looterGarrison`), and a muster called out by a declaration is the same share of it for either
+party. So a district's difficulty is one number whoever holds it: before, looters were a head count
+on a flatter line of their own, and Chrome Row at 4 and the Undergrid at 5 fell to 20 Razors while
+the Glasshouse Berm at 3 wanted 40. Measured on the real settle after the change (smallest Razor
+column taking the district's hardest ordinary plot 9 fights in 12, leaders dead; pinned as a climb
+by `apps/server/src/city/difficulty-ladder.test.ts`):
+
+| District          | Holder, difficulty | Hardest ordinary plot         | Razors |
+| ----------------- | ------------------ | ----------------------------- | ------ |
+| Neon Docks        | Combine, 1         | `neon-docks-cranegate`        | 10     |
+| Coldwater Halt    | looters, 1         | `coldwater-halt-signal`       | 14     |
+| Steelbelt         | Combine, 2         | `steelbelt-bonefield`         | 20     |
+| Ironmouth         | looters, 2         | `ironmouth-arches`            | 20     |
+| Glasshouse Fields | Combine, 3         | `glasshouse-fields-berm`      | 29     |
+| Marshalling Yards | looters, 3         | `marshalling-yards-signalbox` | 34     |
+| Chrome Row        | looters, 4         | `chrome-row-cathode`          | 48     |
+| Bonded Row        | looters, 4         | `bonded-row-crated`           | 57     |
+| The Undergrid     | looters, 5         | `undergrid-lair`              | 68     |
+| Telemetry Hill    | Combine, 6         | `telemetry-hill-array`        | 96     |
+| The Annexes       | Combine, 6         | `annexes-scaffold`            | 114    |
+| Viaduct           | Combine, 7         | `viaduct-archnineteen`        | 136    |
+| Blacksite         | Combine, 8         | `blacksite-pile`              | 161    |
+| Last Platform     | Combine, 9         | `last-platform-armoury`       | 161    |
+| Blockhouse        | Combine, 10        | `blockhouse-chapel`           | 228    |
+| CCS               | Combine, 10        | `ccs-armory`                  | 228    |
+
+With its leader standing, a coarser walk (a root of two between rungs) read the Annexes at 113, the
+Blacksite at 226 and the CCS past 320: the leaders are a second climb on top of the garrison.
+
 ### The three who run it
 
 Each commands a district and stands on exactly one plot in it. His power covers every Combine
 defence in his district while he lives; his body fights only where it stands. Take that plot and he
 is dead for the whole world, and the district fights without them from then on.
 
-| Leader          | District  | Stands on         | What they are worth                                                                                                                                                                        |
-| --------------- | --------- | ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| The Syndic      | Annexes   | Annexe Uplink     | Standing Orders: +25 penetration and +25 armour to the Combine's own line in the Annexes. Nothing at all on the sheet of whoever is sent against it. She is the one woman among the three. |
-| The Executioner | Blacksite | Blacksite Armory  | Any attacking unit left under 10% of its vitality after an exchange is finished where it stands.                                                                                           |
-| Directive Xero  | CCS       | The Chosen Chapel | His side fights at 100 morale and cannot be intimidated, and the attackers who would have been intimidated change sides and are his for good.                                              |
+| Leader          | District  | Stands on         | What they are worth                                                                                                                                                                                             |
+| --------------- | --------- | ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| The Syndic      | Annexes   | Annexe Uplink     | Standing Orders: +25 penetration and +25 armour to the Combine's own line in the Annexes. Nothing at all on the sheet of whoever is sent against it. She is the one woman among the three.                      |
+| The Executioner | Blacksite | Blacksite Armory  | Any attacking unit brought down to 30% of its vitality is finished where it stands, and what it had left is lost.                                                                                               |
+| Directive Xero  | CCS       | The Chosen Chapel | His side fights at 100 morale and cannot be intimidated, and the attackers who would have been intimidated change sides and fight for him, for that fight only. After it they are dead, on a plot as at a gate. |
 
 Directive Xero is the wall the whole map climbs towards. Measured on 2026-09-20 against a crew mix
 sized in unit slots: the CCS wants about 230 slots to take a plot without him, and more than 400
 with him, because Change of Heart turns the part of your line that §D3 would have silenced into
-part of his.
+part of his. The report counts his turncoats in Died, and so do the Bone Market's refund and the
+flawless-win feats, with a line of its own saying how many he turned (maintainer, 2026-09-29).
 
 ## Contested districts
 
@@ -164,14 +198,14 @@ Garrison before anybody takes it: a thin line of Civic Levy with surplus blades.
 | Runners' Tunnel     | Smuggler's Tunnel | Every crew you send anywhere is back sooner. There is a shorter way and you own it.                                  |
 | The Wet Galley      | Soup Kitchen      | Supplies off the ration line, and a crew that has eaten fights like one.                                             |
 | The Moored Barges   | Fence Camp        | More people than any building in your district could house, and every one of them looking for a reason to be useful. |
-| Crane Site          | Watchtower        | Everything your scouts do, they do better: everywhere in the city, not just here.                                    |
+| Crane Site          | Watchtower        | Everything your spies do, they do better: everywhere in the city, not just here.                                     |
 | The Chandlery       | Pawn Shop         | A smaller cut, and a fence who moves what a raid brings back.                                                        |
 
 ### Steelbelt
 
-`steelbelt`, called the Belt. Difficulty 2 of 10, independent ground, at 0.63, 0.83 on the map.
+`steelbelt`, called the Belt. Difficulty 2 of 10, Combine ground, at 0.63, 0.83 on the map.
 
-Rolling mills, press houses and a furnace row that has not gone cold in thirty years. Nobody owns the Belt outright: the crews that work it hold their own gates, and none of them holds enough of it to stop anybody else walking in.
+Rolling mills, press houses and a furnace row that has not gone cold in thirty years. The Combine holds every works on the Belt and keeps the gate shut behind them, and the crews who work it clock in under Greycoat guns.
 
 Working industry, not a scrapyard: presses on shift, furnaces lit, a pump row selling to the hauliers. The id is still `steelbelt` because every location id and every saved control row is keyed on it.
 
@@ -197,7 +231,8 @@ What is left of downtown: bank halls turned into markets, a picture house that n
 
 The old downtown. Eight holds, the widest spread of kinds on the map, and the district a crew usually takes second.
 
-Garrison before anybody takes it: whoever holds the ground and has decided to keep it.
+Garrison before anybody takes it: the looters on the plots they squat. The district screen counts
+them rather than promising a sentence (maintainer, 2026-09-30).
 
 **Unified bonus, The Row Runs For You:** missions run 10% faster, for holding every location in the district.
 
@@ -218,9 +253,10 @@ Garrison before anybody takes it: whoever holds the ground and has decided to ke
 
 The Combine meters the whole undercity from down here. Bundled conduit running the walls like roots, transformer housings the size of buildings, and older tunnels underneath that are on nobody’s drawings.
 
-The Combine’s metering floor for the whole undercity, and the first Combine ground on the climb.
+The Combine’s metering floor for the whole undercity, and the one district the looters hold outright: every plot squatted and the gate shut.
 
-Garrison before anybody takes it: an enforcer column with rolling counter-ICE support.
+Garrison before anybody takes it: the looters on the plots they squat. The district screen counts
+them rather than promising a sentence (maintainer, 2026-09-30).
 
 **Unified bonus, Hand on the Power Spine:** building runs 12% faster, for holding every location in the district.
 
@@ -249,7 +285,7 @@ Garrison before anybody takes it: Greycoats with Street Enforcers on the corners
 | Location               | Kind              | What holding it pays                                                                       |
 | ---------------------- | ----------------- | ------------------------------------------------------------------------------------------ |
 | The Faculty Annexe     | University        | Every research project finishes sooner.                                                    |
-| Annexe Uplink          | Satellite Uplink  | You can see into districts without walking into them first.                                |
+| Annexe Uplink          | Satellite Uplink  | What goes over the air in this city, your spies have already read.                         |
 | The Quiet Ward         | Gene Clinic       | Work can be done on people here that cannot be done anywhere else.                         |
 | Cold Row               | Foundry           | High-quality metal. Nothing else in the city makes it in quantity.                         |
 | The Orrery             | Planetarium       | A room built for thinking in, and an optical bench worth more than the building around it. |
@@ -295,7 +331,7 @@ Garrison before anybody takes it: Street Enforcers behind Suppressor positions.
 | ---------------- | ----------------------- | ----------------------------------------------------------------------------------------------------------------- |
 | Blacksite Armory | Armory                  | Cheaper units, and a bench that will fit anything you can find a part for.                                        |
 | Outer Berm       | Barricade               | A harder approach to everything behind it.                                                                        |
-| The Watchtower   | Watchtower              | Everything your scouts do, they do better: everywhere in the city, not just here.                                 |
+| The Watchtower   | Watchtower              | Everything your spies do, they do better: everywhere in the city, not just here.                                  |
 | Robot Pit        | Fight Pit               | Your people are harder to frighten, and better for the practice.                                                  |
 | Motor Pool       | War Machine Graveyard   | Hulls, plate and running gear, and troops that come back from more than they should.                              |
 | The Drill Hall   | The Gym                 | One more session in the day than the day has room for.                                                            |
@@ -316,7 +352,7 @@ Garrison before anybody takes it: Suppressors, Enforcers and Greycoats, and what
 
 | Location                | Kind              | What holding it pays                                                                                               |
 | ----------------------- | ----------------- | ------------------------------------------------------------------------------------------------------------------ |
-| Command Uplink          | Satellite Uplink  | You can see into districts without walking into them first.                                                        |
+| Command Uplink          | Satellite Uplink  | What goes over the air in this city, your spies have already read.                                                 |
 | Combine Armory          | Armory            | Cheaper units, and a bench that will fit anything you can find a part for.                                         |
 | The Household Barricade | Barricade         | A harder approach to everything behind it.                                                                         |
 | Command Broadcast       | Broadcast Station | Everyone on your books gets better at the half of the job that is talking to people.                               |
@@ -328,30 +364,32 @@ Garrison before anybody takes it: Suppressors, Enforcers and Greycoats, and what
 ## Residential districts
 
 Four plots, where crews live. They hold no locations, they cannot be captured, and they can be
-raided by anybody but their own resident. They differ only in where they sit and how hard the ground
-around them is.
+raided by anybody but their own resident. They differ only in where they sit. A plot has no
+difficulty (maintainer, 2026-09-30): what stands behind its gate is whatever its crew built, so no
+number authored against the ground could say how hard it is to hit, and none is shown to players.
+An unclaimed plot opens as a window over the city map rather than as a screen of its own.
 
 ### `ashen-terraces`
 
-Difficulty 4, at 0.84, 0.62. No capturable locations.
+At 0.84, 0.62. No capturable locations.
 
 Stepped tenements up the northern slope, burnt once and rebuilt out of what was left. Whoever holds it can see the whole city coming.
 
 ### `kettle-row`
 
-Difficulty 2, at 0.38, 0.82. No capturable locations. The starter district: every new crew is settled here.
+At 0.38, 0.82. No capturable locations. The starter district: every new crew is settled here.
 
 A long terrace along the southern cut, boilers venting into the street. Warm, loud, and nobody asks where anybody came from.
 
 ### `upper-roofs`
 
-Difficulty 2, at 0.91, 0.79. No capturable locations. Home of the seeded AI rival.
+At 0.91, 0.79. No capturable locations. Home of the seeded AI rival.
 
 Roofs stacked on roofs above the wall, reached by ladders somebody bolted on in the dark. Nothing official has been up here in years and the view is the whole northern approach.
 
 ### `south-quay`
 
-Difficulty 1, at 0.78, 0.93. No capturable locations.
+At 0.78, 0.93. No capturable locations.
 
 The tail of the market where the stalls give out and the cut comes back up to meet the street. Damp, cheap, and out of everybody else’s way.
 
@@ -398,7 +436,7 @@ similar value, and why renaming ground has to leave its `kind` alone.
 | ------------------------------------------------- | --------------------------------------- |
 | The district list, unified bonuses, display names | `packages/shared/src/city/districts.ts` |
 | Location kinds, hold bonuses, upgrade ladders     | `packages/shared/src/city/locations.ts` |
-| Travel time, vision, nearest districts            | `packages/shared/src/city/geography.ts` |
+| Travel time                                       | `packages/shared/src/city/geography.ts` |
 | The city list                                     | `packages/shared/src/city/cities.ts`    |
 | Environment labels per location kind              | `packages/shared/src/city/labels.ts`    |
 | Mission boards per district                       | `packages/shared/src/missions.areas.ts` |
@@ -447,7 +485,7 @@ battle columns**, and nothing else. Both halves are built: a move between the cr
 (`moves/moves.ts`) and a column on its way to a declared fight (`battle/movement.ts`) each take a
 `byRail` flag and each go through `city/railway.ts`, so the two cannot come to different answers
 about the same journey. It does not count for missions, and it does not count for
-scouting runs: those are crews sent out to work the ground rather than to arrive somewhere, and a
+spy jobs: those are crews sent out to work the ground rather than to arrive somewhere, and a
 mission board priced off a railway would be pricing the wrong thing. **Vehicles and the Colossus
 cannot board.** There is no flat bed on this line, so a column taking its machines is a column
 walking, and that is a refusal rather than a penalty.
@@ -481,15 +519,15 @@ whether its gate is armed. Coldwater Halt and Bonded Row are the two ways in.
 | Coldwater Halt                 | contested   | independent            | 1          | 0.08, 0.9       | 7     | 3    | yes     |
 | Ironmouth                      | contested   | looters                | 2          | 0.22, 0.8       | 7     | 0    | yes     |
 | The Marshalling Yards          | contested   | independent            | 3          | 0.34, 0.7       | 7     | 0    | yes     |
-| Player District (`carriage`)   | residential | independent            | 2          | 0.14, 0.64      | none  |      |         |
+| Player District (`carriage`)   | residential | independent            |            | 0.14, 0.64      | none  |      |         |
 | Bonded Row                     | contested   | looters                | 4          | 0.47, 0.6       | 8     | 3    | yes     |
-| Player District (`watertower`) | residential | independent            | 2          | 0.38, 0.88      | none  |      |         |
+| Player District (`watertower`) | residential | independent            |            | 0.38, 0.88      | none  |      |         |
 | Telemetry Hill                 | contested   | Combine                | 6          | 0.62, 0.34      | 7     | 0    | no      |
 | The Viaduct                    | contested   | Combine                | 7          | 0.58, 0.48      | 8     | 0    | yes     |
-| Player District (`embankment`) | residential | independent            | 3          | 0.7, 0.84       | none  |      |         |
+| Player District (`embankment`) | residential | independent            |            | 0.7, 0.84       | none  |      |         |
 | The Last Platform              | contested   | Combine, seat of power | 9          | 0.8, 0.34       | 8     | 0    | yes     |
 | The Blockhouse                 | contested   | Combine, seat of power | 10         | 0.9, 0.16       | 8     | 0    | yes     |
-| Player District (`signalrow`)  | residential | independent            | 3          | 0.94, 0.56      | none  |      |         |
+| Player District (`signalrow`)  | residential | independent            |            | 0.94, 0.56      | none  |      |         |
 
 The layout is a climb west to east along the line, bottom left to top right, so difficulty and
 height run the same direction the way they do in Ashfall. Telemetry Hill is the one inversion: it
@@ -522,7 +560,7 @@ comes back carrying more.
 | Trackside Kitchens | Soup Kitchen | Supplies off the ration line, and a crew that has eaten fights like one.                                             |
 | The Fuelling Point | Gas Station  | Oil out of the ground, and the scrap off everything anybody abandoned on the forecourt.                              |
 | Tent Row           | Fence Camp   | More people than any building in your district could house, and every one of them looking for a reason to be useful. |
-| The Distant Signal | Watchtower   | Everything your scouts do, they do better: everywhere in the city, not just here.                                    |
+| The Distant Signal | Watchtower   | Everything your spies do, they do better: everywhere in the city, not just here.                                     |
 
 ### Ironmouth
 
@@ -534,10 +572,11 @@ of it and then grew into it: the ventilation shafts are streets, and the bricked
 Looter ground, and the reason is simple. People who live inside a hill are hard to get out of it,
 and the Combine decided a long time ago that it was not worth the company it would cost.
 
-Garrison before anybody takes it: whoever holds the ground and has decided to keep it.
+Garrison before anybody takes it: the looters on the plots they squat. The district screen counts
+them rather than promising a sentence (maintainer, 2026-09-30).
 
-**Unified bonus, Nobody Digs You Out:** +10% defence on everything you hold in Terminus, for holding
-every location in the district. Deliberately not more stealth: the shafts already pay that, and a
+**Unified bonus, Nobody Digs You Out:** +10% defence wherever you are the one defending, your own
+district and every location you hold in any city, for holding every location in the district. Deliberately not more stealth: the shafts already pay that, and a
 crew that has taken a hill should be harder to shift everywhere, not sneakier in one place.
 
 | Location               | Kind              | What holding it pays                                                                            |
@@ -548,7 +587,7 @@ crew that has taken a hill should be harder to shift everywhere, not sneakier in
 | Shaft Nine             | Chemical Plant    | Oil, cracked on site.                                                                           |
 | The Spoil Heap         | Scrap Press       | Scrap, steadily, for as long as you hold it.                                                    |
 | The Tunnel Chapel      | The Chapel        | Everyone on your books holds together better under things that break people.                    |
-| Lampman's Row          | Pawn Shop         | A smaller cut, and a fence who moves what a raid brings back.                                   |
+| Lampman’s Row          | Pawn Shop         | A smaller cut, and a fence who moves what a raid brings back.                                   |
 
 ### The Marshalling Yards
 
@@ -571,7 +610,7 @@ district.
 | Platform Four      | Station         | Four boards and a lamp. Linked to any other Station you hold, at fifteen minutes flat.      |
 | The Coaling Stage  | Gas Station     | Oil out of the ground, and the scrap off everything anybody abandoned on the forecourt.     |
 | The Wagon Breakers | Scrap Press     | Scrap, steadily, for as long as you hold it.                                                |
-| Box Nine           | Watchtower      | Everything your scouts do, they do better: everywhere in the city, not just here.           |
+| Box Nine           | Watchtower      | Everything your spies do, they do better: everywhere in the city, not just here.            |
 | The Mess Room      | Downtown Tavern | A room where the city's hardest people drink, and somebody who can introduce you.           |
 | The Running Sheds  | Foundry         | High-quality metal. Nothing else in the city makes it in quantity.                          |
 
@@ -585,7 +624,8 @@ in the office and the crates are still on the floor, and everybody in the city k
 The commercial end of the line, and the second way in: three open plots, the widest spread of kinds
 in Terminus, and the district a crew usually takes second.
 
-Garrison before anybody takes it: whoever holds the ground and has decided to keep it.
+Garrison before anybody takes it: the looters on the plots they squat. The district screen counts
+them rather than promising a sentence (maintainer, 2026-09-30).
 
 **Unified bonus, The Bond Is Open:** 15% off what the black market charges in infamy, for holding
 every location in the district. Not another discount on the ordinary market, which the Long Bond
@@ -620,13 +660,13 @@ district.
 
 | Location                  | Kind             | What holding it pays                                                                                                 |
 | ------------------------- | ---------------- | -------------------------------------------------------------------------------------------------------------------- |
-| The Uplink Farm           | Satellite Uplink | You can see into districts without walking into them first.                                                          |
+| The Uplink Farm           | Satellite Uplink | What goes over the air in this city, your spies have already read.                                                   |
 | The Repeater Mast         | Broadcast Tower  | Your name arrives before your people do.                                                                             |
 | The Quiet Room            | University       | Every research project finishes sooner.                                                                              |
-| Somebody's Transmitter    | Pirate Radio     | You hear what the city is saying, and some of what it would rather not.                                              |
+| Somebody’s Transmitter    | Pirate Radio     | You hear what the city is saying, and some of what it would rather not.                                              |
 | The Old Dome              | Planetarium      | A room built for thinking in, and an optical bench worth more than the building around it.                           |
 | The Ground Array          | Substation       | Fuel by the drum, off the standby tanks nobody has come back to meter.                                               |
-| The Technicians' Bunkroom | Fence Camp       | More people than any building in your district could house, and every one of them looking for a reason to be useful. |
+| The Technicians’ Bunkroom | Fence Camp       | More people than any building in your district could house, and every one of them looking for a reason to be useful. |
 
 ### The Viaduct
 
@@ -641,8 +681,8 @@ The last Combine ground before the Terminus itself.
 Garrison before anybody takes it: Street Enforcers behind Suppressor positions on the parapet.
 
 **Unified bonus, They Watched You Take the Arches:** +15% infamy on everything that earns any, for
-holding every location in the district. Taking the viaduct is the most visible thing anybody can do
-in this city, and the city prices you differently afterwards.
+holding every location in the district, in every city. Taking the viaduct is the most visible
+thing anybody can do in this city, and the whole world prices you differently afterwards.
 
 | Location           | Kind                 | What holding it pays                                                                       |
 | ------------------ | -------------------- | ------------------------------------------------------------------------------------------ |
@@ -652,7 +692,7 @@ in this city, and the city prices you differently afterwards.
 | The Gantry Walk    | Tram Depot           | The city gets smaller. Everything you send anywhere leaves sooner and arrives faster.      |
 | Arch Nineteen      | Mad Scientist's Lair | Everything needed to make something that should not exist, and the notes explaining how.   |
 | The Pier Works     | Foundry              | High-quality metal. Nothing else in the city makes it in quantity.                         |
-| The Sappers' Store | Armory               | Cheaper units, and a bench that will fit anything you can find a part for.                 |
+| The Sappers’ Store | Armory               | Cheaper units, and a bench that will fit anything you can find a part for.                 |
 | The Undercroft     | Gene Clinic          | Work can be done on people here that cannot be done anywhere else.                         |
 
 ### The Last Platform
@@ -680,7 +720,7 @@ district.
 | The Holding Pens           | Barricade                   | A harder approach to everything behind it.                                            |
 | The Transit Clinic         | Hospital                    | What comes back from a fight comes back in better shape.                              |
 | The Platform Armoury       | Armory                      | Cheaper units, and a bench that will fit anything you can find a part for.            |
-| The Stationmaster's Office | Statue of the Revolutionist | The black market quotes you less infamy, and your name does some of the work for you. |
+| The Stationmaster’s Office | Statue of the Revolutionist | The black market quotes you less infamy, and your name does some of the work for you. |
 | The Cold Sidings           | War Machine Graveyard       | Hulls, plate and running gear, and troops that come back from more than they should.  |
 | The Iron Footbridge        | Smuggler's Tunnel           | Every crew you send anywhere is back sooner. There is a shorter way and you own it.   |
 
@@ -698,27 +738,31 @@ parade ground.
 Garrison before anybody takes it: Suppressors, Enforcers and Greycoats, and whatever Control can
 call down the line.
 
-**Unified bonus, Everything Leaves Through You:** **20% off the time every mission in this city
-takes**, for holding every location in the district (maintainer, 2026-09-24). Written in the
-catalogue as `{ kind: 'mission_speed', percent: 25 }`, because a speed channel is spent as
-`time / (1 + percent/100)` and 25 there is exactly a fifth off the clock. Not another research or
-morale line, which the Records Office and the Chapel already pay.
+**Unified bonus, Everything Leaves Through You:** **20% off the time every mission in Terminus
+takes**, for holding every location in the district (maintainer, 2026-09-24: "twenty per cent off
+the time every job in this city takes"; scoped to the city 2026-09-30). A job on another city's
+board or on the misc board gets nothing from it. Written in the catalogue as
+`{ kind: 'mission_speed', percent: 25, inOwnCity: true }`, because a speed channel is spent as
+`time / (1 + percent/100)` and 25 there is exactly a fifth off the clock; the card reads "-20%
+mission time in this city". Not another research or morale line, which the Records Office and the
+Chapel already pay.
 
-The Marshalling Yards pay the same kind at 12, and a crew holding both ends of the line gets both.
-That is allowed and it is the point: the rule the suite enforces is that a district's unified bonus
-may not be a kind that already appears _inside that district_, and nothing in the Blockhouse pays
-mission speed. Assembling both is the strongest economy in the game and costs the whole city.
+The Marshalling Yards pay the same kind at 12, everywhere, and a crew holding both ends of the line
+gets both on Terminus work. That is allowed and it is the point: the rule the suite enforces is that
+a district's unified bonus may not be a kind that already appears _inside that district_, and
+nothing in the Blockhouse pays mission speed. Assembling both is the strongest economy in the game
+and costs the whole city.
 
 | Location            | Kind                    | What holding it pays                                                                                              |
 | ------------------- | ----------------------- | ----------------------------------------------------------------------------------------------------------------- |
-| The Officers' Halt  | Station                 | The private platform the Combine's own trains use. Linked to any other Station you hold, at fifteen minutes flat. |
+| The Officers’ Halt  | Station                 | The private platform the Combine's own trains use. Linked to any other Station you hold, at fifteen minutes flat. |
 | The Panel           | Broadcast Station       | Everyone on your books gets better at the half of the job that is talking to people.                              |
 | The Frontier Chapel | The Chosen Chapel       | Your name walks in ahead of your people, and nobody you send out is frightened of anything that lives here.       |
 | The Interlocking    | Substation              | Fuel by the drum, off the standby tanks nobody has come back to meter.                                            |
 | The Records Office  | University              | Every research project finishes sooner.                                                                           |
 | The Parade Ground   | The Gym                 | One more session in the day than the day has room for.                                                            |
 | The Reactor Shed    | Abandoned Nuclear Plant | High-quality metal out of the turbine hall, and a fuelling crew who make every barrel of oil you burn go further. |
-| The Tower Box       | Watchtower              | Everything your scouts do, they do better: everywhere in the city, not just here.                                 |
+| The Tower Box       | Watchtower              | Everything your spies do, they do better: everywhere in the city, not just here.                                  |
 
 ## Residential districts
 
@@ -729,7 +773,7 @@ of living here.
 
 ### `carriage`
 
-Difficulty 2, at 0.14, 0.64. No capturable locations. Proposed starter district, and still only proposed: a crew is placed in Ashfall and reaches Terminus by marching (maintainer, 2026-09-24).
+At 0.14, 0.64. No capturable locations. Proposed starter district, and still only proposed: a crew is placed in Ashfall and reaches Terminus by marching (maintainer, 2026-09-24).
 
 Old carriages set on blocks and lived in, a street of them with doors cut in the sides. It is at the
 west end for the same reason Kettle Row is at the bottom of Ashfall: a starter home should be far
@@ -737,20 +781,20 @@ from the thing the city climbs towards, so the Blockhouse reads as the far side 
 
 ### `watertower`
 
-Difficulty 2, at 0.38, 0.88. No capturable locations.
+At 0.38, 0.88. No capturable locations.
 
 A terrace in the shadow of a water tower nobody has drained in thirty years. Everybody who lives
 there knows exactly how much is still in it.
 
 ### `embankment`
 
-Difficulty 3, at 0.7, 0.84. No capturable locations.
+At 0.7, 0.84. No capturable locations.
 
 Dug into the embankment itself, warm in winter and loud every time something rolls past.
 
 ### `signalrow`
 
-Difficulty 3, at 0.94, 0.56. No capturable locations. Home of the seeded AI rival, the Signalmen (`seed/constants.ts`), since 2026-09-24.
+At 0.94, 0.56. No capturable locations. Home of the seeded AI rival, the Signalmen (`seed/constants.ts`), since 2026-09-24.
 
 The signalmen's cottages, the tidiest street on the frontier and the most watched. It sits under the
 Blockhouse, which is the right address for a rival and the wrong one for a beginner.
@@ -794,7 +838,7 @@ done unless it says otherwise. In rough order:
    Ashfall only. Point it at `ALL_DISTRICTS` so Terminus is held to the same rule.
 6. A seeded world, a mission board and a control ledger for the city, which is what `open: true`
    actually costs.
-7. Feats. `districts_scouted` and the city scoped measures already exist, but nothing counts a rail
+7. Feats. The city scoped measures already exist, but nothing counts a rail
    link, and a mechanic with no feat is invisible on the one screen that tells a player what there
    is to do.
 
@@ -813,11 +857,14 @@ defect had already been fixed for the Combine legendary alone.
 - **They erode.** Survivors of a gate or district fight are written back to the rows they were drawn
   from. The regime's army genuinely shrinks across a week of assaults.
 - **They come back on Sunday.** At midnight Athens time, the instant before Monday begins, every
-  garrison is restored to its authored strength on **every location no player holds**. Ground a crew
-  is standing on is left alone: that garrison is theirs.
-- **Legendaries come back on the same condition.** A named leader returns only if no player holds
-  the plot they stood on. Take it and keep it and they stay dead; lose it and they are back next
-  week.
+  garrison is restored to its authored strength on **every location the Combine or the looters still
+  hold**. Ground a crew is standing on is left alone: that garrison is theirs. A fight marked for
+  midnight exactly is settled first, against what is left of last week's garrison, and a plot it
+  takes is not regrown (maintainer, 2026-09-29).
+- **Taken ground stays taken** (maintainer, 2026-09-29). Nothing hands a plot back to the Combine or
+  the looters: another crew can take it off the first, and a plot a crew lets go stands empty, but
+  the regime never retakes ground. So a named leader whose plot falls is gone for good. The only
+  way one comes back on Monday is by dying in a fight the regime won, with the plot still its own.
 
 ## Still open
 

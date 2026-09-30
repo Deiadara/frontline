@@ -1,7 +1,8 @@
 import {
   IdSchema,
-  MESSAGES_PER_DAY,
+  MAILBOX_LIMIT,
   NotificationSettingsRequestSchema,
+  hasVisibleText,
   isAlwaysOn,
   SendMessageRequestSchema,
   type MessageMutationResponse,
@@ -13,7 +14,9 @@ import {
 import { z } from 'zod';
 import type { FastifyInstance } from 'fastify';
 import { AppError, parseBody } from '../errors.js';
+import { outOfLettersToday } from '../social/limits.js';
 import { sendMessage } from '../social/send.js';
+import type { UserRecord } from '../types.js';
 
 /**
  * The mailbox and the bell.
@@ -30,8 +33,11 @@ import { sendMessage } from '../social/send.js';
  * count untrustworthy.
  */
 
-/** How much history a screen asks for. Deep enough to be an archive, bounded so it stays a payload. */
-const INBOX_LIMIT = 200;
+/**
+ * How much history a screen asks for. The mailbox is the whole of it: a send trims every mailbox
+ * and sent folder to `MAILBOX_LIMIT`, so asking for that many shows every letter there is, and the
+ * unread badge cannot count one the list leaves out.
+ */
 const NOTIFICATION_LIMIT = 200;
 
 function refuseMessage(reason: MessageRefusal): never {
@@ -42,8 +48,8 @@ const IdBody = z.object({ id: IdSchema });
 
 export function registerSocialRoutes(app: FastifyInstance): void {
   const messagesScreen = (userId: string): MessagesResponse => ({
-    inbox: app.repos.social.inbox(userId, INBOX_LIMIT),
-    sent: app.repos.social.sent(userId, INBOX_LIMIT),
+    inbox: app.repos.social.inbox(userId, MAILBOX_LIMIT),
+    sent: app.repos.social.sent(userId, MAILBOX_LIMIT),
     unread: app.repos.social.unreadMessages(userId),
     hasFaction: app.repos.factions.membershipOf(userId) !== undefined,
     serverNow: new Date().toISOString(),
@@ -64,12 +70,11 @@ export function registerSocialRoutes(app: FastifyInstance): void {
   app.post('/messages', { preHandler: app.authenticate }, (request): MessageMutationResponse => {
     const { toUsernames, subject, body } = parseBody(SendMessageRequestSchema, request.body);
     const sender = request.currentUser;
+    // A subject or body that draws nothing, a lone zero-width space say, is not a letter.
+    if (!hasVisibleText(subject) || !hasVisibleText(body)) refuseMessage('blank_letter');
 
     return app.db.transaction(() => {
-      const dayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-      if (app.repos.social.sentSince(sender.id, dayAgo) >= MESSAGES_PER_DAY) {
-        refuseMessage('too_many_today');
-      }
+      if (outOfLettersToday(app.repos, sender.id, new Date())) refuseMessage('too_many_today');
       const membership = app.repos.factions.membershipOf(sender.id);
       const faction = membership ? app.repos.factions.find(membership.factionId) : undefined;
       const senderFaction = faction?.name ?? null;
@@ -97,15 +102,20 @@ export function registerSocialRoutes(app: FastifyInstance): void {
       } else {
         /*
          * Every name resolved before anything is written, so a letter to three people with one
-         * name wrong is refused whole rather than reaching two of them. The same name twice is
+         * name wrong is refused whole rather than reaching two of them. The same person twice is
          * one recipient: the composer cannot pick a name twice, but a hand-written request can.
+         * Deduplicated by account rather than by the text, because names match without regard to
+         * case (`COLLATE NOCASE`): `bobby` and `BOBBY` put two copies and two bells in one mailbox,
+         * and the sent folder read "to bobby, bobby, 2 recipients".
          */
-        const to = [...new Set(toUsernames)].map((username) => {
+        const byId = new Map<string, UserRecord>();
+        for (const username of toUsernames) {
           const user = app.repos.users.findByUsername(username);
           if (!user) refuseMessage('no_such_player');
           if (user.id === sender.id) refuseMessage('cannot_write_to_yourself');
-          return user;
-        });
+          byId.set(user.id, user);
+        }
+        const to = [...byId.values()];
         audience = 'player';
         addressedTo = to.map((user) => user.username).join(', ');
         recipients = to.map((user) => user.id);
@@ -123,7 +133,8 @@ export function registerSocialRoutes(app: FastifyInstance): void {
         sentAt,
         notification: {
           kind: 'message_received',
-          title: `${sender.username} wrote to you`,
+          // To the table or to you: the mailbox keeps the two apart (`audience`), so the bell does.
+          title: `${sender.username} wrote to ${audience === 'faction' ? 'the faction' : 'you'}`,
           body: subject,
           link: '/game/messages',
         },

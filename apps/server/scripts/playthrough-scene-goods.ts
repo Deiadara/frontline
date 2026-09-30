@@ -54,6 +54,9 @@ export async function goods(h: Harness, cast: Cast): Promise<void> {
 async function backRoom(h: Harness, a: Player, b: Player, c: Player): Promise<void> {
   h.at('black market: the back room');
   setInfamy(h, a, 4_000);
+  // B and C are here to be turned down for the bid and for the city, which the server only reaches
+  // once the back room's own door (rank 3) is open to them.
+  for (const crew of [b, c]) setInfamy(h, crew, (await baseOf(h, crew)).economy.infamy, 3);
   const shelf = await h.ok<BlackMarketResponse>({
     as: a,
     method: 'GET',

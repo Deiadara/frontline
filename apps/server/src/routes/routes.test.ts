@@ -1,7 +1,4 @@
 import {
-  SCOUTING_RESEARCH_ID,
-  makeAttributes,
-  createCommander,
   CITY_DISTRICTS,
   STARTING_RESOURCES,
   STARTER_DISTRICT_ID,
@@ -13,13 +10,13 @@ import {
   type SkirmishEngine,
   startingTraining,
   BOT_DISTRICT_ID,
+  cityHomeOffers,
 } from '@frontline/shared';
 import type { FastifyInstance } from 'fastify';
 import { afterEach, describe, expect, it } from 'vitest';
 import { buildApp } from '../app.js';
 import { loadConfig } from '../config.js';
 import { openDatabase, runMigrations, type AppDatabase } from '../db/index.js';
-import { settleScouting } from '../scouting/scouting.js';
 import { chooseOverseer, offeredOverseers } from '../testing/overseer.js';
 
 type InjectResponse = Awaited<ReturnType<FastifyInstance['inject']>>;
@@ -120,6 +117,25 @@ describe('auth', () => {
     expect(errorCode(res)).toBe('USERNAME_TAKEN');
   });
 
+  /** A phone keyboard's trailing space refused sign-up and failed sign-in (bug pass, 2026-09-29). */
+  it('ignores spaces around a username, at sign-up and at sign-in', async () => {
+    const { app } = await makeApp();
+    const registered = await app.inject({
+      method: 'POST',
+      url: '/api/auth/register',
+      payload: { username: 'spaced_out ', password: 'hunter2pass' },
+    });
+    expect(registered.statusCode, registered.body).toBe(201);
+    expect(registered.json<{ user: { username: string } }>().user.username).toBe('spaced_out');
+
+    const login = await app.inject({
+      method: 'POST',
+      url: '/api/auth/login',
+      payload: { username: ' Spaced_Out ', password: 'hunter2pass' },
+    });
+    expect(login.statusCode, login.body).toBe(200);
+  });
+
   it('rejects an invalid body with 400 VALIDATION_ERROR', async () => {
     const { app } = await makeApp();
     const res = await app.inject({
@@ -163,6 +179,82 @@ describe('auth', () => {
     expect(statuses.filter((s) => s === 201)).toHaveLength(1);
     expect(statuses.filter((s) => s === 409)).toHaveLength(3);
     expect(statuses).not.toContain(500);
+  });
+
+  /** Bug pass, 2026-09-29: `Combine`, `Directive_Xero`, `admin` and `system` all registered. */
+  it.each(['Combine', 'directive_xero', 'ADMIN', 'System', 'the_combine', 'Vex_Combine'])(
+    'refuses %s, which is one of the game’s own names',
+    async (username) => {
+      const { app } = await makeApp();
+      const res = await app.inject({
+        method: 'POST',
+        url: '/api/auth/register',
+        payload: { username, password: PASSWORD },
+      });
+      expect(res.statusCode).toBe(400);
+      expect(res.json<{ error: { message: string } }>().error.message).toMatch(
+        /belongs to the game/,
+      );
+    },
+  );
+
+  /*
+   * bcrypt reads the first 72 bytes (bug pass, 2026-09-29): an account made with 72 `a`s and an
+   * `X` opened with 72 `a`s and a `Y`. The 73rd byte is refused at the door instead.
+   */
+  it('takes a 72-byte password whole and refuses a 73rd byte', async () => {
+    const { app } = await makeApp();
+    const long = await app.inject({
+      method: 'POST',
+      url: '/api/auth/register',
+      payload: { username: 'longhand', password: `${'a'.repeat(72)}X` },
+    });
+    expect(long.statusCode).toBe(400);
+    const wide = await app.inject({
+      method: 'POST',
+      url: '/api/auth/register',
+      payload: { username: 'longhand', password: '\u00e9'.repeat(37) },
+    });
+    expect(wide.statusCode, 'thirty-seven characters, seventy-four bytes').toBe(400);
+
+    await register(app, 'longhand', 'a'.repeat(72));
+    const login = await app.inject({
+      method: 'POST',
+      url: '/api/auth/login',
+      payload: { username: 'longhand', password: 'a'.repeat(72) },
+    });
+    expect(login.statusCode).toBe(200);
+  });
+
+  /*
+   * Bug pass, 2026-09-29: with every open city's plots lived in, sign-up still took the account,
+   * held four overseers for it and then offered it nothing but "Full". Refused before the account.
+   */
+  it('refuses a sign-up while no city has a free plot, and takes one again when a plot frees', async () => {
+    const { app, db } = await makeApp();
+    const plots = cityHomeOffers([]).reduce((sum, offer) => sum + offer.free, 0);
+    expect(plots, 'fixture: the world has room to fill').toBeGreaterThan(0);
+    const homes: string[] = [];
+    for (let at = 0; at < plots; at += 1) {
+      const { token } = await register(app, `settler_${String(at)}`);
+      homes.push((await takeOverseer(app, token)).baseId);
+    }
+    const accounts = () => (db.prepare('SELECT COUNT(*) AS n FROM users').get() as { n: number }).n;
+    const before = accounts();
+
+    const refused = await app.inject({
+      method: 'POST',
+      url: '/api/auth/register',
+      payload: { username: 'latecomer', password: PASSWORD },
+    });
+    expect(refused.statusCode).toBe(409);
+    expect(errorCode(refused)).toBe('WORLD_FULL');
+    expect(refused.json<{ error: { message: string } }>().error.message).toMatch(/world is full/i);
+    expect(accounts(), 'no account was made').toBe(before);
+
+    // A plot frees: the door opens again.
+    db.prepare("UPDATE bases SET district_id = 'nowhere' WHERE id = ?").run(homes[0]);
+    await register(app, 'latecomer');
   });
 
   it('rejects a wrong password and an unknown user identically with 401', async () => {
@@ -339,96 +431,44 @@ describe('GET /api/city', () => {
   });
 
   /**
-   * §A4's fog, over the real route.
+   * The whole city is visible (maintainer, 2026-09-29), over the real route.
    *
-   * The important half is that unscouted ground reports `null` rather than `0 / 4`: zero is a fact
-   * about the world and null is a fact about what this crew knows, and a map that confused the two
-   * would be telling a player something they have not earned.
+   * A crew that has walked nowhere reads every district: who holds each place, and how much of it
+   * is theirs. The one thing still withheld is what is standing on somebody else's ground, which a
+   * spy report is for.
    */
-  it('hides what is inside a district until the crew has looked', async () => {
+  it("shows every district and who holds it, and never somebody else's garrison", async () => {
     const { app } = await makeApp();
-    const { token, userId } = await register(app, 'scout');
+    const { token } = await register(app, 'looker');
     await takeOverseer(app, token);
 
-    const before = await app.inject({ method: 'GET', url: '/api/city', headers: auth(token) });
-    /*
-     * A district this crew has *not* had eyes on.
-     *
-     * `find(kind === 'contested')` used to be enough, because a new crew had seen nothing at all.
-     * A new crew is now given its nearest unoccupied district (`openTheNearestGround`), so the
-     * first contested entry on the list is sometimes the one that is already open, and this test
-     * would then be asserting fog over ground the game deliberately handed them.
-     */
-    const contested = before
-      .json<CityResponse>()
-      .districts.find((entry) => entry.district.kind === 'contested' && !entry.scouted);
-    expect(contested, 'a new crew should still have ground it has not seen').toBeDefined();
-    expect(contested?.scouted).toBe(false);
-    expect(contested?.held).toBeNull();
+    const map = (
+      await app.inject({ method: 'GET', url: '/api/city', headers: auth(token) })
+    ).json<CityResponse>();
+    for (const entry of map.districts) {
+      expect(entry.held, entry.district.id).toEqual({
+        mine: 0,
+        total: entry.district.locations.length,
+      });
+    }
+    const home = map.districts.find((entry) => entry.isHome);
+    expect(home?.district.id).toBe(map.homeDistrictId);
 
-    const detail = await app.inject({
-      method: 'GET',
-      url: `/api/city/${contested?.district.id ?? ''}`,
-      headers: auth(token),
-    });
-    expect(detail.json<DistrictDetailResponse>().locations).toEqual([]);
-
-    /*
-     * Scouting is a journey now, so the button sends somebody and the ground opens when they are
-     * home. The fixture drives the *clock* rather than waiting hours: the run is wound back and
-     * the world clock settles it, which also exercises the path a real player's ground opens on.
-     */
-    /*
-     * Somebody to send.
-     *
-     * A brand-new crew has nobody on the books, and scouting now costs an officer, so the refusal
-     * is correct behaviour rather than something to work around: it is the reason a new player is
-     * handed one district open (`openTheNearestGround`). This test is about the fog, so it hires
-     * past that.
-     */
-    const own = app.repos.bases.findByOwnerId(userId)!;
-    // A Master of Whispers with Scouting researched: the two things a party needs (2026-09-22).
-    app.repos.bases.updateCommanders(own.id, [
-      createCommander('whispers-1', 'Wire', 'master_of_whispers', makeAttributes(30), []),
-    ]);
-    app.repos.bases.updateResearch(own.id, {
-      ...own.research,
-      technologies: [...own.research.technologies, SCOUTING_RESEARCH_ID],
-    });
-
-    const sent = await app.inject({
-      method: 'POST',
-      url: '/api/city/scout',
-      headers: auth(token),
-      payload: { districtId: contested?.district.id },
-    });
-    expect(sent.statusCode).toBe(200);
-
-    // Still fogged, because nobody is back yet. This is the half the old instant scout skipped.
-    const midway = await app.inject({
-      method: 'GET',
-      url: `/api/city/${contested?.district.id ?? ''}`,
-      headers: auth(token),
-    });
-    expect(midway.json<DistrictDetailResponse>().scouted).toBe(false);
-
-    app.db
-      .prepare('UPDATE scouting_runs SET returns_at = ?')
-      .run(new Date(Date.now() - 60_000).toISOString());
-    settleScouting(app.repos, new Date());
-
-    const after = await app.inject({
-      method: 'GET',
-      url: `/api/city/${contested?.district.id ?? ''}`,
-      headers: auth(token),
-    });
-    const seen = after.json<DistrictDetailResponse>();
-    expect(seen.scouted).toBe(true);
-    expect(seen.locations.length).toBeGreaterThan(0);
-    // And a place nobody holds still reports who is standing on it.
-    expect(seen.locations[0]?.holderName).toBeTruthy();
-    // Somebody else's garrison composition is never on the wire.
-    expect(seen.locations[0]?.garrison).toBeNull();
+    const contested = map.districts.find((entry) => entry.district.kind === 'contested');
+    const detail = (
+      await app.inject({
+        method: 'GET',
+        url: `/api/city/${contested?.district.id ?? ''}`,
+        headers: auth(token),
+      })
+    ).json<DistrictDetailResponse>();
+    expect(detail.locations).toHaveLength(contested?.district.locations.length ?? -1);
+    for (const place of detail.locations) {
+      expect(place.holderName, place.location.id).toBeTruthy();
+      // Somebody else's garrison composition and size are never on the wire.
+      expect(place.garrison, place.location.id).toBeNull();
+      expect(place.garrisonSize, place.location.id).toBeNull();
+    }
   });
 
   /**
@@ -437,11 +477,11 @@ describe('GET /api/city', () => {
    * A structure is a building on a street: anyone walking past can see how far it has been built
    * up, so the district view carries it and the client draws their district the same way it draws
    * yours. The line this test exists to hold is where that stops: no stockpile, no research, no
-   * roles, and nothing at all until the ground has been scouted.
+   * roles.
    */
-  it('shows what a neighbour has built, behind the same fog as everything else', async () => {
+  it('shows what a neighbour has built, and nothing they know', async () => {
     const { app } = await makeApp();
-    const { token, userId } = await register(app, 'neighbour');
+    const { token } = await register(app, 'neighbour');
     await takeOverseer(app, token);
 
     // A rival placed by hand rather than by the seed: `makeApp` deliberately builds an *unseeded*
@@ -487,21 +527,6 @@ describe('GET /api/city', () => {
       createdAt: new Date().toISOString(),
     });
 
-    const unscouted = await app.inject({
-      method: 'GET',
-      url: `/api/city/${districtId}`,
-      headers: auth(token),
-    });
-    expect(unscouted.json<DistrictDetailResponse>().residentBuildings).toEqual([]);
-
-    // A journey now, not a button. The fixture wants the *state* the journey produces, so it
-    // writes the intel directly rather than sending somebody and winding a clock forward.
-    app.repos.city.markScouted(
-      app.repos.bases.findByOwnerId(userId)!.id,
-      districtId,
-      new Date().toISOString(),
-    );
-
     const seen = (
       await app.inject({ method: 'GET', url: `/api/city/${districtId}`, headers: auth(token) })
     ).json<DistrictDetailResponse>();
@@ -522,19 +547,6 @@ describe('GET /api/city', () => {
     for (const secret of ['resources', 'research', 'facts', 'officers', 'army']) {
       expect(wire, secret).not.toContain(`"${secret}"`);
     }
-  });
-
-  it('always shows the crew its own district, without scouting it', async () => {
-    const { app } = await makeApp();
-    const { token } = await register(app, 'homebody');
-    await takeOverseer(app, token);
-
-    const body = (
-      await app.inject({ method: 'GET', url: '/api/city', headers: auth(token) })
-    ).json<CityResponse>();
-    const home = body.districts.find((entry) => entry.isHome);
-    expect(home?.scouted).toBe(true);
-    expect(home?.district.id).toBe(body.homeDistrictId);
   });
 });
 
@@ -605,7 +617,8 @@ describe('routing', () => {
  * An empty plot is closed until somebody claims it (maintainer, 2026-09-28).
  *
  * It used to draw a full district at level 1 for anybody who looked, so a crew could walk the
- * streets of a plot that is nobody's. Now it draws nothing, says it is closed, and prices no scout.
+ * streets of a plot that is nobody's. Now it draws nothing, says it is closed, and prices no spy
+ * job: there is nobody behind its gate to read.
  */
 describe('a plot nobody lives on is closed', () => {
   it('serves no scene and no crew, and says it is closed', async () => {
@@ -622,12 +635,6 @@ describe('a plot nobody lives on is closed', () => {
     );
     expect(empty, 'the city has an unoccupied plot to look at').toBeDefined();
 
-    // The state, not the journey: see the note on the neighbour test above.
-    app.repos.city.markScouted(
-      app.repos.bases.findByOwnerId(mine.userId)!.id,
-      empty!.id,
-      new Date().toISOString(),
-    );
     const seen = (
       await app.inject({ method: 'GET', url: `/api/city/${empty!.id}`, headers: auth(mine.token) })
     ).json<DistrictDetailResponse>();
@@ -635,7 +642,7 @@ describe('a plot nobody lives on is closed', () => {
     expect(seen.base, 'nobody lives there').toBeNull();
     expect(seen.closed).toBe(true);
     expect(seen.residentBuildings).toEqual([]);
-    expect(seen.scoutPlan).toBeNull();
+    expect(seen.spyQuote).toBeNull();
   });
 });
 

@@ -16,7 +16,7 @@ import { areasOffering } from '@frontline/shared';
 import { settleDistrict } from '../district/settle.js';
 import { sureLeader } from '../testing/leader.js';
 import { acceptOffer, postOffer } from '../market/board.js';
-import { tallyBattleResolved, tallyRailJourney } from './tally.js';
+import { tallyBattleResolved, tallyBattleSide, tallyRailJourney } from './tally.js';
 import {
   startingEconomy,
   startingProgression,
@@ -308,7 +308,7 @@ describe('trading', () => {
    * Two accounts can pass one listing back and forth indefinitely at no net cost, so crediting
    * either side's lifetime earnings with what arrived would make the three million cap ladder,
    * which pays the largest reward in the catalogue, a matter of clicking. The deal counters stay,
-   * because their feats are small and each pass costs the escrow round trip.
+   * held to a floor and to one deal a day per pair of crews (`tallyMarketDeal`).
    */
   it('counts the deal without crediting either side with lifetime earnings', () => {
     const seller = repos.bases.findById('base-1')!;
@@ -479,5 +479,34 @@ describe('the railway', () => {
     tallyRailJourney(repos, 'base-1');
     tallyRailJourney(repos, 'base-1');
     expect(talliesNow()[featMeasureKey('rail_journeys')]).toBe(2);
+  });
+});
+
+describe('one side of a fight, crew by crew', () => {
+  const side = (line: [string | null, Record<string, number>][], kills: number) =>
+    tallyBattleSide(repos, {
+      attacked: false,
+      won: true,
+      kills,
+      districtId: 'kettle-row',
+      principal: 'base-1',
+      line: new Map(line),
+    });
+
+  it('hands a trap’s kills to the principal when nobody was standing in the line', () => {
+    side([['base-1', {}]], 3);
+    expect(talliesNow()[featMeasureKey('kills')]).toBe(3);
+    expect(talliesNow()[featMeasureKey('battles_defended_won')]).toBe(1);
+  });
+
+  it('gives the regime its share of the kills and credits it nothing', () => {
+    side(
+      [
+        ['base-1', { razors: 1 }],
+        [null, { razors: 3 }],
+      ],
+      4,
+    );
+    expect(talliesNow()[featMeasureKey('kills')]).toBe(1);
   });
 });

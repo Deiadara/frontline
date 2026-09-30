@@ -250,8 +250,15 @@ describe('what the engine is handed', () => {
  * did (6.5 infamy per point against 44), the shop is a right answer and nine traps.
  */
 describe('every boost is sold at about the same rate', () => {
+  /**
+   * A morale point is worth about two of attack or defence in the engine (maintainer, 2026-09-29,
+   * measured in `market/morale-price.test.ts`), so it is priced as two here.
+   */
+  const MORALE_POINT_WORTH = 2;
+
   /** Infamy per point of whole-force percentage, at the coverage the boost is built for. */
-  const ratePerPoint = (spec: BattleBoostSpec): number => spec.cost / spec.effect.percent;
+  const ratePerPoint = (spec: BattleBoostSpec): number =>
+    spec.cost / (spec.effect.percent * (spec.effect.stat === 'morale' ? MORALE_POINT_WORTH : 1));
 
   const LOW = 12;
   const HIGH = 30;

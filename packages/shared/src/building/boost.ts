@@ -1,5 +1,5 @@
 import type { BuildQueue, BuildQueueEntry } from './queue.js';
-import { queueCompletesAt } from './queue.js';
+import { queueCompletesAt, queueEntryXp } from './queue.js';
 import { buildingLevel, type Building } from './state.js';
 
 /**
@@ -26,6 +26,10 @@ import { buildingLevel, type Building } from './state.js';
  * queue exactly once, through {@link boostedQueue}: what is left of each entry shrinks by
  * {@link BUILD_BOOST_PERCENT} and the chain is re-linked behind it. Orders placed *during* the burn
  * get the same percentage off at order time, where every other build discount is applied.
+ *
+ * Only the clock moves. What an order pays in XP was fixed when it was ordered (`xp` on the entry),
+ * so a crew that spends oil on its queue earns exactly what it would have without the burn
+ * (maintainer, 2026-09-29).
  *
  * The consequence worth stating: buying a second burn while one runs would re-time the queue a
  * second time, which is a quarter off a quarter. That is why buying one is refused rather than
@@ -101,6 +105,9 @@ export function boostedQueue(queue: BuildQueue, now: Date, percent: number): Bui
       ...entry,
       startedAt: startedAt.toISOString(),
       durationSeconds: seconds,
+      // Pinned before the clock moves: an order from before `xp` was frozen would otherwise be
+      // priced off the shortened clock when it lands.
+      xp: queueEntryXp(entry),
     };
     boosted.push(next);
     cursor = queueCompletesAt(next);

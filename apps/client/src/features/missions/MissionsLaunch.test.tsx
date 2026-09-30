@@ -50,6 +50,7 @@ function areaOf(id: string, name: string, payPercent = 0): MissionArea {
     payPercent,
     offers: missionOffers(id, '', 12).map(({ template, grade }): MissionOffer => ({
       templateId: template.id,
+      boardKey: 'board-key',
       name: template.name,
       brief: template.brief,
       kind: template.kind,
@@ -291,7 +292,9 @@ afterEach(() => {
 });
 
 describe('what a launch puts on the wire (§E, §G6)', () => {
-  it('names the board, the crew and the leader', async () => {
+  // The card exactly as it was read, its board's key and its grade, which is all the server will
+  // launch (maintainer, 2026-09-29).
+  it('names the card it read, the crew and the leader', async () => {
     stubApi();
     renderBoard();
     await screen.findByTestId('board-area');
@@ -306,6 +309,8 @@ describe('what a launch puts on the wire (§E, §G6)', () => {
       expect(launchBody()).toEqual({
         templateId: offer.templateId,
         areaId: MISC_AREA_ID,
+        boardKey: offer.boardKey,
+        grade: offer.grade,
         force: { razors: 2 },
         vehicles: {},
         leaderId: 'off-1',

@@ -224,17 +224,6 @@ export function featSnapshot(repos: Repositories, base: Base): FeatSnapshot {
       return control !== undefined && isHeldBy(control, base.id);
     }).length,
   );
-  /*
-   * Districts walked into, everywhere.
-   *
-   * A raw count of `district_intel` rows with no district filter, which means it has counted both
-   * cities since the day the second one opened, and that is the reading kept on purpose:
-   * `sendScout` resolves its target through `findDistrict`, which answers for every city, so a
-   * scout really can be sent across and a number that refused to count the trip would be lying
-   * about work the player did. What was wrong was the ladder above it, which still asked for one
-   * city's worth; `catalog.ts` grew the rung rather than narrowing this.
-   */
-  put('districts_scouted', repos.city.scouted(base.id).size);
 
   // --- the table ---
   const membership = repos.factions.membershipOf(base.ownerId);

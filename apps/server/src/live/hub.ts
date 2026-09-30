@@ -1,4 +1,5 @@
 import type { LiveEvent, LiveEventKind } from '@frontline/shared';
+import { afterCommit } from '../db/after-commit.js';
 
 /**
  * The live channel's switchboard: who is listening, and how to reach them.
@@ -92,8 +93,18 @@ export class LiveHub {
     };
   }
 
-  /** Tells one player something moved. Silent and free when nobody is connected. */
+  /**
+   * Tells one player something moved. Silent and free when nobody is connected.
+   *
+   * Sent once the transaction it was published in commits, and never if it rolls back
+   * (`db/after-commit.ts`): a nudge for a write that did not happen chimes for nothing, and the
+   * next read that makes the write chimes again.
+   */
   publish(userId: string, kind: LiveEventKind, now: Date): void {
+    afterCommit(() => this.#deliver(userId, kind, now));
+  }
+
+  #deliver(userId: string, kind: LiveEventKind, now: Date): void {
     const set = this.#listeners.get(userId);
     if (!set || set.size === 0) return;
     const event: LiveEvent = { kind, at: now.toISOString() };
@@ -120,9 +131,15 @@ export class LiveHub {
    * is a fact about the map, and every player looking at the map is looking at the same one. Sent
    * to accounts, not sockets, so a player with three tabs open is told on all three and a player
    * with none costs nothing. What is sent is a nudge with no payload, so nothing private crosses
-   * over: each tab refetches through its own reads and its own fog.
+   * over: each tab refetches through its own reads, which hide what that crew may not see.
    */
   broadcast(kind: LiveEventKind, now: Date): void {
+    // After the commit, like `publish`, and before the coalescing clock sees it: a broadcast that
+    // is rolled back must not hold the window shut for one that is not.
+    afterCommit(() => this.#broadcastSoon(kind, now));
+  }
+
+  #broadcastSoon(kind: LiveEventKind, now: Date): void {
     const at = now.getTime();
     const last = this.#lastBroadcast.get(kind);
     // A clock that went backwards (a test, or a corrected system clock) is a window that has shut.
@@ -144,7 +161,7 @@ export class LiveHub {
 
   #broadcastNow(kind: LiveEventKind, now: Date): void {
     this.#lastBroadcast.set(kind, now.getTime());
-    for (const userId of [...this.#listeners.keys()]) this.publish(userId, kind, now);
+    for (const userId of [...this.#listeners.keys()]) this.#deliver(userId, kind, now);
   }
 
   /** How many sockets are open. Read by the tick to skip work nobody is waiting on, and by tests. */

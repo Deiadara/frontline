@@ -1,4 +1,6 @@
 import { z } from 'zod';
+import { CENTRAL_BUILDING } from '../building/kinds.js';
+import { buildingLevel, type Building } from '../building/state.js';
 import { OfficerMarkSchema } from '../crew/marks.js';
 import { isPaintableDistrictName } from '../city/districts.js';
 import { IdSchema, IsoDateTimeSchema } from '../primitives.js';
@@ -269,6 +271,24 @@ export type FactionInvite = z.infer<typeof FactionInviteSchema>;
 export const FOUND_FACTION_PLAYER_LEVEL = 10;
 export const FOUND_FACTION_NEXUS_LEVEL = 3;
 
+/** Both §B1 gates as one answer, so the route's refusal and the form's greyed button agree. */
+export function canFoundFaction(crew: { level: number; buildings: readonly Building[] }): boolean {
+  return (
+    crew.level >= FOUND_FACTION_PLAYER_LEVEL &&
+    buildingLevel(crew.buildings, CENTRAL_BUILDING) >= FOUND_FACTION_NEXUS_LEVEL
+  );
+}
+
+/**
+ * How often one player may be invited, in any rolling day and any rolling week (maintainer,
+ * 2026-09-29). Counted against the inviter and against their table: demoting and re-promoting a
+ * chief, or founding and disbanding, drops the open invitation but not the letter already in
+ * somebody's mailbox, and thirty loops once put thirty letters in one stranger's inbox. Rolling
+ * windows, like `MESSAGES_PER_DAY`, so both limits on a letter turn over the same way.
+ */
+export const INVITES_TO_ONE_PLAYER_PER_DAY = 3;
+export const INVITES_TO_ONE_PLAYER_PER_WEEK = 5;
+
 export const FACTION_REFUSALS = [
   'not_established',
   'already_in_a_faction',
@@ -280,6 +300,10 @@ export const FACTION_REFUSALS = [
   'already_invited',
   'already_a_member',
   'no_such_invite',
+  /** An invitation is a letter, and counts against the day's letters (`MESSAGES_PER_DAY`). */
+  'too_many_today',
+  'invited_too_often_today',
+  'invited_too_often_this_week',
 ] as const;
 export const FactionRefusalSchema = z.enum(FACTION_REFUSALS);
 export type FactionRefusal = z.infer<typeof FactionRefusalSchema>;
@@ -296,6 +320,10 @@ export const FACTION_REFUSAL_TEXT: Record<FactionRefusal, string> = {
   already_invited: 'They already have an invitation from you.',
   already_a_member: 'They are already at your table.',
   no_such_invite: 'That invitation is no longer open.',
+  too_many_today:
+    'An invitation is a letter, and you have sent enough for one day. The wires open again tomorrow.',
+  invited_too_often_today: `They have had ${INVITES_TO_ONE_PLAYER_PER_DAY} invitations from you or your table today. Ask again tomorrow.`,
+  invited_too_often_this_week: `They have had ${INVITES_TO_ONE_PLAYER_PER_WEEK} invitations from you or your table this week. Give them a few days.`,
 };
 
 /** Whether one more person fits. */

@@ -111,7 +111,7 @@ describe('which bucket a route falls in', () => {
 
   it('leaves every other settings write on the write limit, which is the point of the split', () => {
     expect(ruleFor('PATCH', '/api/settings/profile').scope).toBe('write');
-    expect(ruleFor('POST', '/api/city/scout').scope).toBe('write');
+    expect(ruleFor('POST', '/api/city/spy').scope).toBe('write');
     expect(ruleFor('GET', '/api/city').scope).toBe('read');
   });
 

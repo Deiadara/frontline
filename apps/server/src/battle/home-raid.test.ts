@@ -82,7 +82,6 @@ async function makeWorld(): Promise<World> {
   const raider = await register(app, 'raider');
   const planted = await register(app, 'victim');
   db.prepare('UPDATE bases SET district_id = ? WHERE id = ?').run(HOME, planted.baseId);
-  app.repos.city.markScouted(raider.baseId, HOME, new Date().toISOString());
   return { app, db, raider, victim: { ...planted, districtId: HOME } };
 }
 
@@ -203,7 +202,6 @@ describe('your own home', () => {
     expect(inside.body).toContain('That is yours');
 
     // The positive control: the same two calls from the crew next door stand.
-    world.app.repos.city.markScouted(world.raider.baseId, HOME, new Date().toISOString());
     expect((await declare(world, world.raider, ownRaid)).status).toBe(200);
   });
 });

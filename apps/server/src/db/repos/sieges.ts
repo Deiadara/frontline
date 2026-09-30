@@ -354,7 +354,18 @@ export function createSiegeRepo(db: AppDatabase): SiegeRepo {
           );
           return [];
         }
-        return [{ battle: rowToBattle(row), analysis: parsed.data }];
+        // ...and the fight's own row, for the same reason (bug pass, 2026-09-29). Only the report
+        // was guarded, so a defender or a target this build no longer reads still threw, and the
+        // crew profile answered 500 for everybody who opened it.
+        try {
+          return [{ battle: rowToBattle(row), analysis: parsed.data }];
+        } catch (error) {
+          console.warn(
+            `battle ${row.id}: stored fight is not readable by this build, skipping`,
+            error,
+          );
+          return [];
+        }
       });
     },
     markResolved(id, at, analysis) {

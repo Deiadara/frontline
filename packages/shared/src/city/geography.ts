@@ -1,6 +1,6 @@
 import { MAX_TRAVEL_SPEED_BONUS, roadMinutes } from '../time/speed.js';
 import type { District, Position } from './districts.js';
-import { ALL_DISTRICTS, findDistrict } from './atlas.js';
+import { findDistrict } from './atlas.js';
 
 /**
  * How far apart things are (GDD §A4: "some relative geography").
@@ -105,31 +105,4 @@ export function travelMinutes(fromId: string, toId: string, pace: RoadPace = {})
   const to = findDistrict(toId);
   if (!from || !to) return null;
   return travelMinutesBetween(from, to, pace);
-}
-
-/**
- * The `count` districts closest to `fromId`, nearest first, excluding `fromId` itself.
- *
- * What a Satellite Uplink sees. Ties break on district id so the answer is stable: a vision list
- * that reshuffled between two reads would flicker the fog on the map for no reason.
- */
-export function nearestDistricts(fromId: string, count: number): District[] {
-  const from = findDistrict(fromId);
-  if (!from || count <= 0) return [];
-  /*
-   * One city's worth of neighbours, and the city is the one `fromId` is in.
-   *
-   * This walked `CITY_DISTRICTS`, so an Uplink held in the second city revealed nothing at all,
-   * and once the lookup went world-wide it would instead have started offering districts in the
-   * *other* city ranked by an overlapped distance that means nothing. Vision is a thing you have
-   * from where you are standing, so it stops at the city line: what is over the frontier is two
-   * hours away and is not something you can see from a mast.
-   */
-  return ALL_DISTRICTS.filter(
-    (district) => district.id !== fromId && district.cityId === from.cityId,
-  )
-    .map((district) => ({ district, at: mapDistance(from.position, district.position) }))
-    .sort((a, b) => a.at - b.at || a.district.id.localeCompare(b.district.id))
-    .slice(0, count)
-    .map((entry) => entry.district);
 }

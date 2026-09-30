@@ -116,7 +116,8 @@ test('breaks the three training figures down into where they came from', async (
 
   const chips = [
     { id: 'training-bonus-cost', total: '10%', names: ['Unit Costing'] },
-    { id: 'training-bonus-supplies', total: '22%', names: ['The Greenhouse'] },
+    // The one list with a line that takes something back: the modifications past their ceiling.
+    { id: 'training-bonus-supplies', total: '22%', names: ['The Greenhouse'], takesBack: true },
     {
       id: 'training-bonus-speed',
       total: '33%',
@@ -135,9 +136,12 @@ test('breaks the three training figures down into where they came from', async (
     for (const name of chip.names) {
       await expect(sheet.getByText(name, { exact: false }).first()).toBeVisible();
     }
-    // A raid takes its cut back off the crew's half, and it reads as a subtraction rather than as
-    // one more saving: the sign is the whole difference between the two.
-    await expect(sheet.getByText('-', { exact: false }).first()).toBeVisible();
+    // A line that takes something back reads as a subtraction rather than as one more saving: the
+    // sign is the whole difference between the two. A raid used to put one on the other two lists;
+    // since 2026-09-29 it cuts the structures' output and nothing on this page.
+    if ('takesBack' in chip) {
+      await expect(sheet.getByText('-', { exact: false }).first()).toBeVisible();
+    }
     await page.mouse.move(2, 2);
   }
 

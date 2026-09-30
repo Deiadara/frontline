@@ -3,7 +3,13 @@ import { settleAndResolveMissions } from '../missions/resolve.js';
 import { settleWorld } from '../world/settle.js';
 import { recordTick } from '../world/vitals.js';
 import type { Repositories } from '../db/repos/index.js';
-import { reportTickFailuresTo, settleEach, type TickFailureSink } from '../world/guard.js';
+import {
+  guardStage,
+  reportTickFailuresTo,
+  settleEach,
+  type TickFailureSink,
+} from '../world/guard.js';
+import { settleFinishedWork } from '../district/finished.js';
 
 /**
  * The world clock: the one thing in this server that happens without being asked.
@@ -97,20 +103,28 @@ export function tickWorld(
   // each step is where it is. It used to be spelled out here and separately in `routes/city.ts` and
   // `battle/routes.ts`, and this comment used to claim the three agreed. They did not.
   //
-  // §A4: the scouts and the crews coming home are settled inside it. What a finished run writes is
-  // a receipt, and a receipt only matters when it arrives. A player who sent somebody out and closed
-  // the tab should come back to open ground and a rung bell, not cause both by opening a screen.
+  // §A4: the spy jobs and the crews coming home are settled inside it. What a finished run writes
+  // is a receipt, and a receipt only matters when it arrives. A player who sent somebody out and
+  // closed the tab should come back to a report and a rung bell, not cause both by opening a screen.
   /*
    * The crews' own failures are reported rather than thrown (bug pass, 2026-09-23; robustness
    * pass, 2026-09-25).
    *
-   * `settleWorld` calls this callback *before* the automations, the scouts, the spies and every
+   * `settleWorld` calls this callback *before* the automations, the spies and every
    * auction, so a throw from inside it skipped all of them, for every player, once a second, for
    * as long as one unparseable row existed. The first fix collected the failing ids and threw one
    * error naming them after the tick, with each cause thrown away; each failure now goes to the
    * tick's failure sink with its own error (`world/guard.ts`), and nothing is thrown.
    */
-  return settleWorld(repos, engine, now, settleCrewsComingHome, admin);
+  const resolved = settleWorld(repos, engine, now, settleCrewsComingHome, admin);
+  /*
+   * Then every crew's own finished work (maintainer ruling, 2026-09-29). Private and
+   * deterministic, which by the rule above could stay lazy, and did: but the standings, a crew's
+   * file and a faction's page show other people's levels and structures, and those were as old as
+   * the owner's last look. After the fights, which settle the crews they touch themselves.
+   */
+  guardStage('finished work', 0, () => settleFinishedWork(repos, now));
+  return resolved;
 }
 
 /**

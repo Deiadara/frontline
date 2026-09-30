@@ -283,6 +283,22 @@ describe('every id points at something that exists', () => {
             MAX_GROUP_FLAT,
           );
         }
+        /*
+         * The one source that teaches several attributes at once: Shared Knowledge, "+5 stealth,
+         * +3 deception and +3 Cryptography" (maintainer, 2026-09-28). Three named attributes out of
+         * a group of eight is still a narrow promise, so each is held to the one-attribute figure.
+         */
+        if (one?.kind === 'chair_teaches') {
+          const lessons = Object.entries(
+            (bonus as { attributes: Record<string, number> }).attributes,
+          );
+          expect(lessons.length, `${what} teaches nothing`).toBeGreaterThan(0);
+          for (const [attribute, flat] of lessons) {
+            expect(flat, `${what} teaches ${attribute} too hard`).toBeLessThanOrEqual(
+              MAX_ATTRIBUTE_FLAT,
+            );
+          }
+        }
         if (one?.kind === 'officer_attribute' || one?.kind === 'officer_threshold') {
           expect(one.attribute, `${what} names no attribute`).toBeTruthy();
           expect(one.flat ?? 0, `${what} teaches one attribute too hard`).toBeLessThanOrEqual(

@@ -292,18 +292,6 @@ describe('Directive Xero', () => {
     expect(crossed).toBe(Math.floor(20 * MAX_INTIMIDATED_SHARE));
   });
 
-  it('reports the turncoats still standing at the end, separately from the turned', () => {
-    const sim = fight({ razors: 20 }, { suppressor: 30, directive_xero: 1 }, ZERO);
-    const crossed = Object.values(sim.turned).reduce((n, count) => n + count, 0);
-    const standing = Object.values(sim.turnedAlive).reduce((n, count) => n + count, 0);
-    expect(standing).toBeLessThanOrEqual(crossed);
-    expect(standing).toBe(
-      sim.defender.stacks
-        .filter((one) => one.turncoat === true)
-        .reduce((n, one) => n + one.alive, 0),
-    );
-  });
-
   it('takes the turncoats off the attacker before the casualty arithmetic sees them', () => {
     const sim = fight({ razors: 20 }, { suppressor: 30, directive_xero: 1 }, ZERO);
     const crossed = Object.values(sim.turned).reduce((n, count) => n + count, 0);
@@ -324,14 +312,13 @@ describe('the outcome the settle reads', () => {
     defending: { suppressor: 30, directive_xero: 1 },
   };
 
-  it('carries the turned, the standing turncoats and the executions on the wire', () => {
+  it('carries the turned and the executions on the wire', () => {
     const outcome = engine.resolve({ ...input, defenderPresence: ZERO });
     const crossed = Object.values(outcome.turned).reduce((n, count) => n + count, 0);
     expect(crossed).toBeGreaterThan(0);
     expect(outcome.executed).toBe(0);
     const bare = engine.resolve(input);
     expect(bare.turned).toEqual({});
-    expect(bare.turnedAlive).toEqual({});
   });
 
   it('settles a turncoat as nobody: not fled, not killed, not a winner loss', () => {
@@ -340,13 +327,10 @@ describe('the outcome the settle reads', () => {
     const accounted =
       (outcome.fled['razors'] ?? 0) +
       (outcome.killed['razors'] ?? 0) +
-      (outcome.winnerLosses['razors'] ?? 0) +
-      (outcome.turnedAlive['razors'] ?? 0);
-    // Every Razor is one of: home, dead, a winner's loss, or a turncoat still standing, plus the
-    // turncoats who died on his side, who are none of those. So the four accounted ledgers plus
-    // the turncoat dead equal the twenty that marched.
-    const turncoatDead = crossed - (outcome.turnedAlive['razors'] ?? 0);
-    expect(accounted + turncoatDead).toBe(20);
+      (outcome.winnerLosses['razors'] ?? 0);
+    // Every Razor is one of: home, dead, a winner's loss, or a turncoat. A turncoat is in none of
+    // the other three, standing or not: it fought this fight for him and is gone with it.
+    expect(accounted + crossed).toBe(20);
   });
 });
 
@@ -374,6 +358,39 @@ describe('what the report says about a fight he was over', () => {
   it('counts every body that marched, turncoats included', () => {
     expect(crossed).toBeGreaterThan(0);
     expect(outcome.analysis?.attacker.committed).toBe(20);
+  });
+
+  /*
+   * Counted as dead (maintainer, 2026-09-29): "Count them as dead", with a line on the report
+   * saying so. Every Razor that did not come home is in "Died", the ones who crossed included,
+   * and on the row they left rather than on a side total the rows do not add up to.
+   */
+  it('counts every turncoat among the dead, on the row it left', () => {
+    const razors = outcome.analysis?.attacker.units.find((unit) => unit.unitId === 'razors');
+    const home = outcome.fled['razors'] ?? 0;
+    const survived =
+      outcome.winner === 'attacker' ? 20 - (outcome.winnerLosses['razors'] ?? 0) - crossed : home;
+    expect(razors?.started).toBe(20);
+    expect(razors?.lost).toBe(20 - survived);
+    expect(razors?.lost).toBeGreaterThanOrEqual(crossed);
+    expect(outcome.analysis?.attacker.lost).toBe(razors?.lost);
+  });
+
+  it('keeps the row of a unit Xero took every one of', () => {
+    // Found by a seed search: the one Spark crosses on this seed, which empties its stack.
+    const emptied = defaultSkirmishEngine.resolve({
+      seed: 'emptied-0',
+      attackerName: 'Crew',
+      defenderName: 'The Combine',
+      locationName: 'The Chosen Chapel',
+      attacking: { razors: 20, sparks: 1 },
+      defending: { suppressor: 30, directive_xero: 1 },
+      defenderPresence: ZERO,
+    });
+    expect(emptied.turned['sparks'], 'fixture error: the Spark stayed').toBe(1);
+    const sparks = emptied.analysis?.attacker.units.find((unit) => unit.unitId === 'sparks');
+    expect(sparks).toMatchObject({ started: 1, lost: 1, survived: 0 });
+    expect(emptied.analysis?.attacker.committed).toBe(21);
   });
 
   it('does not also call them intimidated: they fired, for him', () => {

@@ -25,7 +25,7 @@ import { findPerk, type PerkBonus } from './perks.js';
  *     gets nothing from it.
  *   * `tier` pays only for one of six unit tiers, `named` only for one unit in thirty-one.
  *   * `conditional` pays only when something is true that the holder does not control: an ally
- *     turned up, the fight is at a Gate, this crew holds the whole district.
+ *     turned up, the fight is at a Gate, this crew holds a district whole.
  *   * `rule` is a switch rather than a dial. It has no magnitude to scale, so it is priced at its
  *     weight alone: what it is worth is that it is *true*, not that it is large.
  *
@@ -95,11 +95,8 @@ export const PERK_BREADTH_BY_KIND: Readonly<Record<string, PerkBreadth>> = {
   vehicle_parts: 'wide',
   wage_discount: 'wide',
   payroll_step_discount: 'wide',
-  recruit_pool: 'wide',
   intel: 'wide',
   intel_resistance: 'wide',
-  vision: 'wide',
-  scout_parties: 'wide',
   battle_stims: 'wide',
   road_shortcut: 'wide',
   building_credit: 'wide',
@@ -149,20 +146,13 @@ export const RULE_WORTH = 10;
  * generous: these are the bonuses that add a *slot* rather than widen one, and a slot is the sort
  * of thing a crew reorganises around.
  */
-const COUNT_KINDS = new Set([
-  'vision',
-  'scout_parties',
-  'training_sessions',
-  'battle_stims',
-  'unit_slots',
-  'building_credit',
-]);
+const COUNT_KINDS = new Set(['training_sessions', 'battle_stims', 'unit_slots', 'building_credit']);
 const COUNT_WORTH = 9;
 
 /** The size of a bonus, before breadth: whatever number it carries, in its own units. */
 function magnitudeOf(bonus: PerkBonus): number {
   const held = bonus as unknown as Record<string, unknown>;
-  for (const key of ['percent', 'flat', 'perHour', 'districts', 'minutes', 'levels'] as const) {
+  for (const key of ['percent', 'flat', 'perHour', 'minutes', 'levels'] as const) {
     const value = held[key];
     if (typeof value !== 'number') continue;
     return COUNT_KINDS.has(bonus.kind) ? Math.abs(value) * COUNT_WORTH : Math.abs(value);

@@ -3,6 +3,8 @@ import {
   STARTING_RESOURCES,
   TRAP_CATALOG,
   battlefieldFor,
+  findTrap,
+  trapEffectLine,
   startingEconomy,
   startingProgression,
   startingResearch,
@@ -121,6 +123,7 @@ function viewFor(side: BattleSide, trapId: string | null): BattleView {
             trapId: spec.id,
             name: spec.name,
             description: spec.description,
+            effect: trapEffectLine(spec),
             held: spec.id === HELD.id ? 2 : 0,
             available: spec.id === HELD.id,
             blocker: spec.id === HELD.id ? '' : EMPTY_BLOCKER,
@@ -232,11 +235,36 @@ describe('§I4: the Trap panel', () => {
     const options = await screen.findAllByRole('option');
     expect(options.map((node) => node.textContent)).toEqual(
       TRAP_CATALOG.map(
-        (spec) => `${spec.name}${spec.id === HELD.id ? '2 in the bag' : EMPTY_BLOCKER}`,
+        (spec) =>
+          `${spec.name}${spec.id === HELD.id ? '2 in the bag' : EMPTY_BLOCKER} · ${trapEffectLine(spec)}`,
       ),
     );
     expect(options.filter((node) => node.getAttribute('aria-disabled') === 'true')).toHaveLength(
       TRAP_CATALOG.length - 1,
+    );
+  });
+
+  /**
+   * What a trap does, on the screen it is chosen on (bug pass, 2026-09-29). The picker printed the
+   * flavour line alone, so Razor Wire's "nobody dies of it" was the only effect a player could read.
+   */
+  it('prints what the buried trap and the one being looked at each do to the attack', async () => {
+    serve(boardWith(viewFor('defender', HELD.id)));
+    draw();
+
+    const panel = within(await screen.findByTestId('trap-picker'));
+    expect(panel.getByTestId('trap-set-effect')).toHaveTextContent(trapEffectLine(HELD));
+
+    await pick('trap-option-picker', HELD.name);
+    expect(await screen.findByTestId('trap-choice-effect')).toHaveTextContent(trapEffectLine(HELD));
+    // ...and a trap the crew holds none of still says what it does, on its row in the list.
+    const wire = findTrap('trap_razor_wire')!;
+    fireEvent.click(panel.getByTestId('trap-option-picker'));
+    const row = (await screen.findAllByRole('option')).find((node) =>
+      node.textContent?.startsWith(wire.name),
+    );
+    expect(row).toHaveTextContent(
+      'Kills nobody. The attack loses 15 speed and 2 morale for its first 2 rounds',
     );
   });
 

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { PartialResources } from '../resources.js';
+import { RESOURCE_CAP_VALUE } from '../market/offers.js';
 import {
   BUILDING_CATALOG,
   BUILDING_MAX_LEVEL,
@@ -308,7 +309,64 @@ describe('the catalogue (§A5)', () => {
     const carried = new Set(UNIT_CATALOG.flatMap((unit) => unit.modifiers));
     for (const id of Object.keys(UNIT_MODIFIERS)) expect(carried.has(id as never), id).toBe(true);
   });
+
+  /*
+   * The carriers' one job (maintainer, 2026-09-30). At 10 and 30 a Razor, which also fights,
+   * out-carried both of them per slot and per cap before a single card was fitted.
+   */
+  it('lets both carriers out-carry a Razor per slot and per cap, Haulers most', () => {
+    const carry = (id: string) => {
+      const unit = findUnit(id)!;
+      return {
+        perSlot: unit.stats.lootCapacity / unit.unitSlots,
+        perCap: unit.stats.lootCapacity / capsOf(unit.cost),
+      };
+    };
+    const razors = carry('razors');
+    for (const id of ['scavengers', 'haulers']) {
+      expect(carry(id).perSlot, id).toBeGreaterThan(razors.perSlot);
+      expect(carry(id).perCap, id).toBeGreaterThan(razors.perCap);
+    }
+    expect(carry('haulers').perSlot).toBeGreaterThan(carry('scavengers').perSlot);
+  });
+
+  /*
+   * Anodics priced up (maintainer, 2026-09-30). The balance run measured them at a Razor's value
+   * per slot and, at the Razor's price per slot, 104% over the rabble median per cost (3.46 against
+   * 1.70). The ask was +25% to +40%, which is 74.5 to 83.6 caps-equivalent a slot against the 55 a
+   * Razor slot costs: a ratio of 1.35 to 1.52. The Razor is the yardstick and holds its 55.
+   */
+  it('prices an Anodics slot between 1.35 and 1.52 Razor slots, the Razor unmoved', () => {
+    const perSlot = (id: string) => capsOf(findUnit(id)!.cost) / findUnit(id)!.unitSlots;
+    expect(perSlot('razors')).toBe(55);
+    const ratio = perSlot('anodics') / perSlot('razors');
+    expect(ratio).toBeGreaterThanOrEqual(1.35);
+    expect(ratio).toBeLessThanOrEqual(1.52);
+  });
+
+  /*
+   * Netrunners priced against what the jam is worth (maintainer's retune, 2026-09-30). With the
+   * card jam at 17, the Wonder cut at 55 a step and range 80 with offense 60, four of them beside
+   * a line against an enemy half in Wonders measured 1.53 times the median fighter's value per
+   * cost at 519 caps-equivalent a body. The ask was about 1.5, and 1.4 to 1.6 is 496 to 567 a
+   * body: 3.01 to 3.44 Razor slots a slot.
+   */
+  it('prices a Netrunner slot between 3.01 and 3.44 Razor slots', () => {
+    const perSlot = (id: string) => capsOf(findUnit(id)!.cost) / findUnit(id)!.unitSlots;
+    const ratio = perSlot('netrunners') / perSlot('razors');
+    expect(ratio).toBeGreaterThanOrEqual(3.01);
+    expect(ratio).toBeLessThanOrEqual(3.44);
+  });
 });
+
+/** A price in caps-equivalent, at the market's rates. */
+function capsOf(cost: PartialResources): number {
+  return Object.entries(cost).reduce(
+    (total, [key, amount]) =>
+      total + (amount ?? 0) * RESOURCE_CAP_VALUE[key as keyof typeof RESOURCE_CAP_VALUE],
+    0,
+  );
+}
 
 describe('unlocking them (§A5)', () => {
   /**

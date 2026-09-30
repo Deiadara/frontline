@@ -48,12 +48,22 @@ describe('the door', () => {
 
   it('puts the crew’s own city first among the ones it may enter', () => {
     const open = citiesOpenTo([
-      stake({ cityId: 'saltmarch', locationsHeld: 2 }),
+      stake({ cityId: 'terminus', locationsHeld: 2 }),
       stake({ cityId: 'ashfall', resident: true }),
-      stake({ cityId: 'terminus', locationsHeld: 0 }),
+      stake({ cityId: 'saltmarch', locationsHeld: 0 }),
     ]);
     expect(open[0]).toBe('ashfall');
-    expect(open).toEqual(['ashfall', 'saltmarch']);
+    expect(open).toEqual(['ashfall', 'terminus']);
+  });
+
+  /*
+   * Maintainer, 2026-09-29: ground claimed in Saltmarch before its doors were shut kept its Bar,
+   * fence, Runner and board open to the crew holding it. A city that is not open has no rooms.
+   */
+  it('stays shut on a city that is not open, however much of it is held', () => {
+    expect(canEnterCity(stake({ cityId: 'saltmarch', locationsHeld: 5 }))).toBe(false);
+    expect(canEnterCity(stake({ cityId: 'saltmarch', resident: true }))).toBe(false);
+    expect(citiesOpenTo([stake({ cityId: 'saltmarch', locationsHeld: 3 })])).toEqual([]);
   });
 
   it('names the city a district belongs to, and falls back for one the map has not', () => {
@@ -167,6 +177,17 @@ describe('the room a city pours for', () => {
       at(18, LEVELS_PER_NOTORIETY_RANK, { resident: true }),
     ]);
     expect(room?.highest).toEqual({ level: 18, notoriety: LEVELS_PER_NOTORIETY_RANK });
+  });
+
+  /** The audit's room: the crew with the most standing is not the one with the most rank. */
+  it('keeps the highest rank in the room apart from the strongest crew', () => {
+    const room = cityRoomProfile([
+      at(80, 3, { resident: true }),
+      at(20, 13, { resident: true }),
+      at(20, 13, { resident: true }),
+    ]);
+    expect(room?.highest).toEqual({ level: 80, notoriety: 3 });
+    expect(room?.highestRank).toBe(13);
   });
 
   it('ignores a crew with no stake, and says nothing when nobody has one', () => {

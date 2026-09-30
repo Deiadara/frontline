@@ -102,3 +102,32 @@ export function askingWage(
 export function reservationWage(asking: number): number {
   return Math.ceil(asking * WAGE_RESERVATION_FRACTION);
 }
+
+/**
+ * What the payroll book is actually charged for a contract that closed at `price` (§H7, board
+ * 2026-09-07).
+ *
+ * The auction compares, reports and remembers the price everybody at the table could see. What the
+ * winner's own negotiators do is talk that number down **after** it is won, so the crew's Union
+ * Rep, its Authority and its Negotiation come off the book entry and off nothing anybody bid
+ * against. Everything shared stays shared: the result row, the notification, the results panel and
+ * every leaderboard read the price, and only this crew's ledger and their officer's `weeklyWage`
+ * carry the figure below it.
+ *
+ * Capped at `MAX_WAGE_DISCOUNT`, like the asking price (bug pass, 2026-09-23).
+ *
+ * The note here used to say the opposite, that the ceiling "belongs to the asking price" and the
+ * floor here is one cap. It was reachable: Authority, Negotiation and Empathy at eighty are 60
+ * points on their own, the seven research rungs add 41 and `sig_paymaster` another 18, so a
+ * late crew reaches 119 and every officer it signs costs **one cap a week**. The payroll ceiling
+ * is the only thing limiting how many people a crew can have on the books, and at a wage of one
+ * it stops binding entirely, which takes the cost out of the whole Bar.
+ *
+ * Half off is a large discount and the right ceiling for both halves: the two are the same
+ * channel talking the same number down, and a player who reads "-50% wages" on the crew sheet
+ * should not be paid a different rule by the auction than by the shelf.
+ */
+export function committedWage(price: number, discountPercent: number): number {
+  const discount = Math.min(MAX_WAGE_DISCOUNT, Math.max(0, discountPercent));
+  return Math.max(1, Math.round(price * (1 - discount / 100)));
+}

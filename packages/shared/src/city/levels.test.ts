@@ -112,17 +112,15 @@ describe('a location at a level', () => {
         const bonus = bonusesAt(kind, level).find((entry) => entry.kind === of)!;
         return 'percent' in bonus
           ? bonus.percent
-          : 'districts' in bonus
-            ? bonus.districts
-            : 'flat' in bonus
-              ? bonus.flat
-              : 'minutes' in bonus
-                ? bonus.minutes
-                : 'perHour' in bonus
-                  ? bonus.perHour
-                  : // The rules carry no quantity at all: see `scaledBonus`. Nothing here ladders
-                    // one, so anything that reaches this arm has nothing to compare.
-                    0;
+          : 'flat' in bonus
+            ? bonus.flat
+            : 'minutes' in bonus
+              ? bonus.minutes
+              : 'perHour' in bonus
+                ? bonus.perHour
+                : // The rules carry no quantity at all: see `scaledBonus`. Nothing here ladders
+                  // one, so anything that reaches this arm has nothing to compare.
+                  0;
       });
 
     // Straight multiplication, rounded: percentages, flat points and per-hour rates.
@@ -131,8 +129,10 @@ describe('a location at a level', () => {
     // Rounds half up, which is what makes a 5 into 8 rather than 7 at level 2.
     expect(ladder('broadcast_station', 'officer_group')).toEqual([5, 8, 10, 13]);
     // The whole-number channels, where the "at least one more per level" floor is what bites.
-    expect(ladder('watchtower', 'vision')).toEqual([1, 2, 3, 4]);
     expect(ladder('gym', 'training_sessions')).toEqual([1, 2, 3, 4]);
+    // The two that paid in sight and scouting parties until 2026-09-29, now intel at the same worth.
+    expect(ladder('watchtower', 'intel')).toEqual([38, 57, 76, 95]);
+    expect(ladder('satellite_uplink', 'intel')).toEqual([18, 27, 36, 45]);
     expect(ladder('black_clinic', 'battle_stims')).toEqual([2, 3, 4, 5]);
   });
 
@@ -182,15 +182,13 @@ describe('a location at a level', () => {
             const value =
               'perHour' in bonus
                 ? bonus.perHour
-                : 'districts' in bonus
-                  ? bonus.districts
-                  : 'flat' in bonus
-                    ? bonus.flat
-                    : 'minutes' in bonus
-                      ? bonus.minutes
-                      : 'percent' in bonus
-                        ? bonus.percent
-                        : 0;
+                : 'flat' in bonus
+                  ? bonus.flat
+                  : 'minutes' in bonus
+                    ? bonus.minutes
+                    : 'percent' in bonus
+                      ? bonus.percent
+                      : 0;
             return sum + value;
           }, 0);
         expect(total(next), `${kind} level ${level + 1}`).toBeGreaterThan(total(now));

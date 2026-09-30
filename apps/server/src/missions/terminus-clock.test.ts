@@ -1,11 +1,17 @@
 import {
+  DEFAULT_CITY_ID,
   MAX_MISSION_SPEED_BONUS,
   MAX_TRAVEL_SPEED_BONUS,
+  MISC_AREA_ID,
   TERMINUS_CITY_ID,
+  describeHoldBonus,
+  missionSpeedPercentIn,
+  unifiedBonusFor,
   TRAVEL_BAND_MINUTES,
   districtsOfCity,
   findMissionTemplate,
   findUnit,
+  missionWalkMinutes,
   type Base,
   type MissionTemplate,
 } from '@frontline/shared';
@@ -18,6 +24,7 @@ import { createRepositories, type Repositories } from '../db/repos/index.js';
 import { standingEffectsFor } from '../crew/standing.js';
 import { chooseOverseer, pinOverseer } from '../testing/overseer.js';
 import { launchMission } from './launch.js';
+import { projectAreas } from './board.js';
 import { sureLeader } from '../testing/leader.js';
 
 /**
@@ -44,6 +51,8 @@ afterEach(async () => {
 });
 
 const TERMINUS = districtsOfCity(TERMINUS_CITY_ID);
+/** A district of Ashfall's with work in it, for the boards the Blockhouse must not reach. */
+const ASHFALL_WORK = districtsOfCity(DEFAULT_CITY_ID).find((one) => one.kind === 'contested')!;
 
 /** A long job with a long road, so every rounding below is a rounding of a real number. */
 const RAID = findMissionTemplate('foundry-raid') as MissionTemplate;
@@ -120,12 +129,20 @@ describe('what two Terminus districts are worth to a job', () => {
 
     takeTheWhole(repos, base.id, 'blockhouse');
     const both = standingEffectsFor(repos, repos.bases.findById(base.id)!);
-    expect(both.missionSpeedPercent - bare).toBe(37);
+    expect(missionSpeedPercentIn(both, 'marshalling-yards') - bare).toBe(37);
+    /*
+     * The Blockhouse's 25 is Terminus's work only (maintainer, 2026-09-30: "every job in this
+     * city"): an Ashfall board and the misc board see the Yards' 12 and no more.
+     */
+    expect(both.missionSpeedPercent - bare).toBe(12);
+    expect(both.missionSpeedPercentByCity).toEqual({ [TERMINUS_CITY_ID]: 25 });
+    expect(missionSpeedPercentIn(both, ASHFALL_WORK.id) - bare).toBe(12);
+    expect(missionSpeedPercentIn(both, MISC_AREA_ID) - bare).toBe(12);
     /*
      * And nothing else on the road moved with them.
      *
      * `mission_speed` and `travel_speed` are different channels spent in different places, and a
-     * unified bonus that leaked into the second would shorten a march and a scouting run as well
+     * unified bonus that leaked into the second would shorten a march and a spy job as well
      * as a job. Neither district pays `travel_speed` or `road_shortcut`, and the Yards' own
      * locations pay travel inside the district, so the second hold must add nothing on top.
      */
@@ -147,15 +164,17 @@ describe('what two Terminus districts are worth to a job', () => {
       ramp: null,
       missionSpeedPercent: 37,
     });
-    // 60 minutes of work at 37 is 60 / 1.37 = 43.8. The road is the band at the column's pace
+    // 60 minutes of work at 37 is 60 / 1.37 = 43.8. The road is the band, plus the walk from an
+    // Ashfall home across the frontier (`missionWalkMinutes`, 2026-09-29), at the column's pace
     // and then 37 per cent off that, which is the half a party's own speed reaches and the job
     // leg does not: a van gets a crew to the site sooner and does not make the work go faster.
+    const road = 20 + missionWalkMinutes(base.districtId, 'marshalling-yards');
     expect(TRAVEL_BAND_MINUTES[RAID.travelBand]).toBe(20);
     expect(RAID.durationMinutes).toBe(60);
     expect(stored.mission.durationMinutes).toBe(44);
-    expect(stored.mission.travelMinutes).toBe(roadAt(20, RAZOR_SPEED, 37));
+    expect(stored.mission.travelMinutes).toBe(roadAt(road, RAZOR_SPEED, 37));
     // And the figure that proves the pace is in the road at all: walking is longer than riding.
-    expect(roadAt(20, 0, 37)).toBeGreaterThan(roadAt(20, RAZOR_SPEED, 37));
+    expect(roadAt(road, 0, 37)).toBeGreaterThan(roadAt(road, RAZOR_SPEED, 37));
   });
 
   it('caps the job leg at fifty and the road at sixty', async () => {
@@ -178,7 +197,37 @@ describe('what two Terminus districts are worth to a job', () => {
     // 60 / 1.5 on the job, and six tenths off the road: two different ceilings applied to two
     // different arithmetics, which is the thing one figure on a card hides.
     expect(stored.mission.durationMinutes).toBe(40);
-    expect(stored.mission.travelMinutes).toBe(roadAt(20, RAZOR_SPEED, MAX_TRAVEL_SPEED_BONUS));
+    const road = 20 + missionWalkMinutes(base.districtId, 'blockhouse');
+    expect(stored.mission.travelMinutes).toBe(roadAt(road, RAZOR_SPEED, MAX_TRAVEL_SPEED_BONUS));
+  });
+});
+
+describe('the Blockhouse’s cut, on the boards', () => {
+  it('says "in this city" on the card', () => {
+    expect(describeHoldBonus(unifiedBonusFor('blockhouse')!.bonus)).toBe(
+      '-20% mission time in this city',
+    );
+    expect(describeHoldBonus(unifiedBonusFor('marshalling-yards')!.bonus)).not.toContain('city');
+  });
+
+  it('quotes shorter jobs on a Terminus board and the same jobs on an Ashfall one', async () => {
+    const { base } = await world('quoted');
+    const yards = TERMINUS.find((one) => one.id === 'marshalling-yards')!;
+    const open = new Map([yards, ASHFALL_WORK].map((one) => [one.id, { heldByCrew: 1 }]));
+    const quote = (citySpeedPercent: Record<string, number>) =>
+      new Map(
+        projectAreas([yards, ASHFALL_WORK], open, [], base, new Date(), {
+          citySpeedPercent,
+        }).map((area) => [area.id, area.offers.map((offer) => offer.durationMinutes)]),
+      );
+    const bare = quote({});
+    const held = quote({ [TERMINUS_CITY_ID]: 25 });
+    expect(bare.get(yards.id)!.length).toBeGreaterThan(0);
+    held.get(yards.id)!.forEach((minutes, at) => {
+      expect(minutes).toBeLessThan(bare.get(yards.id)![at]!);
+    });
+    expect(held.get(ASHFALL_WORK.id)).toEqual(bare.get(ASHFALL_WORK.id));
+    expect(held.get(MISC_AREA_ID)).toEqual(bare.get(MISC_AREA_ID));
   });
 });
 

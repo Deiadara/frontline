@@ -55,7 +55,9 @@ export function Crest({
             <FactionBadge badge={badge} size={32} title={`${faction.name}'s badge`} />
           </span>
           <div className="flex min-w-0 flex-1 flex-col">
-            <h1 className="min-w-0 truncate font-stamp text-[19px] leading-tight text-ink-100 xl:text-[21px]">
+            {/* Two lines rather than an ellipsis: this is the table's own name on its own room,
+                and in an 18rem crest a name at `FACTION_NAME_MAX` read "The Ninth Circle …". */}
+            <h1 className="line-clamp-2 min-w-0 break-words font-stamp text-[19px] leading-tight text-ink-100 xl:text-[21px]">
               {faction.name}
             </h1>
             <span className="font-display text-[9.5px] uppercase tracking-[0.16em] text-brass-300">

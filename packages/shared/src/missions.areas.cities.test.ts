@@ -9,7 +9,7 @@ import {
   missionOffers,
   openAreas,
 } from './missions.areas.js';
-import { CITY_DISTRICTS } from './city/districts.js';
+import { CITY_DISTRICTS, isContested } from './city/districts.js';
 import { TERMINUS_CITY_ID, cityOf, districtsOfCity, unifiedBonusFor } from './city/atlas.js';
 import { DEFAULT_CITY_ID } from './city/cities.js';
 import { MAX_MISSION_SPEED_BONUS, hastenedMinutes } from './missions.js';
@@ -27,7 +27,7 @@ import { GAME_TIMEZONE } from './time/zone.js';
 
 const NOW = new Date('2026-09-24T09:00:00.000Z');
 const TERMINUS = districtsOfCity(TERMINUS_CITY_ID);
-const CONTESTED = TERMINUS.filter((district) => district.kind === 'contested');
+const CONTESTED = TERMINUS.filter(isContested);
 
 describe('what a second city pays for work', () => {
   it('has a Terminus to ask about at all', () => {
@@ -53,7 +53,7 @@ describe('what a second city pays for work', () => {
   /** The hardest ground in the world pays more than the softest, wherever either of them is. */
   it('pays more on the Blockhouse than on the cheapest ground in either city', () => {
     const softest = [...CITY_DISTRICTS, ...TERMINUS]
-      .filter((district) => district.kind === 'contested')
+      .filter(isContested)
       .sort((a, b) => a.difficulty - b.difficulty)[0]!;
     expect(areaPayPercent('blockhouse')).toBeGreaterThan(areaPayPercent(softest.id));
   });
@@ -86,24 +86,24 @@ describe('whose boards a crew is shown', () => {
   });
 
   it('opens Terminus districts for a crew standing in Terminus', () => {
-    const open = openAreas(() => ({ scouted: true, heldWhole: false }), TERMINUS_CITY_ID);
+    const open = openAreas(() => ({ heldByCrew: 1 }), TERMINUS_CITY_ID);
     expect(open.map((district) => district.id)).toEqual(CONTESTED.map((district) => district.id));
     // The four plots are somebody's home and post nothing, the same as Ashfall's.
     expect(open.every((district) => district.kind === 'contested')).toBe(true);
   });
 
   it('leaves the default city answering exactly what it always did', () => {
-    const open = openAreas(() => ({ scouted: true, heldWhole: false }));
+    const open = openAreas(() => ({ heldByCrew: 1 }));
     expect(open.map((district) => district.id)).toEqual(
-      CITY_DISTRICTS.filter((district) =>
-        areaIsOpen(district, { scouted: true, heldWhole: false }),
-      ).map((district) => district.id),
+      CITY_DISTRICTS.filter((district) => areaIsOpen(district, { heldByCrew: 1 })).map(
+        (district) => district.id,
+      ),
     );
   });
 
   /** A city the world does not have is an empty board rather than a throw or a default. */
   it('answers nothing for a city that does not exist', () => {
-    expect(openAreas(() => ({ scouted: true, heldWhole: false }), 'no-such-city')).toEqual([]);
+    expect(openAreas(() => ({ heldByCrew: 1 }), 'no-such-city')).toEqual([]);
   });
 });
 

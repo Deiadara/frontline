@@ -32,6 +32,7 @@ import {
   type Grade,
   type Commander,
   type CrewEffects,
+  type LineRules,
   type PartialResources,
   type Automation,
   type AutomationKind,
@@ -39,13 +40,21 @@ import {
   type MissionTemplate,
   type ResourceKey,
   LEADER_HOLD_MESSAGES,
+  NO_RIGHT_HAND_TEXT,
+  missionSpeedPercentIn,
 } from '@frontline/shared';
 import { randomUUID } from 'node:crypto';
 import type { Repositories } from '../db/repos/index.js';
 import { areaStatesFor } from '../missions/board.js';
 import { launchMission } from '../missions/launch.js';
 import { rampFor } from '../missions/pricing.js';
-import { standingEffectsFor } from '../crew/standing.js';
+import {
+  liftedOfficerSheet,
+  officerLiftRoom,
+  standingEffectsFor,
+  type LiftRoom,
+} from '../crew/standing.js';
+import { officerAsLeader } from '../missions/leaders.js';
 import { officerDuty } from '../crew/duty.js';
 import { removeForce } from '../battle/forces.js';
 import { enemyForce } from '../missions/enemy.js';
@@ -54,6 +63,7 @@ import { tallyAutomatedParty } from '../feats/tally.js';
 import { settleBase } from '../district/settle.js';
 import { settleEach } from '../world/guard.js';
 import { placeLocked } from '../battle/lock.js';
+import { workingOfficer } from '../crew/roster.js';
 
 /**
  * What a slot does when its turn comes (§C2b).
@@ -108,9 +118,11 @@ function candidates(
 
   /*
    * The misc board first, always. `areaStatesFor` only knows districts, and the misc board is
-   * not one: it is the board every crew has from its first minute, and the one a fresh crew with
-   * nothing scouted is otherwise left without. Then every district the screen would draw, by the
-   * screen's own rule (`areaIsOpen`): contested, scouted, not held whole.
+   * not one: it is the board every crew has from its first minute, and the one a fresh crew that
+   * holds nothing is otherwise left without. Then every district the screen would draw, by the
+   * screen's own rule (`areaIsOpen`): contested, with at least one location held by this crew. A
+   * district the crew has lost its last place in drops out on the next tick, the way it drops off
+   * the screen.
    */
   /*
    * The city this crew is standing in, not the first one.
@@ -260,6 +272,8 @@ function forceFor(
   base: Base,
   automation: Automation,
   template: MissionTemplate,
+  /** The crew's line rules, so a porter under `carriers_fight` counts as somebody who can fight. */
+  rules: LineRules,
   /** How to order a fight's units, when there is a fight and a size to fill. */
   rank?: (army: Army, unitSlots: number) => (unitId: string) => number,
 ): Army | null {
@@ -294,7 +308,9 @@ function forceFor(
       if (findUnit(unitId) === undefined) return null;
       if ((base.army[unitId] ?? 0) < count) return null;
     }
-    return missionForceRefusal(asked, base.army, template.kind) === null ? fieldable(asked) : null;
+    return missionForceRefusal(asked, base.army, template.kind, rules) === null
+      ? fieldable(asked)
+      : null;
   }
 
   /*
@@ -324,7 +340,9 @@ function forceFor(
         )
       : plain;
   if (!picked) return null;
-  return missionForceRefusal(picked, base.army, template.kind) === null ? fieldable(picked) : null;
+  return missionForceRefusal(picked, base.army, template.kind, rules) === null
+    ? fieldable(picked)
+    : null;
 }
 
 /** An officer as the launch takes one. */
@@ -345,6 +363,7 @@ function leaderFor(
   automation: Automation,
   template: MissionTemplate,
   now: Date,
+  room: LiftRoom,
 ): { leader: Leader } | { stall: string } {
   /*
    * Hurt means hurt *now*. `injuredUntil` is stamped when an officer is laid up and is never
@@ -355,7 +374,7 @@ function leaderFor(
   if (automation.officerId !== null) {
     const named = free.find((one) => one.id === automation.officerId);
     return named
-      ? { leader: asLeader(named) }
+      ? { leader: asLeader(named, room) }
       : { stall: namedOfficerStall(repos, base, automation.officerId, now) };
   }
   /*
@@ -364,7 +383,7 @@ function leaderFor(
    * so a slot with nobody free stalls before a party is filled.
    */
   const best = template.kind === 'battle' ? free[0] : bestLeader(free, offerProfile(template));
-  return best ? { leader: asLeader(best) } : { stall: 'No officer is free to lead' };
+  return best ? { leader: asLeader(best, room) } : { stall: 'No officer is free to lead' };
 }
 
 /**
@@ -391,10 +410,12 @@ function freeOfficers(repos: Repositories, base: Base, now: Date): Commander[] {
   );
 }
 
-const asLeader = (one: Commander): Leader => ({
+// On the lifted sheet, as a hand-sent run is (`benchFor`), so a standing order picks, quotes and
+// fights with the same officer the player would have seen on the board.
+const asLeader = (one: Commander, room: LiftRoom): Leader => ({
   kind: 'officer',
   id: one.id,
-  attributes: one.attributes,
+  attributes: liftedOfficerSheet(one, room).attributes,
 });
 
 /**
@@ -408,6 +429,7 @@ function fightLeaderFor(
   force: Army,
   effects: CrewEffects,
   free: readonly Commander[],
+  room: LiftRoom,
 ): Leader | null {
   if (free.length === 0) return null;
   const [best] = rankFightLeaders({
@@ -416,17 +438,12 @@ function fightLeaderFor(
     grade: candidate.grade,
     force,
     vehicles: {},
-    candidates: free.map((one) => ({
-      id: one.id,
-      name: one.name,
-      kind: 'officer' as const,
-      attributes: one.attributes,
-    })),
+    candidates: free.map((one) => officerAsLeader(one, room)),
     effects,
     practice: `practice-leader:${base.id}:${candidate.boardKey}:${candidate.template.id}`,
   });
   const chosen = best ? free.find((one) => one.id === best.id) : undefined;
-  return chosen ? asLeader(chosen) : null;
+  return chosen ? asLeader(chosen, room) : null;
 }
 
 /** The job's leaning profile, which is what a leader is scored against on the board screen too. */
@@ -438,7 +455,11 @@ const missionsRunner: AutomationRunner = {
   run(repos, base, automation, now, admin) {
     const wants = nextJobKind(automation);
     const pool = candidates(repos, base, wants, now);
-    if (pool.length === 0) return `No open board has ${wants === 'battle' ? 'a fight' : 'work'}`;
+    if (pool.length === 0) {
+      // Said with the rule: the misc board deals both kinds, so nothing on offer means a crew is
+      // already on it and no district is open to this one, which is a fix the player can make.
+      return `No open board has ${wants === 'battle' ? 'a fight' : 'work'}. A district hires only crews that hold a place in it`;
+    }
 
     /*
      * Cheapest refusal first. Who leads depends on the job's profile, and every job on the pool
@@ -446,13 +467,14 @@ const missionsRunner: AutomationRunner = {
      * stalls here without filling a party or pricing a board (bug pass, 2026-09-25).
      */
     const effects = standingEffectsFor(repos, base, now);
+    const room = officerLiftRoom(repos, base, now);
     /*
      * The party each candidate would get, and what it would carry. A fight's party depends on
      * the grade, so the engine's ranking is made once per grade and shared by every job at it.
      */
     const rankings = new Map<string, (unitId: string) => number>();
     const partyFor = (candidate: Candidate, leader: Leader): Army | null =>
-      forceFor(base, automation, candidate.template, (army, unitSlots) => {
+      forceFor(base, automation, candidate.template, effects, (army, unitSlots) => {
         const key = candidate.grade;
         let ranking = rankings.get(key);
         if (!ranking) {
@@ -482,12 +504,12 @@ const missionsRunner: AutomationRunner = {
     // A named officer is the same answer for every job, so a slot whose officer is out stalls
     // here, before a single party is filled or a board priced.
     if (automation.officerId !== null) {
-      const named = leaderFor(repos, base, automation, pool[0]!.template, now);
+      const named = leaderFor(repos, base, automation, pool[0]!.template, now, room);
       if ('stall' in named) return named.stall;
     }
     let leaderStall: string | null = null;
     const scored = pool.flatMap((candidate) => {
-      const lead = leaderFor(repos, base, automation, candidate.template, now);
+      const lead = leaderFor(repos, base, automation, candidate.template, now, room);
       if ('stall' in lead) {
         leaderStall = lead.stall;
         return [];
@@ -498,8 +520,14 @@ const missionsRunner: AutomationRunner = {
       // officers, unless the order named one.
       const leader =
         candidate.template.kind === 'battle' && automation.officerId === null
-          ? (fightLeaderFor(base, candidate, force, effects, freeOfficers(repos, base, now)) ??
-            lead.leader)
+          ? (fightLeaderFor(
+              base,
+              candidate,
+              force,
+              effects,
+              freeOfficers(repos, base, now),
+              room,
+            ) ?? lead.leader)
           : lead.leader;
       const carry = missionCarry(force, base.unitLoadouts, effects.lootCapacityPercent, effects);
       const rate = rateOf(candidate, carry, automation.optimiseFor);
@@ -524,7 +552,6 @@ const missionsRunner: AutomationRunner = {
       base,
       template: chosen.template,
       areaId: chosen.areaId,
-      boardKey: chosen.boardKey,
       grade: chosen.grade,
       // A fight's chance is frozen off the practice fights, exactly as the hand-sent launch does it.
       ...(chosen.template.kind === 'battle' && officer
@@ -535,12 +562,7 @@ const missionsRunner: AutomationRunner = {
               grade: chosen.grade,
               force,
               vehicles: {},
-              leader: {
-                id: officer.id,
-                name: officer.name,
-                kind: 'officer',
-                attributes: officer.attributes,
-              },
+              leader: officerAsLeader(officer, room),
               effects,
             }),
           }
@@ -553,7 +575,7 @@ const missionsRunner: AutomationRunner = {
       // by hand and the full real length by standing order, which made the Console useless for
       // watching an automation work and was a real inconsistency in a mode the board tests in.
       admin,
-      missionSpeedPercent: effects.missionSpeedPercent,
+      missionSpeedPercent: missionSpeedPercentIn(effects, chosen.areaId),
       // An officer at the head of the party pays their leading perks here as they do on a
       // hand-sent run (`routes/missions.ts`): the arrival cut on the running clock, the loot cut
       // on the take. Both were missing, so a led standing order ran on the unled clock and pay.
@@ -714,6 +736,16 @@ export function settleAutomations(repos: Repositories, now: Date, admin = false)
         // Written only when it changes, so a slot stalled for an hour is one write and not 3,600.
         if (reason !== slot.stalled) repos.automations.put({ ...slot, stalled: reason });
       };
+
+      /*
+       * The orders are the Right Hand's work (maintainer, 2026-09-29): with nobody fit in the chair,
+       * nothing goes. A party already out still comes home above; only the next one waits. Read
+       * off the settled base, so an injury that healed a second ago counts as healed.
+       */
+      if (workingOfficer(base.commanders, 'right_hand', now) === undefined) {
+        stallFor(NO_RIGHT_HAND_TEXT);
+        return;
+      }
 
       /*
        * §E's ceiling on crews out at once, on this door too (bug pass, 2026-09-23).

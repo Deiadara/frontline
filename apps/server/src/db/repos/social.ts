@@ -11,6 +11,7 @@ import {
   type NotificationSettings,
   type SentMessage,
 } from '@frontline/shared';
+import type { Statement } from 'better-sqlite3';
 import type { AppDatabase } from '../index.js';
 import { readJson } from '../json.js';
 
@@ -40,6 +41,15 @@ export interface NewMessage {
   inviteFactionId?: string | null;
 }
 
+/** One invitation letter, as the two invitation limits count it (`social/limits.ts`). */
+export interface InvitationLetter {
+  id: string;
+  senderUserId: string;
+  factionId: string;
+  inviteeUserId: string;
+  sentAt: string;
+}
+
 export interface NewNotification {
   id: string;
   userId: string;
@@ -64,6 +74,25 @@ export interface SocialRepo {
   markAllMessagesRead(userId: string, at: string): void;
   deleteMessage(id: string, userId: string): void;
   unreadMessages(userId: string): number;
+  /**
+   * Keeps a player's inbox to its newest `keep` letters, and drops the ones they threw away. Each
+   * copy that goes is folded into its sender's sent copy first, so "1/3 read" stays true.
+   */
+  trimMailbox(userId: string, keep: number): void;
+  /** Keeps a player's sent folder to its newest `keep` sends. */
+  trimSentFolder(userId: string, keep: number): void;
+
+  // --- invitation letters ---
+  recordInvitationLetter(letter: InvitationLetter): void;
+  /** Drops every invitation letter sent before `beforeIso`: no limit looks back that far. */
+  forgetInvitationLettersBefore(beforeIso: string): void;
+  /** Invitation letters this account has sent since `sinceIso`. */
+  invitationLettersSince(senderUserId: string, sinceIso: string): number;
+  /** Invitation letters to this invitee since `sinceIso`, from this sender or from this faction. */
+  invitationsToSince(
+    invitation: { inviteeUserId: string; senderUserId: string; factionId: string },
+    sinceIso: string,
+  ): number;
 
   // --- notifications ---
   putNotification(notification: NewNotification): void;
@@ -93,10 +122,18 @@ interface MessageRow {
   read_at: string | null;
   invite_id: string | null;
   invite_faction_id: string | null;
+  /** Joined, not stored: the sending account's username now, or null if the account is gone. */
+  sender_username: string | null;
   /** Joined, not stored: 1 while the invitation row is still open. See `toMessage`. */
   invite_open: number | null;
   invite_faction_name: string | null;
   invite_faction_badge: string | null;
+}
+
+interface DoomedLetter {
+  id: string;
+  thread_id: string;
+  read_at: string | null;
 }
 
 interface SentRow extends MessageRow {
@@ -141,6 +178,8 @@ const toMessage = (row: MessageRow): Message => ({
   threadId: row.thread_id,
   senderUserId: row.sender_user_id,
   senderName: row.sender_name,
+  // By the account, not by the signature: see `MessageSchema.replyTo`.
+  replyTo: row.sender_user_id === row.recipient_user_id ? null : row.sender_username,
   senderFaction: row.sender_faction,
   audience: row.audience === 'faction' ? 'faction' : 'player',
   addressedTo: row.addressed_to,
@@ -165,14 +204,22 @@ const knownKind = (value: string): value is NotificationKind =>
  * a card with a hole in it.
  */
 const MESSAGE_SELECT = `SELECT m.*,
+          su.username AS sender_username,
           CASE WHEN fi.id IS NULL THEN 0 ELSE 1 END AS invite_open,
           f.name AS invite_faction_name,
           f.badge AS invite_faction_badge
      FROM messages m
+     LEFT JOIN users su ON su.id = m.sender_user_id
      LEFT JOIN faction_invites fi ON fi.id = m.invite_id
      LEFT JOIN factions f ON f.id = m.invite_faction_id`;
 
 export function createSocialRepo(db: AppDatabase): SocialRepo {
+  // Prepared on first use: `pruned_recipients` and `invitation_letters` arrived with 0133 and
+  // 0134, and the repositories are also built over older schemas by the migration tests.
+  const lazy = (sql: string): (() => Statement) => {
+    let held: Statement | null = null;
+    return () => (held ??= db.prepare(sql));
+  };
   // The sender's copy is addressed to the sender, so the inbox index answers this.
   const sentSinceStmt = db.prepare(
     `SELECT COUNT(*) AS n FROM messages
@@ -196,11 +243,11 @@ export function createSocialRepo(db: AppDatabase): SocialRepo {
    * as a recipient: `is_sent_copy = 0` inside the subquery is what makes "went to 4 people, 2 have
    * read it" true rather than off by one.
    */
-  const sentStmt = db.prepare(
+  const sentStmt = lazy(
     `SELECT m.*,
-            (SELECT COUNT(*) FROM messages o
+            m.pruned_recipients + (SELECT COUNT(*) FROM messages o
               WHERE o.thread_id = m.thread_id AND o.is_sent_copy = 0) AS recipients,
-            (SELECT COUNT(*) FROM messages o
+            m.pruned_read + (SELECT COUNT(*) FROM messages o
               WHERE o.thread_id = m.thread_id AND o.is_sent_copy = 0 AND o.read_at IS NOT NULL)
               AS read_by
        FROM messages m
@@ -224,13 +271,65 @@ export function createSocialRepo(db: AppDatabase): SocialRepo {
     `SELECT COUNT(*) AS n FROM messages
       WHERE recipient_user_id = ? AND is_sent_copy = 0 AND deleted = 0 AND read_at IS NULL`,
   );
+  /*
+   * Everything past the newest `keep` letters a player can still see, and everything they threw
+   * away. Read or not: the cap is hard (maintainer, 2026-09-29), so an unread letter goes too, and
+   * the badge never counts a letter the inbox cannot show.
+   */
+  const doomedLettersStmt = db.prepare(
+    `SELECT id, thread_id, read_at FROM messages
+      WHERE recipient_user_id = ? AND is_sent_copy = 0
+        AND (deleted = 1 OR id NOT IN (
+          SELECT id FROM messages
+           WHERE recipient_user_id = ? AND is_sent_copy = 0 AND deleted = 0
+           ORDER BY sent_at DESC, id DESC LIMIT ?
+        ))`,
+  );
+  const foldIntoSentCopyStmt = lazy(
+    `UPDATE messages
+        SET pruned_recipients = pruned_recipients + 1, pruned_read = pruned_read + ?
+      WHERE thread_id = ? AND is_sent_copy = 1`,
+  );
+  const dropMessageStmt = db.prepare('DELETE FROM messages WHERE id = ?');
+  const trimMailbox = db.transaction((userId: string, keep: number) => {
+    for (const letter of doomedLettersStmt.all(userId, userId, keep) as DoomedLetter[]) {
+      foldIntoSentCopyStmt().run(letter.read_at === null ? 0 : 1, letter.thread_id);
+      dropMessageStmt.run(letter.id);
+    }
+  });
+  const trimSentFolderStmt = db.prepare(
+    `DELETE FROM messages
+      WHERE recipient_user_id = ? AND is_sent_copy = 1
+        AND id NOT IN (
+          SELECT id FROM messages WHERE recipient_user_id = ? AND is_sent_copy = 1
+           ORDER BY sent_at DESC, id DESC LIMIT ?
+        )`,
+  );
+
+  const recordInvitationStmt = lazy(
+    `INSERT INTO invitation_letters (id, sender_user_id, faction_id, invitee_user_id, sent_at)
+     VALUES (?, ?, ?, ?, ?)`,
+  );
+  const forgetInvitationsStmt = lazy('DELETE FROM invitation_letters WHERE sent_at < ?');
+  const invitationsSinceStmt = lazy(
+    'SELECT COUNT(*) AS n FROM invitation_letters WHERE sender_user_id = ? AND sent_at >= ?',
+  );
+  const invitationsToStmt = lazy(
+    `SELECT COUNT(*) AS n FROM invitation_letters
+      WHERE invitee_user_id = ? AND (sender_user_id = ? OR faction_id = ?) AND sent_at >= ?`,
+  );
 
   const putNotificationStmt = db.prepare(
     `INSERT INTO notifications (id, user_id, kind, title, body, link, subject_id, created_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
   );
+  /*
+   * Ties broken by insertion order (maintainer, 2026-09-29). The ids are random UUIDs, so ordering
+   * on them shuffled one settle's receipts differently on every read; `rowid` is the order they
+   * were written in.
+   */
   const notificationsStmt = db.prepare(
-    'SELECT * FROM notifications WHERE user_id = ? ORDER BY created_at DESC, id DESC LIMIT ?',
+    'SELECT * FROM notifications WHERE user_id = ? ORDER BY created_at DESC, rowid DESC LIMIT ?',
   );
   const readNotificationStmt = db.prepare(
     'UPDATE notifications SET read_at = ? WHERE id = ? AND user_id = ? AND read_at IS NULL',
@@ -259,7 +358,7 @@ export function createSocialRepo(db: AppDatabase): SocialRepo {
       WHERE user_id = ?
         AND id NOT IN (
           SELECT id FROM notifications WHERE user_id = ?
-           ORDER BY created_at DESC, id DESC LIMIT ?
+           ORDER BY created_at DESC, rowid DESC LIMIT ?
         )`,
   );
 
@@ -292,7 +391,7 @@ export function createSocialRepo(db: AppDatabase): SocialRepo {
       return (inboxStmt.all(userId, limit) as MessageRow[]).map(toMessage);
     },
     sent(userId, limit) {
-      return (sentStmt.all(userId, limit) as SentRow[]).map((row) => ({
+      return (sentStmt().all(userId, limit) as SentRow[]).map((row) => ({
         threadId: row.thread_id,
         audience: row.audience === 'faction' ? ('faction' as const) : ('player' as const),
         addressedTo: row.addressed_to,
@@ -322,6 +421,33 @@ export function createSocialRepo(db: AppDatabase): SocialRepo {
     },
     unreadMessages(userId) {
       return (unreadMessagesStmt.get(userId) as { n: number }).n;
+    },
+    trimMailbox(userId, keep) {
+      trimMailbox(userId, keep);
+    },
+    trimSentFolder(userId, keep) {
+      trimSentFolderStmt.run(userId, userId, keep);
+    },
+
+    recordInvitationLetter(letter) {
+      recordInvitationStmt().run(
+        letter.id,
+        letter.senderUserId,
+        letter.factionId,
+        letter.inviteeUserId,
+        letter.sentAt,
+      );
+    },
+    forgetInvitationLettersBefore(beforeIso) {
+      forgetInvitationsStmt().run(beforeIso);
+    },
+    invitationLettersSince(senderUserId, sinceIso) {
+      return (invitationsSinceStmt().get(senderUserId, sinceIso) as { n: number }).n;
+    },
+    invitationsToSince({ inviteeUserId, senderUserId, factionId }, sinceIso) {
+      return (
+        invitationsToStmt().get(inviteeUserId, senderUserId, factionId, sinceIso) as { n: number }
+      ).n;
     },
 
     putNotification(notification) {
@@ -370,8 +496,16 @@ export function createSocialRepo(db: AppDatabase): SocialRepo {
     settings(userId) {
       const row = settingsStmt.get(userId) as { muted_json: string } | undefined;
       if (!row) return defaultNotificationSettings();
+      const stored = JSON.parse(row.muted_json) as unknown;
+      /*
+       * A kind the catalogue has retired (`battle_incoming`, 2026-09-29) is dropped from the list
+       * rather than failing it: a failed parse falls back to the defaults, which would switch
+       * every other kind this player had muted back on.
+       */
       const parsed = NotificationSettingsSchema.safeParse({
-        muted: JSON.parse(row.muted_json) as unknown,
+        muted: Array.isArray(stored)
+          ? stored.filter((kind): kind is string => typeof kind === 'string' && knownKind(kind))
+          : stored,
       });
       return parsed.success ? parsed.data : defaultNotificationSettings();
     },

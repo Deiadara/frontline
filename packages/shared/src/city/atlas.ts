@@ -117,25 +117,21 @@ const SALTMARCH: readonly District[] = [
     [
       'quayside',
       { x: 0.12, y: 0.38 },
-      1,
       'Lock-ups along the old quay wall, dry at low tide and reachable by one causeway.',
     ],
     [
       'fishrow',
       { x: 0.36, y: 0.86 },
-      2,
       'Smokehouses in a terrace, the whole row permanently warm and permanently smelling of it.',
     ],
     [
       'raftfield',
       { x: 0.68, y: 0.78 },
-      2,
       'Homes lashed to pontoons that rise with the water. Nobody here has the same neighbours twice in a year.',
     ],
     [
       'highwater',
       { x: 0.9, y: 0.6 },
-      3,
       'The only streets that never flooded, which is why the rent is what it is.',
     ],
   ]),
@@ -354,25 +350,21 @@ const TERMINUS: readonly District[] = [
     [
       'carriage',
       { x: 0.14, y: 0.64 },
-      2,
       'Old carriages set on blocks and lived in, a street of them with doors cut in the sides.',
     ],
     [
       'watertower',
       { x: 0.38, y: 0.88 },
-      2,
       'A terrace in the shadow of a water tower nobody has drained in thirty years. Everybody who lives there knows exactly how much is still in it.',
     ],
     [
       'embankment',
       { x: 0.7, y: 0.84 },
-      3,
       'Dug into the embankment itself, warm in winter and loud every time something rolls past.',
     ],
     [
       'signalrow',
       { x: 0.94, y: 0.56 },
-      3,
       'The signalmen’s cottages, the tidiest street on the frontier and the most watched. It sits under the Blockhouse, which is the right address for a rival and the wrong one for a beginner.',
     ],
   ]),
@@ -381,14 +373,9 @@ const TERMINUS: readonly District[] = [
 /** The four plots a city gets, which carry no authored name. See `UNCLAIMED_DISTRICT_NAME`. */
 function plots(
   cityId: string,
-  rows: readonly [
-    id: string,
-    position: { x: number; y: number },
-    difficulty: number,
-    blurb: string,
-  ][],
+  rows: readonly [id: string, position: { x: number; y: number }, blurb: string][],
 ): District[] {
-  return rows.map(([id, position, difficulty, blurb]) =>
+  return rows.map(([id, position, blurb]) =>
     districtFrom({
       id,
       cityId,
@@ -397,7 +384,6 @@ function plots(
       kind: 'residential',
       allegiance: 'independent',
       position,
-      difficulty,
       blurb,
       locations: [],
     }),
@@ -425,8 +411,8 @@ export const ATLAS_UNIFIED_BONUSES: Readonly<Record<string, UnifiedBonus>> = {
   // Forty hulls welded together is a yard. Nothing on the Fleet builds anything today, which is
   // exactly why finishing it should.
   hulls: { title: 'The Fleet Answers', bonus: { kind: 'build_speed', percent: 14 } },
-  // Hold the lock and you hold the water: every crew in Saltmarch moves at the level you set it to.
-  // Not infamy, which the Lock Garrison inside already pays, and not a discount, which the Toll
+  // Hold the lock and you hold the water, and your crews move faster on every road in every city
+  // for it. Not infamy, which the Lock Garrison inside already pays, and not a discount, which the Toll
   // House does. What only the whole district can sell is the passage itself.
   lockgate: {
     title: 'The Water Is Yours to Hold',
@@ -461,8 +447,8 @@ export const ATLAS_UNIFIED_BONUSES: Readonly<Record<string, UnifiedBonus>> = {
     title: 'The Hill Listens For You',
     bonus: { kind: 'unit_stealth', percent: 18 },
   },
-  // Taking the viaduct is the most visible thing anybody can do in this city, and the city prices
-  // you differently afterwards.
+  // Taking the viaduct is the most visible thing anybody can do in this city, and the whole world
+  // prices you differently afterwards: the infamy counts everywhere.
   viaduct: {
     title: 'They Watched You Take the Arches',
     bonus: { kind: 'infamy_gain', percent: 15 },
@@ -475,11 +461,12 @@ export const ATLAS_UNIFIED_BONUSES: Readonly<Record<string, UnifiedBonus>> = {
   },
   /*
    * Control decides which trains exist, and the maintainer's call (2026-09-24) is that what that
-   * is worth is twenty per cent off the time every job in this city takes.
+   * is worth is twenty per cent off the time every job in this city takes. In this city only
+   * (`inOwnCity`, maintainer 2026-09-30): it paid on every board in the world until then.
    *
    * Written as `25` because a speed channel is spent as `time / (1 + percent/100)`, and 25 there
    * is exactly a fifth off the clock (`timeSavingPercent`). The card says "-20% mission time",
-   * which is the number that was asked for.
+   * which is the number that was asked for, and "in this city".
    *
    * The same kind the Yards pay, which is allowed and is the point: the rule the suite enforces is
    * that a district's unified bonus may not be a kind that already appears *inside that district*,
@@ -488,7 +475,7 @@ export const ATLAS_UNIFIED_BONUSES: Readonly<Record<string, UnifiedBonus>> = {
    */
   blockhouse: {
     title: 'Everything Leaves Through You',
-    bonus: { kind: 'mission_speed', percent: 25 },
+    bonus: { kind: 'mission_speed', percent: 25, inOwnCity: true },
   },
 };
 
@@ -506,7 +493,7 @@ const BY_CITY: ReadonlyMap<string, readonly District[]> = new Map([
  *
  * `findDistrict` and `findLocation` used to walk Ashfall's twelve districts, because Ashfall was
  * the world. Every action verb in the game resolves its target through one of them: march, move,
- * scout, spy, raid, garrison, upgrade, fortify. While there was one playable city that was
+ * spy, raid, garrison, upgrade, fortify. While there was one playable city that was
  * correct; the day a second one opened it became a wall with the wrong sign on it, refusing a real
  * Terminus location as "no such place" (maintainer, 2026-09-24).
  *

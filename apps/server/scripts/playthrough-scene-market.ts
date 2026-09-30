@@ -232,18 +232,33 @@ async function offers(h: Harness, a: Player, b: Player, c: Player, d: Player): P
     expect: 409,
     code: 'MARKET_REFUSED',
   });
-  // A crew that cannot cover the want cannot take it.
-  const dHeld = await baseOf(h, d);
-  h.repos.bases.updateResources(d.baseId, { ...dHeld.resources, scrap: 0 });
+  // Each city has its own board (maintainer, 2026-09-29). D lives in Terminus and holds nothing in
+  // Ashfall, so A's Ashfall listing is not on D's board and D cannot take it by its id either.
+  const theirs = await market(h, d);
+  h.check(
+    !(theirs?.offers.some((one) => one.id === offer.id) ?? true),
+    "A's Ashfall listing is on D's Terminus board",
+  );
   await h.refuse({
     as: d,
+    method: 'POST',
+    route: '/api/market/accept',
+    body: { offerId: offer.id },
+    expect: 403,
+    code: 'CITY_SHUT',
+  });
+  // A crew that cannot cover the want cannot take it.
+  const bStock = await baseOf(h, b);
+  h.repos.bases.updateResources(b.baseId, { ...bStock.resources, scrap: 0 });
+  await h.refuse({
+    as: b,
     method: 'POST',
     route: '/api/market/accept',
     body: { offerId: offer.id },
     expect: 409,
     code: 'MARKET_REFUSED',
   });
-  h.repos.bases.updateResources(d.baseId, dHeld.resources);
+  h.repos.bases.updateResources(b.baseId, bStock.resources);
   const taken = await h.ok<MarketMutationResponse>({
     as: b,
     method: 'POST',
@@ -450,11 +465,19 @@ async function offers(h: Harness, a: Player, b: Player, c: Player, d: Player): P
       expect: 409,
       code: 'MARKET_REFUSED',
     });
-    await h.ok({
+    // Taking the counter closed the listing it answered, and paid the counter out of its escrow:
+    // there is nothing left standing for A to withdraw, and nothing held back as a claim.
+    h.check(
+      !(await market(h, a))?.mine.some((one) => one.id === parent.id),
+      'the listing a taken counter answered is still standing',
+    );
+    await h.refuse({
       as: a,
       method: 'POST',
       route: '/api/market/withdraw',
       body: { offerId: parent.id },
+      expect: 409,
+      code: 'MARKET_REFUSED',
     });
     const aClosing = await baseOf(h, a);
     const bClosing = await baseOf(h, b);
@@ -463,7 +486,7 @@ async function offers(h: Harness, a: Player, b: Player, c: Player, d: Player): P
       total(aOpening.resources, bOpening.resources),
       total(aClosing.resources, bClosing.resources),
       {},
-      'a listing, a counter taken and the listing withdrawn (caps and goods conserved)',
+      'a listing and the counter that replaced it (caps and goods conserved)',
     );
   }
 

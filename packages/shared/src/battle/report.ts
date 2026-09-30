@@ -4,6 +4,7 @@ import type { Battlefield } from './battlefield.js';
 import { engagementMultiplier, exchange } from './matchup.js';
 import { moraleState, MORALE_STATE_LABELS } from './morale.js';
 import {
+  asFormed,
   jamPercent,
   mendShare,
   openingJam,
@@ -17,7 +18,7 @@ import {
  *
  * The design constraint is the interesting part: **not everything the engine knew may be shown.**
  * A report that prints every multiplier turns a fight into a spreadsheet and hands a player the
- * exact counter-list without their ever having scouted anything. A report that prints only the
+ * exact counter-list without their ever having spied on anything. A report that prints only the
  * result teaches nothing and reads as a coin flip.
  *
  * So each finding carries a visibility, and the three are used for different things:
@@ -184,13 +185,22 @@ function groundFindings(battlefield: Battlefield): BattleFinding[] {
  * across a street, and telling the attacker would hand them the counter for free.
  */
 function supportFindings(simulation: Simulation, side: SideState): BattleFinding[] {
-  const share = mendShare(side);
+  /*
+   * The share as the lines formed, the way `jamFindings` reads the jam (bug pass, 2026-09-29).
+   *
+   * Read off the side as it ended, the share was zero whenever the line the medics were treating
+   * had broken or died, which is every lost fight: the finding was missing from all 135 losses in
+   * a 400-seed sweep, and the "overrun" line below it could never be reached, because dead medics
+   * also read zero.
+   */
+  const share = mendShare(asFormed(side));
   if (share <= 0) return [];
 
   const medics = side.stacks.filter((stack) => stack.unit.mends === true);
   if (medics.length === 0) return [];
   const name = medics[0]!.unit.name;
   const standing = medics.reduce((total, stack) => total + stack.alive, 0);
+  const saved = `roughly ${Math.round(share * 100)}% of what came at the line never counted`;
 
   return [
     {
@@ -199,8 +209,8 @@ function supportFindings(simulation: Simulation, side: SideState): BattleFinding
       visibility: 'own',
       text:
         standing === 0
-          ? `The ${name} were overrun before the line needed them.`
-          : `The ${name} kept working: roughly ${Math.round(share * 100)}% of what came at the line never counted.`,
+          ? `The ${name} were overrun. Until they fell, ${saved}.`
+          : `The ${name} kept working: ${saved}.`,
     },
   ];
 }
@@ -210,8 +220,8 @@ function supportFindings(simulation: Simulation, side: SideState): BattleFinding
  *
  * The same argument `supportFindings` makes for medics, and the jam needed it more: a Netrunner
  * deals twenty damage, so a player reading a casualty list saw a unit that killed nobody and
- * concluded it had done nothing, when it may have taken forty per cent off the other side's
- * armour and their damage for the whole fight.
+ * concluded it had done nothing, when it may have taken forty per cent off what every card on the
+ * other side's sheets was worth for the whole fight.
  *
  * Two findings, because a jam is the one mechanic in the report that happens *to* somebody:
  *
@@ -229,7 +239,9 @@ function jamFindings(simulation: Simulation, side: SideState, enemy: SideState):
   const alive = jammers.reduce((total, stack) => total + stack.alive, 0);
   const held = jamPercent(side);
   const figure = Math.round(opened);
-  const took = `${figure}% off their armour and their damage`;
+  // What the jam does since 2026-09-27 (`jammedSheet`): it strips that share of what the enemy's
+  // modifications add. The line said "off their armour and their damage", the effect it replaced.
+  const took = `${figure}% off what their modifications give them`;
 
   /*
    * Four endings, and the difference between two of them is the point.
@@ -299,8 +311,18 @@ export function findingsFor(simulation: Simulation): BattleFinding[] {
 
 const standing = (side: SideState): number =>
   side.stacks.reduce((total, stack) => total + stack.alive, 0);
+/**
+ * A side's force as the analysis counts it (`committed`): the officer is not one of the units, and
+ * a unit that changed sides under Directive Xero is counted with the side that marched it in. The
+ * log's opening line counted every stack, so it said 21 where the report beside it said 20 for a
+ * crew with an officer, and moved the turned from one side's figure to the other's.
+ */
 const started = (side: SideState): number =>
-  side.stacks.reduce((total, stack) => total + stack.started, 0);
+  side.stacks.reduce(
+    (total, stack) =>
+      total + (stack.officer === undefined && stack.turncoat !== true ? stack.started : 0),
+    0,
+  );
 
 /**
  * The narrative log: the part a player actually reads.
@@ -311,11 +333,13 @@ const started = (side: SideState): number =>
 export function narrate(simulation: Simulation, findings: readonly BattleFinding[]): string[] {
   const { attacker, defender, battlefield, winner } = simulation;
   const log: string[] = [];
+  const turned = Object.values(simulation.turned).reduce((total, count) => total + count, 0);
+  const moving = started(attacker) + turned;
 
   log.push(
     started(defender) === 0
-      ? `${started(attacker)} moving on ${battlefield.locationName}. It is standing empty, or looks it.`
-      : `${started(attacker)} moving on ${battlefield.locationName}. ${defender.name} has ${started(defender)} on the ground.`,
+      ? `${moving} moving on ${battlefield.locationName}. It is standing empty, or looks it.`
+      : `${moving} moving on ${battlefield.locationName}. ${defender.name} has ${started(defender)} on the ground.`,
   );
 
   const ground = findings.find((finding) => finding.kind === 'ground');
@@ -333,7 +357,12 @@ export function narrate(simulation: Simulation, findings: readonly BattleFinding
   );
 
   if (simulation.settledBy === 'cap') {
-    log.push('Neither side broke. It was called on who was left standing.');
+    // Not "neither side broke": `cap` means both lines still had somebody fighting at the round
+    // limit, and in 81 of 83 cap fights in a 5,000-fight sweep a stack had broken, often on a line
+    // the log had just printed (bug pass, 2026-09-29).
+    log.push(
+      'Both lines were still in it when time ran out. It was called on who was left standing.',
+    );
   } else if (simulation.settledBy === 'collapse') {
     // Both lines went down in the same round, so there was nobody left standing to call it on and
     // the ground went to whoever had more of a force left on the field. Said out loud, because a

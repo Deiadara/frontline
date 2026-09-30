@@ -6,6 +6,7 @@ import {
 } from '@frontline/shared';
 import { useState } from 'react';
 import { HoverCard } from '../../components/ui/HoverCard';
+import { Insignia } from '../../components/ui/Insignia';
 import { Modal } from '../../components/ui/Modal';
 import { cn } from '../../lib/cn';
 import { UnitCard } from '../units/UnitCard';
@@ -93,14 +94,18 @@ export function CombineLeaderTag({ leader }: { leader: CombineLeaderView }) {
       >
         <span
           className={cn(
-            'block border px-2 py-0.5 font-display text-[10px] uppercase tracking-[0.16em]',
+            'flex items-center gap-1.5 border px-2 py-0.5 font-display text-[10px] uppercase tracking-[0.16em]',
             leader.alive
               ? 'border-oxblood-500/60 text-oxblood-300'
               : // Dead: the same frame, the ink gone out of it. Still hostile ground, no longer his.
                 'border-surface-600 text-ink-300 line-through decoration-oxblood-500/70',
           )}
         >
-          {leaderTagLine(leader)}
+          {/* The regime's mark on the regime's man (maintainer, 2026-09-30), in the tag's own ink so
+              the tag stays one colour. Pulled out of the line's height, which is 15px against a
+              14px mark, so the tag is exactly as tall as it was. */}
+          <Insignia holder="government" tone={false} className="-my-1 h-3.5 w-3.5" />
+          <span>{leaderTagLine(leader)}</span>
         </span>
       </HoverCard>
 

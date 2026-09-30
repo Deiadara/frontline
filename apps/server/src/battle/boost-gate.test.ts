@@ -94,9 +94,8 @@ async function stage(): Promise<Stack> {
     technologies: proposers.flatMap((unlock) => (unlock.kind === 'tech' ? [unlock.techId] : [])),
   });
 
-  // The Rustyard, scouted and one location off the looters, so a fight can be called there. Same
-  // fixture the other battle-route tests use: the trip and the gate are not what this covers.
-  app.repos.city.markScouted(baseId, 'steelbelt', new Date().toISOString());
+  // The Steelbelt with one location off the looters, so a fight can be called there. Same fixture
+  // the other battle-route tests use: the gate is not what this covers.
   const control = app.repos.city.control('steelbelt-bonefield');
   if (control) {
     app.repos.city.put({ ...control, holder: { kind: 'crew', baseId }, garrison: {} });

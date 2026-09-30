@@ -113,9 +113,9 @@ that is deliberately a different _kind_ of thing from anything inside it: enforc
 Combine / looters / a crew) and every player sees the same answer. Garrisons live on the place, not
 on the crew, because they are what changes hands when it does.
 
-✅ **Fog of war.** A district's places are hidden until the crew has scouted it, and the fog is
-enforced server-side on the way out: unscouted ground returns no places at all, and `held` is
-`null` rather than `0 / 4`. A Satellite Uplink sees the nearest districts without walking in.
+✅ **The whole city is visible** (2026-09-29; scouting and its fog of war were removed). Who holds
+every place is on the map for every crew. What stands on ground a crew does not hold is enforced
+server-side on the way out: no garrison and no size, only the crew's last spy report.
 
 ✅ **No dug-in fortification** (removed 2026-09-26). What makes ground harder to take is the gate
 behind it (the defender's home Gate and, on a district held whole, its captured gate, both on the
@@ -359,7 +359,7 @@ Two mapping rows are dead and worth knowing before anybody trusts them:
 - **There IS a tick, and this line used to deny it** (corrected 2026-09-22). `startWorldClock`
   (`live/clock.ts`) runs `tickWorld` every `WORLD_TICK_MS`, which is one second, and that calls
   `settleWorld` for the whole world whether anybody is connected or not: location upgrades, unit
-  movements, sleepers, captured gates, **battles**, crews coming home, scouts, spy jobs, and both
+  movements, sleepers, captured gates, **battles**, crews coming home, spy jobs, and both
   auction rooms. So a fight lands on its mark, a crew comes home, and loot changes hands while its
   owner is offline. The stale claim here is what made the architecture look absent.
 - **A base's own economy still settles lazily on read.** `settleBase` runs the district first and

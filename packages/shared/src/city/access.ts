@@ -1,4 +1,4 @@
-import { DEFAULT_CITY_ID } from './cities.js';
+import { DEFAULT_CITY_ID, cityIsOpen } from './cities.js';
 import { ALL_DISTRICTS } from './atlas.js';
 
 /**
@@ -43,9 +43,14 @@ export interface CityStake {
  */
 export const MAX_WEIGHTED_LOCATIONS = 10;
 
-/** Whether this crew may walk into that city's bar and its market. */
+/**
+ * Whether this crew may walk into that city's bar and its market.
+ *
+ * Never a city that is not open (maintainer, 2026-09-29): ground claimed in Saltmarch before its
+ * doors were shut opened its Bar, fence, Runner, board and missions to the crew holding it.
+ */
 export function canEnterCity(stake: CityStake): boolean {
-  return stake.resident || stake.locationsHeld > 0;
+  return cityIsOpen(stake.cityId) && (stake.resident || stake.locationsHeld > 0);
 }
 
 /**
@@ -131,12 +136,18 @@ export interface RoomProfile {
   lowest: RoomCrew;
   highest: RoomCrew;
   average: RoomCrew;
+  /**
+   * The highest rank any crew in the room holds. Not `highest.notoriety`: `highest` is ranked by
+   * standing, which leans on level, so a level-80 crew at rank 3 is `highest` in a room where two
+   * level-20 crews hold rank 13, and a door capped off its rank sat below the room's own floor.
+   */
+  highestRank: number;
 }
 
 /** A room where every crew stands in the same place: a city of one, and the shape tests read. */
 export function flatRoom(level: number, notoriety = 0): RoomProfile {
   const crew = { level, notoriety };
-  return { lowest: crew, highest: crew, average: crew };
+  return { lowest: crew, highest: crew, average: crew, highestRank: notoriety };
 }
 
 /**
@@ -173,6 +184,7 @@ export function cityRoomProfile(participants: readonly CityParticipant[]): RoomP
     lowest: { level: lowest.level, notoriety: lowest.notoriety },
     highest: { level: highest.level, notoriety: highest.notoriety },
     average: { level: level / weight, notoriety: notoriety / weight },
+    highestRank: Math.max(...inside.map((participant) => participant.notoriety)),
   };
 }
 

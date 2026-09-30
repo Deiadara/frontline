@@ -3,7 +3,7 @@ import { RESOURCE_KEYS, type PartialResources } from '../resources.js';
 /**
  * Changing your mind (maintainer request, 2026-09-12): one rule for everything that takes time.
  *
- * Anything a crew sets going, a build, a batch, a project, a dig, a scout, a crew on a job, a
+ * Anything a crew sets going, a build, a batch, a project, a dig, a spy job, a crew on a job, a
  * column on the road, can be called off in the **first tenth** of its own clock, and a spend
  * called off comes back at **ninety percent**. The same two numbers everywhere, because a player
  * learns them once: the Gauntlet used to give ninety-five back and nothing else could be cancelled
@@ -14,7 +14,7 @@ import { RESOURCE_KEYS, type PartialResources } from '../resources.js';
  * rather than all of it, so the bench is never a free place to park resources; the missing tenth
  * is the material already cut up before anybody said stop.
  *
- * A journey has no bill to refund. What it pays back instead is time: a crew or a scout turned
+ * A journey has no bill to refund. What it pays back instead is time: a crew or a spy job turned
  * round in the first tenth of the way out walks home the distance already covered, so the return
  * takes exactly as long as the going did.
  */
@@ -42,8 +42,8 @@ export function cancelWindowOpen(startedAtMs: number, totalMs: number, nowMs: nu
  * party recalled while already standing there would otherwise be sent home for longer than the
  * entire journey took.
  *
- * Shared by the scout, the spy job and a column of units, because all three turn round the same
- * way and three copies of one sum is three chances to fix it once.
+ * Shared by the spy job, a Sleeper cell and a column of units, because all three turn round the
+ * same way and three copies of one sum is three chances to fix it once.
  */
 export function turnaroundMs(
   leg: { departedAt: string; travelMinutes: number },

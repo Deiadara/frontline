@@ -1,9 +1,9 @@
 import {
   formatClock,
+  findDistrict,
   BUILDING_CATALOG,
   type DistrictDetailResponse,
   districtDisplayName,
-  garrisonOf,
   type Army,
   type BattleTarget,
   type Building,
@@ -13,27 +13,29 @@ import {
 } from '@frontline/shared';
 import { useState, type CSSProperties } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { ScoutMenu } from './ScoutMenu';
 import { usePlayerZone } from '../settings/usePlayerZone';
 import { PLAQUE_PLATE, PlaqueFace } from '../../components/DistrictPlaque';
 import { Button } from '../../components/ui/Button';
 import { Modal } from '../../components/ui/Modal';
-import { ScreenLoad } from '../../components/ui/LoadFailure';
 import { Panel } from '../../components/ui/Panel';
 import { WeatherBanner } from '../../components/ui/WeatherBanner';
 import { CombineLeaderTag } from './CombineLeader';
 import { ContestedScene, hasPainting } from './ContestedScene';
 import { LocationSheet, cardHeadingId, cardId, crewFileHref } from './LocationSheet';
-import { SpyDialog } from './SpyPanel';
-import { GroundBox, GroundToggle, UnifiedBonusLines } from './GroundBox';
+import { SpyDialog, spyingOf } from './SpyPanel';
+import { GroundBox, GroundToggle, HoldInsignia, UnifiedBonusLines } from './GroundBox';
+import { districtHoldLine } from './holder';
 import { DistrictScene } from '../base/DistrictScene';
 import { cn } from '../../lib/cn';
 import { useMeasuredSize } from '../../lib/useMeasuredHeight';
 import { useBattles, useDeclareBattle, useDistrict, useMe } from '../../lib/queries';
 import { formatRemaining } from '../base/format';
 import { DeclareDialog } from '../battle/DeclareDialog';
+import { ScreenLoadSheet } from '../game/PageShell';
 import { useServerClock } from '../missions/useServerClock';
 import { useRememberDistrictCity } from './useCityRoom';
+import { UnclaimedPlotWindow } from './UnclaimedPlot';
+import { CityView } from '../game/CityView';
 
 /**
  * Inside one district (GDD §A4): the locations, who is holding them, and what it would take.
@@ -100,7 +102,7 @@ export function DistrictView() {
   /*
    * The server's clock, for the two countdowns on a location card. They read `Date.now()`, and on
    * a machine twenty minutes fast an upgrade with twenty minutes to run said "0s left" for the
-   * whole twenty. The scout sheet (`ScoutMenu`) learnt the same lesson first and says why.
+   * whole twenty.
    */
   const now = useServerClock(data?.serverNow, query.dataUpdatedAt);
   // A door this crew is standing behind is not one it spies on: the route refuses `own_ground`.
@@ -109,43 +111,35 @@ export function DistrictView() {
       ? data.holder.baseId === baseId
       : data?.base?.id !== undefined && data.base.id === baseId;
 
+  /*
+   * A plot, by the catalogue, before the read has said whether anybody lives on it.
+   *
+   * The city map stays up while it is read rather than a loading sheet going over it: an
+   * unclaimed plot opens as a window over that same map, and a sheet in between would flash the
+   * map away and back. A claimed plot swaps the map for its street when the read lands.
+   */
+  const plot = findDistrict(districtId ?? '')?.kind === 'residential';
+
   if (!data) {
+    if (plot && !query.isError) return <CityView />;
     /*
      * A failed read has to say so, not sit on "Reading the street" for ever.
      *
      * Queries do not retry (`main.tsx` sets `retry: false`), so one refused request left this
      * screen showing a loading line with nothing behind it and no way back except the browser's
      * own reload. The same shape was on thirteen other screens and is one component now.
+     *
+     * On a sheet, because the painting is not drawn yet: a bare line went into the shell's outlet
+     * at the top of the window, under the standing bar, and the player saw a blurred backdrop.
      */
     return (
-      <ScreenLoad
+      <ScreenLoadSheet
         what="This district"
         loading="Reading the street…"
         isError={query.isError}
         onRetry={() => void query.refetch()}
       />
     );
-  }
-
-  /*
-   * Unscouted ground does not open (maintainer, 2026-09-23), and it no longer **bounces** either
-   * (maintainer, 2026-09-25: "the game still momentarily goes to the other page").
-   *
-   * This used to answer `<Navigate to={/game?scout=...} replace />`, which is a second navigation
-   * on top of the one that got here, and the player saw the district page flash past before the
-   * sheet appeared. Every fix for that so far has been upstream, teaching one caller after another
-   * to decide before it moves: the map now opens the sheet for anything it does not positively
-   * know is scouted. That is right and it cannot be complete, because a link from a crew profile,
-   * a notification, a pasted URL or the back button all still arrive here, and each one would have
-   * been its own small flicker to find later.
-   *
-   * So the redirect is gone. The sheet is drawn here instead, over this route, and the page below
-   * it is still never drawn for ground the crew has not walked. Nothing flashes because nothing
-   * moves: whoever arrived here gets the window, and closing it takes them to the map by the one
-   * road out rather than by rewriting the history entry they came in on.
-   */
-  if (!data.scouted) {
-    return <ScoutMenu districtId={data.district.id} onClose={() => void navigate('/game')} />;
   }
 
   /*
@@ -165,7 +159,7 @@ export function DistrictView() {
    * rule as a lived-in district and as your own, so all three are one screen with one painting and
    * a plate under each thing on it, and clicking a plate opens what you can do about that thing.
    */
-  if (data.scouted && data.district.kind === 'contested' && hasPainting(data.district.id)) {
+  if (data.district.kind === 'contested' && hasPainting(data.district.id)) {
     return (
       <ContestedDistrict
         data={data}
@@ -186,8 +180,27 @@ export function DistrictView() {
     );
   }
 
+  /*
+   * A plot nobody lives on is a window over the city map, not a screen (maintainer, 2026-09-30).
+   *
+   * The route stays, so a link to the plot, a notification or the browser's Back lands on the map
+   * with the window open; closing the window is leaving the plot, so it goes back to `/game`.
+   */
+  if (data.district.kind === 'residential' && data.base === null) {
+    return (
+      <>
+        <CityView />
+        <UnclaimedPlotWindow
+          name={districtDisplayName(data.district, viewer)}
+          blurb={data.district.blurb}
+          travelMinutes={data.travelMinutes}
+          onClose={() => void navigate('/game')}
+        />
+      </>
+    );
+  }
+
   if (
-    data.scouted &&
     data.district.kind === 'residential' &&
     data.residentBuildings.length > 0 &&
     data.base?.id !== baseId
@@ -252,24 +265,24 @@ export function DistrictView() {
           </p>
           <div className="mt-2 flex flex-wrap items-center gap-2">
             <Tag label={`${data.travelMinutes} min away`} />
-            <Tag label={`Difficulty ${data.district.difficulty}`} />
             <Tag label={`${data.district.locations.length} locations`} />
             {data.unified && <Tag label={data.unified.title} tone="mine" />}
-            {/* §A3, and it is public: which ground the Combine keeps its power on is not something
-                a crew has to scout, it is the thing everybody in the city already knows. */}
+            {/* §A3, and it is public: which ground the Combine keeps its power on is the thing
+                everybody in the city already knows. */}
             {data.district.seatOfPower && <Tag label="Seat of power" tone="hostile" />}
-            {/* Whose ground it is, and it is as public as the seat: he stands in the fog too. */}
+            {/* Whose ground it is, and it is as public as the seat. */}
             {data.combineLeader && <CombineLeaderTag leader={data.combineLeader} />}
           </div>
-          {/* Who is standing on it. Behind the fog, because that *is* scouting: a district nobody
-              has been to says nothing about who is holding it.
-
-              Both of these read off the district itself and used to live in the intel panel that
-              floated on the city map. The map is a painting now and the panel went with it, so
-              they moved to the one screen that is about this district. */}
-          {data.scouted && (
-            <p className="mt-2 font-body text-[12px] leading-relaxed text-ink-300">
-              Garrison: {garrisonOf(data.district)}.
+          {/* Who is standing on it, as the city knows it: the whole city is visible (maintainer,
+              2026-09-29). It used to live in the intel panel that floated on the city map; the map
+              is a painting now and the panel went with it, so it moved to the one screen that is
+              about this district. */}
+          {/* Contested ground only: a plot has no locations and nothing on it but the crew that
+              lives there, which the panel below names (maintainer, 2026-09-30). */}
+          {data.district.kind === 'contested' && (
+            <p className="mt-2 flex items-start gap-1.5 font-body text-[12px] leading-relaxed text-ink-300">
+              <HoldInsignia locations={data.locations} className="mt-0.5" />
+              <span>Garrison: {districtHoldLine(data.district, data.locations)}</span>
             </p>
           )}
           {/* The sky, over every location below it. Rendered from the server's clock rather than
@@ -283,14 +296,12 @@ export function DistrictView() {
             {/* The painting itself is not here: a district another crew lives on opens as a full
                 screen of its own (`VisitedDistrict`, above), the same way yours does. What is left
                 in this column is the paperwork that has no place on a painting. */}
-            <Panel title={data.base ? 'A crew lives here' : 'Unclaimed'}>
+            {/* Somebody's home. A plot nobody has claimed never reaches this column: it opens as
+                a window over the city map (`UnclaimedPlotWindow`, above). */}
+            <Panel title="A crew lives here">
               <div className="flex flex-col gap-3 p-4">
-                {/* Two states: somebody's home, or a plot nobody has claimed, which is closed to
-                    everybody until a crew moves in (maintainer, 2026-09-28). */}
                 <p className="font-body text-xs leading-relaxed text-ink-300">
-                  {data.base
-                    ? `${data.base.name} holds this ground. Home districts can never be captured. They get robbed, and they limp for a while afterwards.`
-                    : 'Nobody has claimed this plot. It stays closed to every crew until one moves in.'}
+                  {`${data.base?.name ?? 'A crew'} holds this ground. Home districts can never be captured. They get robbed, and they limp for a while afterwards.`}
                 </p>
                 {/* Not while the gate is already down: the server refuses a second gate fight in
                     a breach (`gate_down`), and the way in is open anyway. */}
@@ -393,7 +404,7 @@ export function DistrictView() {
                   resources={me.data?.base?.resources ?? EMPTY_STOCK}
                   shut={gate?.shut === true && gate.brokenUntil === null}
                   now={now}
-                  spying={{ run: data.spyRun, quote: data.spyQuote, blocker: data.spyBlocker }}
+                  spying={spyingOf(data)}
                   onCall={() =>
                     setCalling({
                       kind: 'location',
@@ -416,7 +427,7 @@ export function DistrictView() {
             districtId={data.district.id}
             baseId={baseId}
             caps={me.data?.base?.resources.caps ?? 0}
-            spying={{ run: data.spyRun, quote: data.spyQuote, blocker: data.spyBlocker }}
+            spying={spyingOf(data)}
             latest={data.spyGateReport}
             now={now}
             testId="spy-gate-panel"
@@ -444,6 +455,15 @@ export function DistrictView() {
                 { target: calling, scheduledFor },
                 { onSuccess: () => setCalling(null) },
               )
+            }
+            // The same door the panel's own Spy button opens, on the same condition.
+            onSpy={
+              calling.kind === 'gate' && !ownGround
+                ? () => {
+                    setCalling(null);
+                    setSpyingGate(true);
+                  }
+                : undefined
             }
           />
         )}
@@ -661,7 +681,7 @@ function VisitedDistrict({
           districtId={data.district.id}
           baseId={baseId}
           caps={caps}
-          spying={{ run: data.spyRun, quote: data.spyQuote, blocker: data.spyBlocker }}
+          spying={spyingOf(data)}
           latest={data.spyGateReport}
           now={now}
           testId="spy-gate-panel"
@@ -681,6 +701,14 @@ function VisitedDistrict({
           onClose={onDone}
           onConfirm={(scheduledFor) =>
             declare.mutate({ target: calling, scheduledFor }, { onSuccess: onDone })
+          }
+          onSpy={
+            calling.kind === 'gate' && data.base && data.base.id !== baseId
+              ? () => {
+                  onDone();
+                  setSpying(true);
+                }
+              : undefined
           }
         />
       )}
@@ -986,6 +1014,7 @@ function ContestedDistrict({
         {standing && (
           <GroundBox
             district={data.district}
+            locations={data.locations}
             combineLeader={data.combineLeader}
             unified={data.unified}
             at={new Date(data.serverNow)}
@@ -1003,7 +1032,7 @@ function ContestedDistrict({
           districtId={data.district.id}
           baseId={baseId}
           caps={resources.caps}
-          spying={{ run: data.spyRun, quote: data.spyQuote, blocker: data.spyBlocker }}
+          spying={spyingOf(data)}
           latest={data.spyGateReport}
           now={now}
           testId="spy-gate-panel"
@@ -1037,7 +1066,7 @@ function ContestedDistrict({
               resources={resources}
               shut={shut}
               now={now}
-              spying={{ run: data.spyRun, quote: data.spyQuote, blocker: data.spyBlocker }}
+              spying={spyingOf(data)}
               onCall={() => {
                 onCall({
                   kind: 'location',
@@ -1068,6 +1097,14 @@ function ContestedDistrict({
           onClose={onDone}
           onConfirm={(scheduledFor) =>
             declare.mutate({ target: calling, scheduledFor }, { onSuccess: onDone })
+          }
+          onSpy={
+            calling.kind === 'gate' && shut && !heldByYou
+              ? () => {
+                  onDone();
+                  setSpying(true);
+                }
+              : undefined
           }
         />
       )}

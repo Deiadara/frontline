@@ -8,7 +8,7 @@ import { formatRemaining } from '../../features/base/format';
  * Anything that takes time can be called off in the first tenth of its own clock, and this is
  * what that looks like everywhere: an X on an oxblood plate with the same drawn stroke the
  * buttons carry, and beside it how long is left to decide. A build, a batch, a project, a dig, a
- * scout, a crew on a job and a column on the road all wore a different control before this (a
+ * spy job, a crew on a job and a column on the road all wore a different control before this (a
  * ghost "Cancel", a ghost "Call them back", a ghost "Turn them around", or nothing), so whether a
  * misclick was recoverable, and how to recover it, depended on which screen it happened on.
  *

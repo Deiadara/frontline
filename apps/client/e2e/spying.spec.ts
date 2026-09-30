@@ -6,7 +6,6 @@ import {
   type SpyRequest,
 } from '@frontline/shared';
 import {
-  UNSCOUTED_DISTRICT_ID,
   actionsResponse,
   battles,
   districtDetail,
@@ -80,6 +79,21 @@ test('looters ground is unknown until somebody pays: five tiers, a clock, and th
   for (const tier of Object.keys(SPY_TIER_SPECS)) {
     await expect(panel.getByTestId(`spy-${LOOTERS.id}-tier-${tier}`)).toBeVisible();
   }
+  /*
+   * The tiers the track has not opened are drawn shut, naming the rung (maintainer, 2026-09-28).
+   * The fixture's crew has Paid Informants and nothing past it.
+   */
+  for (const [tier, rung] of [
+    ['network_compromise', 'Sleeper Lists'],
+    ['total_intelligence', 'The Whole Wire'],
+  ] as const) {
+    const card = panel.getByTestId(`spy-${LOOTERS.id}-tier-${tier}`);
+    await expect(card).toBeDisabled();
+    await expect(card).toContainText(`Opens with ${rung}`);
+  }
+  await expect(panel.getByTestId(`spy-${LOOTERS.id}-tier-paid_whisper`)).toBeEnabled();
+  await page.screenshot({ path: 'screenshots/spy-tiers-shut.png', fullPage: false });
+  await expectNothingOverflowsTheScreen(page);
   // The quote off the district read, and the caps said in the picker.
   await expect(panel).toContainText('would be gone');
   await expect(panel).toContainText('1h 36m');
@@ -94,24 +108,25 @@ test('looters ground is unknown until somebody pays: five tiers, a clock, and th
 
   /*
    * The write invalidates the district read, so the run has to come back on the read as well as
-   * on the write's own answer: routed here, on a variable the send flips, the way the scout
-   * recall spec does it.
+   * on the write's own answer: routed here, on a variable the send flips.
    */
   const sent: SpyRequest[] = [];
-  let run: DistrictDetailResponse['spyRun'] = null;
-  const detail = () => ({ ...districtDetail, spyRun: run });
+  let runs: DistrictDetailResponse['spyRuns'] = [];
+  const detail = () => ({ ...districtDetail, spyRuns: runs });
   await page.route('**/api/city/steelbelt', (route) => route.fulfill({ json: detail() }));
   await page.route('**/api/city/spy', (route) => {
     sent.push(route.request().postDataJSON() as SpyRequest);
-    run = {
-      ...actionsResponse.spyRun!,
-      target: { kind: 'location', locationId: LOOTERS.id },
-      placeName: LOOTERS.name,
-      tier: 'loose_ears',
-      capsPaid: 100,
-      departedAt: new Date().toISOString(),
-      returnsAt: new Date(Date.now() + 96 * 60_000).toISOString(),
-    };
+    runs = [
+      {
+        ...actionsResponse.spyRuns[0]!,
+        target: { kind: 'location', locationId: LOOTERS.id },
+        placeName: LOOTERS.name,
+        tier: 'loose_ears',
+        capsPaid: 100,
+        departedAt: new Date().toISOString(),
+        returnsAt: new Date(Date.now() + 96 * 60_000).toISOString(),
+      },
+    ];
     return route.fulfill({ json: { district: detail(), base: me.base } });
   });
   await panel.getByTestId(`spy-${LOOTERS.id}-send`).click();
@@ -121,7 +136,31 @@ test('looters ground is unknown until somebody pays: five tiers, a clock, and th
   ]);
   await expect(panel).toContainText('Your runners are here');
   await expect(panel.getByTestId(`spy-${LOOTERS.id}-recall`)).toBeVisible();
+  // One party and it is out: no picker until they are home.
+  await expect(panel.getByTestId(`spy-${LOOTERS.id}-send`)).toHaveCount(0);
   await page.screenshot({ path: 'screenshots/spy-sheet-underway.png', fullPage: false });
+});
+
+test('Two Sets of Eyes: one party out and the second still free to send', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 1000 });
+  await installApi(page, me);
+  // After `installApi`, so it wins: Playwright matches the most recent handler first.
+  await page.route('**/api/city/steelbelt', (route) =>
+    route.fulfill({
+      json: { ...districtDetail, spyParties: 2, spyRuns: actionsResponse.spyRuns },
+    }),
+  );
+  await page.goto('/game/city/steelbelt');
+  await page.getByTestId(`site-${LOOTERS.id}`).click();
+  await settleFonts(page);
+  await page.getByTestId(`spy-open-${LOOTERS.id}`).click();
+  const panel = page.getByTestId(`spy-${LOOTERS.id}`);
+  await expect(panel.getByTestId(`spy-${LOOTERS.id}-underway`)).toContainText(
+    actionsResponse.spyRuns[0]!.placeName,
+  );
+  await expect(panel.getByTestId(`spy-${LOOTERS.id}-send`)).toBeVisible();
+  await page.screenshot({ path: 'screenshots/spy-second-party.png', fullPage: false });
+  await expectNothingOverflowsTheScreen(page);
 });
 
 test("the panel says why nothing can be sent, in the route's own words", async ({ page }) => {
@@ -186,6 +225,9 @@ test('the board files every report, and opens one on its own window', async ({ p
   await expect(list).toContainText('23 seen');
   await expect(list).toContainText('Nothing');
   await expect(list).toContainText('The Ashen Sons');
+  // Before Written Reports a report counts slots; the courier's is headed with his rung.
+  await expect(page.getByTestId('read-spy-spy-report-3')).toContainText('18 slots');
+  await expect(page.getByTestId('read-spy-spy-report-4')).toContainText('Turned Runners');
   await page.screenshot({ path: 'screenshots/spy-reports.png', fullPage: false });
 
   await page.getByTestId('read-spy-spy-report-1').click();
@@ -199,7 +241,44 @@ test('the board files every report, and opens one on its own window', async ({ p
   await expect(report.getByTestId('spy-unit-ghosts')).toBeVisible();
   await expect(report.getByTestId('spy-readouts')).toContainText('82%');
   await expect(report.getByTestId('spy-readouts')).toContainText('Roughly 5');
+  await expect(report.getByTestId('spy-readouts')).toContainText('Nobody saw them');
   await page.screenshot({ path: 'screenshots/spy-report.png', fullPage: false });
+  await expectNothingOverflowsTheScreen(page);
+});
+
+test('a report from before Written Reports counts unit slots and names nobody', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1280, height: 1000 });
+  await installApi(page, lateGame);
+  await page.goto('/game/battles?spy=spy-report-3');
+  const report = page.getByTestId('spy-report');
+  await expect(report).toBeVisible();
+  await settleFonts(page);
+  await expect(report.getByTestId('spy-slots-only')).toContainText('18');
+  await expect(report.getByTestId('spy-slots-only')).toContainText('Written Reports');
+  await expect(report.getByTestId('spy-exposed')).toHaveCount(0);
+  await page.screenshot({ path: 'screenshots/spy-report-slots.png', fullPage: false });
+  await expectNothingOverflowsTheScreen(page);
+});
+
+test("the courier's report: nobody paid, everything read, the exact slots printed", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1280, height: 1000 });
+  await installApi(page, lateGame);
+  await page.goto('/game/battles?spy=spy-report-4');
+  const report = page.getByTestId('spy-report');
+  await expect(report).toBeVisible();
+  await settleFonts(page);
+  await expect(report).toContainText('Turned Runners');
+  await expect(report).toContainText('The courier carried word of');
+  await expect(report.getByTestId('spy-report-head')).toContainText('Nothing: the courier');
+  await expect(report.getByTestId('spy-readouts')).toContainText('Standing there');
+  await expect(report.getByTestId('spy-readouts')).toContainText('100%');
+  // The courier is never seen, so the line that says so is not drawn.
+  await expect(report.getByTestId('spy-readouts')).not.toContainText('Noticed');
+  await page.screenshot({ path: 'screenshots/spy-report-courier.png', fullPage: false });
   await expectNothingOverflowsTheScreen(page);
 });
 
@@ -211,6 +290,51 @@ test('a failed report says so, and a receipt link opens the report it names', as
   await expect(report.getByTestId('spy-failed')).toContainText(
     'nothing they would put their name to',
   );
-  await expect(report).toContainText(findDistrict(UNSCOUTED_DISTRICT_ID)?.name ?? 'the Spire');
+  await expect(report).toContainText(findDistrict('ccs')?.name ?? 'the Spire');
   await expect(report.getByTestId('spy-readouts')).toHaveCount(0);
+});
+
+/**
+ * The caller at a shut gate carries a third button (maintainer, 2026-09-29): Spy, beside Call it,
+ * with Cancel on the far left. Pressing it swaps the caller for the gate's spy window.
+ */
+test('the caller at a shut gate offers Spy, and Spy opens the gate’s window', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 1000 });
+  await installApi(page, lateGame);
+  // The Annexes as the game opens them: the Syndic holds every plot, so the gate is armed. The
+  // fixture's board lists no gate there, so this case says which it wants. Registered after
+  // `installApi`, so it wins: Playwright matches the most recent handler first.
+  await page.route('**/api/battles', (route) =>
+    route.fulfill({
+      json: {
+        ...battles,
+        gates: [
+          ...battles.gates.filter((gate) => gate.districtId !== 'annexes'),
+          { districtId: 'annexes', name: 'The Annexes', shut: true, brokenUntil: null },
+        ],
+      },
+    }),
+  );
+  await page.goto('/game/city/annexes');
+  const gate = page.getByTestId('site-gate-annexes');
+  await expect(gate).toBeVisible();
+  await settleFonts(page);
+  await gate.click();
+
+  const caller = page.getByTestId('declare-dialog');
+  await expect(caller).toBeVisible();
+  await expect(caller.getByTestId('declare-spy')).toBeVisible();
+  const cancel = await caller.getByTestId('declare-cancel').boundingBox();
+  const spy = await caller.getByTestId('declare-spy').boundingBox();
+  const call = await caller.getByTestId('declare-confirm').boundingBox();
+  expect(cancel!.x).toBeLessThan(spy!.x);
+  expect(spy!.x).toBeLessThan(call!.x);
+  await expectNothingOverflowsTheScreen(page);
+  await caller.screenshot({ path: 'e2e-out/gate-caller-with-spy.png' });
+
+  await caller.getByTestId('declare-spy').click();
+  await expect(caller).toHaveCount(0);
+  const window = page.getByTestId('spy-gate-panel-window');
+  await expect(window).toBeVisible();
+  await expect(window).toContainText('Spy on the gate');
 });

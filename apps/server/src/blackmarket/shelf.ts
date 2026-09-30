@@ -1,8 +1,10 @@
 import { randomUUID } from 'node:crypto';
 import { tallyContrabandTaken, tallyPagesIn } from '../feats/tally.js';
 import {
+  MAX_BLACK_MARKET_DISCOUNT,
   addItems,
   addToStash,
+  alreadyKnown,
   blackBidRefusal,
   blackLotId,
   blackLotReserve,
@@ -30,6 +32,7 @@ import type { BlackBid } from '../db/repos/blackmarket.js';
 import type { Repositories } from '../db/repos/index.js';
 import { calibreOf, citiesFor } from '../city/stakes.js';
 import { standingEffectsFor } from '../crew/standing.js';
+import { missedLotTitle, outcomeAgainst } from '../bar/auction.js';
 import { bidderNames, projectLotAuction } from '../market/auction.js';
 import { notify } from '../social/notify.js';
 import { tellPagesFound } from '../social/pages.js';
@@ -80,10 +83,8 @@ function infamyOf(base: Base): number {
  * right one for a room: a bot holds ground and is somebody to fight, and a city whose only other
  * crews are rivals is exactly the city whose shelf should reflect them.
  *
- * Exported because the shelf is not the only thing that reads it: a fight weights the contraband it
- * applies by the same number, and the battle screen has to quote the figure the fight will use.
- * Those two callers name no city and get the default one, which is a loose end rather than a
- * ruling: a crate applied in a fight over Terminus should be weighted by Terminus.
+ * It moves the price and nothing else: a crate does what its card says in every city (maintainer,
+ * 2026-09-29), so no fight and no fight screen reads it any more.
  */
 export function cityLevelFor(repos: Repositories, cityId: string = DEFAULT_CITY_ID): number {
   return calibreOf(repos, cityId);
@@ -122,6 +123,7 @@ export function projectBlackMarket(
       const reserve = spec ? blackLotReserve(spec, cityLevel) : Number.POSITIVE_INFINITY;
       const lotId = blackLotId(day, slot.index, cityId);
       const onThisLot = bids.filter((bid) => bid.lotId === lotId);
+      const known = spec !== undefined && alreadyKnown(spec, base.inventory);
       const lot =
         spec === undefined
           ? null
@@ -153,15 +155,17 @@ export function projectBlackMarket(
         affordable:
           lot !== null &&
           lot.leading?.yours !== true &&
+          !known &&
           base.economy.notoriety >= (spec?.minNotoriety ?? 0) &&
           infamy >= discountedInfamy(lot.nextBid, discount),
         /** The rank the fence wants, so the shelf can say why rather than just refusing. */
         minNotoriety: spec?.minNotoriety ?? 0,
+        alreadyKnown: known,
         // Where the lot opens, weighted *here*, because the same weighting is the floor the close
         // ranks against. A client that multiplied the catalogue figure itself would be a second
         // copy of the rule.
         price: Number.isFinite(reserve) ? reserve : 0,
-        effect: spec ? blackMarketEffect(spec, cityLevel) : '',
+        effect: spec ? blackMarketEffect(spec) : '',
         lot,
       };
     }),
@@ -169,6 +173,7 @@ export function projectBlackMarket(
     // The edge `blackBidRefusal` refuses at: the bid whose charge after this crew's standing is
     // the last one the ledger covers. The card's `affordable` reads the same discount.
     bidCeiling: largestBidWithin(infamy, (bid) => discountedInfamy(bid, discount)),
+    discountPercent: Math.min(MAX_BLACK_MARKET_DISCOUNT, Math.max(0, discount)),
     takenToday,
     takesPerDay,
     cityLevel,
@@ -229,6 +234,7 @@ export function placeBlackMarketBid(repos: Repositories, command: BlackBidComman
     leadingIsYou: leader?.userId === userId,
     discountPercent: standingEffectsFor(repos, base).blackMarketDiscountPercent,
     notoriety: base.economy.notoriety,
+    inventory: base.inventory,
     /*
      * §H7a on the shelf (maintainer, 2026-09-17): two lots at once.
      *
@@ -278,6 +284,12 @@ interface BlackLotWinner {
   price: number;
 }
 
+/** Who took a crate, and the ranking the close walked to find them, which the bells read. */
+interface BlackLotAward {
+  winner: BlackLotWinner | null;
+  ranked: readonly { userId: string }[];
+}
+
 /**
  * Closes every lot whose day is over.
  *
@@ -306,6 +318,8 @@ function closeBlackLot(
   zone: string,
 ): void {
   const { day, lotId, slotIndex } = lot;
+  // What the bells are dated: the lot closed at midnight, whenever the tick got to it.
+  const closedAt = blackMarketClosesAt(day, zone);
   /*
    * Read back off the id rather than stored beside it.
    *
@@ -321,8 +335,10 @@ function closeBlackLot(
   const bids = repos.blackMarket.bidsFor(day, lotId);
   // A slot id that names nothing on that day's shelf cannot be sold to anybody, and leaving it due
   // would settle it again on every read for ever. It goes down as a lot nobody took.
-  const winner =
-    slot && spec ? awardBlackLot(repos, { day, cityId, slot, spec, bids, now, zone }) : null;
+  const { winner, ranked } =
+    slot && spec
+      ? awardBlackLot(repos, { day, cityId, slot, spec, bids, now, closedAt, zone })
+      : { winner: null, ranked: [] };
 
   repos.blackMarket.recordResult({
     day,
@@ -336,7 +352,7 @@ function closeBlackLot(
   // The turnover counter, which is what the shelf's derivation reads: a slot that was cleared shows
   // the next thing in its sequence rather than the crate that has gone.
   if (winner) repos.blackMarket.bumpGeneration(day, cityId, slotIndex);
-  tellTheFence(repos, { name: spec?.name ?? 'What he had', lotId, bids, winner, now });
+  tellTheFence(repos, { name: spec?.name ?? 'What he had', lotId, bids, ranked, winner, closedAt });
 }
 
 /**
@@ -357,10 +373,11 @@ function awardBlackLot(
     spec: BlackMarketGoodSpec;
     bids: readonly BlackBid[];
     now: Date;
+    closedAt: Date;
     zone: string;
   },
-): BlackLotWinner | null {
-  const { day, cityId, slot, spec, bids, now } = lot;
+): BlackLotAward {
+  const { day, cityId, slot, spec, bids, now, closedAt } = lot;
   // Read at the close, not at the bid: the fence asks what this city's street is worth tonight. It
   // moves slowly (a weighted average over the crews with a stake), so a bid that cleared the floor
   // this morning is still above it at midnight in any city that is not being reseeded under the game.
@@ -375,6 +392,8 @@ function awardBlackLot(
     if (!base) continue;
     // §D7: a crew whose name has slipped since it bid is not handed the good stock either.
     if (base.economy.notoriety < (spec.minNotoriety ?? 0)) continue;
+    // A crew that came by the same plans since it bid gets nothing from a second copy.
+    if (alreadyKnown(spec, base.inventory)) continue;
     // The allowance. Counted off the rows written by this day's earlier closes, so a crew leading
     // every slot walks away with one crate and the rest of the city takes the other four.
     if (repos.blackMarket.takenOn(base.id, day) >= blackMarketTakesPerDay(base.level)) continue;
@@ -386,10 +405,19 @@ function awardBlackLot(
     const left = spendInfamy(base.economy.infamy, charge);
     if (left === null) continue;
 
-    handOver(repos, { base, spec, day, slotIndex: slot.index, infamyLeft: left, charge, now });
-    return { userId: entry.userId, price: entry.amount };
+    handOver(repos, {
+      base,
+      spec,
+      day,
+      slotIndex: slot.index,
+      infamyLeft: left,
+      charge,
+      now,
+      closedAt,
+    });
+    return { winner: { userId: entry.userId, price: entry.amount }, ranked };
   }
-  return null;
+  return { winner: null, ranked };
 }
 
 /**
@@ -410,9 +438,10 @@ function handOver(
     /** What actually left the wallet, not the catalogue's figure: the receipt records this. */
     charge: number;
     now: Date;
+    closedAt: Date;
   },
 ): void {
-  const { base, spec, day, slotIndex, infamyLeft, charge, now } = won;
+  const { base, spec, day, slotIndex, infamyLeft, charge, now, closedAt } = won;
   const paid: Base = {
     ...base,
     economy: { ...base.economy, infamy: infamyLeft },
@@ -455,7 +484,7 @@ function handOver(
     before: base.inventory,
     after: paid.inventory,
     source: { kind: 'blackmarket' },
-    now,
+    at: closedAt,
   });
 }
 
@@ -466,11 +495,12 @@ function tellTheFence(
     name: string;
     lotId: string;
     bids: readonly BlackBid[];
+    ranked: readonly { userId: string }[];
     winner: BlackLotWinner | null;
-    now: Date;
+    closedAt: Date;
   },
 ): void {
-  const { name, lotId, bids, winner, now } = lot;
+  const { name, lotId, bids, ranked, winner, closedAt } = lot;
   if (winner) {
     notify(repos, {
       userId: winner.userId,
@@ -478,7 +508,7 @@ function tellTheFence(
       title: `The fence let you have ${name} for ${winner.price} infamy`,
       link: '/game/market/black',
       subjectId: lotId,
-      now,
+      at: closedAt,
     });
   }
 
@@ -490,12 +520,15 @@ function tellTheFence(
     notify(repos, {
       userId: bid.userId,
       kind: 'market_outbid',
-      title: winner
-        ? `${name} went to ${winnerName} for ${winner.price} infamy`
-        : `${name} went to nobody`,
+      title: missedLotTitle({
+        name,
+        passed: outcomeAgainst(ranked, winner?.userId ?? null, bid.userId) === 'passed',
+        winner: winner ? { name: winnerName, price: `${winner.price} infamy` } : null,
+        nobody: 'went to nobody',
+      }),
       link: '/game/market/black',
       subjectId: lotId,
-      now,
+      at: closedAt,
     });
   }
 }

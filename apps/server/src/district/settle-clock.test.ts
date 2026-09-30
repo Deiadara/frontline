@@ -10,7 +10,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { buildApp } from '../app.js';
 import { loadConfig } from '../config.js';
 import { openDatabase, runMigrations, type AppDatabase } from '../db/index.js';
-import { settleDistrict } from './settle.js';
+import { settleBase, settleDistrict } from './settle.js';
 import { chooseOverseer } from '../testing/overseer.js';
 
 /**
@@ -93,6 +93,7 @@ function tenHoursTo(
   base: Base,
   now: Date,
   injuredUntil: string | null,
+  settle: typeof settleDistrict = settleDistrict,
 ): Record<string, number> {
   const fixture: Base = {
     ...base,
@@ -107,7 +108,7 @@ function tenHoursTo(
       productionSettledAt: new Date(now.getTime() - 10 * HOUR).toISOString(),
     },
   };
-  const after = settleDistrict(app.repos, fixture, now).base;
+  const after = settle(app.repos, fixture, now).base;
   return Object.fromEntries(
     Object.entries(after.resources).map(([key, value]) => [
       key,
@@ -138,6 +139,39 @@ describe('§D4: the settle prices the window at its own instant', () => {
       // ...and the settle two hours out reads the roster as it stands *then*, not as it stands now.
       expect(fit[key] ?? 0, key).toBeGreaterThan(out[key] ?? 0);
       expect(fit[key] ?? 0, key).toBe(never[key] ?? 0);
+    }
+  });
+});
+
+/*
+ * And a whole read, which cuts the window at every change to the crew, cuts it at a recovery too.
+ * It did not: an officer laid up for nine hours of ten was paid for as though they had been on
+ * their feet for all ten, because the one reading of the crew was taken at the end of the window
+ * (bug pass, 2026-09-29).
+ */
+describe('§D4: a recovery inside the window is a cut', () => {
+  it('prices the hours in bed without the officer and the hours after with them', async () => {
+    // One crew for all three, because the Overseer is drawn at random and is the best of the room
+    // whenever the officer is in bed: three crews would be three different laid-up rates.
+    const { app, base } = await makeBase();
+    const wall = Date.now();
+    const now = new Date(wall + 10 * HOUR);
+    const run = (injuredUntil: string | null) =>
+      tenHoursTo(app, base, now, injuredUntil, settleBase);
+    const never = run(null);
+    const throughout = run(new Date(wall + 20 * HOUR).toISOString());
+    const lastHour = run(new Date(wall + 9 * HOUR).toISOString());
+
+    const measurable = Object.keys(never).filter(
+      (key) => (never[key] ?? 0) - (throughout[key] ?? 0) > 100,
+    );
+    expect(measurable.length, 'the officer moves nothing enough to measure').toBeGreaterThan(0);
+    for (const key of measurable) {
+      const fitHour = ((never[key] ?? 0) - (throughout[key] ?? 0)) / 10;
+      // Nine hours at the laid-up rate and one at the fit one, to the unit either way.
+      expect(Math.abs((lastHour[key] ?? 0) - ((throughout[key] ?? 0) + fitHour)), key).toBeLessThan(
+        2,
+      );
     }
   });
 });

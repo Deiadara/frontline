@@ -4,6 +4,7 @@ import {
   RESOURCE_LABELS,
   STORAGE_SHARES,
   supplyBoard,
+  supplyPrice,
   type MarketResponse,
   type Resources,
 } from '@frontline/shared';
@@ -60,6 +61,7 @@ const market: MarketResponse = {
       status: 'open',
       counterTo: null,
       directedAt: null,
+      cityId: 'ashfall',
       createdAt: NOW,
     },
   ],
@@ -69,6 +71,7 @@ const market: MarketResponse = {
     Math.round(10_000 * (STORAGE_SHARES[key] ?? 0)),
   ),
   barterRate: 0.5,
+  marketDiscountPercent: 0,
 };
 
 const fetchMock = vi.fn();
@@ -341,5 +344,39 @@ describe('why the supply run is refusing', () => {
     // Room in scrap, so the run is open: this is the control that the case above is about the
     // shelf and not about the screen refusing everything.
     await waitFor(() => expect(screen.getByTestId('supply-buy')).toHaveTextContent('Buy it'));
+  });
+});
+
+/*
+ * Maintainer, 2026-09-29: the supply run is a shop without a bid, so it shows the one figure the
+ * till will take, the crew's market discount already off it.
+ */
+describe('the supply run after the market discount', () => {
+  it('quotes the discounted price, the one the server charges', async () => {
+    const discounted: MarketResponse = {
+      ...market,
+      marketDiscountPercent: 20,
+      supply: supplyBoard(
+        12,
+        resources,
+        10_000,
+        0,
+        (key) => Math.round(10_000 * (STORAGE_SHARES[key] ?? 0)),
+        20,
+      ),
+    };
+    fetchMock.mockImplementation((path: string) => {
+      if (path.endsWith('/market')) return reply(discounted);
+      throw new Error(`unstubbed request: ${path}`);
+    });
+    renderMarket();
+    const picker = await screen.findByTestId('supply-resource');
+    fireEvent.click(within(picker).getByRole('radio', { name: RESOURCE_LABELS.scrap }));
+    await waitFor(() =>
+      expect(screen.getByTestId('supply-quote')).toHaveTextContent(
+        supplyPrice('scrap', 100, 20).toLocaleString(),
+      ),
+    );
+    expect(supplyPrice('scrap', 100, 20)).toBeLessThan(supplyPrice('scrap', 100));
   });
 });

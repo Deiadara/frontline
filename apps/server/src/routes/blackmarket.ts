@@ -14,6 +14,7 @@ import {
 } from '../blackmarket/shelf.js';
 import { cityAsked } from '../city/stakes.js';
 import { AppError, cityQuery, parseBody } from '../errors.js';
+import { requireAreaFor } from '../progression/doors.js';
 import { ownBase } from './own-base.js';
 
 /**
@@ -73,6 +74,12 @@ export function registerBlackMarketRoutes(app: FastifyInstance): void {
     '/black-market/bid',
     { preHandler: app.authenticate },
     (request): BlackMarketMutationResponse => {
+      /*
+       * The back room's door, which only the screen held (audit, 2026-09-28): a rank-0 crew could
+       * bid and win by calling this. The read stays open, like every other gated area's, and here
+       * for a second reason: the Battle page's Inventory tab reads the stash off it for everybody.
+       */
+      requireAreaFor(app.repos, request.currentUser.id, 'black_market');
       const { slotIndex, goodId, amount, city } = parseBody(
         PlaceBlackMarketBidRequestSchema,
         request.body,

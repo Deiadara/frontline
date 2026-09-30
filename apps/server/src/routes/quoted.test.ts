@@ -16,11 +16,12 @@ import {
   type ScrapyardResponse,
 } from '@frontline/shared';
 import type { FastifyInstance } from 'fastify';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, onTestFinished, vi } from 'vitest';
 import { buildApp } from '../app.js';
 import { loadConfig } from '../config.js';
 import { openDatabase, runMigrations, type AppDatabase } from '../db/index.js';
 import { chooseOverseer } from '../testing/overseer.js';
+import { openDoors } from '../testing/doors.js';
 import { settleBlackMarketLots } from '../blackmarket/shelf.js';
 
 /**
@@ -417,6 +418,16 @@ describe('the odds on the dial and the odds on the row', () => {
    * however right its arithmetic is.
    */
   it('sends the crew out on the chance the dial showed', async () => {
+    /*
+     * Pinned to a known board. Which cards a board deals is a function of the day, and on some days
+     * no standard card at level twenty sits above its floor: this failed just after one midnight
+     * and passed at the next midday. A board known to carry the case is the only stable fixture.
+     */
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-09-28T10:00:00.000Z'));
+    onTestFinished(() => {
+      vi.useRealTimers();
+    });
     const app = await makeApp();
     const one = await player(app, 'quoted_odds');
     makeRich(app, one.userId);
@@ -472,6 +483,8 @@ describe('the odds on the dial and the odds on the row', () => {
       payload: {
         areaId: area!.id,
         templateId: offer!.templateId,
+        boardKey: offer!.boardKey,
+        grade: offer!.grade,
         force: { haulers: 1 },
         leaderId: leader!.id,
       },
@@ -501,16 +514,22 @@ describe('the back room', () => {
    * and the catalogue figure are the *same number* and a test comparing them proves nothing. The
    * first version of the receipt test below did exactly that: mutating the fix back left it green.
    */
-  function readyToSpend(app: FastifyInstance, userId: string, infamy: number): void {
+  function readyToSpend(
+    app: FastifyInstance,
+    { userId, token }: { userId: string; token: string },
+    infamy: number,
+  ): void {
     const base = app.repos.bases.findByOwnerId(userId)!;
     app.repos.bases.updateEconomy(base.id, { ...base.economy, infamy });
     app.repos.bases.updateProgression(base.id, 40, base.progression);
+    // The rank the back room's door asks for, which the server holds as well as the screen.
+    openDoors(app, token, 'black_market');
   }
 
   it('charges the infamy the shelf quoted', async () => {
     const app = await makeApp();
     const one = await player(app, 'quoted_fence');
-    readyToSpend(app, one.userId, 2_000_000);
+    readyToSpend(app, one, 2_000_000);
 
     const shelf = (
       await app.inject({ method: 'GET', url: '/api/black-market', headers: auth(one.token) })
@@ -550,7 +569,7 @@ describe('the back room', () => {
   it('writes what it charged into the receipt, not the catalogue figure', async () => {
     const app = await makeApp();
     const one = await player(app, 'quoted_receipt');
-    readyToSpend(app, one.userId, 2_000_000);
+    readyToSpend(app, one, 2_000_000);
 
     const shelf = (
       await app.inject({ method: 'GET', url: '/api/black-market', headers: auth(one.token) })

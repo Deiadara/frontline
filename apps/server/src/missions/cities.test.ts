@@ -1,8 +1,13 @@
 import {
+  INTER_CITY_MINUTES,
   MISC_AREA_ID,
   TERMINUS_CITY_ID,
+  TRAVEL_BAND_MINUTES,
   cityOf,
   districtsOfCity,
+  findMissionTemplate,
+  missionWalkMinutes,
+  type Mission,
   type MissionArea,
   type MissionsResponse,
 } from '@frontline/shared';
@@ -73,11 +78,7 @@ async function makeStack(username = 'linewalker'): Promise<Stack> {
   const base = repos.bases.findByOwnerId(user.id);
   if (!base) throw new Error('overseer creation did not mint a base');
   repos.bases.updateArmy(base.id, { razors: 20 }, base.trainingQueue);
-  // Eyes on the whole line, so the scout is never what closes a Terminus board below. Holding
-  // ground there is the rule under test and it is granted one test at a time.
-  for (const district of TERMINUS) {
-    repos.city.markScouted(base.id, district.id, new Date().toISOString());
-  }
+  // Holding ground in Terminus is the rule under test and it is granted one test at a time.
   return { app, repos, baseId: base.id, token, overseerId };
 }
 
@@ -164,7 +165,7 @@ describe('which city the board is drawn from', () => {
 
 describe('launching into a second city', () => {
   /** The board and the send button read the same rule, or the screen offers what it cannot post. */
-  it('refuses a job in a city the crew holds nothing in', async () => {
+  it('refuses a job in a district the crew no longer holds anything in', async () => {
     const { app, repos, baseId, token, overseerId } = await makeStack();
     // Take a plot, read the board to find a real job on it, then give the plot back: the card the
     // crew is holding was on the wall and the stake behind it is gone, which is the stale-tab case.
@@ -184,12 +185,18 @@ describe('launching into a second city', () => {
       payload: {
         templateId: offer.templateId,
         areaId: 'coldwater-halt',
+        boardKey: offer.boardKey,
+        grade: offer.grade,
         force: { razors: 1 },
         leaderId: overseerId,
       },
     });
-    expect(refused.statusCode).toBe(403);
-    expect(refused.json<{ error: { code: string } }>().error.code).toBe('CITY_SHUT');
+    expect(refused.statusCode).toBe(409);
+    expect(refused.json<{ error: { code: string; message: string } }>().error).toEqual({
+      code: 'MISSION_REFUSED',
+      message:
+        'Nobody there hires a crew that holds nothing in it. Take a place in that district first',
+    });
   });
 
   it('sends a crew to a Terminus job when they hold ground there', async () => {
@@ -208,6 +215,8 @@ describe('launching into a second city', () => {
       payload: {
         templateId: offer.templateId,
         areaId: 'coldwater-halt',
+        boardKey: offer.boardKey,
+        grade: offer.grade,
         force: { razors: 1 },
         leaderId: overseerId,
       },
@@ -216,5 +225,119 @@ describe('launching into a second city', () => {
     const mission = launched.json<{ mission: { areaId: string; status: string } }>().mission;
     expect(mission.areaId).toBe('coldwater-halt');
     expect(mission.status).toBe('active');
+  });
+});
+
+/**
+ * A job in another city is as far away as the city is (maintainer, 2026-09-29: "Add the walk").
+ *
+ * The road was the template's band wherever the job was, so an Ashfall crew with one plot in
+ * Terminus took a Terminus job on a five-minute road while a move between the same two districts
+ * crossed the frontier. The walk goes on each leg of the road, the card is priced on it, and the
+ * run freezes the clock and the price the card quoted.
+ */
+describe('the walk to a job in another city', () => {
+  it('adds the cross-city walk to the road, prices the card on it, and freezes what it quoted', async () => {
+    const { app, repos, baseId, token, overseerId } = await makeStack('longwalker');
+    takeOnePlotIn(repos, baseId, 'coldwater-halt');
+    // Past the opening band, which squeezes a new crew's first runs to a couple of minutes
+    // whatever the road (`missions.ramp.ts`).
+    const fresh = repos.bases.findById(baseId)!;
+    repos.bases.updateProgression(baseId, 7, fresh.progression);
+    const home = repos.bases.findById(baseId)!.districtId;
+    const walk = missionWalkMinutes(home, 'coldwater-halt');
+    expect(walk, 'Ashfall to Terminus crosses the frontier').toBeGreaterThanOrEqual(
+      INTER_CITY_MINUTES,
+    );
+
+    const read = (await boardOf(app, token, TERMINUS_CITY_ID)).json<MissionsResponse>();
+    const offer = read.areas
+      .find((one) => one.id === 'coldwater-halt')
+      ?.offers.find((one) => one.kind === 'standard');
+    if (!offer) throw new Error('the Halt posted no plain work to launch');
+    const band = TRAVEL_BAND_MINUTES[findMissionTemplate(offer.templateId)!.travelBand];
+    expect(offer.rawTravelMinutes).toBe(band + walk);
+    // The card's clock carries the walk both ways, so the job pays for the afternoon it costs.
+    expect(offer.totalMinutes).toBeGreaterThanOrEqual(2 * walk);
+
+    const launched = await app.inject({
+      method: 'POST',
+      url: '/api/missions',
+      headers: auth(token),
+      payload: {
+        templateId: offer.templateId,
+        areaId: 'coldwater-halt',
+        boardKey: offer.boardKey,
+        grade: offer.grade,
+        force: { razors: 1 },
+        leaderId: overseerId,
+      },
+    });
+    expect(launched.statusCode, launched.body.slice(0, 200)).toBe(200);
+    const mission = launched.json<{ mission: Mission }>().mission;
+    expect(mission.pricedMinutes).toBe(offer.totalMinutes);
+    expect(mission.xp).toBe(offer.xp);
+    // The road the crew walks is the long one too, at its own pace.
+    expect(mission.travelMinutes).toBeGreaterThan(walk / 2);
+  });
+
+  /*
+   * The Blockhouse's cut on a Terminus job (maintainer, 2026-09-30): quoted on the card and frozen
+   * at the launch, off the same city-scoped channel, so the send does not run on a different clock
+   * from the one the player was shown.
+   */
+  it('quotes and launches a Terminus job on the Blockhouse’s cut', async () => {
+    const { app, repos, baseId, token, overseerId } = await makeStack('signalman');
+    takeOnePlotIn(repos, baseId, 'coldwater-halt');
+    const fresh = repos.bases.findById(baseId)!;
+    repos.bases.updateProgression(baseId, 7, fresh.progression);
+    const halt = async () => {
+      const read = (await boardOf(app, token, TERMINUS_CITY_ID)).json<MissionsResponse>();
+      const offer = read.areas
+        .find((one) => one.id === 'coldwater-halt')
+        ?.offers.find((one) => one.kind === 'standard');
+      if (!offer) throw new Error('the Halt posted no plain work to launch');
+      return offer;
+    };
+    const bare = await halt();
+
+    for (const location of TERMINUS.find((one) => one.id === 'blockhouse')!.locations) {
+      const control = repos.city.control(location.id)!;
+      repos.city.put({ ...control, holder: { kind: 'crew', baseId }, garrison: {} });
+    }
+    const offer = await halt();
+    expect(offer.templateId).toBe(bare.templateId);
+    expect(offer.durationMinutes).toBeLessThan(bare.durationMinutes);
+
+    const launched = await app.inject({
+      method: 'POST',
+      url: '/api/missions',
+      headers: auth(token),
+      payload: {
+        templateId: offer.templateId,
+        areaId: 'coldwater-halt',
+        boardKey: offer.boardKey,
+        grade: offer.grade,
+        force: { razors: 1 },
+        leaderId: overseerId,
+      },
+    });
+    expect(launched.statusCode, launched.body.slice(0, 200)).toBe(200);
+    expect(launched.json<{ mission: Mission }>().mission.durationMinutes).toBe(
+      offer.durationMinutes,
+    );
+  });
+
+  it('adds nothing at home or on the misc board', async () => {
+    const { app, token, repos, baseId } = await makeStack('homebody');
+    const home = repos.bases.findById(baseId)!.districtId;
+    expect(missionWalkMinutes(home, MISC_AREA_ID)).toBe(0);
+    for (const area of (await boardOf(app, token)).json<MissionsResponse>().areas) {
+      expect(missionWalkMinutes(home, area.id), area.id).toBe(0);
+      for (const offer of area.offers) {
+        const band = TRAVEL_BAND_MINUTES[findMissionTemplate(offer.templateId)!.travelBand];
+        expect(offer.rawTravelMinutes, `${area.id}/${offer.templateId}`).toBe(band);
+      }
+    }
   });
 });

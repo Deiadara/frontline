@@ -1,15 +1,17 @@
 import {
-  garrisonOf,
   isPlainDay,
   weatherAt,
   type CombineLeaderView,
   type District,
+  type LocationView,
 } from '@frontline/shared';
 import type { ReactNode } from 'react';
 import { Icon } from '../../components/ui/Icon';
+import { Insignia, type InsigniaHolder } from '../../components/ui/Insignia';
 import { WeatherBanner } from '../../components/ui/WeatherBanner';
 import { cn } from '../../lib/cn';
 import { leaderGroundLine } from './CombineLeader';
+import { districtHoldLine } from './holder';
 
 /**
  * What is true of the whole district rather than of one thing on it (maintainer request, 2026-09-11).
@@ -22,12 +24,15 @@ import { leaderGroundLine } from './CombineLeader';
  */
 export function GroundBox({
   district,
+  locations,
   combineLeader,
   unified,
   at,
   className,
 }: {
   district: District;
+  /** Who holds each location now, so the Garrison row says who a raider meets. */
+  locations: readonly Pick<LocationView, 'location' | 'holder' | 'holderName'>[];
   /** The Combine legendary over this ground, or null where none commands it. */
   combineLeader: CombineLeaderView | null;
   unified: { title: string; effect: string } | null;
@@ -57,9 +62,15 @@ export function GroundBox({
         )}
       </GroundRow>
       <GroundRow label="Garrison">
-        <p className="font-body text-[12px] leading-relaxed text-ink-300">
-          Expect {garrisonOf(district)}.
-        </p>
+        <div className="flex items-start gap-1.5">
+          <HoldInsignia locations={locations} className="mt-0.5" />
+          <p
+            className="min-w-0 font-body text-[12px] leading-relaxed text-ink-300"
+            data-testid="district-holders"
+          >
+            {districtHoldLine(district, locations)}
+          </p>
+        </div>
         {/* What his power does to every fight here while he stands, in the words the battle
             report will use; once he is dead, the fact that it is gone. Under the garrison line
             because it is a fact about the garrison: they are the ones carrying it. */}
@@ -85,6 +96,33 @@ export function GroundBox({
         )}
       </GroundRow>
     </div>
+  );
+}
+
+/** The Combine before the looters, the order `districtHoldLine` names them in. */
+const INSIGNIA_ORDER: readonly InsigniaHolder[] = ['government', 'looters'];
+
+/**
+ * The marks of whichever of the Combine and the looters stand anywhere in the district, for the
+ * head of a Garrison line (maintainer, 2026-09-30). Nothing when neither does.
+ */
+export function HoldInsignia({
+  locations,
+  className,
+}: {
+  locations: readonly Pick<LocationView, 'holder'>[];
+  className?: string;
+}) {
+  const present = INSIGNIA_ORDER.filter((kind) =>
+    locations.some((view) => view.holder.kind === kind),
+  );
+  if (present.length === 0) return null;
+  return (
+    <span className={cn('flex shrink-0 items-center gap-1', className)} data-testid="hold-insignia">
+      {present.map((kind) => (
+        <Insignia key={kind} holder={kind} className="h-4 w-4" />
+      ))}
+    </span>
   );
 }
 

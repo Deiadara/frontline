@@ -243,6 +243,9 @@ export type ReimaginingRefusal = 'not_available' | 'wrong_page_count' | 'pages_n
  * Flat, and deliberately not priced off what went in. Every other payout on this bench is steered
  * by the rarity of the three sheets (`reimagine-odds.ts`); this one cannot be, because there is no
  * page on the other side of it to be better or worse.
+ *
+ * Kept at 5,000 by the maintainer (2026-09-29), knowing it pays about sixteen missions a day to a
+ * crew that has finished the collection and keeps pressing.
  */
 export const REIMAGINING_COMPLETE_XP = 5000;
 

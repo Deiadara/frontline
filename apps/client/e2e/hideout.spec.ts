@@ -703,9 +703,26 @@ for (const size of VIEWPORTS) {
        * longer stages an unreachable cut, which is the thing this control exists to prove the gate
        * can see. Shutting the body is what makes the cut real.
        */
+      /*
+       * Measured rather than typed (2026-09-29). The clamp was a fixed 200px, and after the
+       * dialog moved to one template for every plot that height stopped landing inside a row, so
+       * there was no cut to report and this control failed for the wrong reason. The clamp is now
+       * the middle of the first row below the dialog's head, which is sliced whatever the
+       * dialog's current proportions.
+       */
+      const clamp = await page.evaluate(() => {
+        const dialog = document.querySelector<HTMLElement>('[role="dialog"]')!;
+        const top = dialog.getBoundingClientRect().top;
+        const rows = [...dialog.querySelectorAll<HTMLElement>('li, p')].filter((el) => {
+          const box = el.getBoundingClientRect();
+          return box.height >= 16 && box.top - top > 40;
+        });
+        const row = rows[0]!.getBoundingClientRect();
+        return Math.round(row.top - top + row.height / 2);
+      });
       await page.addStyleTag({
         content:
-          '[role="dialog"] { max-height: 200px !important; overflow-y: hidden !important; }' +
+          `[role="dialog"] { max-height: ${clamp}px !important; overflow-y: hidden !important; }` +
           '[role="dialog"] * { overflow-y: hidden !important; }',
       });
       await expect(expectNothingClippedVertically(page, '[role="dialog"]')).rejects.toThrow(

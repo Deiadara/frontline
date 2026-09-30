@@ -159,6 +159,8 @@ describe('a refused launch that had already settled the board', () => {
     result.current.launch.mutate({
       templateId: 'convoy-ambush',
       areaId: 'misc',
+      boardKey: '2026-09-13',
+      grade: 'E',
       force: { razors: 1 },
       leaderId: 'ov-1',
     });
@@ -289,12 +291,11 @@ describe('a refused write that had already settled the crew', () => {
 /**
  * `GET /city/:id` is a settle, not a read.
  *
- * `routes/city.ts` runs `settleWorld` (movements, scouting runs, gates) and then `settleBase` on
- * its first two lines, so an upgrade landing, a column arriving and a scout walking back in all
- * happen *on this request*. The screen drawn from it has four countdowns
- * on it and no other query behind them, so with no interval the last thing a player saw was
- * whatever was true when they opened the street: a scout at zero read "Walking back in" until they
- * navigated away and came back.
+ * `routes/city.ts` runs `settleWorld` (movements, spy jobs, gates) and then `settleBase` on its
+ * first two lines, so an upgrade landing, a column arriving and a spy job coming home all happen
+ * *on this request*. The screen drawn from it has live countdowns on it and no other query behind
+ * them, so with no interval the last thing a player saw was whatever was true when they opened the
+ * street: a finished upgrade still counting at zero until they navigated away and came back.
  *
  * Timers rather than a real wait, and the assertion is that a *second* call happens: the mount's
  * own fetch would satisfy a test that only counted one.

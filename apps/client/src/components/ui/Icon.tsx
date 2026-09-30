@@ -69,6 +69,7 @@ export const ICON_NAMES = [
   'faction',
   'alert',
   'combine',
+  'looters',
 ] as const;
 
 export type IconName = (typeof ICON_NAMES)[number];
@@ -444,16 +445,51 @@ export const ICON_GLYPHS: Record<IconName, ReactNode> = {
     </>
   ),
   /**
-   * The Combine: the regime's spire over the city, its ring of lamps, and a stroke through it
-   * (maintainer, 2026-09-28). Drawn for the landing screen's "Defeat the Combine", and the same
-   * spire the skyline behind that screen is inked with (`InkSkyline`).
+   * The Combine's emblem, the winged cross off its red banner (maintainer, 2026-09-30): a blade
+   * with a round head and a short guard, two wings spread level from it, and a rosette under each.
+   *
+   * It replaced a spire with a stroke through it, which was the city's skyline rather than the
+   * regime's mark. The wings are two outlines with one feather line through each rather than a fan
+   * of strokes: at 16px a fan fills in to a blot, and an outline stays a wing.
    */
   combine: (
     <>
-      <path d="M5.5 21h13" {...S} />
-      <path d="M9.4 21V11.2L10.8 7.4L12 2.8L13.2 7.4L14.6 11.2V21" {...S} />
-      <path d="M9.4 11.2h5.2M10.3 8.6h3.4" {...S} />
-      <path d="M4.2 18.6L19.8 5.4" {...S} />
+      <circle cx="12" cy="3.3" r="1.6" {...S} />
+      <path d="M12 5.2L12.9 8L12.65 17.8L12 21.6L11.35 17.8L11.1 8Z" {...S} />
+      <path d="M9.8 7.4h4.4" {...S} />
+      <path
+        d="M11 9.6C8.6 7.9 5.6 5.9 2.2 4.4C2.6 6.6 3.4 8.2 4.8 9.2C4.3 10.4 5 11.6 6.4 12C7.8 12.6 9.4 12.4 11 11.8"
+        {...S}
+      />
+      <path
+        d="M13 9.6C15.4 7.9 18.4 5.9 21.8 4.4C21.4 6.6 20.6 8.2 19.2 9.2C19.7 10.4 19 11.6 17.6 12C16.2 12.6 14.6 12.4 13 11.8"
+        {...S}
+      />
+      <path d="M4.8 9.2C6.6 9.6 8.6 10.2 11 10.8M19.2 9.2C17.4 9.6 15.4 10.2 13 10.8" {...S} />
+      <circle cx="7" cy="16.4" r="1.3" {...S} />
+      <circle cx="17" cy="16.4" r="1.3" {...S} />
+    </>
+  ),
+  /**
+   * The looters' mark (maintainer, 2026-09-30): a skull sprayed on a wall, one eye boxed and one
+   * crossed out, a broken antenna off the crown and two circuit traces run out of the jaw to their
+   * pads. The two drips under the jaw are what make it paint rather than a printed badge.
+   */
+  looters: (
+    <>
+      <path
+        d="M7 14.6C5.6 13.4 5.3 11.6 5.5 9.9C5.9 6.6 8.6 4.6 12 4.6C15.4 4.6 18.1 6.6 18.5 9.9C18.7 11.6 18.4 13.4 17 14.6L16.4 18.4H7.6Z"
+        {...S}
+      />
+      <path d="M8.4 9.9L11 9.6L10.9 12.3L8.7 12.6Z" {...S} />
+      <path d="M13.3 9.8l2.3 2.4M15.6 9.8l-2.3 2.4" {...S} />
+      <path d="M12 13.4L11.2 15H12.8Z" {...S} />
+      <path d="M10.2 16.2v2.2M12 16.2v2.2M13.8 16.2v2.2" {...S} />
+      <path d="M9 18.4v1.8M14.6 18.4v2.6" {...S} />
+      <path d="M15.2 5.2l1.7-2.7M17.6 2.1l2.3.6" {...S} />
+      <path d="M5.5 11.8H3.4v4.6M18.5 10.6h2.1V7.4" {...S} />
+      <circle cx="3.4" cy="17.4" r="0.9" {...S} />
+      <circle cx="20.6" cy="6.4" r="0.9" {...S} />
     </>
   ),
   eye: (

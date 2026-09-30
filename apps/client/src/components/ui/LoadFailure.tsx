@@ -71,7 +71,12 @@ export function ScreenLoad({
   if (isError) return <LoadFailure what={what} onRetry={onRetry} detail={detail} />;
   return (
     <div className="flex flex-1 items-center justify-center p-8">
-      <p className="font-display text-xs uppercase tracking-[0.2em] text-ink-300">{loading}</p>
+      <p
+        className="font-display text-xs uppercase tracking-[0.2em] text-ink-300"
+        data-testid="screen-loading"
+      >
+        {loading}
+      </p>
     </div>
   );
 }

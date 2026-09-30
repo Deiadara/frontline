@@ -100,6 +100,48 @@ for (const { name, width, height } of VIEWPORTS) {
   });
 }
 
+/**
+ * Each city has its own board (maintainer, 2026-09-29). Our listings stand in every city we hold
+ * ground in and are all listed on our half, so Withdraw can reach one pinned elsewhere; that card
+ * names its board. A listing goes up on the tab it was posted from.
+ */
+for (const { name, width, height } of VIEWPORTS) {
+  test(`names the board a listing of ours in another city stands on at ${name}`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width, height });
+    await installApi(page, lateGame);
+    await page.route('**/api/market', async (route) => {
+      await route.fulfill({
+        json: {
+          ...market,
+          cities: ['ashfall', 'terminus'],
+          mine: [...market.mine, { ...market.mine[0]!, id: 'offer-terminus', cityId: 'terminus' }],
+        },
+      });
+    });
+    await page.goto('/game/market/offers');
+    await expect(page.getByTestId('market-board')).toBeVisible();
+    await settleFonts(page);
+
+    await expect(page.getByTestId('offer-city-offer-terminus')).toHaveText('On the Terminus board');
+    await expect(page.getByTestId('offer-city-offer-mine')).toHaveCount(0);
+    await page.getByTestId('offer-offer-terminus').scrollIntoViewIfNeeded();
+    await expectNothingOverflowsTheScreen(page);
+    await page.screenshot({ path: `screenshots/offers-city-${name}.png`, fullPage: true });
+
+    await page.getByTestId('offer-give-oil').click();
+    await setAmount(page, 'offer-give-amount-oil', 400);
+    await page.getByTestId('offer-want-scrap').click();
+    await setAmount(page, 'offer-want-amount-scrap', 400);
+    const posted = page.waitForRequest(
+      (request) => request.url().includes('/api/market/offer') && request.method() === 'POST',
+    );
+    await page.getByRole('button', { name: 'Post it' }).click();
+    expect((await posted).postDataJSON()).toMatchObject({ cityId: market.cityId });
+  });
+}
+
 test('takes a listing as it stands', async ({ page }) => {
   await openBoard(page);
 
@@ -161,6 +203,8 @@ test('posts the two piles it was built out of', async ({ page }) => {
   expect((await posted).postDataJSON()).toEqual({
     give: { resources: { scrap: 500 }, items: {} },
     want: { resources: { oil: 300 }, items: {} },
+    // The board on screen (2026-09-29): a listing goes up in the city it was posted from.
+    cityId: market.cityId,
   });
 });
 
@@ -267,4 +311,31 @@ test('puts parts into an offer, and sends them', async ({ page }) => {
     give?: { items?: Record<string, number> };
   };
   expect(body.give?.items).toEqual({ scrap_servo: 2, ceramic_plate: 2 });
+});
+
+/**
+ * The parts menu opens where it can be read (bug pass, 2026-09-29).
+ *
+ * It opens downward, and at 1024x768 the composer's door is the last thing on the sheet: pressed
+ * there, the menu went into the scroller's overflow and under the bottom bar, with only its
+ * heading showing. Pressing the door has to bring the whole menu into the sheet's view, and the
+ * hit test is what says the bar is not lying over any of it.
+ */
+test('the parts menu is brought into view when it opens at the foot of the sheet', async ({
+  page,
+}) => {
+  await openBoard(page, 1024, 768);
+  const door = page.getByTestId('offer-give-parts');
+  // Parked on the fold, the way a player scrolling down to the form finds it.
+  await door.evaluate((el) => el.scrollIntoView({ block: 'end' }));
+  await door.click();
+  const menu = page.getByTestId('offer-give-parts-menu');
+  // 0.99 rather than 1: the drawn frame sits a subpixel past the sheet's edge at rest.
+  await expect(menu).toBeInViewport({ ratio: 0.99 });
+  const covered = await menu.evaluate((el) => {
+    const box = el.getBoundingClientRect();
+    const probe = (x: number, y: number) => el.contains(document.elementFromPoint(x, y));
+    return !(probe(box.left + 8, box.bottom - 4) && probe(box.right - 8, box.bottom - 4));
+  });
+  expect(covered, 'something is drawn over the foot of the parts menu').toBe(false);
 });

@@ -32,6 +32,8 @@ export interface FactionCardSpec {
   readonly channel: NumericEffectChannel;
   /** The channel in the player's words, for the line under the mark. */
   readonly channelLabel: string;
+  /** Paid in points rather than percent: the medics' channel goes through a curve (`crew/effects.ts`). */
+  readonly points?: true;
 }
 
 export const FACTION_CARD_SPECS: Readonly<Record<FactionCard, FactionCardSpec>> = {
@@ -78,7 +80,8 @@ export const FACTION_CARD_SPECS: Readonly<Record<FactionCard, FactionCardSpec>> 
     blurb: 'The one who walks away from things. More of the table walks away with them.',
     reads: ['improvisation', 'intuition', 'stealth'],
     channel: 'casualtyRecoveryPercent',
-    channelLabel: 'The ones the medics get back',
+    channelLabel: 'Medic points',
+    points: true,
   },
 };
 
@@ -163,7 +166,8 @@ export function cardBonusPercent(mark: OfficerMark): number {
 
 /** "+7% What your people hit for": the effect line under a card. */
 export function describeCardBonus(card: FactionCard, mark: OfficerMark): string {
-  return `+${cardBonusPercent(mark)}% ${FACTION_CARD_SPECS[card].channelLabel}`;
+  const spec = FACTION_CARD_SPECS[card];
+  return `+${cardBonusPercent(mark)}${spec.points ? '' : '%'} ${spec.channelLabel}`;
 }
 
 /** "Strength, Strategy and Authority": what the card reads, for the members list. */

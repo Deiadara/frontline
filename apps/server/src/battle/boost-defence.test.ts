@@ -113,7 +113,6 @@ async function makeStack(): Promise<Stack> {
   pinOverseer(app, token);
   const baseId = chosen.json<{ base: { id: string } }>().base.id;
 
-  app.repos.city.markScouted(baseId, 'steelbelt', new Date().toISOString());
   // One location off the looters, so the Rustyard's gate is not armed and a location can be called.
   const control = app.repos.city.control('steelbelt-bonefield');
   if (control) app.repos.city.put({ ...control, holder: { kind: 'crew', baseId }, garrison: {} });

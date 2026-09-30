@@ -70,7 +70,6 @@ describe('the seat ceiling on a fight somebody has loaded machines onto', () => 
     app.repos.bases.updateEconomy(baseId, { ...base.economy, infamy: DECLARE_INFAMY_COST * 4 });
     app.repos.bases.updateArmy(baseId, { razors: 12 }, base.trainingQueue);
     app.repos.bases.updateFleet(baseId, ONE_BIKE);
-    app.repos.city.markScouted(baseId, 'steelbelt', new Date().toISOString());
     // One plot let go, so the district is not shut and a location is a legal call.
     const ramp = app.repos.city.control('steelbelt-ramp')!;
     app.repos.city.put({ ...ramp, holder: { kind: 'unoccupied' }, garrison: {} });

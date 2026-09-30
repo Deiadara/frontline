@@ -120,6 +120,42 @@ describe('the display name', () => {
   });
 });
 
+/** The naming and password rules of 2026-09-29, said on the screen before the server says them. */
+describe('the rules on names and passwords', () => {
+  const saves = () =>
+    fetchMock.mock.calls.filter(
+      ([, init]) => (init as RequestInit | undefined)?.method === 'PATCH',
+    );
+
+  it('refuses a display name with nothing visible in it', async () => {
+    renderSettings();
+    const field = await screen.findByTestId<HTMLInputElement>('settings-display-name');
+    fireEvent.change(field, { target: { value: '\u202e\u200b' } });
+    expect(screen.getByText(/at least one character that shows/)).toBeInTheDocument();
+    fireEvent.submit(field.closest('form')!);
+    expect(saves()).toEqual([]);
+  });
+
+  it('refuses a rename onto one of the game’s own names', async () => {
+    renderSettings();
+    const field = await screen.findByTestId<HTMLInputElement>('settings-username');
+    fireEvent.change(field, { target: { value: 'System' } });
+    expect(screen.getByText(/belongs to the game/)).toBeInTheDocument();
+  });
+
+  it('says under the new password that it stops at 72 bytes, and refuses past it', async () => {
+    renderSettings();
+    const field = await screen.findByTestId<HTMLInputElement>('settings-new-password');
+    expect(screen.getByText(/72 bytes at most/)).toBeInTheDocument();
+    fireEvent.change(field, { target: { value: '\u20ac'.repeat(25) } });
+    fireEvent.change(screen.getByTestId('settings-repeat-password'), {
+      target: { value: '\u20ac'.repeat(25) },
+    });
+    expect(screen.getByText(/At most 72 bytes/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Change it' })).toBeDisabled();
+  });
+});
+
 /**
  * A panel called "Your clock" has to tick.
  *

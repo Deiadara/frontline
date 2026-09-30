@@ -118,6 +118,15 @@ function machinesQueued(queue: TrainingQueue): number {
 }
 
 /**
+ * Why the Bar will not take a bid or sign anybody: every bed is taken (maintainer, 2026-09-29).
+ *
+ * An officer is one bed, so hiring one with the district full would put the crew over its own
+ * ceiling the moment the table closed. Refused at the bid, re-checked at the close, where a winner
+ * with no bed passes the person to the next bidder.
+ */
+export const NO_FREE_BED_TEXT = 'Every bed in your district is taken, and an officer needs one.';
+
+/**
  * Everyone the district is currently housing, broken out.
  *
  * Returned as its parts rather than a single number because the screen has to be able to say

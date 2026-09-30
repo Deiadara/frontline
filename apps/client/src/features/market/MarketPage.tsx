@@ -130,6 +130,7 @@ export function MarketPage() {
           now={now}
           caps={data.caps}
           bidCeiling={data.bidCeiling}
+          discountPercent={data.marketDiscountPercent}
           atLotCap={pastLotCap(
             data.vendor.stock.map((one) => ({ id: one.line.id, auction: one.auction })),
             lot.line.id,
@@ -231,31 +232,41 @@ function LotCard({ offer, onBid }: { offer: VendorOffer; onBid: () => void }) {
         {gone ? 'gone' : `${offer.line.stock} left`}
       </span>
 
-      {/* The plate has two sizes and the frame's height picks one. Under 860px tall the barrow is
-          one row of six and the plate is the thumbnail it used to be; from 860 up it is a three by
-          two board and the drawing gets the room. Both are the same six lots in the same order. */}
+      {/* The plate has three sizes and the height the barrow is given picks one (the container
+          query on the board below). Short of two rows the barrow is one row of six; with them, a
+          three by two board and the drawing gets the room. The one row has two plates of its own:
+          under 250px of stall it is the thumbnail it always was, and from 250px (frames about 860
+          to 960 tall) it keeps the full plate's drawing and its second line, because a thumbnail
+          on a 234px plate was a 32px drawing and a lot of empty paper (maintainer, 2026-09-29).
+          The door keeps the one row's tight lettering in both, since the plate is as narrow, and
+          the drawing drops clear of the stock tag, which a 56px drawing on a plate 89px wide
+          otherwise runs under. All three are the same six lots in the same order. */}
       <HoverCard label={spec.name} size="window" card={<ItemWindow id={spec.id} />}>
-        <span className="icon-tile flex h-14 w-14 items-center justify-center rounded-md [@media(max-height:859px)]:h-8 [@media(max-height:859px)]:w-8">
+        <span className="icon-tile flex h-14 w-14 items-center justify-center rounded-md [@container(max-height:249px)]:h-8 [@container(max-height:249px)]:w-8 [@container(min-height:250px)_and_(max-height:341px)]:mt-3">
           <ItemGlyph
             id={spec.id}
             size="md"
-            className="h-11 w-11 [@media(max-height:859px)]:h-6 [@media(max-height:859px)]:w-6"
+            className="h-11 w-11 [@container(max-height:249px)]:h-6 [@container(max-height:249px)]:w-6"
           />
         </span>
       </HoverCard>
 
       <span className="flex w-full min-w-0 flex-col items-center gap-0.5">
-        <span className="line-clamp-2 w-full min-w-0 text-center font-display text-[11px] font-bold leading-[1.15] text-ink-100 [@media(max-height:859px)]:text-[10.5px]">
+        {/* One line on the short board, where the six lots share a single row: a second line of
+            name took its height out of the price tag, which is the one thing on the plate a
+            bidder has to read (bug pass, 2026-09-29, "Sniper Blueprint: Barrel Liners" at
+            1280x720). The whole name is on the hover card above. */}
+        <span className="line-clamp-2 w-full min-w-0 text-center font-display text-[11px] font-bold leading-[1.15] text-ink-100 [@container(max-height:249px)]:line-clamp-1 [@container(max-height:249px)]:text-[10.5px] [@container(min-height:250px)_and_(max-height:341px)]:line-clamp-3">
           {spec.name}
         </span>
-        <span className="line-clamp-1 w-full min-w-0 text-center font-display text-[9px] uppercase tracking-[0.14em] opacity-80 [@media(max-height:859px)]:hidden">
+        <span className="line-clamp-1 w-full min-w-0 text-center font-display text-[9px] uppercase tracking-[0.14em] opacity-80 [@container(max-height:249px)]:hidden [@container(min-height:250px)_and_(max-height:341px)]:line-clamp-3">
           {document ? `Page of the ${document.name}` : ITEM_RARITY_LABELS[spec.rarity]}
         </span>
       </span>
 
       <span
         className={cn(
-          'holo-tag flex items-center gap-1 rounded-sm px-2 py-0.5',
+          'holo-tag flex shrink-0 items-center gap-1 rounded-sm px-2 py-0.5',
           standing === 'leading' && 'border-verdigris-300/70',
           standing === 'outbid' && 'border-oxblood-300/70',
         )}
@@ -276,9 +287,11 @@ function LotCard({ offer, onBid }: { offer: VendorOffer; onBid: () => void }) {
 
       {/* The one door, and its word is the reader's standing: Bid where nobody has, Raise where
           somebody is in front of them, and their own table where they are. */}
+      {/* Tighter lettering on the short board, whose plate is 78px inside at 1100 wide: at the
+          `sm` tracking "Your table" broke onto two lines and pushed the tag off the plate. */}
       <DrawnButton
         size="sm"
-        className="w-full"
+        className="w-full whitespace-nowrap [@container(max-height:341px)]:px-1.5 [@container(max-height:341px)]:text-[10px] [@container(max-height:341px)]:tracking-[0.04em]"
         disabled={gone}
         onClick={onBid}
         data-testid={`bid-${offer.line.id}`}
@@ -378,22 +391,31 @@ function VendorPanel({
       {/* Nothing on the barrow until he is standing behind it: the server withholds the stock as
           well, so this is not a curtain over data the client was sent anyway. */}
       {/* Six lots on a board split in six. From 1100px wide the board fills the stall: three by
-          two on a frame 860px or taller, one row of six on a shorter one, so nothing under the
-          awning ever scrolls at the sizes the game is drawn at. Under 1100px the six cannot share
-          a line and the barrow is three to a row behind its own scroller, the one concession. */}
+          two when the stall is tall enough for two rows of whole plates, one row of six when it
+          is not, so nothing under the awning ever scrolls at the sizes the game is drawn at. Under
+          1100px the six cannot share a line and the barrow is three to a row behind its own
+          scroller, the one concession.
+
+          Which of the two is measured off the stall itself, a container query, rather than off
+          the window. The window's height was the rule (three by two from 860px tall), and it is not
+          the stall's: at 1280x900 and 1440x900 a row was 133px against the 155 a full plate
+          needs, and every door hung off the foot of its plate onto the plate below; at 1100x900
+          it was 93 (bug pass, 2026-09-29). 342px is two 155px plates, the gap and the padding. */}
       {vendor.open ? (
-        <ul
-          className={cn(
-            'grid min-h-0 flex-1 auto-rows-min grid-cols-3 gap-2 overflow-y-auto p-3',
-            '[@media(min-width:1100px)]:auto-rows-fr [@media(min-width:1100px)]:grid-rows-2 [@media(min-width:1100px)]:overflow-visible',
-            '[@media(min-width:1100px)_and_(max-height:859px)]:grid-cols-6 [@media(min-width:1100px)_and_(max-height:859px)]:grid-rows-1',
-          )}
-          data-testid="vendor-stock"
-        >
-          {vendor.stock.map((offer) => (
-            <LotCard key={offer.line.id} offer={offer} onBid={() => onBid(offer.line.id)} />
-          ))}
-        </ul>
+        <div className="flex min-h-0 flex-1 flex-col [container-type:size]">
+          <ul
+            className={cn(
+              'grid min-h-0 flex-1 auto-rows-min grid-cols-3 gap-2 overflow-y-auto p-3',
+              '[@media(min-width:1100px)]:auto-rows-fr [@media(min-width:1100px)]:grid-rows-2 [@media(min-width:1100px)]:overflow-visible',
+              '[@media(min-width:1100px)]:[@container(max-height:341px)]:grid-cols-6 [@media(min-width:1100px)]:[@container(max-height:341px)]:grid-rows-1',
+            )}
+            data-testid="vendor-stock"
+          >
+            {vendor.stock.map((offer) => (
+              <LotCard key={offer.line.id} offer={offer} onBid={() => onBid(offer.line.id)} />
+            ))}
+          </ul>
+        </div>
       ) : (
         <div
           className="edge-lit m-3 flex min-h-0 flex-1 flex-col items-center justify-center gap-2 rounded-md border border-surface-600/70 bg-surface-950/40 px-4 py-4"
@@ -684,7 +706,8 @@ function SupplyPanel({ market, resetsAt }: { market: MarketResponse; resetsAt: s
   // 100 is over the ration on a full warehouse, and a counter that opens refusing to serve you is
   // a bad first impression.
   const units = Math.min(wanted, most);
-  const price = supplyPrice(key, units);
+  // After the crew's market discount, the figure the till charges (maintainer, 2026-09-29).
+  const price = supplyPrice(key, units, market.marketDiscountPercent);
   const blocked =
     most === 0 ? supplyStall(line, market, left, resetsAt) : units <= 0 ? 'Say how much' : null;
 
@@ -739,7 +762,7 @@ function SupplyPanel({ market, resetsAt }: { market: MarketResponse; resetsAt: s
           caption={(each) => (
             <>
               <ResourceIcon kind="caps" className="h-3.5 w-3.5" />
-              {supplyPrice(each, 1).toLocaleString()}
+              {supplyPrice(each, 1, market.marketDiscountPercent).toLocaleString()}
             </>
           )}
           data-testid="supply-resource"

@@ -47,6 +47,12 @@ const PAINTED = [
   // was, and these sweeps only ever read the location signs.
   'marshalling-yards',
   'bonded-row',
+  // The four Combine districts (2026-09-29). Telemetry Hill, the Last Platform and the Blockhouse
+  // carry a `GATE_MARK`; the Viaduct's painting shows no gate.
+  'telemetry-hill',
+  'viaduct',
+  'last-platform',
+  'blockhouse',
 ] as const;
 
 interface Box {
@@ -147,45 +153,6 @@ async function signsOn(page: Page, id: string): Promise<{ plate: Box; signs: Box
     return { plate: box(plate, false), signs };
   }, id);
 }
-
-/**
- * Fog first (maintainer request): the painting is what the district *looks like*, and a district nobody
- * has walked into does not look like anything yet.
- *
- * The fog has to be put over a district that **has** a painting, which is why this stubs the route
- * rather than using the fixture's own unscouted district. That one is `ccs`, which has
- * no painting under any conditions, so asserting the painting is absent there passes against a
- * build that never draws a painting at all: the first version of this test did exactly that, and
- * survived deleting the scouted check.
- */
-test('shows the painting only once the ground has been scouted', async ({ page }) => {
-  await page.setViewportSize({ width: 1440, height: 900 });
-  await installApi(page, me);
-
-  // Same district, same painting, one field different.
-  await page.route('**/api/city/neon-docks', (route) =>
-    route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({
-        ...districtDetailFor('neon-docks'),
-        scouted: false,
-        locations: [],
-        scoutPlan: { officerId: 'off-3', officerName: 'Vela', minutes: 90 },
-      }),
-    }),
-  );
-  await page.goto('/game/city/neon-docks');
-  // Unscouted ground does not open: the link bounces to the map with the scout sheet up.
-  await expect(page.getByTestId('scout-menu')).toBeVisible();
-  await expect(page.getByTestId('district-painting-neon-docks')).toHaveCount(0);
-  await page.keyboard.press('Escape');
-
-  // Fog lifted, nothing else changed: the picture is there.
-  await page.unroute('**/api/city/neon-docks');
-  await page.goto('/game/city/neon-docks');
-  await expect(page.getByTestId('district-painting-neon-docks')).toBeVisible();
-});
 
 /**
  * A plate delivered before its signs are placed still reaches every location.

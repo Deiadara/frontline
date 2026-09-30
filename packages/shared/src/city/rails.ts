@@ -19,7 +19,7 @@ import type { District } from './districts.js';
  *
  * So: a unit move or a battle column may **choose** to ride. The clock is the road to the platform
  * it boards at, plus {@link RAIL_LINK_MINUTES} flat on the rails, plus the road from the platform
- * it gets off at to wherever it is actually going. Missions and scouting runs never ride.
+ * it gets off at to wherever it is actually going. Missions and spy jobs never ride.
  *
  * ## Why it is a search and not a lookup
  *
@@ -95,6 +95,7 @@ export function railwayOffer(
   stations: ReadonlySet<string>,
   pace: RoadPace = {},
 ): RailwayOffer | null {
+  // Maintainer, 2026-09-29: the line is for moving within Terminus, between two stations you hold.
   if (from.cityId !== to.cityId) return null;
   if (stations.size < 2) return null;
 

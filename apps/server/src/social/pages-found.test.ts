@@ -23,6 +23,7 @@ import {
   blackMarketClosesAt,
   createCommander,
   instantAtHourInZone,
+  missionCompletesAt,
   nextLotBid,
   vendorSessionsFor,
   vendorStockFor,
@@ -169,6 +170,14 @@ describe('a page off a mission', () => {
     expect(settled.resolved, 'the mission was not due').toHaveLength(1);
     const won = settled.resolved[0]!.pageWon;
     expect(won, 'a successful run carrying a page won nothing').not.toBeNull();
+
+    // Both bells dated at the return, eight hours ago, not at this settle (maintainer, 2026-09-29).
+    const home = missionCompletesAt(mission).toISOString();
+    const dated = app.repos.social
+      .notifications(crew.userId, 50)
+      .filter((row) => row.kind === 'mission_home' || row.kind === 'page_found')
+      .map((row) => row.createdAt);
+    expect(dated).toEqual([home, home]);
     return won!;
   }
 
@@ -330,7 +339,8 @@ describe('a page out of the back room', () => {
     expect(bid.kind, 'the fence refused the bid').toBe('placed');
 
     const closed = blackMarketClosesAt(shelf.day, GAME_TIMEZONE);
-    settleBlackMarketLots(app.repos, closed, GAME_TIMEZONE);
+    // A minute late, so the bells have to say when the lot closed rather than when it was settled.
+    settleBlackMarketLots(app.repos, new Date(closed.getTime() + 60_000), GAME_TIMEZONE);
     expect(baseOf(app, crew).inventory[pageId as ItemId]).toBe(1);
 
     const rung = pageBells(app, crew);
@@ -338,6 +348,13 @@ describe('a page out of the back room', () => {
     expect(rung[0]!.title).toBe(sentenceFor(pageId, 'from the back room'));
     expect(rung[0]!.link).toBe('/game/research/blueprints');
     expect(rung[0]!.subjectId).toBe(pageId);
+    const won = app.repos.social
+      .notifications(crew.userId, 50)
+      .find((row) => row.kind === 'market_won');
+    expect([rung[0]!.createdAt, won?.createdAt]).toEqual([
+      closed.toISOString(),
+      closed.toISOString(),
+    ]);
   });
 });
 

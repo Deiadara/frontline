@@ -7,6 +7,7 @@ import {
   type LaunchMissionResponse,
   type MissionsResponse,
 } from '@frontline/shared';
+import type * as Crypto from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { buildApp } from '../app.js';
@@ -14,6 +15,17 @@ import { loadConfig } from '../config.js';
 import { pagePrizeSaltFrom } from './prize-salt.js';
 import { openDatabase, runMigrations, type AppDatabase } from '../db/index.js';
 import { chooseOverseer } from '../testing/overseer.js';
+
+/*
+ * The run's seed, which the launch draws with `randomInt` and the prize is rolled off (maintainer,
+ * 2026-09-29). Pinned so the test can pick a seed whose run pays; nothing else on the launch path
+ * draws from `node:crypto`'s `randomInt`.
+ */
+const runSeed = vi.hoisted(() => ({ value: 0 }));
+vi.mock('node:crypto', async (importOriginal) => ({
+  ...(await importOriginal<typeof Crypto>()),
+  randomInt: () => runSeed.value,
+}));
 
 /**
  * §F1b: a run's blueprint page is a surprise until the crew is home (maintainer, 2026-09-28).
@@ -31,17 +43,11 @@ import { chooseOverseer } from '../testing/overseer.js';
 const PASSWORD = 'hunter2pass';
 
 /**
- * A moment and a job whose run carries a page.
+ * A moment and a job dealt above its floor.
  *
- * Pinned rather than searched, so a failure names one card and one hour. Chosen because the prize
- * is not null here: on a job with no page the card would say nothing either way, and the test
- * would pass vacuously. `standard`, so the launch needs nothing a battle job needs. Dealt at F to
- * a new crew, a mark above the job's floor, and the prize is there at F and not at F-: a launch
- * that froze the prize at the job's lowest grade rather than the dealt one stores nothing.
- *
- * Refound when the server's secret joined the seed (`missions/prize-salt.ts`): every draw moved,
- * and under the `test-secret` salt below this is the first misc card from 2026-11-10 that pays
- * at its dealt grade and not at its floor.
+ * `standard`, so the launch needs nothing a battle job needs. Dealt at F to a new crew, a mark
+ * above the job's floor, so the run's seed below can be one that pays at F and not at F-: a launch
+ * that rolled the prize at the job's lowest grade rather than the dealt one stores nothing.
  */
 const AT = new Date('2027-03-23T01:00:00.000Z');
 const TEMPLATE = 'scrap-run';
@@ -104,6 +110,17 @@ describe('the page a run might bring home', () => {
       onTheWall!.template.grades[0],
     );
     const headers = { authorization: `Bearer ${token}` };
+    // The first seed whose run pays a page at the dealt grade and not at the job's floor, under the
+    // server's secret: without a page the card would have nothing to hide and this would pass
+    // vacuously.
+    const salt = pagePrizeSaltFrom(JWT_SECRET);
+    const paying = Array.from({ length: 100_000 }, (_, seed) => seed).find(
+      (seed) =>
+        pagePrizeFor(salt, seed, onTheWall!.grade) !== null &&
+        pagePrizeFor(salt, seed, onTheWall!.template.grades[0]) === null,
+    );
+    expect(paying, 'no seed pays at the dealt grade alone').toBeDefined();
+    runSeed.value = paying!;
 
     const board = await app.inject({ method: 'GET', url: '/api/missions', headers });
     expect(board.statusCode, board.body.slice(0, 200)).toBe(200);
@@ -122,6 +139,8 @@ describe('the page a run might bring home', () => {
       payload: {
         templateId: TEMPLATE,
         areaId: MISC_AREA_ID,
+        boardKey: misc!.boardKey,
+        grade: misc!.grade,
         force: { razors: 1 },
         leaderId: 'off-1',
       },
@@ -140,14 +159,8 @@ describe('the page a run might bring home', () => {
 
     const row = app.repos.missions.listActiveByBaseId(baseId)[0];
     expect(row, 'the launch wrote no mission row').toBeDefined();
-    const frozen = pagePrizeFor(
-      pagePrizeSaltFrom(JWT_SECRET),
-      MISC_AREA_ID,
-      missionBoardKey(MISC_AREA_ID, AT),
-      TEMPLATE,
-      onTheWall!.grade,
-    );
-    expect(frozen, 'the pinned job pays no page, so the card had nothing to hide').not.toBeNull();
-    expect(row!.mission.pagePrize).toBe(frozen);
+    expect(row!.seed).toBe(paying);
+    expect(row!.mission.pagePrize).toBe(pagePrizeFor(salt, paying!, onTheWall!.grade));
+    expect(row!.mission.pagePrize).not.toBeNull();
   });
 });

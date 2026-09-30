@@ -377,3 +377,35 @@ describe('the standing bar does not size itself to its contents', () => {
     expect(screen.getByTestId('district-plaque').className).not.toMatch(/\bw-\[/);
   });
 });
+
+/**
+ * The admin plate (maintainer ruling, 2026-09-29): an admin build says on the bar that its clocks
+ * are five seconds and its prices are not taken, and a normal build says nothing.
+ */
+describe('the admin plate', () => {
+  const renderWith = (adminSeconds: number | undefined) =>
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <MemoryRouter>
+          <TopHud
+            overseer={overseer}
+            base={base}
+            resources={STARTING_RESOURCES}
+            economy={economy}
+            buildings={buildings}
+            adminSeconds={adminSeconds}
+          />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+  it('is on the bar in an admin build', () => {
+    renderWith(5);
+    expect(screen.getByTestId('hud-admin')).toHaveTextContent('Admin · 5s · free');
+  });
+
+  it('is not there otherwise', () => {
+    renderWith(undefined);
+    expect(screen.queryByTestId('hud-admin')).toBeNull();
+  });
+});

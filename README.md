@@ -23,7 +23,9 @@ pnpm install
 pnpm dev
 ```
 
-`pnpm dev` builds `@frontline/shared` and then starts both servers in parallel:
+`pnpm dev` builds `@frontline/shared` and then starts both servers under one runner
+(`scripts/dev.mjs`) that a single Ctrl+C stops, second press or not, and that takes both down if
+the terminal goes away:
 
 - API on **http://localhost:4000**
 - client on **http://localhost:5173** (Vite proxies `/api` to the API server)

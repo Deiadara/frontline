@@ -42,12 +42,12 @@ interface HeldGround {
  *     is dead, for the whole world. The Combine never musters him and never moves him. He is a
  *     stationary target with a shadow the size of a district.
  *
- * He is replaced on one condition, and it is the condition that makes taking his plot worth
- * something rather than worth it once (maintainer, 2026-09-24): *"Legendaries regen only if you
- * dont hold their location."* The weekly regrowth stands the whole of the regime's army back up on
- * ground no crew holds (`apps/server/src/city/regrowth.ts`), and he is a body in his plot's
- * garrison like any other, so he comes back with it. Hold the plot and he stays dead; lose it and
- * he is on it again on Monday.
+ * Once his plot is taken he is gone for good. The weekly regrowth (`apps/server/src/city/regrowth.ts`)
+ * stands the regime's army back up only on plots the regime still holds, and he is a body in his
+ * plot's garrison like any other, so he comes back with it only while the Combine still has the
+ * plot (a fight that killed him and lost). Nothing hands a taken plot back to the regime: another
+ * crew can take it off the first, but the Combine never retakes ground (maintainer, 2026-09-29,
+ * keeping the map one-way). So his kill feat is one crew's in the life of the world.
  *
  * "Alive" is therefore derived and not stored: he is alive while his unit is standing in the
  * garrison of a Combine-held location in his district ({@link combineLeaderAlive}). Nothing has
@@ -84,7 +84,8 @@ export type CombinePower =
    *
    * His side's units start at `morale`, which is the ceiling, so §D3 cannot silence them. And
    * the enemy units §D3 *would* have silenced do not stand there with their heads down: they
-   * cross the line and fight for him (`changeOfHeart`). They are his for good.
+   * cross the line and fight for him (`changeOfHeart`). For that fight only: afterwards they are
+   * dead, on a plot as at a gate, and join nothing (maintainer, 2026-09-29).
    */
   | { kind: 'directive_xero'; morale: number; changeOfHeart: true };
 
@@ -189,11 +190,11 @@ export const COMBINE_LEADERS: readonly CombineLeader[] = [
     districtId: 'ccs',
     locationId: 'ccs-chapel',
     power: { kind: 'directive_xero', morale: DIRECTIVE_XERO_MORALE, changeOfHeart: true },
-    // Both halves of it: nobody under him doubts, and anybody who would have is his.
+    // Both halves of it: nobody under him doubts, and anybody who would have fights for him.
     powerName: 'Zero Doubt',
     pronoun: { subject: 'he', object: 'him', possessive: 'his' },
     powerLine:
-      'Every Combine unit in the CCS fights at 100 morale and cannot be intimidated. Any unit of yours that would have been intimidated changes sides instead, and is his from then on.',
+      'Every Combine unit in the CCS fights at 100 morale and cannot be intimidated. Any unit of yours that would have been intimidated changes sides instead and fights for him, for that fight only. None of them comes back.',
   },
 ];
 
@@ -262,6 +263,12 @@ export function combinePresenceOver(
  * 6, 83 at 8, 118 at 10. Measured rather than written from memory, and pinned by
  * `city.test.ts`: the four low figures here said 6, 12, 19 and 53 for as long as this comment has
  * existed, which is the one place a reader goes to find out how thin the Docks' gate actually is.
+ *
+ * The looters stand on the same curve (maintainer, 2026-09-29), so a district's difficulty means
+ * one thing whoever holds it. They were sized in heads on a flatter line of their own
+ * (`1.2 * difficulty + 0.9 * baseDefense`), which put the Undergrid at 5 and Chrome Row at 4 below
+ * the Glasshouse at 3: measured on the real engine, 20 Razors took either of them and the
+ * Glasshouse's Berm wanted 40. The name stays the Combine's because the curve was theirs first.
  */
 export const COMBINE_SLOTS_PER_DIFFICULTY = 2.2;
 export const COMBINE_DIFFICULTY_EXPONENT = 1.7;
@@ -324,10 +331,10 @@ function fill(slots: number, shares: readonly (readonly [string, number])[]): Ga
   const army: Garrison = {};
   let left = Math.max(1, Math.round(slots));
   const cheapest = [...shares].sort(
-    (a, b) => COMBINE_UNIT_SLOTS[a[0]]! - COMBINE_UNIT_SLOTS[b[0]]!,
+    (a, b) => GARRISON_UNIT_SLOTS[a[0]]! - GARRISON_UNIT_SLOTS[b[0]]!,
   )[0];
   for (const [unitId, share] of shares) {
-    const cost = COMBINE_UNIT_SLOTS[unitId] ?? 1;
+    const cost = GARRISON_UNIT_SLOTS[unitId] ?? 1;
     const bodies = Math.max(1, Math.round((slots * share) / cost));
     army[unitId] = bodies;
     left -= bodies * cost;
@@ -336,56 +343,35 @@ function fill(slots: number, shares: readonly (readonly [string, number])[]): Ga
   // comes off it, down to the one body every named unit is guaranteed.
   if (cheapest) {
     const [unitId] = cheapest;
-    const cost = COMBINE_UNIT_SLOTS[unitId] ?? 1;
+    const cost = GARRISON_UNIT_SLOTS[unitId] ?? 1;
     army[unitId] = Math.max(1, (army[unitId] ?? 1) + Math.round(left / cost));
   }
   return army;
 }
 
 /**
- * What each Combine sheet costs in unit slots.
+ * What each garrison sheet costs in unit slots, the Combine's and the looters'.
  *
  * Spelled here rather than read off `UNIT_CATALOG`, for the reason the `Garrison` type is spelled
  * here: `units/` imports `city/`, so reading the catalogue would close the loop. `city.test.ts`
  * pins every figure against the catalogue, so the copy cannot drift.
  */
-const COMBINE_UNIT_SLOTS: Readonly<Record<string, number>> = {
+const GARRISON_UNIT_SLOTS: Readonly<Record<string, number>> = {
   civic_levy: 1,
   greycoat: 1,
   street_enforcers: 2,
   suppressor: 4,
+  razors: 1,
+  scrapers: 1,
 };
 
-/** The squatters: numbers and knives. */
-export function looterGarrison(strength: number): Garrison {
-  const bodies = Math.max(1, Math.round(strength));
-  return split(bodies, [
+/**
+ * The squatters: numbers and knives, on the same slot budget the Combine gets for the same ground
+ * ({@link combineSlotBudget}). Their mix is their own; only the size is shared.
+ */
+export function looterGarrison(slots: number): Garrison {
+  return fill(slots, [
     ['razors', 0.7],
     ['scrapers', 0.3],
   ]);
-}
-
-/**
- * `bodies` shared out by the given fractions, summing to exactly `bodies`.
- *
- * Every named unit gets at least one when there are bodies enough to go round; when there are
- * not, the first units in the list are the ones that stand (a garrison of two on Combine ground
- * is two Levy, not a Levy and a Greycoat and a third body nobody asked for). The rounding
- * remainder lands on the biggest share, so the small ones keep their one. Deterministic and
- * order-preserving, because a garrison is a thing a test states rather than samples.
- */
-function split(bodies: number, shares: readonly (readonly [string, number])[]): Garrison {
-  const army: Garrison = {};
-  if (bodies < shares.length) {
-    for (const [unitId] of shares.slice(0, Math.max(0, bodies))) army[unitId] = 1;
-    return army;
-  }
-  const counts = shares.map(([, share]) => Math.max(1, Math.round(bodies * share)));
-  const biggest = counts.indexOf(Math.max(...counts));
-  const total = counts.reduce((sum, count) => sum + count, 0);
-  counts[biggest] = Math.max(1, (counts[biggest] ?? 1) + (bodies - total));
-  shares.forEach(([unitId], index) => {
-    army[unitId] = counts[index] ?? 1;
-  });
-  return army;
 }

@@ -83,6 +83,8 @@ export interface FactionsRepo {
   deleteInvite(id: string): void;
   /** Everything still open for this player, cleared the moment they join anywhere. */
   clearInvitesFor(userId: string): void;
+  /** Everything this player sent that is still open, dropped when they may no longer invite. */
+  dropInvitesSentBy(userId: string): void;
 }
 
 interface Row {
@@ -194,6 +196,7 @@ export function createFactionsRepo(db: AppDatabase): FactionsRepo {
   const findInviteStmt = db.prepare('SELECT * FROM faction_invites WHERE id = ?');
   const deleteInviteStmt = db.prepare('DELETE FROM faction_invites WHERE id = ?');
   const clearInvitesStmt = db.prepare('DELETE FROM faction_invites WHERE invited_user_id = ?');
+  const dropSentStmt = db.prepare('DELETE FROM faction_invites WHERE invited_by_user_id = ?');
 
   return {
     insert(faction) {
@@ -279,6 +282,9 @@ export function createFactionsRepo(db: AppDatabase): FactionsRepo {
     },
     clearInvitesFor(userId) {
       clearInvitesStmt.run(userId);
+    },
+    dropInvitesSentBy(userId) {
+      dropSentStmt.run(userId);
     },
   };
 }

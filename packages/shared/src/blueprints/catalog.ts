@@ -13,8 +13,10 @@ import { type BlueprintMotif } from './motifs.js';
  *
  * Pages are the cost of knowing how, so the count tracks how much the thing at the end of it
  * changes a crew, not how expensive it is to build. Two or three pages is a thing a district
- * reaches in its first fortnight (a scrap motorcycle, a stove flue in the Quarters). Eight is the
- * Colossus, which is one unit and also an entire campaign.
+ * reaches in its first fortnight (a scrap motorcycle, a stove flue in the Quarters): measured on
+ * 2026-09-29, a player launching 24 runs a day binds their first one on day 10 at the median and
+ * 78% of them by day 14 (`blueprints/prize.ts`). Eight is the Colossus, which is one unit and also
+ * an entire campaign.
  *
  * The bands, and every entry below sits in one of them:
  *

@@ -3,7 +3,11 @@ import {
   DEFAULT_CITY_ID,
   FOUND_FACTION_NEXUS_LEVEL,
   FOUND_FACTION_PLAYER_LEVEL,
+  INVITES_TO_ONE_PLAYER_PER_DAY,
+  INVITES_TO_ONE_PLAYER_PER_WEEK,
+  MAILBOX_LIMIT,
   MAX_FACTION_MEMBERS,
+  MESSAGES_PER_DAY,
   notorietySpentTo,
   randomBadge,
   type FactionResponse,
@@ -17,6 +21,7 @@ import { buildApp } from '../app.js';
 import { loadConfig } from '../config.js';
 import { openDatabase, runMigrations, type AppDatabase } from '../db/index.js';
 import { chooseOverseer } from '../testing/overseer.js';
+import { sendMessage } from '../social/send.js';
 
 /**
  * Factions, the mailbox and the bell, over HTTP (maintainer request).
@@ -547,6 +552,11 @@ describe('the mailbox', () => {
     const addressed = inbox.filter((entry) => entry.audience === 'faction');
     expect(addressed).toHaveLength(1);
     expect(addressed[0]?.subject).toBe('Tonight');
+    // To the table, and the bell says so rather than calling it a letter to the member.
+    const bell = (await notifications(app, member.token)).notifications.find(
+      (entry) => entry.kind === 'message_received',
+    );
+    expect(bell?.title).toBe('leader wrote to the faction');
     // One recipient, not two: the sender does not write to themselves.
     expect((await messages(app, leader.token)).sent[0]?.recipients).toBe(1);
     // ...and an invitation leaves no sent copy, so the leader's own inbox is still empty.
@@ -585,6 +595,93 @@ describe('the mailbox', () => {
     });
     expect(refused.statusCode).toBe(409);
     expect(refused.json<{ error: { message: string } }>().error.message).toBe('not_in_a_faction');
+  });
+
+  /*
+   * Maintainer, 2026-09-29: `trim` took whitespace and left format characters, so a subject or a
+   * body of one zero-width space was sent and drawn as an empty line.
+   */
+  it('refuses a subject or a body that would show nothing, and delivers nothing', async () => {
+    const writer = await player(app, 'blank_writer');
+    const reader = await player(app, 'blank_reader');
+    const blanks = ['​', '​ ﻿⁠', '‍­\t‌'];
+    for (const blank of blanks) {
+      for (const payload of [
+        { subject: blank, body: 'Something to read' },
+        { subject: 'Something to read', body: `\n${blank}\n` },
+      ]) {
+        const refused = await app.inject({
+          method: 'POST',
+          url: '/api/messages',
+          headers: auth(writer.token),
+          payload: { toUsernames: ['blank_reader'], ...payload },
+        });
+        expect(refused.statusCode, JSON.stringify(payload)).toBe(409);
+        expect(refused.json<{ error: { message: string } }>().error.message).toBe('blank_letter');
+      }
+    }
+    expect(app.repos.social.inbox(reader.id, 50)).toEqual([]);
+
+    // A letter with a zero-width space inside real words is still a letter.
+    const sent = await app.inject({
+      method: 'POST',
+      url: '/api/messages',
+      headers: auth(writer.token),
+      payload: { toUsernames: ['blank_reader'], subject: 'Hi​there', body: 'Read me' },
+    });
+    expect(sent.statusCode).toBe(200);
+  });
+
+  /*
+   * Bug pass, 2026-09-29: names match without regard to case, so `reader` and `READER` are one
+   * account, and the letter put two copies and two bells in that one mailbox.
+   */
+  it('reaches a person once, however their name is typed', async () => {
+    const from = await player(app, 'writer');
+    const to = await player(app, 'reader');
+
+    const sent = await app.inject({
+      method: 'POST',
+      url: '/api/messages',
+      headers: auth(from.token),
+      payload: { toUsernames: ['reader', 'READER', ' Reader '], subject: 'Once', body: 'Only.' },
+    });
+    expect(sent.statusCode, sent.body).toBe(200);
+
+    expect((await messages(app, to.token)).inbox).toHaveLength(1);
+    const bells = (await notifications(app, to.token)).notifications;
+    expect(bells.filter((bell) => bell.kind === 'message_received')).toHaveLength(1);
+    const outbox = await messages(app, from.token);
+    expect(outbox.sent[0]?.recipients).toBe(1);
+    expect(outbox.sent[0]?.addressedTo).toBe('reader');
+  });
+
+  /*
+   * Bug pass, 2026-09-29: a reply was addressed to the name the letter was signed with. A sender
+   * who renamed left that name free, and the reply reached whoever registered it next.
+   */
+  it('answers the account that wrote, not whoever holds its old name now', async () => {
+    const from = await player(app, 'writer');
+    const to = await player(app, 'reader');
+    await app.inject({
+      method: 'POST',
+      url: '/api/messages',
+      headers: auth(from.token),
+      payload: { toUsernames: ['reader'], subject: 'Hello', body: 'It is me.' },
+    });
+    const renamed = await app.inject({
+      method: 'PATCH',
+      url: '/api/settings/profile',
+      headers: auth(from.token),
+      payload: { username: 'renamed' },
+    });
+    expect(renamed.statusCode, renamed.body).toBe(200);
+    await player(app, 'writer');
+
+    const [letter] = (await messages(app, to.token)).inbox;
+    // The signature is what it was: the letter was written as `writer`.
+    expect(letter?.senderName).toBe('writer');
+    expect(letter?.replyTo).toBe('renamed');
   });
 });
 
@@ -734,7 +831,7 @@ describe('what a chief may do', () => {
     response.json<{ error: { message: string } }>().error.message;
 
   it('invites, and removes an ordinary member', async () => {
-    const { chief, member } = await ranked();
+    const { leader, chief, member } = await ranked();
     await player(app, 'stranger');
 
     const invited = await app.inject({
@@ -753,6 +850,14 @@ describe('what a chief may do', () => {
     });
     expect(kicked.statusCode).toBe(200);
     expect((await faction(app, member.token)).faction).toBeNull();
+
+    // The table hears who went, and the chief who showed them the door is not told their own news.
+    const removed = (who: { token: string }) =>
+      notifications(app, who.token).then((bell) =>
+        bell.notifications.filter((entry) => entry.title === 'grunt was removed'),
+      );
+    expect(await removed(leader)).toHaveLength(1);
+    expect(await removed(chief)).toHaveLength(0);
   });
 
   it('rewrites the description, because the pitch is the chief’s job too', async () => {
@@ -811,6 +916,94 @@ describe('what a chief may do', () => {
     });
     expect(refusal(onLeader)).toBe('not_allowed');
     expect((await faction(app, leader.token)).members).toHaveLength(3);
+  });
+
+  /*
+   * An invitation carries the sender's word, and a chief who is thrown out, steps down to member or
+   * walks out no longer has one to give (audit, 2026-09-28). The leader's own stay open.
+   */
+  for (const how of ['kick', 'demote', 'leave'] as const) {
+    it(`drops a chief's open invitations on ${how}, and keeps the leader's`, async () => {
+      const { leader, chief } = await ranked();
+      const theirs = await player(app, 'asked_by_chief');
+      const mine = await player(app, 'asked_by_boss');
+      for (const [from, username] of [
+        [chief, theirs.username],
+        [leader, mine.username],
+      ] as const) {
+        const sent = await app.inject({
+          method: 'POST',
+          url: '/api/factions/invite',
+          headers: auth(from.token),
+          payload: { username },
+        });
+        expect(sent.statusCode).toBe(200);
+      }
+      const held = (await faction(app, theirs.token)).invites[0];
+      expect(held, 'the chief’s invitation never arrived').toBeDefined();
+
+      const done =
+        how === 'leave'
+          ? await app.inject({
+              method: 'POST',
+              url: '/api/factions/leave',
+              headers: auth(chief.token),
+            })
+          : await app.inject({
+              method: 'POST',
+              url: '/api/factions/member',
+              headers: auth(leader.token),
+              payload: { userId: chief.id, action: how },
+            });
+      expect(done.statusCode).toBe(200);
+
+      expect((await faction(app, theirs.token)).invites).toEqual([]);
+      const spent = await app.inject({
+        method: 'POST',
+        url: '/api/factions/answer',
+        headers: auth(theirs.token),
+        payload: { inviteId: held?.id, accept: true },
+      });
+      expect(refusal(spent)).toBe('no_such_invite');
+      expect((await faction(app, mine.token)).invites).toHaveLength(1);
+    });
+  }
+
+  /**
+   * The loop from the bug pass (2026-09-29): a chief invites, the leader demotes them, which drops
+   * the open invitation, and promotes them again. Thirty rounds once put thirty letters in one
+   * stranger's inbox. Three a day now, counted from the sender or their table (maintainer).
+   */
+  it('stops the invite, demote, promote loop at three letters a day to one player', async () => {
+    expect(INVITES_TO_ONE_PLAYER_PER_DAY).toBe(3);
+    const { leader, chief } = await ranked();
+    const stranger = await player(app, 'stranger');
+    const invite = (from: { token: string }) =>
+      app.inject({
+        method: 'POST',
+        url: '/api/factions/invite',
+        headers: auth(from.token),
+        payload: { username: 'stranger' },
+      });
+    const setRank = (action: 'demote' | 'promote') =>
+      app.inject({
+        method: 'POST',
+        url: '/api/factions/member',
+        headers: auth(leader.token),
+        payload: { userId: chief.id, action },
+      });
+
+    for (let round = 0; round < 3; round += 1) {
+      expect((await invite(chief)).statusCode, `round ${String(round)}`).toBe(200);
+      expect((await setRank('demote')).statusCode).toBe(200);
+      expect((await faction(app, stranger.token)).invites, 'the demotion dropped it').toEqual([]);
+      expect((await setRank('promote')).statusCode).toBe(200);
+    }
+
+    expect(refusal(await invite(chief))).toBe('invited_too_often_today');
+    // The table counts as well as the sender, so the leader cannot take the loop over.
+    expect(refusal(await invite(leader))).toBe('invited_too_often_today');
+    expect((await messages(app, stranger.token)).inbox).toHaveLength(3);
   });
 
   it('cannot make anybody else a chief', async () => {
@@ -939,6 +1132,210 @@ describe('an invitation in the mailbox', () => {
   it('leaves no sent copy in the inviter’s folder', async () => {
     const { leader } = await invited();
     expect((await messages(app, leader.token)).sent).toHaveLength(0);
+  });
+});
+
+/**
+ * An invitation is a letter (maintainer, 2026-09-29): it spends one of the day's hundred, and one
+ * player may be sent three a day and five a week. Both windows roll, like the day's letters.
+ */
+describe('how often an invitation may be sent', () => {
+  const invite = (from: { token: string }, username: string) =>
+    app.inject({
+      method: 'POST',
+      url: '/api/factions/invite',
+      headers: auth(from.token),
+      payload: { username },
+    });
+  const reason = (response: { json: <T>() => T }) =>
+    response.json<{ error: { message: string } }>().error.message;
+
+  it('counts an invitation against the day’s letters, both ways round', async () => {
+    const leader = await player(app, 'leader');
+    await player(app, 'penpal');
+    await player(app, 'first_guest');
+    await player(app, 'second_guest');
+    await found(app, leader.token, 'Iron Wolves');
+    const letter = () =>
+      app.inject({
+        method: 'POST',
+        url: '/api/messages',
+        headers: auth(leader.token),
+        payload: { toUsernames: ['penpal'], subject: 'Hello', body: 'Again.' },
+      });
+
+    for (let sent = 0; sent < MESSAGES_PER_DAY - 1; sent += 1) {
+      expect((await letter()).statusCode).toBe(200);
+    }
+    // The hundredth letter of the day is an invitation, and it goes.
+    expect((await invite(leader, 'first_guest')).statusCode).toBe(200);
+    // After it, neither a letter nor another invitation does.
+    const refusedLetter = await letter();
+    expect(refusedLetter.statusCode).toBe(409);
+    expect(reason(refusedLetter)).toBe('too_many_today');
+    expect(reason(await invite(leader, 'second_guest'))).toBe('too_many_today');
+  });
+
+  it('counts a founder who disbands and founds again as the same sender', async () => {
+    const founder = await player(app, 'founder');
+    const stranger = await player(app, 'stranger');
+    for (let table = 0; table < 3; table += 1) {
+      expect((await found(app, founder.token, `Table ${String(table)}`)).statusCode).toBe(200);
+      expect((await invite(founder, 'stranger')).statusCode).toBe(200);
+      const gone = await app.inject({
+        method: 'POST',
+        url: '/api/factions/disband',
+        headers: auth(founder.token),
+      });
+      expect(gone.statusCode).toBe(200);
+    }
+    await found(app, founder.token, 'Table 3');
+    expect(reason(await invite(founder, 'stranger'))).toBe('invited_too_often_today');
+    expect((await messages(app, stranger.token)).inbox).toHaveLength(3);
+  });
+
+  it('allows five in any rolling week, and forgets a letter older than that', async () => {
+    expect(INVITES_TO_ONE_PLAYER_PER_WEEK).toBe(5);
+    const leader = await player(app, 'leader');
+    const guest = await player(app, 'guest');
+    await found(app, leader.token, 'Iron Wolves');
+    const daysAgo = (days: number) => new Date(Date.now() - days * 86_400_000).toISOString();
+    // Four this week from another of the leader's tables, one day each, and one from eight days ago.
+    for (const days of [8, 6, 5, 4, 3]) {
+      app.repos.social.recordInvitationLetter({
+        id: `earlier-${String(days)}`,
+        senderUserId: leader.id,
+        factionId: 'an-earlier-table',
+        inviteeUserId: guest.id,
+        sentAt: daysAgo(days),
+      });
+    }
+
+    // Four in the week, so a fifth goes; the one eight days back is outside it.
+    expect((await invite(leader, 'guest')).statusCode).toBe(200);
+    const held = (await faction(app, guest.token)).invites[0];
+    await app.inject({
+      method: 'POST',
+      url: '/api/factions/answer',
+      headers: auth(guest.token),
+      payload: { inviteId: held?.id, accept: false },
+    });
+    // Only one today, so it is the week that says no.
+    expect(reason(await invite(leader, 'guest'))).toBe('invited_too_often_this_week');
+
+    const everything = { inviteeUserId: guest.id, senderUserId: leader.id, factionId: 'none' };
+    expect(
+      app.repos.social.invitationsToSince(everything, new Date(0).toISOString()),
+      'the letter from eight days ago was forgotten when the new one was written',
+    ).toBe(5);
+  });
+});
+
+/**
+ * A mailbox keeps its newest hundred letters and a sent folder its newest hundred sends (maintainer,
+ * 2026-09-29). Hard: an unread letter goes too, so the badge counts only what the inbox shows.
+ */
+describe('a mailbox keeps a hundred letters', () => {
+  const START = Date.parse('2026-09-01T00:00:00.000Z');
+  function deliver(
+    from: { id: string; username: string },
+    to: readonly string[],
+    subject: string,
+    minute: number,
+  ): void {
+    sendMessage(app.repos, {
+      sender: { id: from.id, username: from.username },
+      senderFaction: null,
+      recipients: to,
+      audience: 'player',
+      addressedTo: 'somebody',
+      subject,
+      body: 'Word.',
+      sentAt: new Date(START + minute * 60_000),
+      notification: { kind: 'message_received', title: 'Mail', body: subject, link: '/' },
+      keepSentCopy: true,
+    });
+  }
+  const rows = (userId: string, sentCopy: boolean) =>
+    (
+      app.db
+        .prepare(
+          'SELECT COUNT(*) AS n FROM messages WHERE recipient_user_id = ? AND is_sent_copy = ?',
+        )
+        .get(userId, sentCopy ? 1 : 0) as { n: number }
+    ).n;
+
+  it('drops the oldest as the hundred-and-first lands, read or not', async () => {
+    expect(MAILBOX_LIMIT).toBe(100);
+    // The day's letters are counted off the sent folder, so a trim under the day would refund some.
+    expect(MAILBOX_LIMIT).toBeGreaterThanOrEqual(MESSAGES_PER_DAY);
+    const writer = await player(app, 'writer');
+    const reader = await player(app, 'reader');
+    for (let n = 0; n < 100; n += 1) deliver(writer, [reader.id], `#${String(n)}`, n);
+
+    // The oldest is read and the rest are not: the cap takes both kinds alike.
+    const oldest = (await messages(app, reader.token)).inbox.find((one) => one.subject === '#0');
+    await app.inject({
+      method: 'POST',
+      url: '/api/messages/read',
+      headers: auth(reader.token),
+      payload: { id: oldest?.id },
+    });
+    for (let n = 100; n < 105; n += 1) deliver(writer, [reader.id], `#${String(n)}`, n);
+
+    const box = await messages(app, reader.token);
+    expect(box.inbox).toHaveLength(100);
+    expect(rows(reader.id, false), 'the rows past the cap are gone, not hidden').toBe(100);
+    expect(new Set(box.inbox.map((one) => one.subject))).toEqual(
+      new Set(Array.from({ length: 100 }, (_, n) => `#${String(n + 5)}`)),
+    );
+    expect(box.unread).toBe(box.inbox.filter((one) => one.readAt === null).length);
+    expect(box.unread).toBe(100);
+
+    const sent = await messages(app, writer.token);
+    expect(sent.sent).toHaveLength(100);
+    expect(rows(writer.id, true)).toBe(100);
+    expect(sent.sent.map((one) => one.subject)).not.toContain('#4');
+  });
+
+  it('throws a deleted letter away at the next delivery', async () => {
+    const writer = await player(app, 'writer');
+    const reader = await player(app, 'reader');
+    deliver(writer, [reader.id], 'Binned', 0);
+    const binned = (await messages(app, reader.token)).inbox[0];
+    await app.inject({
+      method: 'POST',
+      url: '/api/messages/delete',
+      headers: auth(reader.token),
+      payload: { id: binned?.id },
+    });
+    expect(rows(reader.id, false)).toBe(1);
+    deliver(writer, [reader.id], 'Kept', 1);
+    expect(rows(reader.id, false)).toBe(1);
+    expect((await messages(app, reader.token)).inbox.map((one) => one.subject)).toEqual(['Kept']);
+  });
+
+  it('keeps the sender’s read count when a reader’s copy is pushed out', async () => {
+    const writer = await player(app, 'writer');
+    const first = await player(app, 'first_reader');
+    const second = await player(app, 'second_reader');
+    const flood = await player(app, 'flood');
+    deliver(writer, [first.id, second.id], 'To you both', 0);
+    const theirs = (await messages(app, first.token)).inbox[0];
+    await app.inject({
+      method: 'POST',
+      url: '/api/messages/read',
+      headers: auth(first.token),
+      payload: { id: theirs?.id },
+    });
+
+    for (let n = 1; n <= 100; n += 1) deliver(flood, [first.id], `Flood ${String(n)}`, n);
+    expect((await messages(app, first.token)).inbox.map((one) => one.subject)).not.toContain(
+      'To you both',
+    );
+
+    const [letter] = (await messages(app, writer.token)).sent;
+    expect(letter).toMatchObject({ recipients: 2, readBy: 1 });
   });
 });
 

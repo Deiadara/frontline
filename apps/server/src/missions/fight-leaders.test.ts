@@ -140,31 +140,45 @@ describe('the ranking', () => {
   });
 
   /**
-   * Measured before it was pinned (2026-09-28): two officers with every attribute at eighty, two
-   * Razors to four beside them at grade E, over eight practice keys. The Raid Boss with his six
-   * rungs won every fight and the Consigliere with the same sheet won none. At thirty across the
-   * board neither wins anything and the rungs move a hundredth of a survivor, so a pin there
-   * would be a coin toss on the seed; this is the case where the sheet decides the fight.
+   * The case where the sheet decides the fight: two officers with every attribute at eighty,
+   * fifteen Razors beside them at grade E, which is about the size of what an E fields. Over thirty
+   * practice keys (re-measured 2026-09-29) the Raid Boss with his six rungs wins 133 of 180 and the
+   * Consigliere with the same sheet 20, and the Raid Boss ranks first on all thirty. The same
+   * sweep at seventy and ninety, and at sixteen and seventeen Razors, ranks him first on every key.
+   *
+   * It used to be four Razors against the same grade, where a loud enough leader routed a line
+   * three times his party's size. Intimidation now reaches 1.5 enemy slots per slot of its own
+   * side (`INTIMIDATION_REACH`), so a party of four cannot frighten fifteen whoever leads it, and
+   * both officers lost every fight there. The rungs still pay; they pay in a fight they can tip.
    */
   it('prefers the Raid Boss once his track pays him, over the same sheet in another chair', () => {
     const base = crew();
     base.commanders = base.commanders.map((one) => ({ ...one, attributes: makeAttributes(80) }));
     const effects = researchEffects(RAID_BOSS_RUNGS);
     const [, boss, , books] = bench(base);
-    for (let key = 0; key < 8; key += 1) {
+    const keys = 30;
+    let first = 0;
+    let margin = 0;
+    for (let key = 0; key < keys; key += 1) {
       const ranked = rankFightLeaders({
         base,
         template: fight(),
         grade: 'E',
-        force: { razors: 4 },
+        force: { razors: 15 },
         vehicles: {},
+        // The Consigliere first, so a tie would rank him ahead and never count for the Raid Boss.
         candidates: [books!, boss!],
         effects,
         practice: `practice-leader:chair:${key}`,
       });
-      expect(ranked[0]!.id, `key ${key}`).toBe('boss');
-      expect(ranked[0]!.wins - ranked[1]!.wins, `key ${key}`).toBeGreaterThanOrEqual(3);
-      expect(ranked[0]!.score, `key ${key}`).toBeGreaterThan(ranked[1]!.score);
+      const bossRating = ranked.find((one) => one.id === 'boss')!;
+      const booksRating = ranked.find((one) => one.id === 'books')!;
+      // Never worse: the rungs can fail to matter on a key, never cost him a fight.
+      expect(bossRating.wins, `key ${key}`).toBeGreaterThanOrEqual(booksRating.wins);
+      if (ranked[0]!.id === 'boss') first += 1;
+      margin += bossRating.wins - booksRating.wins;
     }
+    expect(first).toBeGreaterThanOrEqual(keys - 3);
+    expect(margin).toBeGreaterThanOrEqual(60);
   });
 });

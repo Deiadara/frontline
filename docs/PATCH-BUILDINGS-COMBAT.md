@@ -109,7 +109,7 @@ Today `BuildingSpec.basePowerDraw`, `building/power.ts`, `TerritoryEffects.power
 
 - Upgrading raises a **percentage of defence for all units defending your district**. Already
   partly true via `districtDefense`; make it explicit and level-scaled.
-- Upgrading also makes the district **harder to scout**: it raises `intelResistancePercent`.
+- Upgrading also makes the district **harder to spy on**: it raises `intelResistancePercent`.
 - The same rule applies to a Gate on **any** district a crew has closed off and upgraded, not only
   the home district.
 

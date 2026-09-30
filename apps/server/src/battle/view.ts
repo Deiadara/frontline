@@ -6,6 +6,7 @@ import {
   ALL_DISTRICTS,
   BATTLE_BOOSTS,
   TRAP_CATALOG,
+  trapEffectLine,
   declarableSlots,
   districtHolder,
   districtIsShut,
@@ -53,12 +54,15 @@ import {
   gateDefensePercent,
   gateIntelResistancePercent,
 } from '@frontline/shared';
-import { crewEffectsFor, standingEffectsFor } from '../crew/standing.js';
+import {
+  crewEffectsFor,
+  liftedOfficerSheet,
+  officerLiftRoom,
+  standingEffectsFor,
+} from '../crew/standing.js';
 import type { Repositories } from '../db/repos/index.js';
 import { sideForce } from './side.js';
-import { cityLevelFor } from '../blackmarket/shelf.js';
-import { cityContextFor, scoutingRunView } from '../city/view.js';
-import { spyRunView } from '../spying/spying.js';
+import { spyRunViews } from '../spying/spying.js';
 import { moveViews } from '../moves/moves.js';
 import { sideOf } from './deploy.js';
 import { callPriceFor } from './declare.js';
@@ -217,6 +221,14 @@ function readEnemy(
   if (!report || report.failed) {
     return { size: null, quality: 'No spy report on this ground. Send one from the district.' };
   }
+  // Before Written Reports a report counts unit slots and names nobody (maintainer, 2026-09-28),
+  // and `enemySize` is a head count: the slots are said in words rather than passed off as heads.
+  if (!report.unitsShown) {
+    return {
+      size: null,
+      quality: `Your spy report of ${report.writtenAt.slice(0, 10)} counted ${report.exposedSlots} unit slots, and named nobody.`,
+    };
+  }
   return {
     size: armySize(report.exposed),
     quality: `From your spy report of ${report.writtenAt.slice(0, 10)}.`,
@@ -286,8 +298,11 @@ function viewOf(repos: Repositories, base: Base, battle: ScheduledBattle, now: D
             // own function, so the two cannot drift apart again.
             forceAtTheMark(repos, battle, defenderBase, side, presence),
             repos.blackMarket.stashFor(base.id),
-            cityLevelFor(repos),
             standingEffectsFor(repos, base),
+            // `/battles/boost` takes a name only from the crew whose fight it is.
+            side === 'attacker'
+              ? battle.attackerBaseId === base.id
+              : defenderBase === undefined || defenderBase.id === base.id,
           )
         : [],
     boostIds: deployment?.boostIds ?? [],
@@ -312,7 +327,7 @@ function viewOf(repos: Repositories, base: Base, battle: ScheduledBattle, now: D
  * The officers a crew could put at the front of a column (§D1).
  *
  * Free ones only, by the same question `/battles/lead` asks before it refuses (`officerDuty`): an
- * officer out leading a run, out scouting, at another fight or laid up is left out rather than
+ * officer out leading a run, at another fight, on the bench or laid up is left out rather than
  * listed and greyed. Their clock is on the screen that holds them, which is the one place it
  * belongs, and a second copy of it here is a second place for it to drift. The list used to drop
  * the injured alone, so it offered a name the route then turned away with "is out leading a run".
@@ -330,6 +345,9 @@ function leadersFor(
   /** What this crew has committed to this fight, which is what the officer may ride. */
   vehicles: Fleet,
 ): BattleLeader[] {
+  // The sheet they would fight on is the lifted one (`asCombatant` in `resolve.ts`), so the row
+  // quotes that one too.
+  const room = officerLiftRoom(repos, base, now);
   return base.commanders
     .filter((officer) => officerDuty(repos, base, officer, now, battle.id) === null)
     .flatMap((officer) => {
@@ -356,7 +374,7 @@ function leadersFor(
           officerId: officer.id,
           name: officer.name,
           role: officer.role,
-          stats: officerBattleStats(officer.attributes),
+          stats: officerBattleStats(liftedOfficerSheet(officer, room).attributes),
           travelMinutes,
         },
       ];
@@ -376,9 +394,25 @@ function holderLabel(kind: ScheduledBattle['defender']['kind']): string {
   }
 }
 
+/**
+ * The side a crew fought on in a finished fight, off the rows the fight left behind.
+ *
+ * Not `sideOf`, which asks today's factions (bug pass, 2026-09-28). The rows are the record: the
+ * settle moved each one to the side its crew fought for (`musterAtTheMark`) and nothing deletes
+ * them afterwards. An ally who has left the faction since would otherwise read the defence they
+ * won as an attack they lost, under the other side's redaction.
+ */
+function sideFought(repos: Repositories, battle: ScheduledBattle, baseId: string): BattleSide {
+  if (battle.attackerBaseId === baseId) return 'attacker';
+  // `resolvedFor` lists a fight for a crew that declared it or has a row in it, so a row is there.
+  return (
+    repos.sieges.deployments(battle.id).find((row) => row.baseId === baseId)?.side ?? 'attacker'
+  );
+}
+
 function reportsFor(repos: Repositories, base: Base): BattleReportView[] {
   return repos.sieges.resolvedFor(base.id, REPORT_HISTORY).map(({ battle, analysis }) => {
-    const side = sideOf(repos, battle, base.id) ?? 'attacker';
+    const side = sideFought(repos, battle, base.id);
     const reaches = reportReaches(side, analysis);
     return {
       battleId: battle.id,
@@ -390,6 +424,7 @@ function reportsFor(repos: Repositories, base: Base): BattleReportView[] {
       // kept back, and a perimeter is bought to buy a silence.
       analysis: reaches ? analysis : null,
       redacted: !reaches,
+      defenderKind: battle.defender.kind,
     };
   });
 }
@@ -437,12 +472,16 @@ function trapsFor(base: Base): TrapOption[] {
       trapId: spec.id,
       name: spec.name,
       description: spec.description,
+      effect: trapEffectLine(spec),
       held,
       available: held > 0,
       blocker: held > 0 ? '' : 'None in the bag. The Scrapyard cuts them',
     };
   });
 }
+
+/** Why an ally's boost list is shut: the words `/battles/boost` refuses them with. */
+const NAMED_BY_THE_PRINCIPAL = 'Only the crew whose fight this is can put a name on it';
 
 /**
  * §D7: what this crew's name will buy on this particular fight.
@@ -458,7 +497,6 @@ function boostsFor(
   base: Base,
   force: Army,
   stash: BoostStash,
-  cityLevel: number,
   /**
    * What this crew counts as a fighting sheet, for the same reason the settler needs it
    * (bug pass, 2026-09-23): a crew holding `carriers_fight` fights with its porters, so a boost's
@@ -466,6 +504,8 @@ function boostsFor(
    * drop-down promised one number and the fight paid another.
    */
   rules: LineRules,
+  /** Whether this crew is the side's principal, the only one `/battles/boost` takes a name from. */
+  principal: boolean,
 ): BattleBoostOption[] {
   const crew = {
     technologies: base.research.technologies,
@@ -509,8 +549,8 @@ function boostsFor(
   /*
    * The crates the crew is carrying, on the same list.
    *
-   * Weighted by the city's average level, exactly as the shelf priced them, so what the option
-   * says is what the fight applies. `reach` is 100 because contraband lands on the whole force:
+   * The card's own figures, which are what the fight applies wherever it is (2026-09-29). `reach`
+   * is 100 because contraband lands on the whole force:
    * there is no weight class on a syringe. `affordable` and `available` are both true because the
    * crate is already paid for and already in the bag: what gates it is having one.
    */
@@ -523,7 +563,7 @@ function boostsFor(
       name: spec!.name,
       description: spec!.description,
       cost: 0,
-      effect: blackMarketEffect(spec!, cityLevel),
+      effect: blackMarketEffect(spec!),
       source: `${stashCount(stash, goodId)} in the bag`,
       reach: 100,
       affordable: true,
@@ -532,30 +572,32 @@ function boostsFor(
     }));
 
   // Contraband first: it is the part of the list a player can act on without spending anything.
-  return [...crates, ...names];
+  /*
+   * An ally sees the shelf and cannot buy off it (bug pass, 2026-09-29).
+   *
+   * The route refuses anybody but the principal, and this list offered an ally every name they
+   * could afford, lit the button, asked them to confirm the spend and only then said no. Shut here
+   * with the reason on each line, which is where the drop-down already prints why a row is dead.
+   */
+  const offered = [...crates, ...names];
+  return principal
+    ? offered
+    : offered.map((option) => ({ ...option, available: false, source: NAMED_BY_THE_PRINCIPAL }));
 }
 
 /**
- * The front door of every district this crew can see into.
+ * The front door of every district in the world: the whole map is visible to every crew
+ * (maintainer, 2026-09-29).
  *
  * Computed here rather than on the district screen, so the answer to "may I attack a location here or
  * only the gate" comes from the same reading of the control table the declaration rules use.
- *
- * Walks every district in the world and lets `visible` do the narrowing (2026-09-24). The set is
- * already exactly what this crew can see into, so widening the source cannot widen the answer, and
- * the version that walked one city's array silently dropped the front door of every district a crew
- * could see in a second one.
  */
-function gatesFor(
-  repos: Repositories,
-  visible: ReadonlySet<string>,
-  now: Date,
-): DistrictGateView[] {
+function gatesFor(repos: Repositories, now: Date): DistrictGateView[] {
   const controls = repos.city.controls();
   // Read once for the whole city rather than per district: this runs for every district a crew can
   // see on every read of the board, and the lookup behind it is a scan.
   const lived = districtsLivedIn(repos);
-  return ALL_DISTRICTS.filter((district) => visible.has(district.id)).map((district) => {
+  return ALL_DISTRICTS.map((district) => {
     const gate = repos.sieges.gate(district.id);
     return {
       districtId: district.id,
@@ -570,31 +612,35 @@ function gatesFor(
 }
 
 /**
- * §D7: what calling a fight costs, for every target this crew can see (`CallPrices`).
+ * §D7: what calling a fight costs, for every target in the world (`CallPrices`).
  *
  * Priced through the same `callPriceFor` the declaration charges with, so the dialog's quote and
  * the route's bill cannot disagree. Only charged ground is written down: the schema reads an
  * absent entry as free, and most of the map is free, so the common case is a short list.
  *
- * Over the world's districts, narrowed by `visible`, for the reason {@link gatesFor} gives. A price
- * missing here reads as free, so a Terminus location the crew could see was quoted at nothing and
- * charged at the route.
+ * Over the world's districts, not one city's: a price missing here reads as free, so a Terminus
+ * location was once quoted at nothing and charged at the route.
  */
-function callPricesFor(repos: Repositories, visible: ReadonlySet<string>): CallPrices {
+function callPricesFor(repos: Repositories): CallPrices {
   const prices: CallPrices = { locations: {}, districts: {} };
+  const summaries = repos.bases.listSummaries();
   for (const district of ALL_DISTRICTS) {
-    if (!visible.has(district.id)) continue;
     for (const location of district.locations) {
       const target = {
         kind: 'location',
         districtId: district.id,
         locationId: location.id,
       } as const;
-      const price = callPriceFor(repos, target, district);
+      const price = callPriceFor(repos, target, district, summaries);
       if (price > 0) prices.locations[location.id] = price;
     }
     // A gate and a raid are both a call on the district's own party, so one entry serves both.
-    const price = callPriceFor(repos, { kind: 'gate', districtId: district.id }, district);
+    const price = callPriceFor(
+      repos,
+      { kind: 'gate', districtId: district.id },
+      district,
+      summaries,
+    );
     if (price > 0) prices.districts[district.id] = price;
   }
   return prices;
@@ -631,8 +677,7 @@ export function projectActions(repos: Repositories, base: Base, now: Date): Acti
         recallable: movementCancellable(movement, now),
       };
     }),
-    scoutingRun: scoutingRunView(repos, base),
-    spyRun: spyRunView(repos, base),
+    spyRuns: spyRunViews(repos, base),
     /*
      * §A4: the cells this crew has planted (`city/sleepers.ts`).
      *
@@ -690,14 +735,9 @@ export function projectActions(repos: Repositories, base: Base, now: Date): Acti
 }
 
 export function projectBattles(repos: Repositories, base: Base, now: Date): BattlesResponse {
-  const visible = cityContextFor(repos, base).visible;
-
-  const coming = repos.sieges
-    .pending()
-    .filter(
-      (battle) => sideOf(repos, battle, base.id) !== null || visible.has(battle.target.districtId),
-    )
-    .map((battle) => viewOf(repos, base, battle, now));
+  // Every call in the world: the whole city is visible (2026-09-29), and a call is public the
+  // moment it is made. It used to be narrowed to the districts this crew had scouted.
+  const coming = repos.sieges.pending().map((battle) => viewOf(repos, base, battle, now));
 
   return {
     coming,
@@ -705,8 +745,8 @@ export function projectBattles(repos: Repositories, base: Base, now: Date): Batt
     spyReports: repos.spying.reportsFor(base.id, REPORT_HISTORY),
     slots: declarableSlots(now).map((slot) => slot.toISOString()),
     infamy: base.economy.infamy,
-    callPrices: callPricesFor(repos, visible),
-    gates: gatesFor(repos, visible, now),
+    callPrices: callPricesFor(repos),
+    gates: gatesFor(repos, now),
     structures: structuresOf(base),
     serverNow: now.toISOString(),
   };

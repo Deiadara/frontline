@@ -20,6 +20,7 @@ import {
   cancelWindowOpen,
   type PartialResources,
 } from '@frontline/shared';
+import { adminCost, adminSeconds, adminWaives } from '../admin/mode.js';
 import type { Repositories } from '../db/repos/index.js';
 import { creditBase, refuseWaste } from '../district/stores.js';
 import { settleEach } from '../world/guard.js';
@@ -149,11 +150,13 @@ export function raiseCapturedGate(
   base: Base,
   districtId: string,
   now: Date,
+  /** Testing mode: five seconds and nothing charged, like a build at home (`admin/mode.ts`). */
+  admin = false,
 ): RaiseGateResult {
   const holds = holdsDistrictWhole(repos, base.id, districtId);
   const gate = repos.capturedGates.find(districtId) ?? gateFor(repos, districtId);
   const refusal = capturedGateRefusal({ holdsDistrict: holds, gate, stock: base.resources });
-  if (refusal) return { kind: 'refused', reason: refusal };
+  if (refusal && !adminWaives(refusal, admin)) return { kind: 'refused', reason: refusal };
 
   const toLevel = gate.level + 1;
   /*
@@ -167,7 +170,7 @@ export function raiseCapturedGate(
    * Applied at the order like the queue's, not at the settle: the burn buys the clock you start,
    * so a gate ordered inside the two hours keeps its short clock even if the burn runs out first.
    */
-  const seconds = gateRaiseSeconds(base, toLevel, now);
+  const seconds = adminSeconds(gateRaiseSeconds(base, toLevel, now), admin);
   const started: CapturedGate = {
     districtId,
     level: gate.level,
@@ -175,7 +178,10 @@ export function raiseCapturedGate(
     upgradingUntil: new Date(now.getTime() + seconds * 1000).toISOString(),
     upgradingSince: now.toISOString(),
   };
-  const paid = { ...base, resources: spendResources(base.resources, capturedGateCost(toLevel)) };
+  const paid = {
+    ...base,
+    resources: spendResources(base.resources, adminCost(capturedGateCost(toLevel), admin)),
+  };
 
   repos.capturedGates.put(started);
   repos.bases.updateResources(paid.id, paid.resources);
@@ -276,6 +282,8 @@ export function cancelGateRaise(
   districtId: string,
   now: Date,
   acceptWaste?: boolean,
+  /** Testing mode took nothing for the raise, so it hands nothing back. */
+  admin = false,
 ): GateCancelOutcome {
   if (!holdsDistrictWhole(repos, base.id, districtId))
     return { kind: 'refused', reason: 'not_held' };
@@ -287,7 +295,7 @@ export function cancelGateRaise(
   if (!cancelWindowOpen(since, Date.parse(gate.upgradingUntil) - since, now.getTime())) {
     return { kind: 'refused', reason: 'window_closed' };
   }
-  const refund = cancelRefund(capturedGateCost(gate.upgradingTo));
+  const refund = adminCost(cancelRefund(capturedGateCost(gate.upgradingTo)), admin);
   const credit = creditBase(repos, base, refund, now);
   refuseWaste(credit, acceptWaste);
   const cleared: CapturedGate = {

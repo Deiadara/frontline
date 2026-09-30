@@ -120,3 +120,64 @@ test.describe('the barrow is an auction', () => {
     await expectNothingOverflowsTheScreen(page);
   });
 });
+
+/**
+ * Every plate on the barrow keeps its price and its door whole, at every frame (bug pass,
+ * 2026-09-29).
+ *
+ * Two failures, one on each board. On the one-row board a plate is about 80px inside, and the
+ * fixture's leading lot is "Sniper Blueprint: Barrel Liners", whose name took two lines and whose
+ * door said "Your table" on two more: the plate's column gave the difference out of the price tag,
+ * which drew as a 4px sliver under the name at 1280x720. On the three by two board, chosen by the
+ * window's height, a row at 1280x900 and 1440x900 was 133px against the 155 a plate needs, and
+ * every door hung off its plate onto the one below. Nothing overflowed the screen in either, so no
+ * overflow gate saw them. What is measured is that each tag and each door is at least as tall as
+ * the words in it, sits wholly inside its plate, and that the door's word stays on one line.
+ */
+for (const [width, height] of [
+  [1100, 720],
+  [1280, 720],
+  [1440, 800],
+  [1440, 900],
+  [1100, 900],
+  [1280, 900],
+  [1920, 1080],
+] as const) {
+  test(`every lot shows its price and its door whole at ${width}x${height}`, async ({ page }) => {
+    await page.setViewportSize({ width, height });
+    await installApi(page, lateGame);
+    await page.goto('/game/market');
+    await expect(page.getByTestId(`bid-${LEADING}`)).toHaveText(/your table/i);
+    await settleFonts(page);
+
+    const faults = await page.evaluate(() => {
+      const bad: string[] = [];
+      for (const plate of document.querySelectorAll<HTMLElement>('[data-testid^="vendor-line-"]')) {
+        const lot = plate.dataset.testid!.replace('vendor-line-', '');
+        const box = plate.getBoundingClientRect();
+        for (const part of [
+          plate.querySelector<HTMLElement>(`[data-testid="lot-tag-${lot}"]`),
+          plate.querySelector<HTMLElement>(`[data-testid="bid-${lot}"]`),
+        ]) {
+          if (!part) continue;
+          const at = part.getBoundingClientRect();
+          const name = `${part.dataset.testid}`;
+          // Its own words are the floor: a squeezed tag was 4px tall around an 18px figure.
+          const words = part.querySelector<HTMLElement>(':scope > span:last-child');
+          const need = words?.getBoundingClientRect().height ?? 0;
+          if (at.height + 1 < need) bad.push(`${name} squeezed to ${at.height}px of ${need}`);
+          if (at.top < box.top - 1 || at.bottom > box.bottom + 1)
+            bad.push(`${name} leaves its plate`);
+        }
+        const word = plate.querySelector<HTMLElement>(
+          `[data-testid="bid-${lot}"] > span:last-child`,
+        );
+        if (word && word.getClientRects().length > 1) bad.push(`bid-${lot} wraps its word`);
+        if (word && word.getBoundingClientRect().height > 16) bad.push(`bid-${lot} wraps its word`);
+      }
+      return bad;
+    });
+    expect(faults, 'a lot on the barrow is not drawn whole').toEqual([]);
+    await page.screenshot({ path: `screenshots/runner-lots-${width}x${height}.png` });
+  });
+}

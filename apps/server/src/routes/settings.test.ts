@@ -147,6 +147,105 @@ describe('PATCH /api/settings/profile', () => {
     expect((await settings(app, token)).user.icon).toBe('flask');
   });
 
+  /*
+   * Bug pass, 2026-09-29: `bobby` set his display name to `Alice`, another player's username, and
+   * a name made of a right-to-left override and a zero-width space was stored as sent.
+   */
+  describe('a display name', () => {
+    const rename = (app: FastifyInstance, token: string, payload: object) =>
+      app.inject({ method: 'PATCH', url: '/api/settings/profile', headers: auth(token), payload });
+
+    it('may not be another account’s username, whatever the case', async () => {
+      const { app } = await makeApp();
+      await register(app, 'Alice');
+      const token = await register(app, 'bobby');
+
+      const res = await rename(app, token, { displayName: 'alice' });
+      expect(res.statusCode).toBe(409);
+      expect(res.json<{ error: { code: string } }>().error.code).toBe('DISPLAY_NAME_TAKEN');
+      expect((await settings(app, token)).user.displayName).toBeNull();
+    });
+
+    it('may not be another account’s display name either', async () => {
+      const { app } = await makeApp();
+      const first = await register(app, 'carol');
+      expect((await rename(app, first, { displayName: 'Night Owl' })).statusCode).toBe(200);
+      const token = await register(app, 'bobby');
+
+      const res = await rename(app, token, { displayName: 'NIGHT OWL' });
+      expect(res.json<{ error: { code: string } }>().error.code).toBe('DISPLAY_NAME_TAKEN');
+    });
+
+    it('may be the player’s own username', async () => {
+      const { app } = await makeApp();
+      const token = await register(app, 'alice');
+      expect((await rename(app, token, { displayName: 'Alice' })).statusCode).toBe(200);
+    });
+
+    it('saves again unchanged after somebody registers it as a username', async () => {
+      const { app } = await makeApp();
+      const token = await register(app, 'alice');
+      expect((await rename(app, token, { displayName: 'Zed' })).statusCode).toBe(200);
+      await register(app, 'zed');
+      // The form resends the name with every save: the icon still changes...
+      expect((await rename(app, token, { displayName: 'Zed', icon: 'flask' })).statusCode).toBe(
+        200,
+      );
+      // ...but a new spelling of it is a new claim, and refused.
+      expect((await rename(app, token, { displayName: 'ZED' })).statusCode).toBe(409);
+    });
+
+    it('is stored without control and format characters', async () => {
+      const { app } = await makeApp();
+      const token = await register(app, 'bobby');
+      const res = await rename(app, token, { displayName: '\u202eevil\u200b' });
+      expect(res.statusCode, res.body).toBe(200);
+      expect((await settings(app, token)).user.displayName).toBe('evil');
+    });
+
+    it('is refused when nothing visible is left', async () => {
+      const { app } = await makeApp();
+      const token = await register(app, 'bobby');
+      const res = await rename(app, token, { displayName: '\u202e\u200b' });
+      expect(res.statusCode).toBe(400);
+      expect((await settings(app, token)).user.displayName).toBeNull();
+    });
+
+    it('may not be one of the game’s own names', async () => {
+      const { app } = await makeApp();
+      const token = await register(app, 'bobby');
+      expect((await rename(app, token, { displayName: 'Directive Xero' })).statusCode).toBe(400);
+    });
+  });
+
+  it('refuses a rename onto one of the game’s own names', async () => {
+    const { app } = await makeApp();
+    const token = await register(app, 'operator');
+    const res = await app.inject({
+      method: 'PATCH',
+      url: '/api/settings/profile',
+      headers: auth(token),
+      payload: { username: 'Directive_Xero' },
+    });
+    expect(res.statusCode).toBe(409);
+    expect(res.json<{ error: { code: string } }>().error.code).toBe('USERNAME_RESERVED');
+    expect((await settings(app, token)).user.username).toBe('operator');
+  });
+
+  it('lets an account that already holds a reserved name save the rest of the form', async () => {
+    const { app, db } = await makeApp();
+    const token = await register(app, 'operator');
+    // Named before the list existed, which is the one way such an account comes to be.
+    db.prepare("UPDATE users SET username = 'System' WHERE username = 'operator'").run();
+    const res = await app.inject({
+      method: 'PATCH',
+      url: '/api/settings/profile',
+      headers: auth(token),
+      payload: { username: 'System', icon: 'flask' },
+    });
+    expect(res.statusCode, res.body).toBe(200);
+  });
+
   it('takes an IANA zone and refuses an offset', async () => {
     const { app } = await makeApp();
     const token = await register(app, 'operator');
@@ -276,6 +375,23 @@ describe('POST /api/settings/password', () => {
       payload: { newPassword: 'short' },
     });
     expect(res.statusCode).toBe(400);
+  });
+
+  // bcrypt reads 72 bytes and no more (bug pass, 2026-09-29): a longer password is refused
+  // rather than silently cut.
+  it('refuses a new password past 72 bytes, counting bytes rather than characters', async () => {
+    const { app } = await makeApp();
+    const token = await register(app, 'operator');
+    const change = (newPassword: string) =>
+      app.inject({
+        method: 'POST',
+        url: '/api/settings/password',
+        headers: auth(token),
+        payload: { newPassword },
+      });
+    expect((await change('a'.repeat(73))).statusCode).toBe(400);
+    expect((await change('\u20ac'.repeat(25))).statusCode).toBe(400);
+    expect((await change('\u20ac'.repeat(24))).statusCode).toBe(200);
   });
 
   /**

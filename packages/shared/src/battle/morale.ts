@@ -136,7 +136,10 @@ export interface MoraleShock {
   casualtyFraction: number;
   /** ...and what the other side lost, which is how a stack knows it is winning. */
   enemyCasualtyFraction: number;
-  /** The enemy's average intimidation, 0..100. */
+  /**
+   * The enemy's intimidation as this line feels it, 0..100: its average, times how much of the
+   * line its numbers reach (`intimidationReach` in `engine.ts`).
+   */
   enemyIntimidation: number;
   /** Enemy units ÷ own units. Below 1 is an advantage and costs nothing. */
   outnumberedRatio: number;
@@ -199,7 +202,7 @@ export function moraleDelta(shock: MoraleShock, morale: number): number {
  * How much of a routed stack the enemy runs down before it gets clear.
  *
  * A rout is not a free withdrawal: Bannerlord deletes the stack outright, which is too blunt for
- * a game where the survivors matter, so this takes a share instead and leaves the rest to the
- * flee-or-die roll at the end of the fight.
+ * a game where the survivors matter, so each body is caught at these odds instead (`pursue`) and
+ * the rest are left to the flee-or-die roll at the end of the fight.
  */
 export const PURSUIT_LOSS = 0.2;

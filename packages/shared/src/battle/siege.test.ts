@@ -49,7 +49,14 @@ import {
   type BattleTarget,
   type ScheduledBattle,
 } from './scheduled.js';
-import { TRAP_CATALOG, findTrap, springTrap, trapsAvailable } from './traps.js';
+import {
+  TRAP_CATALOG,
+  findTrap,
+  springTrap,
+  trapBite,
+  trapEffectLine,
+  trapsAvailable,
+} from './traps.js';
 import type { Army } from '../units/training.js';
 
 const NOON = new Date('2026-08-16T12:00:00.000Z');
@@ -529,6 +536,9 @@ describe('the ring outside the fight (§A4)', () => {
   });
 });
 
+const headcount = (force: Army): number =>
+  Object.values(force).reduce((sum, count) => sum + count, 0);
+
 describe('traps (§A4)', () => {
   it('gates every trap behind a Lab programme, and hands over only what is known', () => {
     for (const spec of TRAP_CATALOG) expect(spec.requiresTech).toMatch(/^tech_/);
@@ -542,19 +552,43 @@ describe('traps (§A4)', () => {
    * The rule that stops a trap being a wall. It takes a bite and the attack happens anyway: the
    * only exception is the one where there is nothing left to attack with.
    */
-  it('takes a bounded bite and leaves the attack standing', () => {
-    const spec = findTrap('trap_collapse')!;
-    const toll = springTrap({ razors: 200 }, spec);
-    expect(toll.killed.razors).toBe(spec.maxKills);
-    expect(toll.survivors.razors).toBe(200 - spec.maxKills);
+  it('takes a small bite and leaves the attack standing', () => {
+    const toll = springTrap({ razors: 200 }, findTrap('trap_collapse')!);
+    // 0.24 times the square root of 200 is 3.39.
+    expect(toll.killed.razors).toBe(3);
+    expect(toll.survivors.razors).toBe(197);
     expect(toll.wipedOut).toBe(false);
+    expect(toll.slowed).toBeNull();
   });
 
-  it('never takes more than the ceiling, however big the force', () => {
-    for (const spec of TRAP_CATALOG) {
-      const toll = springTrap({ razors: 10_000 }, spec);
-      expect(toll.killed.razors, spec.id).toBeLessThanOrEqual(spec.maxKills);
+  /**
+   * No ceiling, and no share of the column either (maintainer, 2026-09-29): a bigger column always
+   * loses a little more to the same trap, and a smaller fraction of itself. The ceiling this
+   * replaced stopped paying past a column of 100 to 170.
+   */
+  it('takes more from a bigger column, and a smaller share of it, without a ceiling', () => {
+    const biting = TRAP_CATALOG.filter((spec) => spec.effect.kind === 'bite');
+    expect(biting.length).toBeGreaterThan(0);
+    for (const spec of biting) {
+      const columns = [50, 200, 1_000, 10_000, 100_000];
+      const bites = columns.map((units) => headcount(springTrap({ razors: units }, spec).killed));
+      for (let step = 1; step < columns.length; step += 1) {
+        expect(bites[step]!, `${spec.id} at ${columns[step]}`).toBeGreaterThanOrEqual(
+          bites[step - 1]!,
+        );
+        expect(bites[step]! / columns[step]!, `${spec.id} share at ${columns[step]}`).toBeLessThan(
+          bites[step - 1]! / columns[step - 1]!,
+        );
+      }
+      expect(bites.at(-1)!, `${spec.id} has a ceiling`).toBeGreaterThan(bites.at(-2)!);
     }
+  });
+
+  it('prints the bite it takes, on the line both screens show', () => {
+    const plates = findTrap('trap_pressure_plates')!;
+    expect(trapEffectLine(plates)).toBe(
+      'Takes 1 of 50, 2 of 200, 4 of 1,000 attacking units before contact',
+    );
   });
 
   it('spreads its victims across the stacks rather than deleting the smallest one', () => {
@@ -575,6 +609,28 @@ describe('traps (§A4)', () => {
     expect(toll.wipedOut).toBe(false);
   });
 
+  /** "Nobody dies of it; everybody slows down in it." The card was right; the mechanic was not. */
+  it('Razor Wire kills nobody and hands the engine a slow instead', () => {
+    const wire = findTrap('trap_razor_wire')!;
+    expect(wire.effect.kind).toBe('wire');
+    for (const units of [1, 50, 1_000]) {
+      const toll = springTrap({ razors: units }, wire);
+      expect(toll.killed).toEqual({});
+      expect(toll.survivors).toEqual({ razors: units });
+      expect(toll.wipedOut).toBe(false);
+      expect(toll.slowed).toEqual({ speedCut: 15, moraleCut: 2, rounds: 2 });
+    }
+    expect(trapEffectLine(wire)).toBe(
+      'Kills nobody. The attack loses 15 speed and 2 morale for its first 2 rounds',
+    );
+    // ...and the words on every trap that kills say it kills, and the wire's say it does not.
+    for (const spec of TRAP_CATALOG) {
+      expect(trapEffectLine(spec).startsWith('Kills nobody'), spec.id).toBe(
+        spec.effect.kind === 'wire',
+      );
+    }
+  });
+
   /**
    * It takes what the Scrapyard row says it takes, whatever shape the force turns up in.
    *
@@ -590,10 +646,8 @@ describe('traps (§A4)', () => {
    * how far short it fell was a function of how many stacks the attacker happened to bring.
    */
   it('takes exactly the bite it advertises, however many stacks the attacker brings', () => {
-    const headcount = (force: Army): number =>
-      Object.values(force).reduce((sum, count) => sum + count, 0);
-
     for (const spec of TRAP_CATALOG) {
+      if (spec.effect.kind !== 'bite') continue;
       for (const units of [13, 37, 100, 250]) {
         for (let stacks = 1; stacks <= 6; stacks += 1) {
           // Deliberately lopsided, so the proportional pass rounds in both directions.
@@ -606,11 +660,7 @@ describe('traps (§A4)', () => {
           }
           force[`unit_${stacks - 1}`] = left;
 
-          const advertised = Math.min(
-            spec.maxKills,
-            Math.max(1, Math.round(units * spec.killShare)),
-            units,
-          );
+          const advertised = trapBite(units, spec.effect.bite);
           const toll = springTrap(force, spec);
           const where = `${spec.id}, ${units} units in ${stacks} stacks`;
 

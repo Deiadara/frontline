@@ -19,11 +19,12 @@ import {
   findAshfallDistrict as findDistrict,
   findAshfallLocation as findLocation,
   garrisonOf,
+  isContested,
   isDistrictRaidable,
   isSeatOfGovernmentPower,
   raidTargetOf,
 } from './districts.js';
-import { unifiedBonusFor } from './atlas.js';
+import { ALL_DISTRICTS, unifiedBonusFor } from './atlas.js';
 import { DistrictNameSchema } from '../base.js';
 import { hastenedMinutes } from '../missions.js';
 import { trainingSeconds } from '../units/training.js';
@@ -34,13 +35,7 @@ import {
   describeHoldBonus,
   noTerritoryEffects,
 } from './locations.js';
-import {
-  MAX_TRAVEL_SPEED_BONUS,
-  MIN_TRAVEL_MINUTES,
-  mapDistance,
-  nearestDistricts,
-  travelMinutes,
-} from './geography.js';
+import { MAX_TRAVEL_SPEED_BONUS, MIN_TRAVEL_MINUTES, travelMinutes } from './geography.js';
 import {
   districtHolder,
   districtsHeldBy,
@@ -53,6 +48,7 @@ import {
   startingHolder,
   COMBINE_UNOCCUPIED,
   SQUATTED_PLACES,
+  missionSpeedPercentIn,
   territoryEffectsFor,
   type LocationControl,
 } from './control.js';
@@ -277,18 +273,6 @@ describe('geography (§A4)', () => {
     expect(to({ speed: 100, reductionPercent: 10 })).toBeLessThan(to({ speed: 100 }));
     expect(to({ speed: 100, reductionPercent: 10 })).toBeLessThan(to({ reductionPercent: 10 }));
   });
-
-  it('sees the nearest districts first, and the same ones every time', () => {
-    const seen = nearestDistricts(STARTER_DISTRICT_ID, 3);
-    expect(seen).toHaveLength(3);
-    expect(seen.map((d) => d.id)).not.toContain(STARTER_DISTRICT_ID);
-    expect(nearestDistricts(STARTER_DISTRICT_ID, 3)).toEqual(seen);
-
-    const home = findDistrict(STARTER_DISTRICT_ID)!;
-    const distances = seen.map((d) => mapDistance(home.position, d.position));
-    expect([...distances].sort((a, b) => a - b)).toEqual(distances);
-    expect(nearestDistricts(STARTER_DISTRICT_ID, 0)).toEqual([]);
-  });
 });
 
 describe('who holds what (§A4)', () => {
@@ -485,12 +469,42 @@ describe('what territory is worth (§A4)', () => {
     expect(territoryEffectsFor(THEIRS, CITY_LOCATIONS, theirs)).not.toEqual(noTerritoryEffects());
   });
 
-  it('takes the widest vision rather than the sum of two uplinks', () => {
-    const effects = noTerritoryEffects();
-    applyHoldBonus(effects, { kind: 'vision', districts: 2 });
-    applyHoldBonus(effects, { kind: 'vision', districts: 3 });
-    // Two dishes do not see five districts. They see as far as the better one.
-    expect(effects.visionRange).toBe(3);
+  /*
+   * The Blockhouse pays "twenty per cent off the time every job in this city takes" (maintainer,
+   * 2026-09-30), so its cut is Terminus's and lands in the city channel, not the global one.
+   */
+  it('pays the Blockhouse’s mission speed on Terminus work only', () => {
+    const blockhouse = ALL_DISTRICTS.find((d) => d.id === 'blockhouse')!;
+    const everywhere = ALL_DISTRICTS.flatMap((d) => d.locations);
+    const held = new Map(
+      everywhere.map((location) => [
+        location.id,
+        {
+          locationId: location.id,
+          holder:
+            location.districtId === blockhouse.id
+              ? ({ kind: 'crew', baseId: MINE } as const)
+              : ({ kind: 'government' } as const),
+          level: 1,
+          upgradingUntil: null,
+          garrison: {},
+        } satisfies LocationControl,
+      ]),
+    );
+    const effects = territoryEffectsFor(MINE, everywhere, held);
+    expect(effects.missionSpeedPercent).toBe(0);
+    expect(effects.missionSpeedPercentByCity).toEqual({ [blockhouse.cityId]: 25 });
+    const terminusWork = ALL_DISTRICTS.find(
+      (d) => d.cityId === blockhouse.cityId && d.id !== blockhouse.id && d.kind === 'contested',
+    )!;
+    const ashfallWork = CONTESTED_DISTRICTS[0]!;
+    expect(ashfallWork.cityId).not.toBe(blockhouse.cityId);
+    expect(missionSpeedPercentIn(effects, terminusWork.id)).toBe(25);
+    expect(missionSpeedPercentIn(effects, ashfallWork.id)).toBe(0);
+    // And a bonus that pays everywhere still does, on every board.
+    const global = applyHoldBonus(noTerritoryEffects(), { kind: 'mission_speed', percent: 10 });
+    expect(missionSpeedPercentIn(global, ashfallWork.id)).toBe(10);
+    expect(missionSpeedPercentIn(global, terminusWork.id)).toBe(10);
   });
 
   it('sums the resource lines a crew’s locations produce', () => {
@@ -530,6 +544,36 @@ describe('NPC garrisons (§A3, §A4)', () => {
   it('stands the Combine on the ladder its own doc quotes', () => {
     const at = (difficulty: number) => combineSlotBudget(difficulty, 5);
     expect([1, 2, 3, 6, 8, 10].map(at)).toEqual([10, 15, 22, 54, 83, 118]);
+  });
+
+  /**
+   * One curve for both parties (maintainer, 2026-09-29): a looter plot stands exactly the slots
+   * the Combine would on the same ground, so a difficulty number means one thing whoever holds
+   * it. The looters were on a head count of their own, `1.2 * difficulty + 0.9 * baseDefense`,
+   * which stood 12 on the Undergrid's Laundry Stair against a budget of 44. The real-engine walk
+   * that shows the ladder climbing is `apps/server/src/city/difficulty-ladder.test.ts`.
+   */
+  it('stands the looters on the Combine’s slot budget, each in its own units', () => {
+    const slotsOf = (garrison: Record<string, number>) =>
+      Object.entries(garrison).reduce(
+        (total, [unitId, count]) => total + count * (findUnit(unitId)?.unitSlots ?? NaN),
+        0,
+      );
+    const looterPlots = ALL_DISTRICTS.filter(isContested).flatMap((district) =>
+      district.locations
+        .filter((location) => startingHolder(location, district).kind === 'looters')
+        .map((location) => ({ district, location })),
+    );
+    expect(looterPlots.length).toBeGreaterThan(20);
+    for (const { district, location } of looterPlots) {
+      const garrison = startingGarrison(location, district);
+      const budget = combineSlotBudget(
+        district.difficulty,
+        LOCATION_CATALOG[location.kind].baseDefense,
+      );
+      expect(slotsOf(garrison), location.id).toBe(budget);
+      expect(Object.keys(garrison).sort(), location.id).toEqual(['razors', 'scrapers']);
+    }
   });
 
   it('garrisons every location with units that actually exist', () => {
@@ -622,7 +666,7 @@ describe('NPC garrisons (§A3, §A4)', () => {
       }
     }
     // ...and the sentence on the district screen names the units that actually stand there.
-    for (const district of CITY_DISTRICTS.filter((d) => d.allegiance === 'government')) {
+    for (const district of CONTESTED_DISTRICTS.filter((d) => d.allegiance === 'government')) {
       const words = garrisonOf(district);
       const standing = new Set(
         district.locations.flatMap((location) => Object.keys(startingGarrison(location, district))),
@@ -634,9 +678,7 @@ describe('NPC garrisons (§A3, §A4)', () => {
   });
 
   it('garrisons hard ground more heavily than easy ground', () => {
-    const sorted = [...CITY_DISTRICTS]
-      .filter((district) => district.locations.length > 0)
-      .sort((a, b) => a.difficulty - b.difficulty);
+    const sorted = [...CONTESTED_DISTRICTS].sort((a, b) => a.difficulty - b.difficulty);
     const easiest = sorted[0];
     const hardest = sorted[sorted.length - 1];
     expect(easiest && hardest).toBeTruthy();
@@ -681,10 +723,11 @@ describe("the city's geography", () => {
 
   /**
    * Height *is* difficulty. Not strictly, two districts may share a rung, but the correlation has
-   * to be strong enough that "further up" reads as "harder" without a legend.
+   * to be strong enough that "further up" reads as "harder" without a legend. Contested ground only:
+   * a plot has no difficulty (maintainer, 2026-09-30).
    */
   it('gets harder the further up the map you go', () => {
-    const sorted = [...CITY_DISTRICTS].sort((a, b) => b.position.y - a.position.y);
+    const sorted = [...CONTESTED_DISTRICTS].sort((a, b) => b.position.y - a.position.y);
     const difficulties = sorted.map((d) => d.difficulty);
     // Rank correlation, computed the plain way: every pair further up must be at least as hard
     // more often than not, and the ends must be unambiguous.

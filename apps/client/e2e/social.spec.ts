@@ -510,7 +510,7 @@ test('a player with no faction is offered both doors, and the invitation they ho
  * An invitation is an ordinary message with a card on it, and what the sheet has in hand is the
  * *invitation's* id: the faction payload carries no message id at all. So the door is
  * `?invite=<id>` and the mailbox finds the letter holding it, which is the seam neither half's
- * own test can see. The parameter is consumed on arrival, the same as `?to=` and `?scout=`.
+ * own test can see. The parameter is consumed on arrival, the same as `?to=`.
  */
 test('the picker on the join sheet opens the letter the invitation came in', async ({ page }) => {
   await installApi(page, lateGame);
@@ -577,6 +577,51 @@ test('founding one takes a name, a drawn badge and a description', async ({ page
 
   await settleFonts(page);
   await page.screenshot({ path: 'screenshots/faction-create.png', fullPage: false });
+});
+
+/**
+ * A crew at the founding level whose Nexus is short of it: the form says so up front and the
+ * Create press stays dead, rather than refusing after the badge is drawn (bug pass, 2026-09-28).
+ */
+test('founding says the Nexus is short before the form is filled in', async ({ page }) => {
+  const shortNexus = {
+    ...lateGame,
+    base: {
+      ...lateGame.base!,
+      buildings: lateGame.base!.buildings.map((building) =>
+        building.kind === 'nexus' ? { ...building, level: 2 } : building,
+      ),
+    },
+  };
+  // Tall enough that the note under Create is above the fold for the screenshot.
+  await page.setViewportSize({ width: 1280, height: 1100 });
+  await installApi(page, lateGame);
+  // Registered after `installApi`, so they win: Playwright matches the most recent handler first.
+  await page.route('**/api/me', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(shortNexus),
+    }),
+  );
+  await page.route('**/api/factions', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(factionNone),
+    }),
+  );
+  await page.goto('/game/faction');
+  await page.getByTestId('start-faction').click();
+  await page.getByTestId('faction-name').fill('The Rust Assembly');
+
+  await expect(page.getByTestId('found-faction-note')).toContainText('Nexus');
+  await expect(page.getByTestId('found-faction')).toBeDisabled();
+  await settleFonts(page);
+  expect(await screenOverflows(page)).toEqual([]);
+  await page
+    .getByTestId('create-sheet')
+    .screenshot({ path: 'e2e-out/faction-create-short-nexus.png' });
 });
 
 test('an invitation in the mailbox joins only after a confirmation', async ({ page }) => {
@@ -704,6 +749,33 @@ test('the mailbox reads, replies and keeps a sent copy', async ({ page }) => {
 
   await settleFonts(page);
   await page.screenshot({ path: 'screenshots/messages.png', fullPage: false });
+});
+
+/*
+ * Maintainer, 2026-09-29: a subject or a body of nothing but invisible characters (a zero-width
+ * space, a joiner, a soft hyphen) is refused by the server, and the form says so before the press
+ * and keeps the button shut. A letter with real words in it is untouched.
+ */
+test('a letter that would show nothing cannot be sent, and says why', async ({ page }) => {
+  await installApi(page, lateGame);
+  await page.goto('/game/messages');
+  await page.getByTestId('message-msg-1').click();
+  await page.getByTestId('reply').click();
+  await expect(page.getByTestId('compose-form')).toBeVisible();
+  await expect(page.getByTestId('send-message')).toBeEnabled();
+  await expect(page.getByTestId('compose-blank')).toHaveCount(0);
+
+  await page.getByTestId('compose-subject').fill('\u200b\u200d\u00ad');
+  await expect(page.getByTestId('compose-blank')).toBeVisible();
+  await expect(page.getByTestId('send-message')).toBeDisabled();
+
+  await page.getByTestId('compose-subject').fill('Re: the \u200bmarket');
+  await expect(page.getByTestId('compose-blank')).toHaveCount(0);
+  await page.getByTestId('compose-body').fill('\ufeff');
+  await expect(page.getByTestId('compose-blank')).toBeVisible();
+  await expect(page.getByTestId('send-message')).toBeDisabled();
+  await settleFonts(page);
+  await page.screenshot({ path: 'screenshots/messages-blank-letter.png', fullPage: false });
 });
 
 test('the bell is the list, with the filters behind one drawn button', async ({ page }) => {

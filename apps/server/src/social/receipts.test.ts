@@ -44,13 +44,10 @@ const SERVER_SRC = path.resolve(HERE, '..');
  */
 const NOT_EMITTED_YET: Readonly<Partial<Record<NotificationKind, string>>> = {
   /*
-   * "A mark you set is about to come up": a reminder to the attacker, some interval before a fight
-   * they declared. There is nowhere to put it. The world clock ticks every second and holds no
-   * state, so an emitter there would ring once a second from the moment the window opened; a
-   * once-only reminder needs a durable "already reminded" marker on the battle row, and what the
-   * interval should be is a design call rather than a bug. Recorded rather than invented.
+   * `battle_incoming` ("Fights you have called") was here until 2026-09-29, a switch that turned
+   * nothing off. The maintainer retired the kind rather than build the reminder; a saved mute that
+   * still names it is dropped on read (`db/repos/social.ts`).
    */
-  battle_incoming: 'no reminder marker on the battle row; the interval is a design call',
   /*
    * `training_done` was here, and its reason expired without anybody noticing.
    *
@@ -208,6 +205,40 @@ describe('an hour on the floor', () => {
     // Settled again: banked once, so rung once.
     settleBase(app.repos, app.repos.bases.findById(baseId)!, after);
     expect(bells(app, userId)).toHaveLength(1);
+  });
+
+  /*
+   * Two hours ending ten minutes apart are two cut points in one settle's window, and the settle
+   * banked each at its own instant and rang for each (audit, 2026-09-28). One settle, one receipt.
+   */
+  it('rings once for every hour one settle banks, however many instants they ended at', async () => {
+    const { app, userId, baseId, startedAt } = await drilling();
+    const base = app.repos.bases.findById(baseId)!;
+    const [first] = base.training.sessions;
+    if (!first) throw new Error('fixture: the drill is missing');
+    const second = {
+      ...first,
+      id: 'drill-2',
+      attribute: 'logic' as const,
+      startedAt: new Date(startedAt.getTime() + 10 * 60_000).toISOString(),
+    };
+    app.repos.bases.updateTraining(
+      baseId,
+      { ...base.training, sessions: [first, second] },
+      base.commanders,
+    );
+    // The window has to open before both ends, or both land on its first cut and prove nothing.
+    app.repos.bases.updateEconomy(baseId, {
+      ...base.economy,
+      productionSettledAt: new Date(startedAt.getTime() - 3_600_000).toISOString(),
+    });
+
+    const after = new Date(startedAt.getTime() + (TRAINING_SECONDS + 3_600) * 1000);
+    settleBase(app.repos, app.repos.bases.findById(baseId)!, after);
+    const rung = bells(app, userId);
+    expect(rung, 'one settle rang once per drill').toHaveLength(1);
+    expect(rung[0]?.title).toBe('2 hours on the floor are done');
+    expect(app.repos.bases.findById(baseId)!.training.sessions).toEqual([]);
   });
 });
 

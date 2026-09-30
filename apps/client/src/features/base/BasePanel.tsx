@@ -17,10 +17,19 @@ import {
   buildingLevel,
   committedPayroll,
   type Base,
+  type PartialResources,
   type BuildingKind,
   buildBoostRemainingMs,
 } from '@frontline/shared';
-import { useEffect, useLayoutEffect, useState, type ReactNode, type RefObject } from 'react';
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type ReactNode,
+  type RefObject,
+} from 'react';
 import { LevelUpBanner } from '../../components/LevelUp';
 import { StandingReadout } from '../../components/Meters';
 import { RESOURCE_META, ResourceGrid } from '../../components/Resources';
@@ -43,6 +52,7 @@ import {
 } from '../../lib/queries';
 import { useNavigate } from 'react-router-dom';
 import { useMeasuredSize, type MeasuredSize } from '../../lib/useMeasuredHeight';
+import { useScrollEdges, type ScrollEdges } from '../../lib/useScrollEdges';
 import { useServerClock } from '../missions/useServerClock';
 import { StructureDialog } from './StructureDialog';
 import { BurnNotice } from './BurnNotice';
@@ -227,7 +237,7 @@ export function BasePanel() {
             <HousingReadout base={base} />
           </Panel>
           <Panel title="Production">
-            <ProductionRows base={base} />
+            <ProductionRows base={base} rates={me.data?.productionRates} />
           </Panel>
         </div>
 
@@ -255,7 +265,8 @@ export function BasePanel() {
               'highQualityMetal',
               storageCapacity(base.buildings, crewStorage),
             ).toLocaleString()}{' '}
-            HQ metal. Production stops there. Raids and pay do not. Caps have no ceiling.
+            HQ metal. Nothing goes past that: production stops there, and pay, loot or a refund that
+            overflows is lost. Caps have no ceiling.
           </p>
         </Panel>
 
@@ -582,9 +593,15 @@ function BuildQueueRail({ base, serverNow, receivedAt, room, onStripHeight }: Bu
   const now = useServerClock(serverNow, receivedAt);
   const cancel = useCancelBuild(base.id);
   const [open, setOpen] = useState(true);
+  const toggleRef = useRef<HTMLButtonElement>(null);
   const column = useRailColumn();
   const [railRef, rail] = useMeasuredSize<HTMLDivElement>();
   const ceiling = useRailCeiling(railRef, room, base.buildQueue.length, column);
+  const [ordersRef, edges, readEdges] = useScrollEdges<HTMLDivElement>();
+  // The strip's hint, and only the strip's: the column scrolls the way every list does.
+  const hidden: ScrollEdges = open && !column ? edges : { start: false, end: false };
+  const nudge = (towards: 1 | -1) =>
+    ordersRef.current?.scrollBy({ left: towards * STRIP_STEP_PX, behavior: 'smooth' });
 
   // Across the top: the inset above the first order is added back, so the published figure is
   // where the rail *ends*. Reset on unmount, or a queue that has just emptied would leave the
@@ -613,6 +630,7 @@ function BuildQueueRail({ base, serverNow, receivedAt, room, onStripHeight }: Bu
       data-layout={column ? 'column' : 'strip'}
     >
       <button
+        ref={toggleRef}
         type="button"
         onClick={() => setOpen((was) => !was)}
         data-testid="build-rail-toggle"
@@ -638,6 +656,9 @@ function BuildQueueRail({ base, serverNow, receivedAt, room, onStripHeight }: Bu
             'pointer-events-auto flex min-h-0 min-w-0 flex-1 gap-1.5',
             column ? 'flex-col overflow-y-auto' : 'flex-row overflow-x-auto',
           )}
+          ref={ordersRef}
+          onScroll={readEdges}
+          style={stripFade(hidden)}
           data-testid="build-rail-orders"
         >
           {base.buildQueue.map((entry, index) => (
@@ -696,7 +717,72 @@ function BuildQueueRail({ base, serverNow, receivedAt, room, onStripHeight }: Bu
           )}
         </div>
       )}
+      {(hidden.start || hidden.end) && (
+        // Under the toggle rather than on the strip: over the orders an arrow sat on a cancel X.
+        <div
+          className="pointer-events-none !absolute left-3 flex gap-1.5"
+          style={{ top: (toggleRef.current?.offsetHeight ?? 0) + STRIP_GAP_PX }}
+        >
+          <StripArrow towards="start" shown={hidden.start} onPress={() => nudge(-1)} />
+          <StripArrow towards="end" shown={hidden.end} onPress={() => nudge(1)} />
+        </div>
+      )}
     </div>
+  );
+}
+
+/** The rail's `gap-1.5`. */
+const STRIP_GAP_PX = 6;
+
+/** One order and the gap after it: what an arrow scrolls the strip by. 13.5rem and the gap. */
+const STRIP_STEP_PX = 216 + STRIP_GAP_PX;
+
+/**
+ * The strip fading out at whichever edge has orders past it (maintainer, 2026-09-29).
+ *
+ * At 1024 wide a full queue cut its fourth order through the countdown at the window's edge with
+ * nothing saying there were two more. A mask rather than a painted overlay, so the fade is the
+ * orders themselves thinning out and whatever the painting is doing behind them shows through.
+ * Nothing at all when the strip fits, which is every frame the rail was drawn for.
+ */
+function stripFade(hidden: ScrollEdges): CSSProperties | undefined {
+  if (!hidden.start && !hidden.end) return undefined;
+  const from = hidden.start ? 'transparent, black 2.5rem' : 'black';
+  const to = hidden.end ? 'black calc(100% - 2.5rem), transparent' : 'black';
+  const mask = `linear-gradient(to right, ${from}, ${to})`;
+  return { maskImage: mask, WebkitMaskImage: mask };
+}
+
+/**
+ * One of the pair under the toggle: which way there is more, and a press brings the next order in.
+ * Both are always drawn once either is, the dead one dimmed, so the pair does not shift about.
+ */
+function StripArrow({
+  towards,
+  shown,
+  onPress,
+}: {
+  towards: 'start' | 'end';
+  shown: boolean;
+  onPress: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onPress}
+      disabled={!shown}
+      aria-label={towards === 'end' ? 'Show the later orders' : 'Show the earlier orders'}
+      data-testid={shown ? `build-rail-more-${towards}` : undefined}
+      className={cn(
+        'glass edge-lit pointer-events-auto flex h-7 w-7 items-center justify-center rounded-full border',
+        'font-display text-[16px] font-bold leading-none transition-colors',
+        shown
+          ? 'border-brass-300/60 text-brass-100 hover:border-brass-300 hover:text-ink-100'
+          : 'cursor-default border-surface-600/70 text-ink-500',
+      )}
+    >
+      <span aria-hidden>{towards === 'end' ? '›' : '‹'}</span>
+    </button>
   );
 }
 
@@ -755,9 +841,12 @@ function HousingReadout({ base }: { base: Base }) {
   );
 }
 
-/** Net hourly output and modifications already folded in by the shared function. */
-function ProductionRows({ base }: { base: Base }) {
-  const { perHour } = districtProduction(base.buildings);
+/**
+ * What the district makes an hour, as `/me` quotes it: the structures, the ground, the crew's line
+ * speed and yields. The structures alone until `/me` answers, which undercounts rather than lies.
+ */
+function ProductionRows({ base, rates }: { base: Base; rates: PartialResources | undefined }) {
+  const perHour = rates ?? districtProduction(base.buildings).perHour;
   const producing = RESOURCE_KEYS.filter((key) => (perHour[key] ?? 0) !== 0);
 
   if (producing.length === 0) {

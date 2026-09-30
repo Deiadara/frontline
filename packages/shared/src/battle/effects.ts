@@ -49,6 +49,34 @@ export const OUTNUMBERED_RATIO = 1.5;
 export const MAX_HELD_DEFENSE = 65;
 
 /**
+ * What one syringe is worth, in percentage points of offense.
+ *
+ * Small on purpose. A Black Clinic at level 4 hands out five of them, which is a real edge and not
+ * a fight decided before it starts: the location is a thumb on the scale, not a second army.
+ */
+export const STIM_PERCENT_EACH = 3;
+
+/**
+ * The syringes a side has on hand (`battleStims`: the Black Clinic, the Chief Medic's Blood Bank,
+ * the Wetware Chief's Salvage Grafts), handed out before the fight.
+ *
+ * On the offense and morale channels the engine already reads, so the report explains them the
+ * way it explains a bought boost. Here rather than in the declared-battle settler, because a battle
+ * job is a fight too: the settler was the only caller, and the two rungs paid nothing on a job.
+ */
+export function stimmed<
+  T extends Pick<TerritoryEffects, 'battleStims' | 'unitOffensePercent' | 'unitMoraleFlat'>,
+>(effects: T): T {
+  const stims = Math.max(0, effects.battleStims);
+  if (stims === 0) return effects;
+  return {
+    ...effects,
+    unitOffensePercent: effects.unitOffensePercent + stims * STIM_PERCENT_EACH,
+    unitMoraleFlat: effects.unitMoraleFlat + stims,
+  };
+}
+
+/**
  * The live numbers a stack fights with. Deliberately a flat struct rather than a `UnitStats`:
  * these are *derived*, and handing back something that looks like a sheet invites code to write
  * one back to a unit.

@@ -1,10 +1,13 @@
 import {
   MISC_AREA_ID,
+  UNIT_RULE_IDS,
   findDistrict,
   findUnit,
   type Army,
+  type LineRules,
   type Mission,
   type MissionLeader,
+  type UnitRuleId,
 } from '@frontline/shared';
 
 /**
@@ -74,4 +77,32 @@ export function cameHome(mission: Mission): Army {
 export function areaName(areaId: string): string {
   if (areaId === MISC_AREA_ID) return 'Odd jobs';
   return findDistrict(areaId)?.name ?? areaId;
+}
+
+/**
+ * This crew's own reading of a unit sheet, off the two things the screen is sent about it: whether
+ * its porters stand in the line (`carriers_fight`) and the marks its research and holdings have
+ * granted (`unit_mark`).
+ *
+ * One function because two windows read it and must agree with the settle: the send window asks
+ * it who can fight and how much the party can lift, and the report asks it how much the party
+ * could lift. Marks are narrowed against the catalogue rather than asserted: the payload is a
+ * record of strings, and a mark this build has never heard of is one the arithmetic must not
+ * pretend to understand.
+ */
+export function crewLineRules(
+  carriersFight: boolean,
+  marks: Readonly<Record<string, readonly string[]>>,
+): LineRules {
+  return {
+    carriersFight,
+    unitMarks: Object.fromEntries(
+      Object.entries(marks).map(([unitId, granted]) => [
+        unitId,
+        granted.filter((mark): mark is UnitRuleId =>
+          (UNIT_RULE_IDS as readonly string[]).includes(mark),
+        ),
+      ]),
+    ),
+  };
 }

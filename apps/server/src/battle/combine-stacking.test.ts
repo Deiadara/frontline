@@ -1,6 +1,8 @@
 import {
   CASUALTY_RECOVERY_PER_INFIRMARY_LEVEL,
   COMBINE_LEADERS,
+  casualtyRecoveryShare,
+  infirmaryRecoveryPercent,
   createCommander,
   emptyDeployment,
   findLocation,
@@ -22,6 +24,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { openDatabase, runMigrations, type AppDatabase } from '../db/index.js';
 import { createRepositories, type Repositories } from '../db/repos/index.js';
 import { settleBattles } from './resolve.js';
+import { standingEffectsFor } from '../crew/standing.js';
 import { everybodyHome } from '../testing/walk.js';
 
 /**
@@ -55,7 +58,7 @@ const OFFENSE_TECH_PERCENT = 6;
 const GATE_TECH = 'tech_cold_joints';
 
 const GATE_LEVEL = 6;
-const INFIRMARY_LEVEL = 5;
+const INFIRMARY_LEVEL = 8;
 
 const leaderOf = (unitId: string): CombineLeader => {
   const leader = COMBINE_LEADERS.find((one) => one.unitId === unitId);
@@ -270,6 +273,18 @@ const MARCHED = 20;
  * writes back is the survivors and nothing else. Without the debit the roster grows over a won
  * fight and "how many did we lose" is unanswerable.
  */
+/**
+ * The medic points the settle spends on the winner: the ward plus the crew's own, which a starting
+ * crew has a few of. Read rather than assumed, because on the curve every point moves the count.
+ */
+function medicPoints(): number {
+  const crew = repos.bases.findById(ATTACKER)!;
+  return (
+    infirmaryRecoveryPercent(crew.buildings) +
+    standingEffectsFor(repos, crew).casualtyRecoveryPercent
+  );
+}
+
 function marchAndSettle(engine: ReturnType<typeof recorder>) {
   callFight(at(ANNEXES_ELSEWHERE), { army: { razors: MARCHED } });
   repos.bases.updateArmy(ATTACKER, { razors: ROSTER - MARCHED }, []);
@@ -318,9 +333,9 @@ describe("the Infirmary, on the far side of the Executioner's line", () => {
     const [resolved] = marchAndSettle(engine);
     expect(resolved?.analysis.executed).toBe(10);
 
-    // The ward is real and would otherwise be taking a fifth off this list.
+    // The ward is real and would otherwise be taking a quarter off this list, near enough.
     const recovery = INFIRMARY_LEVEL * CASUALTY_RECOVERY_PER_INFIRMARY_LEVEL;
-    expect(recovery).toBe(20);
+    expect(recovery).toBe(32);
     expect(ROSTER - homeAgain()).toBe(10);
   });
 
@@ -329,7 +344,7 @@ describe("the Infirmary, on the far side of the Executioner's line", () => {
    *
    * Without this the test above passes on a settler whose Infirmary recovers nobody at all, which
    * is a different bug with the same number in it. Ten fell, the Executioner finished none of
-   * them, and two come off the ward.
+   * them, and two come off the ward (32 medic points and the crew's few are about a quarter).
    */
   it('still hands back the dead he had nothing to do with', () => {
     marchAndSettle(
@@ -341,8 +356,9 @@ describe("the Infirmary, on the far side of the Executioner's line", () => {
         killed: { greycoat: 4 },
       }),
     );
-    const recovery = INFIRMARY_LEVEL * CASUALTY_RECOVERY_PER_INFIRMARY_LEVEL;
-    expect(ROSTER - homeAgain()).toBe(10 - Math.floor((10 * recovery) / 100));
+    expect(ROSTER - homeAgain()).toBe(
+      10 - Math.floor((10 * casualtyRecoveryShare(medicPoints())) / 100),
+    );
   });
 
   /**
@@ -362,8 +378,12 @@ describe("the Infirmary, on the far side of the Executioner's line", () => {
         killed: { greycoat: 4 },
       }),
     );
-    const recovery = INFIRMARY_LEVEL * CASUALTY_RECOVERY_PER_INFIRMARY_LEVEL;
-    expect(ROSTER - homeAgain()).toBe(10 - Math.floor((6 * recovery) / 100));
+    const share = casualtyRecoveryShare(medicPoints()) / 100;
+    // The fixture has to tell the three readings apart, or this proves nothing: the six he did not
+    // finish give back at least one, and all ten would give back more.
+    expect(Math.floor(6 * share)).toBeGreaterThan(0);
+    expect(Math.floor(10 * share)).toBeGreaterThan(Math.floor(6 * share));
+    expect(ROSTER - homeAgain()).toBe(10 - Math.floor(6 * share));
   });
 
   /**

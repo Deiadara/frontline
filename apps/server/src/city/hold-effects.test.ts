@@ -3,9 +3,9 @@ import {
   LOCATION_CATALOG,
   MAX_LOCATION_LEVEL,
   createCommander,
+  discountedCaps,
   makeAttributes,
-  SCOUTING_RESEARCH_ID,
-  armySize,
+  unitSlotsUsed,
   type SpyRun,
   declarationWindow,
   findLocation,
@@ -38,7 +38,6 @@ import { buildApp } from '../app.js';
 import { loadConfig } from '../config.js';
 import { openDatabase, runMigrations, type AppDatabase } from '../db/index.js';
 import { projectMarket } from '../market/board.js';
-import { discountedCaps } from '../market/auction.js';
 import { settleBattles } from '../battle/resolve.js';
 import { standingEffectsFor } from '../crew/standing.js';
 import { chooseOverseer, pinOverseer } from '../testing/overseer.js';
@@ -125,10 +124,6 @@ async function makeStack(engine: SkirmishEngine = bloody): Promise<Stack> {
   const purse = app.repos.bases.findById(baseId)!.economy;
   app.repos.bases.updateEconomy(baseId, { ...purse, infamy: DECLARE_INFAMY_COST * 8 });
 
-  // Scouting is a journey now (`scouting/scouting.ts`), so the button no longer opens
-  // ground: it sends somebody who walks back hours later. A fixture wants the *state*,
-  // not the trip, so the intel is written directly.
-  app.repos.city.markScouted(baseId, 'steelbelt', new Date().toISOString());
   return { app, db, token, baseId };
 }
 
@@ -249,9 +244,6 @@ describe('the Chosen Chapel', () => {
     // the whole claim, and is otherwise buried under a kill count that varies by garrison size.
     const stack = await makeStack(bloodless);
     stack.app.repos.bases.updateArmy(stack.baseId, { razors: 20 }, []);
-    // Scouting is a journey now (`scouting/scouting.ts`), so the button no longer opens ground:
-    // it sends somebody who walks back hours later. A fixture wants the *state*, not the trip.
-    stack.app.repos.city.markScouted(stack.baseId, 'ccs', new Date().toISOString());
     // The Spire is held end to end at the start, so its gate is armed. One location off the
     // Combine opens the seam a location fight needs.
     give(stack, 'ccs-uplink', 1);
@@ -319,10 +311,6 @@ describe('the Downtown Market', () => {
       projectMarket(stack.app.repos, stack.app.repos.bases.findById(stack.baseId)!, whileHeIsIn);
 
     const before = read();
-    // Scouting is a journey now (`scouting/scouting.ts`), so the button no longer opens
-    // ground: it sends somebody who walks back hours later. A fixture wants the *state*,
-    // not the trip, so the intel is written directly.
-    stack.app.repos.city.markScouted(stack.baseId, 'chrome-row', new Date().toISOString());
     give(stack, 'chrome-row-exchange');
     const after = read();
 
@@ -381,11 +369,6 @@ describe('the Watchtower', () => {
       ...mine.commanders,
       createCommander('spy', 'Wire', 'master_of_whispers', makeAttributes(20), []),
     ]);
-    stack.app.repos.bases.updateResearch(stack.baseId, {
-      ...mine.research,
-      technologies: [...mine.research.technologies, SCOUTING_RESEARCH_ID],
-    });
-    stack.app.repos.city.markScouted(stack.baseId, 'steelbelt', new Date().toISOString());
 
     const run: SpyRun = {
       id: 'run-1',
@@ -400,7 +383,8 @@ describe('the Watchtower', () => {
     };
     const seen = (): number => {
       const base = stack.app.repos.bases.findById(stack.baseId)!;
-      return armySize(writeSpyReport(stack.app.repos, base, run, new Date()).exposed);
+      // Slots rather than heads: a report names nobody before Written Reports (2026-09-28).
+      return writeSpyReport(stack.app.repos, base, run, new Date()).exposedSlots;
     };
     const points = (): number =>
       spyStrengthFor(stack.app.repos, stack.app.repos.bases.findById(stack.baseId)!, 'loose_ears')
@@ -408,12 +392,6 @@ describe('the Watchtower', () => {
 
     const before = seen();
     const pointsBefore = points();
-    await stack.app.inject({
-      method: 'POST',
-      url: '/api/city/scout',
-      headers: auth(stack.token),
-      payload: { districtId: 'blacksite' },
-    });
     give(stack, 'blacksite-watchtower');
 
     // The Watchtower pays into the intel channel, and the intel channel is spy points now: holding
@@ -422,7 +400,7 @@ describe('the Watchtower', () => {
       pointsBefore,
     );
     expect(seen()).toBeGreaterThanOrEqual(before);
-    expect(seen()).toBeLessThanOrEqual(37);
+    expect(seen()).toBeLessThanOrEqual(unitSlotsUsed({ razors: 37 }));
   });
 });
 

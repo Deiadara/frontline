@@ -22,7 +22,6 @@ import {
   formatDuration,
   hastenedMinutes,
   hastenedRoadMinutes,
-  isCombatUnit,
   missionCarry,
   fightCategory,
   leaderMark,
@@ -31,17 +30,14 @@ import {
   rampedTimings,
   ridingUnitSlots,
   standsInLine,
-  UNIT_RULE_IDS,
   RESOURCE_KG,
   carriedHome,
   creditStores,
   describeWaste,
   type Army,
   type MissionArea,
-  type UnitRuleId,
   type AttributeImportance,
   type AttributeName,
-  type LineRules,
   type MissionLeaning,
   type MissionLeader,
   type MissionOffer,
@@ -68,6 +64,7 @@ import { readColumn } from '../battle/column';
 import { UnitCard } from '../units/UnitCard';
 import { DifficultyStamp } from './DifficultyStamp';
 import { MissionGauge, type GaugeReading } from './MissionGauge';
+import { crewLineRules } from './missionLines';
 import { ErrorNote } from '../../components/ui/ErrorNote';
 
 /**
@@ -247,7 +244,7 @@ const LEADER_KIND_LABEL: Readonly<Record<MissionLeader['kind'], string>> = {
  * Why a name in the picker cannot be taken, and when it can be.
  *
  * The reason is the server's own (`held`), not a guess off the board: a leader can be held by a
- * run, a declared fight, a scouting party or a bed, and "out until they are back" said none of
+ * run, a declared fight, the bench or a bed, and "out until they are back" said none of
  * them and was wrong about a fight, which has no clock at all. Where the server knows the mark
  * (`heldUntil`) the row counts down to it, so a player deciding whether to wait can see how long
  * the wait is.
@@ -364,9 +361,13 @@ export interface MissionBoardProps {
    * server has answered.
    */
   refusal: { templateId: string; message: string } | null;
+  /**
+   * `card` is the offer as the player read it: the server launches exactly that card, named by
+   * its board key and grade, or refuses (maintainer, 2026-09-29).
+   */
   onLaunch: (
     areaId: string,
-    templateId: string,
+    card: Pick<MissionOffer, 'templateId' | 'boardKey' | 'grade'>,
     force: Army,
     leaderId: string,
     vehicles?: Fleet,
@@ -400,13 +401,13 @@ export function MissionBoard({
   if (areas.length === 0) {
     return (
       <p className="px-4 py-8 text-center font-display text-[11px] uppercase tracking-[0.2em] text-ink-300">
-        Nowhere is hiring. Scout something.
+        Nowhere is hiring. Take a place in a district and its board opens.
       </p>
     );
   }
 
   // Clamped rather than wrapped on the state itself: the list of open areas changes under this
-  // component whenever a district is scouted or taken, and an index left past the end would render
+  // component whenever a district is taken or lost, and an index left past the end would render
   // an empty board rather than the last one.
   const at = Math.min(index, areas.length - 1);
   const area = areas[at] as MissionArea;
@@ -536,7 +537,7 @@ export function MissionBoard({
           stores={stores}
           onClose={() => setSending(null)}
           onSend={(force, leaderId, vehicles) => {
-            onLaunch(area.id, sending.templateId, force, leaderId, vehicles);
+            onLaunch(area.id, sending, force, leaderId, vehicles);
             setSending(null);
           }}
         />
@@ -851,19 +852,7 @@ function SendDialog({
    * literals and the second one did not exist, which is how `carriers_fight` ended up labelled
    * "cannot fight" on the one screen that decides who goes.
    */
-  const lineRules: LineRules = {
-    carriersFight,
-    // Narrowed against the catalogue rather than asserted: the payload is a record of strings, and
-    // a mark this build has never heard of is one the arithmetic must not pretend to understand.
-    unitMarks: Object.fromEntries(
-      Object.entries(marks).map(([unitId, granted]) => [
-        unitId,
-        granted.filter((mark): mark is UnitRuleId =>
-          (UNIT_RULE_IDS as readonly string[]).includes(mark),
-        ),
-      ]),
-    ),
-  };
+  const lineRules = crewLineRules(carriersFight, marks);
   // With the crew's brackets, as the settle pays it (`missions/resolve.ts` passes the same map):
   // a Counterweight Harness on the Haulers was being quoted a smaller bag than the job paid.
   // ...and with the crew's own bag on top of them. `lootCapacityPercent` (the Pawn Shop, the raid
@@ -920,9 +909,12 @@ function SendDialog({
    * They arrive first and wait.
    */
   const column = readColumn(fleetOut, force, loadouts, anyRide, road.unitSpeedPercent);
-  const fighters = Object.entries(force).some(
-    ([unitId, count]) => count > 0 && isCombatUnit(unitId),
-  );
+  // The row's own question (`standsInLine`), so a porter the row says can fight counts here too:
+  // under `carriers_fight` a party of Haulers is a party that fights, and the launch agrees.
+  const fighters = Object.entries(force).some(([unitId, count]) => {
+    const unit = findUnit(unitId);
+    return count > 0 && unit !== undefined && standsInLine(unit, lineRules);
+  });
   const needsFighters = offer.kind === 'battle' && !fighters;
 
   const leader = free.find((one) => one.id === pickedId) ?? null;
@@ -937,7 +929,9 @@ function SendDialog({
           templateId: offer.templateId,
           grade: offer.grade,
           force,
-          vehicles: riding,
+          // The cleaned yard, not `riding`: a stepper taken back to nothing leaves a zero behind,
+          // `FleetSchema` refuses a zero, and the quote came back a 400 that read as "not rated".
+          vehicles: fleetOut,
         })
       : null;
   // One object per distinct body, so the effect below runs on a change of force and not on a

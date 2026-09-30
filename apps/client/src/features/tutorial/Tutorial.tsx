@@ -1,4 +1,11 @@
-import { TUTORIAL_STEPS, nextTutorialCard, tutorialFinished } from '@frontline/shared';
+import {
+  TUTORIAL_STEPS,
+  cityOfDistrict,
+  findCity,
+  nextTutorialCard,
+  tutorialFinished,
+  tutorialTitle,
+} from '@frontline/shared';
 import { useMarkTutorialSeen, useMe } from '../../lib/queries';
 import { TutorialCard } from './TutorialCard';
 
@@ -39,10 +46,12 @@ export function Tutorial({ screen }: { screen: string }) {
   if (!card) return null;
 
   const remaining = TUTORIAL_STEPS.filter((step) => !seen.includes(step)).length;
+  const home = me.data.base?.districtId;
+  const homeCity = home === undefined ? undefined : findCity(cityOfDistrict(home))?.name;
 
   return (
     <TutorialCard
-      card={card}
+      card={{ ...card, title: tutorialTitle(card, homeCity) }}
       remaining={remaining}
       pending={mark.isPending}
       onNext={() => mark.mutate({ steps: [card.step] })}

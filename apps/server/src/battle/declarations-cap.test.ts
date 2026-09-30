@@ -56,7 +56,7 @@ describe('how many fights may be called at once', () => {
     });
 
     /*
-     * Enough ground to call against: a scouted contested district with more locations than the
+     * Enough ground to call against: a contested district with more locations than the
      * cap, and a seam in it.
      *
      * The seam is the part the 2026-09-19 re-cut made load-bearing. Six of the eight contested
@@ -72,7 +72,6 @@ describe('how many fights may be called at once', () => {
         entry.locations.some((one) => startingHolder(one, entry).kind === 'unoccupied'),
     );
     if (!district) throw new Error('fixture: no open contested district wide enough');
-    app.repos.city.markScouted(base.id, district.id, new Date().toISOString());
     app.repos.bases.updateArmy(base.id, { razors: 40 }, []);
 
     const declare = (locationId: string) =>

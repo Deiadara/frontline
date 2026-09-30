@@ -21,13 +21,13 @@ import { IdSchema, IsoDateTimeSchema } from './primitives.js';
  * every structure standing on a plot and how far along it is; the Bar prints an Overseer's face,
  * name and bio to anybody in the room. Gathering it on one page publishes nothing new.
  *
- * What is **not** here is deliberate. The Overseer's attribute sheet is §F2 hidden information:
- * the whole scouting mechanic exists to make somebody's numbers hard to read, so a file that
- * printed them would be a free scout. The stockpile, the army, the officers and the research are
- * owner-only for the same reason and stay on `/me`.
+ * What is **not** here is deliberate. The Overseer's attribute sheet is §F2 hidden information,
+ * and somebody's numbers are exactly what a spy job is paid to read, so a file that printed them
+ * would be a free report. The stockpile, the army, the officers and the research are owner-only
+ * for the same reason and stay on `/me`.
  */
 
-/** One location this crew holds, on ground the reader has been to. */
+/** One location this crew holds. */
 export const ProfileHoldingSchema = z.object({
   locationId: z.string().min(1),
   name: z.string().min(1),
@@ -96,28 +96,12 @@ export const CrewProfileResponseSchema = z.object({
     districtId: IdSchema,
     /** The authored name of the ground. What the *crew* calls it is `crew.name`. */
     districtName: z.string().min(1),
-    /**
-     * Whether the reader has walked their street. The district screen shows what is standing on
-     * a plot only once it is scouted, and a file that showed it unscouted would be a free look at
-     * their Gate (§B7), so `buildings` is empty until this is true.
-     */
-    seen: z.boolean(),
-    /** What is standing on their plot, as a passer-by who has been there sees it. */
+    /** What is standing on their plot, as a passer-by sees it: the district screen shows the same. */
     buildings: z.array(z.object({ kind: BuildingKindSchema, level: z.number().int().min(1) })),
   }),
-  /**
-   * Locations they hold on ground the **reader** has scouted. The fog is enforced here for the
-   * same reason it is on the city read: a file listing a hold in a district you have never walked
-   * would be telling you what is in there.
-   */
+  /** Every location they hold, in every city: who holds what is on the map for anybody to read. */
   holdings: z.array(ProfileHoldingSchema),
-  /** How many more they hold behind the reader's fog. A count says "there is more" without saying where. */
-  hiddenHoldings: z.number().int().nonnegative(),
-  /**
-   * Districts they hold end to end, which is the §A4 unified bonus and a gate they may arm. Under
-   * the same fog as `holdings`: a whole district the reader has not scouted is in the hidden count
-   * and nowhere else, or the count would say "there is more" and this line would say where.
-   */
+  /** Districts they hold end to end, which is the §A4 unified bonus and a gate they may arm. */
   districtsHeldWhole: z.array(z.object({ districtId: IdSchema, name: z.string().min(1) })),
   serverNow: IsoDateTimeSchema,
 });

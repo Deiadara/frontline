@@ -51,7 +51,6 @@ export const NOTIFICATION_GROUP_LABELS: Record<NotificationGroup, string> = {
 export const NOTIFICATION_KINDS = [
   // Military
   'battle_report',
-  'battle_incoming',
   'reinforcement_arrived',
   'mission_home',
   // The district
@@ -74,7 +73,6 @@ export const NOTIFICATION_KINDS = [
   'faction_invite',
   'faction_joined',
   'faction_left',
-  'scout_home',
 ] as const;
 export const NotificationKindSchema = z.enum(NOTIFICATION_KINDS);
 export type NotificationKind = z.infer<typeof NotificationKindSchema>;
@@ -112,16 +110,10 @@ export const NOTIFICATION_KIND_SPECS: Readonly<Record<NotificationKind, Notifica
     icon: 'shield',
     alwaysOn: true,
   },
-  battle_incoming: {
-    group: 'military',
-    label: 'Fights you have called',
-    blurb: 'A mark you set is about to come up.',
-    icon: 'battles',
-  },
   reinforcement_arrived: {
     group: 'military',
     label: 'Reinforcements',
-    blurb: 'An ally has put units into a fight of yours, or you into one of theirs.',
+    blurb: 'An ally is sending units to a fight of yours.',
     icon: 'crew',
   },
   mission_home: {
@@ -157,7 +149,7 @@ export const NOTIFICATION_KIND_SPECS: Readonly<Record<NotificationKind, Notifica
   officer_hired: {
     group: 'crew',
     label: 'Hiring',
-    blurb: 'Somebody has signed, or walked.',
+    blurb: 'Somebody has signed with you at the Bar.',
     icon: 'bar',
   },
   bar_outbid: {
@@ -181,7 +173,7 @@ export const NOTIFICATION_KIND_SPECS: Readonly<Record<NotificationKind, Notifica
   faction_joined: {
     group: 'social',
     label: 'People joining',
-    blurb: 'Somebody new has come to your faction.',
+    blurb: 'Somebody new has come to your faction, or your own rank at it has changed.',
     icon: 'faction',
   },
   faction_left: {
@@ -214,22 +206,18 @@ export const NOTIFICATION_KIND_SPECS: Readonly<Record<NotificationKind, Notifica
     blurb: 'A blueprint page came into the inventory.',
     icon: 'research',
   },
-  scout_home: {
-    group: 'district',
-    label: 'Scouts returning',
-    blurb: 'Somebody you sent out has walked a district and come back with it.',
-    icon: 'eye',
-  },
   spy_report: {
     group: 'district',
     label: 'Spy reports',
-    blurb: 'A job you paid for has come back, with a report or without one.',
+    blurb:
+      "A job you paid for has come back, with a report or without one, or the courier's daily report is in.",
     icon: 'eye',
   },
   spied_on: {
     group: 'district',
     label: 'Spies on your ground',
-    blurb: 'Somebody has been looking at a place you hold. Your Consigliere noticed.',
+    blurb:
+      'Somebody has been looking at a place you hold: their runners were seen, or your Consigliere noticed.',
     icon: 'shield',
   },
 };

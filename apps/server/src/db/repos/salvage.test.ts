@@ -1,7 +1,10 @@
 import {
   ITEM_IDS,
   PERK_IDS,
+  RESEARCH_ITEMS,
   VEHICLE_IDS,
+  featMeasureKey,
+  findResearchItem,
   STARTING_RESOURCES,
   createCommander,
   emptyDeployment,
@@ -11,9 +14,22 @@ import {
   startingProgression,
   startingResearch,
   startingTraining,
+  UNIT_IDS,
+  type MarketOffer,
 } from '@frontline/shared';
 import { readFileSync } from 'node:fs';
 import { afterEach, describe, expect, it } from 'vitest';
+import { featSnapshot } from '../../feats/snapshot.js';
+import { settleMarketBoard } from '../../market/board.js';
+import {
+  auth,
+  closeWorlds,
+  declare,
+  holdPlot,
+  makeWorld,
+  register,
+  runTheFight,
+} from '../../testing/fight-world.js';
 import { openDatabase, runMigrations, type AppDatabase } from '../index.js';
 import { createRepositories, type Repositories } from './index.js';
 
@@ -413,5 +429,272 @@ describe('the machines the Garage no longer builds', () => {
       ).json,
     ];
     for (const json of stored) expect(JSON.parse(json)).toEqual({ [KEPT]: 1 });
+  });
+});
+
+/**
+ * The rows no repair reached (bug pass, 2026-09-29).
+ *
+ * Every column above drops a retired id on the way out of the database. These did not, and they
+ * failed worse than a base does: `moves.due` and `sleepers.due` parse every row on the clock before
+ * settling any, so one retired unit in one crew's column stopped every crew's columns and cells
+ * from landing, and the same row answered 500 on six of its owner's screens. A spy report and a
+ * market claim are kept after the thing they name has gone, and a claim that did not parse was
+ * neither shown nor paid.
+ */
+describe('a retired id in the rows that were never swept', () => {
+  const UNIT = 'razors';
+  const VEHICLE = VEHICLE_IDS[0] as string;
+  const ITEM = ITEM_IDS[0] as string;
+  const NOW = new Date('2026-09-29T12:00:00.000Z');
+  const EARLIER = '2026-09-29T11:00:00.000Z';
+
+  function stackWithCrew(): { repos: Repositories; db: AppDatabase } {
+    const stack = openStack();
+    stack.repos.users.insert({
+      id: 'user-1',
+      username: 'Keeper',
+      passwordHash: 'x',
+      createdAt: EARLIER,
+    });
+    seedBase(stack.repos, []);
+    return stack;
+  }
+
+  it('is not in any catalogue, and the unit kept beside it is', () => {
+    expect(UNIT_IDS).not.toContain(RETIRED);
+    expect(UNIT_IDS).toContain(UNIT);
+  });
+
+  it('drops out of a column on the road, so the clock still lands every column', () => {
+    const { repos, db } = stackWithCrew();
+    repos.moves.insert({
+      id: 'move-1',
+      baseId: 'base-1',
+      from: { kind: 'district' },
+      to: { kind: 'gate' },
+      army: { [UNIT]: 2 },
+      vehicles: { [VEHICLE]: 1 },
+      departedAt: EARLIER,
+      arrivesAt: EARLIER,
+      travelMinutes: 10,
+      recalledAt: null,
+    });
+    db.prepare('UPDATE unit_moves SET army_json = ?, vehicles_json = ? WHERE id = ?').run(
+      JSON.stringify({ [UNIT]: 2, [RETIRED]: 3 }),
+      JSON.stringify({ [VEHICLE]: 1, [RETIRED]: 1 }),
+      'move-1',
+    );
+
+    const [due] = repos.moves.due(NOW.toISOString());
+    expect(due?.army).toEqual({ [UNIT]: 2 });
+    expect(due?.vehicles).toEqual({ [VEHICLE]: 1 });
+    expect(repos.moves.activeFor('base-1')).toHaveLength(1);
+  });
+
+  it('drops out of a posting on an ally’s ground', () => {
+    const { repos, db } = stackWithCrew();
+    repos.alliedGarrisons.set('steelbelt-ramp', 'base-1', { [UNIT]: 4 });
+    db.prepare('UPDATE allied_garrisons SET army_json = ?').run(
+      JSON.stringify({ [UNIT]: 4, [RETIRED]: 2 }),
+    );
+    expect(repos.alliedGarrisons.at('steelbelt-ramp')).toEqual([
+      { baseId: 'base-1', army: { [UNIT]: 4 } },
+    ]);
+  });
+
+  it('drops out of a sleeper cell, so the clock still lands every cell', () => {
+    const { repos, db } = stackWithCrew();
+    repos.sleepers.insert({
+      id: 'cell-1',
+      baseId: 'base-1',
+      locationId: 'steelbelt-ramp',
+      army: { [UNIT]: 1 },
+      phase: 'outbound',
+      departedAt: EARLIER,
+      arrivesAt: EARLIER,
+      travelMs: 60_000,
+    });
+    db.prepare('UPDATE sleeper_cells SET army_json = ? WHERE id = ?').run(
+      JSON.stringify({ [UNIT]: 1, [RETIRED]: 5 }),
+      'cell-1',
+    );
+    expect(repos.sleepers.due(NOW.toISOString()).map((cell) => cell.army)).toEqual([{ [UNIT]: 1 }]);
+  });
+
+  it('drops out of a spy report, which is kept for ever', () => {
+    const { repos, db } = stackWithCrew();
+    repos.spying.insertReport({
+      id: 'report-1',
+      baseId: 'base-1',
+      target: { kind: 'location', locationId: 'steelbelt-ramp' },
+      districtId: 'steelbelt',
+      districtName: 'The Steelbelt',
+      placeName: 'The Ramp',
+      holder: { kind: 'government', name: 'The Combine', player: null, faction: null },
+      tier: 'loose_ears',
+      capsPaid: 100,
+      writtenAt: EARLIER,
+      failed: false,
+      exposed: { [UNIT]: 6 },
+      exposedSlots: 6,
+      unitsShown: true,
+      totalSlots: null,
+      foundOut: false,
+      accuracy: null,
+      unseen: null,
+      accuracyShown: false,
+    });
+    db.prepare('UPDATE spy_reports SET exposed_json = ? WHERE id = ?').run(
+      JSON.stringify({ [UNIT]: 6, [RETIRED]: 2 }),
+      'report-1',
+    );
+    expect(repos.spying.reportsFor('base-1', 10).map((report) => report.exposed)).toEqual([
+      { [UNIT]: 6 },
+    ]);
+  });
+
+  function listing(id: string, status: MarketOffer['status']): MarketOffer {
+    return {
+      id,
+      sellerBaseId: 'base-1',
+      sellerName: 'The Ninth Street Crew',
+      give: { resources: { oil: 5 }, items: { [ITEM]: 1 } },
+      want: { resources: { planks: 5 }, items: { [ITEM]: 1 } },
+      status,
+      createdAt: EARLIER,
+      counterTo: null,
+      directedAt: null,
+      cityId: 'ashfall',
+    };
+  }
+
+  it('drops out of a claim, and the claim is shown and paid rather than lost', () => {
+    const { repos, db } = stackWithCrew();
+    const offer = listing('offer-1', 'accepted');
+    repos.market.insert(offer);
+    repos.market.insertClaim({
+      id: 'claim-1',
+      baseId: 'base-1',
+      offer,
+      reason: 'taken',
+      goods: { resources: { oil: 5 }, items: { [ITEM]: 1 } },
+      takenBy: 'somebody',
+      createdAt: EARLIER,
+      claimUntil: EARLIER,
+    });
+    const retired = JSON.stringify({ [ITEM]: 1, [RETIRED]: 2 });
+    db.prepare('UPDATE market_claims SET items_json = ?').run(retired);
+    db.prepare(
+      `UPDATE market_offers SET give_json = json_set(give_json, '$.items', json(?)),
+         want_json = json_set(want_json, '$.items', json(?))`,
+    ).run(retired, retired);
+
+    const [shown] = repos.market.claimsFor('base-1');
+    expect(shown?.goods.items).toEqual({ [ITEM]: 1 });
+    expect(shown?.offer.want.items).toEqual({ [ITEM]: 1 });
+
+    const oil = repos.bases.findById('base-1')!.resources.oil;
+    expect(settleMarketBoard(repos, NOW)).toBe(1);
+    expect(repos.market.findClaim('claim-1')).toBeUndefined();
+    expect(repos.bases.findById('base-1')!.resources.oil).toBe(oil + 5);
+  });
+
+  it('drops out of what an open listing gives and asks for, and it is on the board again', () => {
+    const { repos, db } = stackWithCrew();
+    repos.market.insert(listing('offer-2', 'open'));
+    const retired = JSON.stringify({ [ITEM]: 1, [RETIRED]: 2 });
+    db.prepare(
+      `UPDATE market_offers SET give_json = json_set(give_json, '$.items', json(?)),
+         want_json = json_set(want_json, '$.items', json(?))`,
+    ).run(retired, retired);
+    const [open] = repos.market.listByStatus('open');
+    expect(open?.give.items).toEqual({ [ITEM]: 1 });
+    expect(open?.want.items).toEqual({ [ITEM]: 1 });
+  });
+});
+
+describe('a finished fight whose row this build cannot read', () => {
+  afterEach(closeWorlds);
+
+  it('is left off the crew profile rather than taking it down for everybody', async () => {
+    const world = await makeWorld('defender');
+    const caller = await register(world, 'caller', { razors: 3 });
+    const holder = await register(world, 'holder');
+    holdPlot(world, holder, { razors: 1 });
+    runTheFight(world, await declare(world, caller));
+    runTheFight(world, await declare(world, caller));
+    expect(world.app.repos.sieges.resolvedFor(caller.baseId, 10)).toHaveLength(2);
+
+    // A holder kind this build does not have, on the older of the two.
+    world.db
+      .prepare(
+        `UPDATE scheduled_battles SET defender_json = '{"kind":"retired_holder"}'
+         WHERE id = (SELECT id FROM scheduled_battles ORDER BY resolved_at LIMIT 1)`,
+      )
+      .run();
+
+    expect(world.app.repos.sieges.resolvedFor(caller.baseId, 10)).toHaveLength(1);
+    const profile = await world.app.inject({
+      method: 'GET',
+      url: `/api/crews/${caller.baseId}`,
+      headers: auth(holder.token),
+    });
+    expect(profile.statusCode, profile.body).toBe(200);
+  });
+});
+
+/**
+ * The maintainer's ruling, 2026-09-29: a renamed or retired research rung is gone for good.
+ *
+ * Commit `ab3b2c5` renamed or removed nine rungs without a migration. No mapping and no refund: the
+ * dead id is dropped on read, so it counts toward nothing, and the crew simply lacks the rung.
+ */
+describe('a research rung the catalogue no longer carries', () => {
+  const DEAD = ['tech_standing_signals', 'tech_loading_drill', 'tech_fence_network'];
+  const LIVE = [RESEARCH_ITEMS[0]!.id, RESEARCH_ITEMS[1]!.id];
+  const writeResearch = (db: AppDatabase, base: string, research: unknown) =>
+    db
+      .prepare('UPDATE bases SET research_json = ? WHERE id = ?')
+      .run(JSON.stringify(research), base);
+  const activeOn = (techId: string) => ({
+    id: 'research-1',
+    project: { kind: 'technology', techId },
+    startedAt: new Date().toISOString(),
+    durationMinutes: 60,
+    paid: {},
+  });
+  const seeded = () => {
+    const { repos, db } = openStack();
+    repos.users.insert({
+      id: 'user-1',
+      username: 'Keeper',
+      passwordHash: 'x',
+      createdAt: new Date().toISOString(),
+    });
+    return { repos, db, base: seedBase(repos, []) };
+  };
+
+  it('names ids that really are gone, beside ones that are not', () => {
+    for (const id of DEAD) expect(findResearchItem(id), id).toBeUndefined();
+    for (const id of LIVE) expect(findResearchItem(id), id).toBeDefined();
+  });
+
+  it('drops off the finished list, and research_done counts only the rungs that exist', () => {
+    const { repos, db, base } = seeded();
+    writeResearch(db, base, { active: null, technologies: [LIVE[0], ...DEAD, LIVE[1]] });
+
+    const read = repos.bases.findById(base)!;
+    expect(read.research.technologies).toEqual(LIVE);
+    expect(featSnapshot(repos, read)[featMeasureKey('research_done')]).toBe(LIVE.length);
+  });
+
+  it('takes a project on a dead rung off the bench, and leaves a live one running', () => {
+    const { repos, db, base } = seeded();
+    writeResearch(db, base, { active: activeOn(DEAD[0]!), technologies: [] });
+    expect(repos.bases.findById(base)!.research.active).toBeNull();
+
+    writeResearch(db, base, { active: activeOn(LIVE[0]!), technologies: [] });
+    expect(repos.bases.findById(base)!.research.active?.project.techId).toBe(LIVE[0]);
   });
 });

@@ -1,7 +1,7 @@
 import { MAX_FACTION_MEMBERS, canInvite, type FactionResponse } from '@frontline/shared';
 import { useState } from 'react';
 import { Button } from '../../components/ui/Button';
-import { LoadFailure } from '../../components/ui/LoadFailure';
+import { ScreenLoad } from '../../components/ui/LoadFailure';
 import { Modal } from '../../components/ui/Modal';
 import {
   useDisbandFaction,
@@ -82,13 +82,18 @@ export function FactionPage() {
    * A failure is said out loud rather than rendered as a blank sheet.
    *
    * `return null` here drew *nothing at all* on a failed read: no heading, no text, no way to tell
-   * a broken request from an empty inbox. See `LoadFailure` for the bug that taught us.
+   * a broken request from an empty inbox. See `LoadFailure` for the bug that taught us. The read
+   * still in flight got the same blank sheet until 2026-09-29, so it says so too.
    */
   if (!data) {
-    if (!query.isError) return null;
     return (
       <PageShell title="Factions" wide>
-        <LoadFailure what="Your faction" onRetry={() => void query.refetch()} />
+        <ScreenLoad
+          what="Your faction"
+          loading="Finding the table…"
+          isError={query.isError}
+          onRetry={() => void query.refetch()}
+        />
       </PageShell>
     );
   }

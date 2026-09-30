@@ -47,6 +47,12 @@ interface DeclareDialogProps {
   onClose: () => void;
   /** Winners hold what they take (maintainer, 2026-09-28): the mark is the only choice. */
   onConfirm: (scheduledFor: string) => void;
+  /**
+   * Read the door before calling a fight at it (maintainer, 2026-09-29): a third button, beside
+   * Call it, that swaps this window for the spy one. Given only where the gate can be spied, so
+   * the button is never a door the route turns away.
+   */
+  onSpy?: (() => void) | undefined;
 }
 
 const dayLabel = (iso: string): string =>
@@ -65,6 +71,7 @@ export function DeclareDialog({
   error,
   onClose,
   onConfirm,
+  onSpy,
 }: DeclareDialogProps) {
   const [picked, setPicked] = useState<string | null>(null);
   // The marks inside the breach, for a call that is only legal through one (`throughBreach` in
@@ -213,10 +220,14 @@ export function DeclareDialog({
         )}
       </div>
 
-      <footer className="flex shrink-0 items-center justify-end gap-3 border-t border-surface-700 px-5 py-4">
+      <footer className="flex shrink-0 items-center gap-3 border-t border-surface-700 px-5 py-4">
+        {/* Cancel on the far left, away from the two that do something (maintainer, 2026-09-29). */}
+        <Button variant="ghost" size="sm" onClick={onClose} data-testid="declare-cancel">
+          Cancel
+        </Button>
         {/* Why it cannot go, on the button row and to its left (maintainer, 2026-09-25). */}
         {((charged && !affordable) || (error !== null && error !== undefined)) && (
-          <div className="mr-auto flex min-w-0 flex-col gap-1.5">
+          <div className="flex min-w-0 flex-1 flex-col gap-1.5">
             {charged && !affordable && (
               <ErrorNote data-testid="declare-unaffordable">
                 {DECLARE_UNAFFORDABLE_MESSAGE}
@@ -229,21 +240,25 @@ export function DeclareDialog({
             )}
           </div>
         )}
-        <Button variant="ghost" size="sm" onClick={onClose}>
-          Cancel
-        </Button>
-        <Button
-          size="sm"
-          variant="danger"
-          disabled={chosen === null || pending || !affordable}
-          data-testid="declare-confirm"
-          // Not the confirm every other primary button gets. Calling a fight is the loudest thing
-          // a player does in this game: everybody in the city sees it, and it cannot be taken back.
-          data-sound="call"
-          onClick={() => chosen && affordable && onConfirm(chosen)}
-        >
-          {pending ? 'Working…' : 'Call it'}
-        </Button>
+        <div className="ml-auto flex shrink-0 items-center gap-3">
+          {onSpy && (
+            <Button variant="ghost" size="sm" onClick={onSpy} data-testid="declare-spy">
+              Spy
+            </Button>
+          )}
+          <Button
+            size="sm"
+            variant="danger"
+            disabled={chosen === null || pending || !affordable}
+            data-testid="declare-confirm"
+            // Not the confirm every other primary button gets. Calling a fight is the loudest thing
+            // a player does in this game: everybody in the city sees it, and it cannot be taken back.
+            data-sound="call"
+            onClick={() => chosen && affordable && onConfirm(chosen)}
+          >
+            {pending ? 'Working…' : 'Call it'}
+          </Button>
+        </div>
       </footer>
     </Modal>
   );

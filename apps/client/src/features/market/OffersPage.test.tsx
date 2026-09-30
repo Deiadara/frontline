@@ -1,5 +1,6 @@
 import {
   DEFAULT_CITY_ID,
+  NO_TRADER_TEXT,
   RESOURCE_KEYS,
   STORAGE_SHARES,
   supplyBoard,
@@ -62,6 +63,7 @@ const market: MarketResponse = {
       status: 'open',
       counterTo: null,
       directedAt: null,
+      cityId: 'ashfall',
       createdAt: NOW,
     },
   ],
@@ -71,6 +73,7 @@ const market: MarketResponse = {
     Math.round(10_000 * (STORAGE_SHARES[key] ?? 0)),
   ),
   barterRate: 0.5,
+  marketDiscountPercent: 0,
 };
 
 const fetchMock = vi.fn();
@@ -190,6 +193,40 @@ describe('a half-written listing', () => {
   });
 });
 
+/**
+ * "Need the officer seated" (maintainer, 2026-09-29): with nobody fit in the Trader's chair the
+ * server refuses a post, a counter and an accept, so the page says why and greys those three
+ * before they are pressed. Withdraw stays live: what is already up is still yours to take back.
+ */
+describe('with no Trader at work', () => {
+  beforeEach(() => {
+    fetchMock.mockImplementation((path: string) => {
+      if (path.endsWith('/market'))
+        return reply({
+          ...market,
+          traderAtWork: false,
+          mine: [{ ...market.offers[0], id: 'offer-mine' }],
+        });
+      throw new Error(`unstubbed request: ${path}`);
+    });
+  });
+
+  it('says why, and shuts every new deal while leaving a standing one to withdraw', async () => {
+    renderOffers();
+    expect(await screen.findByTestId('offers-shut')).toHaveTextContent(NO_TRADER_TEXT);
+    expect(screen.getByRole('button', { name: 'Accept' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Counter' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Withdraw' })).toBeEnabled();
+
+    // A form that gives and asks, which the test above shows is otherwise live.
+    fireEvent.click(screen.getByTestId('offer-give-oil'));
+    fireEvent.change(screen.getByTestId('offer-give-amount-oil'), { target: { value: '400' } });
+    fireEvent.click(screen.getByTestId('offer-want-scrap'));
+    fireEvent.change(screen.getByTestId('offer-want-amount-scrap'), { target: { value: '400' } });
+    expect(screen.getByRole('button', { name: 'Post it' })).toBeDisabled();
+  });
+});
+
 describe('after a listing is posted', () => {
   it('empties the composer rather than leaving a second press armed', async () => {
     fetchMock.mockImplementation((path: string) => {
@@ -219,6 +256,54 @@ describe('after a listing is posted', () => {
     );
     expect(screen.getByTestId('offer-want-scrap')).toHaveAttribute('aria-pressed', 'false');
     expect(screen.getByRole('button', { name: 'Post it' })).toBeDisabled();
+  });
+});
+
+/**
+ * Each city has its own board (maintainer, 2026-09-29). A listing goes up on the tab it was posted
+ * from, and a crew's own listings are all listed wherever they stand, so Withdraw can reach one in
+ * another city; that card says which board it is on.
+ */
+describe('a board of one city', () => {
+  const terminus = {
+    ...market,
+    cityId: 'terminus',
+    cities: ['ashfall', 'terminus'],
+    offers: [],
+    mine: [
+      { ...market.offers[0], id: 'mine-here', cityId: 'terminus' },
+      { ...market.offers[0], id: 'mine-there', cityId: 'ashfall' },
+    ],
+  };
+
+  it('posts on the city on screen and names the board a listing elsewhere is on', async () => {
+    fetchMock.mockImplementation((path: string) => {
+      if (path.endsWith('/market/offer')) return reply({ market: terminus });
+      if (path.includes('/market')) return reply(terminus);
+      throw new Error(`unstubbed request: ${path}`);
+    });
+    renderOffers();
+    await screen.findByTestId('offer-mine-there');
+
+    expect(screen.getByTestId('offer-city-mine-there')).toHaveTextContent('On the Ashfall board');
+    expect(screen.queryByTestId('offer-city-mine-here')).toBeNull();
+
+    fireEvent.click(screen.getByTestId('offer-give-oil'));
+    fireEvent.change(screen.getByTestId('offer-give-amount-oil'), { target: { value: '400' } });
+    fireEvent.click(screen.getByTestId('offer-want-scrap'));
+    fireEvent.change(screen.getByTestId('offer-want-amount-scrap'), { target: { value: '400' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Post it' }));
+
+    await waitFor(() =>
+      expect(fetchMock.mock.calls.some(([path]) => String(path).endsWith('/market/offer'))).toBe(
+        true,
+      ),
+    );
+    const post = fetchMock.mock.calls.find(([path]) => String(path).endsWith('/market/offer'));
+    if (!post) throw new Error('no offer was posted');
+    expect(JSON.parse((post[1] as RequestInit).body as string)).toMatchObject({
+      cityId: 'terminus',
+    });
   });
 });
 
@@ -284,6 +369,7 @@ describe('goods waiting on the board', () => {
       status: 'accepted',
       counterTo: null,
       directedAt: null,
+      cityId: 'ashfall',
       createdAt: NOW,
     },
     reason: 'taken',
@@ -313,5 +399,26 @@ describe('goods waiting on the board', () => {
 
     fireEvent.click(screen.getByTestId('claim-claim-1'));
     await waitFor(() => expect(screen.queryByTestId('market-claim-claim-1')).toBeNull());
+  });
+
+  // Bug pass, 2026-09-29: a listing closed because a reply further down its chain was taken.
+  it('says a deal on a counter closed a listing, rather than that it was countered', async () => {
+    const closed: MarketResponse['claims'][number] = {
+      ...held,
+      id: 'claim-2',
+      offer: { ...held.offer, status: 'withdrawn' },
+      reason: 'closed',
+      goods: held.offer.give,
+      takenBy: null,
+    };
+    fetchMock.mockImplementation((path: string) => {
+      if (path.endsWith('/market')) return reply({ ...market, claims: [closed] });
+      throw new Error(`unstubbed request: ${path}`);
+    });
+    renderOffers();
+
+    const card = await screen.findByTestId('market-claim-claim-2');
+    expect(card).toHaveTextContent('A deal on a counter closed it');
+    expect(card).toHaveTextContent('Back to you');
   });
 });

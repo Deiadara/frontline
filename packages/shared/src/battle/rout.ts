@@ -1,6 +1,7 @@
+import { COMBINE_LEADERS } from '../city/combine.js';
 import type { Army } from '../units/index.js';
 import { luckyFleeChance } from './luck.js';
-import type { SideState, Stack } from './engine.js';
+import type { SideState, Simulation, Stack } from './engine.js';
 
 /**
  * Who gets away (GDD §A4).
@@ -80,6 +81,28 @@ export interface FleeContext {
   away: boolean;
 }
 
+/**
+ * A side as the settle sees it: without the units that changed sides under Directive Xero
+ * (`Stack.turncoat`). They are neither side's to rout nor to recover.
+ */
+export function loyalSide(side: SideState): SideState {
+  return { ...side, stacks: side.stacks.filter((stack) => stack.turncoat !== true) };
+}
+
+/**
+ * What the loser of a finished fight has to get away from: the settle's reading and the forecast's,
+ * from one place, so the screen's "walk out" figure is rolled on the chance the rout will use.
+ */
+export function routContextOf(simulation: Simulation): FleeContext {
+  const attackerWon = simulation.winner === 'attacker';
+  return {
+    pursuit: pursuitSpeed(loyalSide(attackerWon ? simulation.attacker : simulation.defender)),
+    lastRound: simulation.rounds.length,
+    away: !attackerWon,
+    luck: (attackerWon ? simulation.defender : simulation.attacker).luck,
+  };
+}
+
 export function fleeChance(stack: Stack, context: FleeContext): number {
   const speedEdge = clamp((stack.effective.speed - context.pursuit) / 100, -1, 1);
   const stealth = stack.effective.stealth / 100;
@@ -96,6 +119,21 @@ export function fleeChance(stack: Stack, context: FleeContext): number {
     MIN_FLEE_CHANCE,
     MAX_FLEE_CHANCE,
   );
+}
+
+/** The unit ids that never leave their plot: the Combine's three legendaries. */
+const STANDS_AND_DIES: ReadonlySet<string> = new Set(
+  COMBINE_LEADERS.map((leader) => leader.unitId),
+);
+
+/**
+ * The chance each standing body of this losing stack gets away: {@link fleeChance}, except that a
+ * Combine legendary does not run (bug pass, 2026-09-29): he stands on one plot and nowhere else,
+ * and the plot falling is his death (`city/combine.ts`). A leader in `fled` was gone from the
+ * world with no kill on anybody's ledger.
+ */
+export function escapeChance(stack: Stack, context: FleeContext): number {
+  return STANDS_AND_DIES.has(stack.unit.id) ? 0 : fleeChance(stack, context);
 }
 
 /**
@@ -127,7 +165,9 @@ export function routSurvivors(
     const dead = stack.started - stack.alive;
     if (dead > 0) killed[stack.unit.id] = (killed[stack.unit.id] ?? 0) + dead;
 
-    const chance = fleeChance(stack, context);
+    // A Combine legendary's draws are still taken at a chance of zero (`escapeChance`), so every
+    // other roll in the rout lands where it always did.
+    const chance = escapeChance(stack, context);
     let ran = 0;
     for (let i = 0; i < stack.alive; i += 1) if (next() < chance) ran += 1;
     if (ran > 0) fled[stack.unit.id] = (fled[stack.unit.id] ?? 0) + ran;

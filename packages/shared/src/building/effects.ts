@@ -53,6 +53,9 @@ const REDUCTIONS: readonly ModificationEffect[] = [
  *
  * A retired id is the ordinary state of a live save, so it is skipped rather than thrown on: this
  * sits on every read path in the game.
+ *
+ * Not filtered by level: a card stays bolted in and keeps paying when the structure loses a level
+ * and its bracket closes (maintainer, 2026-09-29).
  */
 export function fittedIn(building: Building): ModificationSpec[] {
   return building.modifications.flatMap((id) => {

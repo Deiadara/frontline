@@ -11,6 +11,7 @@ import {
   recallWindowMs,
   storeCeilings,
   type LevelUp,
+  type LineRules,
   type Mission,
   type MissionLeader,
   type MissionPhase,
@@ -39,7 +40,7 @@ import { MissionBoard } from './MissionBoard';
 import { boardIsAutomated } from '@frontline/shared';
 import { MissionReportWindow } from './MissionReportWindow';
 import { landedOf } from './WastedAtTheGate';
-import { ledBy } from './missionLines';
+import { crewLineRules, ledBy } from './missionLines';
 import { useServerClock } from './useServerClock';
 import { PageShell } from '../game/PageShell';
 import { CityPicker } from '../city/CityPicker';
@@ -227,10 +228,15 @@ function ReturnedRow({
   mission,
   leaders,
   overseerName,
+  bagPercent,
+  rules,
 }: {
   mission: Mission;
   leaders: readonly MissionLeader[];
   overseerName: string;
+  /** The crew's own bag and line rules, which the settle carried with: see the report window. */
+  bagPercent: number;
+  rules: LineRules;
 }) {
   // The crew's brackets, for the bag the report says the crew could lift; the settle read the
   // same map, so the two agree unless a card has moved since.
@@ -313,6 +319,8 @@ function ReturnedRow({
           leaders={leaders}
           overseerName={overseerName}
           loadouts={me.data?.base?.unitLoadouts ?? {}}
+          bagPercent={bagPercent}
+          rules={rules}
           onClose={() => setOpen(false)}
         />
       )}
@@ -441,6 +449,12 @@ export function MissionsPage() {
   const active = missions.filter((mission) => mission.status === 'active');
   const returned = recentlyReturned(missions);
   const limit = data?.activeLimit ?? 0;
+  /*
+   * What the two side panels say before there is a board to count from. "Every crew is home" and
+   * "No crew has come back yet" are both real answers, so a failed read must not give them: the
+   * board beside these carries the failure and its Try again, and these only decline to guess.
+   */
+  const unread = missionsQuery.isError ? 'Not known until the board loads' : 'Reading the board…';
   const atCapacity = limit > 0 && active.length >= limit;
   // §C2b: any standing order on, and the board is the Right Hand's. The server refuses a launch
   // too; the screen says so before anybody presses anything.
@@ -473,16 +487,20 @@ export function MissionsPage() {
           In flight panel's head: the same number a second time on one screen, and this is the
           line that is meant to carry it. */}
       <div className="flex shrink-0 flex-wrap items-center gap-3">
-        <span className="font-display text-[12px] uppercase tracking-[0.18em] text-ink-300">
-          <span className="tabular-nums text-ink-200">{active.length}</span>
-          {limit > 0 ? (
-            <>
-              {' '}
-              of <span className="tabular-nums text-ink-200">{limit}</span>
-            </>
-          ) : null}{' '}
-          crews out
-        </span>
+        {/* Only off a board that was read: "0 crews out" is a real answer, and it is the one a
+            failed or slow read would otherwise give. */}
+        {data !== undefined && (
+          <span className="font-display text-[12px] uppercase tracking-[0.18em] text-ink-300">
+            <span className="tabular-nums text-ink-200">{active.length}</span>
+            {limit > 0 ? (
+              <>
+                {' '}
+                of <span className="tabular-nums text-ink-200">{limit}</span>
+              </>
+            ) : null}{' '}
+            crews out
+          </span>
+        )}
         <span aria-hidden className="ink-rule block min-w-0 flex-1" />
       </div>
 
@@ -532,8 +550,8 @@ export function MissionsPage() {
               tone="paper"
               className="flex flex-col xl:max-h-[50%] xl:shrink-0"
             >
-              {missionsQuery.isLoading ? (
-                <EmptyRow text="Reading the board…" />
+              {data === undefined ? (
+                <EmptyRow text={unread} />
               ) : landing.length === 0 ? (
                 <EmptyRow text="Every crew is home" />
               ) : (
@@ -569,7 +587,9 @@ export function MissionsPage() {
               // (`painted`) belongs to the brass tone this no longer wears.
               data-testid="crews-returned-panel"
             >
-              {returned.length === 0 ? (
+              {data === undefined ? (
+                <EmptyRow text={unread} />
+              ) : returned.length === 0 ? (
                 <EmptyRow text="No crew has come back yet" />
               ) : (
                 <ul
@@ -585,6 +605,11 @@ export function MissionsPage() {
                       mission={mission}
                       leaders={leaders}
                       overseerName={overseerName}
+                      bagPercent={standing.data?.haulPercent ?? 0}
+                      rules={crewLineRules(
+                        roster.data?.carriersFight ?? false,
+                        standing.data?.marks ?? {},
+                      )}
                     />
                   ))}
                 </ul>
@@ -616,8 +641,8 @@ export function MissionsPage() {
                 <EmptyRow text="Reading the board…" />
               ) : data === undefined ? (
                 /* A failed read used to fall through every `?? []` and print `MissionBoard`'s empty
-             state, "Nowhere is hiring. Scout something.": a sentence about the game world in
-             answer to a broken request. The roster beside it already modelled three states. */
+             state, "Nowhere is hiring": a sentence about the game world in answer to a broken
+             request. The roster beside it already modelled three states. */
                 <LoadFailure
                   what="The board"
                   onRetry={() => void missionsQuery.refetch()}
@@ -651,11 +676,13 @@ export function MissionsPage() {
                       ? { templateId: launch.variables.templateId, message: launch.error.message }
                       : null
                   }
-                  onLaunch={(areaId, templateId, force, leaderId, vehicles) =>
+                  onLaunch={(areaId, card, force, leaderId, vehicles) =>
                     launch.mutate(
                       {
                         areaId,
-                        templateId,
+                        templateId: card.templateId,
+                        boardKey: card.boardKey,
+                        grade: card.grade,
                         force,
                         vehicles: vehicles ?? {},
                         leaderId,

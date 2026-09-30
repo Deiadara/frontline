@@ -11,6 +11,7 @@ import {
 } from '../crew/marks.js';
 import { OFFICER_ROLES, OFFICER_ROLE_LABELS, type OfficerRole } from '../roles.js';
 import type { PartialResources } from '../resources.js';
+import { ATTRIBUTE_LABELS, type AttributeName } from '../attributes.js';
 
 /**
  * Research, as eighteen tracks (maintainer brief 2026-09-03, §C).
@@ -102,7 +103,7 @@ export function requiredHeadMark(step: number): OfficerMark | null {
  *
  * Any bonus a perk or a piece of ground can pay ({@link PerkBonus}: every channel the crew fold
  * already reads, a tier or one unit's own stats, flat points on every officer in a group, a
- * resource an hour, vision, syringes, training sessions), plus three grants no perk makes: another
+ * resource an hour, syringes, training sessions), plus three grants no perk makes: another
  * crew out on a job at once, another chair at the Bar, another fight called at once. A rung is
  * folded into the same struct territory, crew attributes and the Garage all write into, so a
  * finished rung is wired into every consumer that already reads those effects with no new
@@ -130,6 +131,17 @@ export type ResearchBonus =
   | { kind: 'battle_boosts'; flat: number }
   /** Another bench on the training floor: one more person drilling at the same time. */
   | { kind: 'training_benches'; flat: number }
+  /** Another spy job out at the same time (Two Sets of Eyes, maintainer 2026-09-28). */
+  | { kind: 'spy_parties'; flat: number }
+  /**
+   * The track's own officer teaching every other officer seated and working, attribute by
+   * attribute (Shared Knowledge, maintainer 2026-09-28).
+   *
+   * Filed under the track's role like `LeaderBonus` and for the same reason: it pays only while
+   * somebody is working that chair, and the bonus on its own does not say which chair that is.
+   * Never on the teacher's own sheet, and never on the bench, which is in no fold.
+   */
+  | { kind: 'chair_teaches'; attributes: Partial<Record<AttributeName, number>> }
   /**
    * The units the Infirmary brought back carry their share of the haul home.
    *
@@ -148,10 +160,16 @@ export type ResearchBonus =
    */
   | LeaderBonus;
 
-export interface ResearchPayout {
-  bonus: ResearchBonus;
-  unlocks?: string;
-}
+/**
+ * A bonus, a door, or both.
+ *
+ * A rung with no bonus at all is a rule the server reads by the rung's id: the Master of Whispers'
+ * track is mostly that since the maintainer took the percentages off it (2026-09-28), because what
+ * a spy chair's research buys is what a report says and who hears about it, and neither is a
+ * channel on the crew fold.
+ */
+export type ResearchPayout =
+  { bonus: ResearchBonus; unlocks?: string } | { bonus?: undefined; unlocks: string };
 
 /**
  * The kinds of payout, and which bonus is which (§C4a, widened by the board on 2026-09-04).
@@ -197,7 +215,6 @@ const KIND_FAMILY: Readonly<Record<ResearchBonus['kind'], PayoutFamily>> = {
   production: 'yield',
   storage_capacity: 'yield',
   loot_capacity: 'yield',
-  recruit_pool: 'yield',
   resource: 'yield',
   resource_yield: 'yield',
   mission_spoils: 'yield',
@@ -234,7 +251,6 @@ const KIND_FAMILY: Readonly<Record<ResearchBonus['kind'], PayoutFamily>> = {
 
   travel_speed: 'travel',
   mission_speed: 'travel',
-  vision: 'travel',
 
   officer_group: 'people',
   officer_attribute: 'people',
@@ -246,6 +262,8 @@ const KIND_FAMILY: Readonly<Record<ResearchBonus['kind'], PayoutFamily>> = {
   declarations: 'command',
   battle_boosts: 'command',
   training_benches: 'command',
+  spy_parties: 'command',
+  chair_teaches: 'people',
 
   // The 2026-09-09 rules. Filed by what they change rather than by being new: a road is `travel`
   // whether it is bought in minutes or in percent, and a mark on a sheet is `battle`.
@@ -255,7 +273,6 @@ const KIND_FAMILY: Readonly<Record<ResearchBonus['kind'], PayoutFamily>> = {
   any_ride: 'travel',
   unit_mark: 'battle',
   steady_nerve: 'battle',
-  scout_parties: 'counterintel',
 
   // Filed by what it changes, the same way the rules above are: this one decides how much of a
   // haul reaches the yard, so it sits with `loot_capacity` and `mission_spoils` rather than with
@@ -269,7 +286,7 @@ const KIND_FAMILY: Readonly<Record<ResearchBonus['kind'], PayoutFamily>> = {
 };
 
 export function payoutFamily(payout: ResearchPayout): PayoutFamily {
-  if (payout.unlocks !== undefined) return 'unlock';
+  if (payout.bonus === undefined || payout.unlocks !== undefined) return 'unlock';
   return KIND_FAMILY[payout.bonus.kind];
 }
 
@@ -312,12 +329,22 @@ export function researchItemMinutes(step: number): number {
 }
 
 /** One rung as it is written in the catalogue below. Everything else is derived. */
-interface TrackEntry {
+type TrackEntry = TrackEntryCommon &
+  // `unlocks` is set on the rungs that open something, in the thing's own words. A rung with no
+  // bonus is a rule and nothing else: see {@link ResearchPayout}.
+  ({ bonus: ResearchBonus; unlocks?: string } | { bonus?: undefined; unlocks: string });
+
+interface TrackEntryCommon {
   name: string;
   blurb: string;
-  bonus: ResearchBonus;
-  /** Set on the rungs that also open something. The words are the thing's own name. */
-  unlocks?: string;
+  /**
+   * The price, clock and Head of Research mark, where the maintainer set them by hand rather than
+   * leaving them to the depth formulas. Only the Master of Whispers' track does (the ledger of
+   * 2026-09-28); every other rung is priced by {@link researchItemCost} and its siblings.
+   */
+  cost?: PartialResources;
+  minutes?: number;
+  requiresHeadMark?: OfficerMark;
   /**
    * The id, when the rung's name is not what the rest of the game calls the thing it opens.
    *
@@ -336,6 +363,13 @@ function idOf(name: string): string {
     .replace(/^_|_$/g, '')}`;
 }
 
+function payoutOf(entry: TrackEntry): ResearchPayout {
+  if (entry.bonus === undefined) return { unlocks: entry.unlocks };
+  return entry.unlocks === undefined
+    ? { bonus: entry.bonus }
+    : { bonus: entry.bonus, unlocks: entry.unlocks };
+}
+
 function buildTrack(track: OfficerRole, entries: readonly TrackEntry[]): ResearchItemSpec[] {
   return entries.map((entry, index) => {
     const step = index + 1;
@@ -345,36 +379,35 @@ function buildTrack(track: OfficerRole, entries: readonly TrackEntry[]): Researc
       step,
       name: entry.name,
       description: entry.blurb,
-      payout:
-        entry.unlocks === undefined
-          ? { bonus: entry.bonus }
-          : { bonus: entry.bonus, unlocks: entry.unlocks },
-      cost: researchItemCost(step),
-      minutes: researchItemMinutes(step),
+      payout: payoutOf(entry),
+      cost: entry.cost ?? researchItemCost(step),
+      minutes: entry.minutes ?? researchItemMinutes(step),
       requiresMark: requiredTrackMark(step),
-      requiresHeadMark: requiredHeadMark(step),
+      requiresHeadMark: entry.requiresHeadMark ?? requiredHeadMark(step),
     };
   });
 }
 
-/** What each track is about, in the one line the rail prints under its name. */
 /**
- * The Master of Whispers' first rung: the one that opens scouting (2026-09-22). Checked by
- * `scouting/scouting.ts` on the server and by the district screen's scout panel on the client.
+ * The spying rungs the server reads by id (maintainer, 2026-09-22, reworked 2026-09-28).
+ *
+ * On the Master of Whispers' track almost every rung is a rule rather than a number, so the spy
+ * module asks for the rung itself: what a report prints, which tiers are open, whether the runners
+ * can be seen, and the courier. On the Consigliere's: word that a place was spied, and then whose
+ * spies and what they learnt.
  */
-export const SCOUTING_RESEARCH_ID = 'tech_scouting';
-
-/**
- * The spying rungs the server reads by id (maintainer, 2026-09-22). On the Master of Whispers'
- * track: the accuracy figure, the unseen estimate and Sleepers in a report. On the Consigliere's:
- * word that a place was spied, and then whose spies and what they learnt.
- */
+export const SPY_WRITTEN_RESEARCH_ID = 'tech_written_reports';
+export const SPY_PAID_TIERS_RESEARCH_ID = 'tech_paid_informants';
+export const SPY_QUIET_RESEARCH_ID = 'tech_traffic_analysis';
 export const SPY_ACCURACY_RESEARCH_ID = 'tech_second_source';
 export const SPY_ESTIMATE_RESEARCH_ID = 'tech_counting_the_empty_beds';
 export const SPY_SLEEPERS_RESEARCH_ID = 'tech_sleeper_lists';
+export const SPY_COURIER_RESEARCH_ID = 'tech_turned_runners';
+export const SPY_WHOLE_WIRE_RESEARCH_ID = 'tech_the_whole_wire';
 export const SPY_NOTICE_RESEARCH_ID = 'tech_reading_the_room';
 export const SPY_TRACE_RESEARCH_ID = 'tech_names_and_faces';
 
+/** What each track is about, in the one line the rail prints under its name. */
 export const RESEARCH_TRACK_BLURBS: Readonly<Record<OfficerRole, string>> = {
   master_of_whispers: 'What you find out, and what it costs to.',
   lead_engineer: 'What is standing, how fast it went up, and what it cost.',
@@ -397,87 +430,132 @@ export const RESEARCH_TRACK_BLURBS: Readonly<Record<OfficerRole, string>> = {
 };
 
 const CATALOGUE: readonly ResearchItemSpec[] = [
+  /*
+   * The maintainer's ledger of 2026-09-28, rung by rung: names, blurbs, prices, clocks and the
+   * Head of Research's marks are theirs, written out rather than left to the depth formulas.
+   *
+   * No rung here pays intel any more. How much a job reads comes from the Master of Whispers'
+   * points in the chair (`spyScore`), so the way to spy better is a better chair; what the track
+   * buys is what a report says, which tiers can be bought, and whether anybody sees the runners.
+   */
   ...buildTrack('master_of_whispers', [
     {
       /*
-       * The door to the map (maintainer, 2026-09-22). Scouting needs a Master of Whispers seated
-       * and this rung finished; nobody walks anywhere, the party is theirs. It is the first thing
-       * on the track because a crew that cannot scout cannot open a mission board or take ground,
-       * so the chair is the early hire this rung exists to make worth it.
-       *
-       * Spying is **not** behind it (maintainer, 2026-09-22): a job is bought with caps the
-       * moment somebody is sitting in the chair. This rung buys the party, which is the free one.
+       * Was Scouting, then Loose Talk for a day (migration 0130), and is this since 2026-09-28;
+       * migration 0131 moves saves onto the new id. Before it a report counts unit slots and
+       * names no unit (`SpyReport.unitsShown`).
        */
-      id: SCOUTING_RESEARCH_ID,
-      name: 'Scouting',
-      blurb: 'Somebody who knows somebody in every district, and a runner to ask them.',
-      bonus: { kind: 'intel', percent: 4 },
-      unlocks: 'scout parties, sent from the chair without anybody of yours walking',
+      id: SPY_WRITTEN_RESEARCH_ID,
+      name: 'Written Reports',
+      blurb:
+        'Making the spies try to remember what they saw did not make a lot of sense, so we gave them a paper to write it down.',
+      unlocks:
+        'the units themselves on a spy report, where before it counted only their unit slots',
+      cost: { caps: 600, planks: 200 },
+      minutes: 45,
     },
     {
+      id: SPY_PAID_TIERS_RESEARCH_ID,
       name: 'Paid Informants',
       blurb: 'A few caps a week to people who see things, and a few more when they see something.',
-      bonus: { kind: 'intel', percent: 6 },
+      unlocks: 'Paid Whisper and Bought Eyes',
+      cost: { caps: 2000 },
+      minutes: 70,
     },
     {
+      /* Every job is seen until this rung; after it, the chair's grade decides (`spyUnnoticedChance`). */
+      id: SPY_QUIET_RESEARCH_ID,
       name: 'Traffic Analysis',
-      blurb: 'You do not need to read it. You need to know who is talking to whom.',
-      bonus: { kind: 'intel', percent: 8 },
+      blurb: "Just because you figured it out doesn't mean you should shout it on the way back.",
+      unlocks:
+        "spying without the target knowing, likelier the better your Master of Whispers' grade",
+      cost: { caps: 2650, scrap: 1000, supplies: 500 },
+      minutes: 130,
     },
     {
       /*
-       * The accuracy figure on a report (maintainer, 2026-09-22). A report always lists what was
-       * seen; until this rung the crew cannot tell how much of the ground that was. Frozen onto
-       * the report at writing time: see `SpyReport.accuracyShown`.
+       * The accuracy figure on a report (maintainer, 2026-09-22). Frozen onto the report at
+       * writing time: see `SpyReport.accuracyShown`.
        */
       id: SPY_ACCURACY_RESEARCH_ID,
       name: 'Second Source',
       blurb: 'Nothing is written down until two people who have never met agree on it.',
-      bonus: { kind: 'intel', percent: 9 },
       unlocks: 'the accuracy figure on a spy report',
+      cost: { caps: 3900, supplies: 2000, highQualityMetal: 30 },
+      minutes: 200,
     },
     {
       name: 'Two Sets of Eyes',
-      blurb: 'Never one watcher on anything, so nothing waits on one person coming home.',
-      // A second scouting party out at once, which the door's one limit otherwise refuses. One,
-      // matching the Watchtower and the Second Glass: doubling the rate is the whole of it, and
-      // three sources of the same permission is already a crew that sees everything.
-      bonus: { kind: 'scout_parties', flat: 1 },
+      blurb: 'Pay twice the caps, get twice the spying groups!',
+      bonus: { kind: 'spy_parties', flat: 1 },
+      cost: { caps: 5250, supplies: 2500, highQualityMetal: 70 },
+      minutes: 280,
     },
     {
       /* The "roughly N unseen" estimate under a report: `SpyReport.unseen`. */
       id: SPY_ESTIMATE_RESEARCH_ID,
       name: 'Counting the Empty Beds',
-      blurb: 'How many bunks, how many bowls, how many boots by the door. The rest is arithmetic.',
-      bonus: { kind: 'intel', percent: 10 },
+      blurb:
+        "How many bunks, how many bowls, how many boots by the door. You don't always need to see the actual person to know they were there.",
       unlocks: 'an estimate of how much a spy report missed',
+      cost: { caps: 6750, supplies: 1500, highQualityMetal: 130 },
+      minutes: 350,
     },
     {
       /*
-       * Sleepers on spied ground. Without this rung a planted cell is invisible to every job at
-       * every tier, which is the maintainer's ruling on what planting one is worth; with it, a
-       * report lists them like anybody else standing there, at their own stealth.
+       * Sleepers on spied ground, and the fourth tier. Without this rung a planted cell is
+       * invisible to every job at every tier; with it, a report lists them like anybody else
+       * standing there, at their own stealth.
        */
       id: SPY_SLEEPERS_RESEARCH_ID,
       name: 'Sleeper Lists',
-      blurb: 'The ones who arrived years ago and never left. Somebody remembers them arriving.',
-      bonus: { kind: 'intel', percent: 12 },
-      unlocks: 'Sleepers in a spy report, at their own stealth',
+      blurb:
+        'Even if they are invisible now, someone remembers them arriving and can give a good estimate. Or maybe a camera does?',
+      unlocks: 'Sleepers in a spy report, at their own stealth, and Network Compromise',
+      cost: { caps: 7000, scrap: 3000, highQualityMetal: 180 },
+      minutes: 450,
+      requiresHeadMark: 'C-',
     },
     {
+      /*
+       * Was Turned Runners (the id moved to rung 9 with the name, migration 0131). The Master of
+       * Whispers teaching the room: every other officer seated and working, never the bench, and
+       * only while somebody is working this chair to do the teaching.
+       */
+      name: 'Shared Knowledge',
+      blurb:
+        'Everyone would benefit from a lesson or two, especially from someone that has "Master" in their title',
+      bonus: { kind: 'chair_teaches', attributes: { stealth: 5, deception: 3, cryptography: 3 } },
+      cost: { caps: 10000, supplies: 2000, scrap: 5400 },
+      minutes: 600,
+      requiresHeadMark: 'B',
+    },
+    {
+      /*
+       * Was Compartmentation (migration 0131 moves it onto this id). One full report a day, on the
+       * world clock at the Athens day boundary: `spying/courier.ts` on the server.
+       */
+      id: SPY_COURIER_RESEARCH_ID,
       name: 'Turned Runners',
       blurb: 'Their courier still runs their route. He stops here first.',
-      bonus: { kind: 'vision', districts: 1 },
+      unlocks: "a full report every day on a rival player's location, picked at random",
+      cost: { caps: 12000, scrap: 2200 },
+      minutes: 800,
     },
     {
-      name: 'Compartmentation',
-      blurb: 'Nobody knows more than the next name up. Not even you.',
-      bonus: { kind: 'officer_group', group: 'mental', flat: 2 },
-    },
-    {
+      /*
+       * The fifth tier, and the exact unit slots on every report whatever else it says. The
+       * estimate of what was missed has nothing left to estimate at this rung and is not printed.
+       */
+      id: SPY_WHOLE_WIRE_RESEARCH_ID,
       name: 'The Whole Wire',
-      blurb: 'There is no message in this city you do not get a copy of, eventually.',
-      bonus: { kind: 'intel', percent: 14 },
+      blurb:
+        'There is no message in this city you do not get a copy of, eventually. The trick is speeding that "eventually" up.',
+      unlocks:
+        'Total Intelligence, and the exact unit slots on every spy report however well the job went',
+      cost: { caps: 15000, scrap: 3000, highQualityMetal: 500 },
+      minutes: 1000,
+      requiresHeadMark: 'A',
     },
   ]),
 
@@ -603,8 +681,8 @@ const CATALOGUE: readonly ResearchItemSpec[] = [
     },
     {
       name: 'Word of Mouth',
-      blurb: 'People come because somebody they trust told them to.',
-      bonus: { kind: 'recruit_pool', percent: 8 },
+      blurb: "The new ones come on a friend's word, and the friend shows them the drill.",
+      bonus: { kind: 'training_speed', percent: 8 },
     },
     {
       name: 'Yield Records',
@@ -1003,7 +1081,7 @@ const CATALOGUE: readonly ResearchItemSpec[] = [
       id: 'tech_unled_runs_free',
       name: 'They Have Done It Before',
       blurb: 'The fourth time nobody has to be told anything.',
-      bonus: { kind: 'recruit_pool', percent: 10 },
+      bonus: { kind: 'xp_gain', percent: 7 },
       unlocks: 'a five minute gap between automated parties, down from fifteen',
     },
     {
@@ -1058,8 +1136,10 @@ const CATALOGUE: readonly ResearchItemSpec[] = [
     },
     {
       name: 'Underground Routes',
-      blurb: 'The tunnels are on the map now. Most of them.',
-      bonus: { kind: 'vision', districts: 1 },
+      blurb: 'The tunnels are on the map now, and so is everybody who uses them.',
+      // Sight of the nearest district until the whole city became visible (2026-09-29). Converted
+      // to intel at the same worth: one district seen was nine points of a `wide` channel.
+      bonus: { kind: 'intel', percent: 9 },
     },
     {
       name: 'Cache Points',
@@ -1113,7 +1193,7 @@ const CATALOGUE: readonly ResearchItemSpec[] = [
        * `research/tracks.test.ts` pins the two together.
        */
       bonus: { kind: 'market_discount', percent: 5 },
-      unlocks: 'The district offers board: post what you will trade, and take what others post.',
+      unlocks: 'the district offers board, to post what you will trade and take what others post',
     },
     {
       name: 'Standing Buyers',
@@ -1424,7 +1504,7 @@ const CATALOGUE: readonly ResearchItemSpec[] = [
     {
       name: 'Favours Owed',
       blurb: 'A ledger nobody writes down.',
-      bonus: { kind: 'recruit_pool', percent: 8 },
+      bonus: { kind: 'wage_discount', percent: 8 },
     },
     {
       /* The rest of the notice: whose spies, and what they came away with. */
@@ -1572,7 +1652,7 @@ export function researchEffects(known: readonly string[]): CrewEffects {
   const total = noCrewEffects();
   for (const id of known) {
     const spec = findResearchItem(id);
-    if (spec) applyResearchBonus(total, spec.payout.bonus, spec.track);
+    if (spec?.payout.bonus) applyResearchBonus(total, spec.payout.bonus, spec.track);
   }
   return total;
 }
@@ -1612,6 +1692,14 @@ export function applyResearchBonus(
     case 'training_benches':
       into.trainingBenchesFlat += bonus.flat;
       return into;
+    case 'spy_parties':
+      into.spyPartiesFlat += bonus.flat;
+      return into;
+    // Dropped without a track, like a leading rung: there is no chair to do the teaching.
+    case 'chair_teaches':
+      if (track !== undefined)
+        into.chairTeaches.push({ role: track, attributes: bonus.attributes });
+      return into;
     // A switch, so it is set rather than added: two sources of one permission grant it once.
     case 'recovered_carry_loot':
       into.recoveredCarryLoot = true;
@@ -1634,8 +1722,16 @@ export function describeResearchBonus(bonus: ResearchBonus): string {
       return `+${bonus.flat} ${bonus.flat === 1 ? 'name' : 'names'} burned on one fight`;
     case 'training_benches':
       return `+${bonus.flat} ${bonus.flat === 1 ? 'person' : 'people'} drilling at the same time`;
+    case 'spy_parties':
+      return `+${bonus.flat} spying ${bonus.flat === 1 ? 'party' : 'parties'} out at once`;
+    case 'chair_teaches':
+      return `${describeLessons(bonus.attributes)} on every other officer seated and working`;
     case 'recovered_carry_loot':
       return 'the ones the medics get back carry their share of the haul home';
+    // Not the perk's "every other officer": a programme is not a person, so the Lab lifts whoever
+    // ran it as well (`liftedOfficerSheet` on the server).
+    case 'officer_attribute':
+      return `+${bonus.flat} ${ATTRIBUTE_LABELS[bonus.attribute]} to every officer`;
     case 'leader_self':
       return describeLeaderSelf(bonus);
     case 'leader_taunt':
@@ -1645,6 +1741,14 @@ export function describeResearchBonus(bonus: ResearchBonus): string {
     default:
       return describePerkBonus(bonus);
   }
+}
+
+/** "+5 Stealth, +3 Deception and +3 Cryptography": one lesson per attribute, in words. */
+function describeLessons(attributes: Partial<Record<AttributeName, number>>): string {
+  const lines = Object.entries(attributes).map(
+    ([name, flat]) => `+${flat} ${ATTRIBUTE_LABELS[name as AttributeName]}`,
+  );
+  return lines.length < 2 ? lines.join('') : `${lines.slice(0, -1).join(', ')} and ${lines.at(-1)}`;
 }
 
 /** "while the Raid Boss leads a battle job", or "...leads any fight". The condition, in words. */
@@ -1672,8 +1776,10 @@ function describeLeaderSelf(bonus: Extract<LeaderBonus, { kind: 'leader_self' }>
  * `+8% what the district makes`.
  */
 export function describeResearchPayout(spec: ResearchItemSpec): string {
-  const effect = describeResearchBonus(spec.payout.bonus);
-  return spec.payout.unlocks === undefined ? effect : `Opens ${spec.payout.unlocks}, and ${effect}`;
+  const { bonus, unlocks } = spec.payout;
+  if (bonus === undefined) return `Opens ${unlocks}`;
+  const effect = describeResearchBonus(bonus);
+  return unlocks === undefined ? effect : `Opens ${unlocks}, and ${effect}`;
 }
 
 /**

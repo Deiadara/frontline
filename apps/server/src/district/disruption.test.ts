@@ -1,4 +1,4 @@
-import { MAX_RAID_DISRUPTION_PERCENT, type Base } from '@frontline/shared';
+import { EVERY_LOCATION, raidDisruptionPercent, type Base } from '@frontline/shared';
 import { afterEach, describe, expect, it } from 'vitest';
 import { buildApp } from '../app.js';
 import { loadConfig } from '../config.js';
@@ -30,6 +30,8 @@ afterEach(async () => {
 });
 
 const HOUR = 3_600_000;
+/** A crushing raid's cut, which is the one these windows are priced at. */
+const CUT = raidDisruptionPercent(1);
 
 async function makeBase(): Promise<{ app: FastifyInstance; base: Base }> {
   const config = loadConfig({ DATABASE_PATH: ':memory:', JWT_SECRET: 'test-secret' });
@@ -83,7 +85,7 @@ function tenHoursWith(
       disruption:
         window === null
           ? { until: null, since: null, percent: 0 }
-          : { since: at(window[0]), until: at(window[1]), percent: MAX_RAID_DISRUPTION_PERCENT },
+          : { since: at(window[0]), until: at(window[1]), percent: CUT },
     },
   };
   const after = settleDistrict(app.repos, fixture, now).base;
@@ -115,7 +117,7 @@ describe('what a raid takes off a district while it lasts', () => {
     // ten hours the raid overlapped. Derived from the constant rather than typed out, because the
     // percentage moved with the defeat when it stopped being a flat quarter.
     const worth = (disruptedHours: number): number =>
-      (disruptedHours * (1 - MAX_RAID_DISRUPTION_PERCENT / 100) + (10 - disruptedHours)) / 10;
+      (disruptedHours * (1 - CUT / 100) + (10 - disruptedHours)) / 10;
     const cases: [string, Record<string, number>, number][] = [
       ['expired four hours ago', expiredMidWindow, worth(6)],
       // The over-charge the `since` field was added for. Before it the walk read the cut as
@@ -132,5 +134,29 @@ describe('what a raid takes off a district while it lasts', () => {
         expect(produced[key] ?? 0, `${key}, raid ${name}`).toBeLessThan(expected * 1.03);
       }
     }
+  });
+
+  /**
+   * The cut is on the district's buildings (maintainer ruling, 2026-09-29), so ground the crew
+   * holds keeps paying in full through a raid. A Market makes caps and no structure does, which
+   * separates the two outputs in one settle.
+   */
+  it("cuts the structures and leaves the held ground's output whole", async () => {
+    const { app, base } = await makeBase();
+    const market = EVERY_LOCATION.find((location) => location.kind === 'market');
+    const control = market ? app.repos.city.control(market.id) : undefined;
+    if (!control) throw new Error('fixture: no Market on the map to hold');
+    app.repos.city.put({ ...control, holder: { kind: 'crew', baseId: base.id }, garrison: {} });
+    const now = new Date();
+
+    const undisturbed = tenHoursWith(app, base, now, null);
+    const ranThroughout = tenHoursWith(app, base, now, [-12, 5]);
+
+    expect(undisturbed.caps ?? 0, 'the Market paid nothing to measure').toBeGreaterThan(40);
+    expect(ranThroughout.caps).toBe(undisturbed.caps);
+    // ...while the structures in the same settle lost the cut.
+    const scrap = undisturbed.scrap ?? 0;
+    expect(scrap).toBeGreaterThan(40);
+    expect(ranThroughout.scrap ?? 0).toBeLessThan(scrap * (1 - CUT / 100) * 1.03);
   });
 });

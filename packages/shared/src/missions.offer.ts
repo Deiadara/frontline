@@ -1,11 +1,18 @@
 import type { MissionOffer } from './api.js';
-import { FAILED_MISSION_XP_SHARE, missionXp, payoutSlots, scaledSpoils } from './missions.areas.js';
+import {
+  FAILED_MISSION_XP_SHARE,
+  missionBoardKey,
+  missionXp,
+  payoutSlots,
+  scaledSpoils,
+} from './missions.areas.js';
 import { leaningsFor } from './missions.leading.js';
 import {
   TRAVEL_BAND_MINUTES,
   missionRewards,
   missionTimings,
   pricedTotalMinutes,
+  templateTimings,
   type Mission,
   type MissionTemplate,
 } from './missions.js';
@@ -35,6 +42,9 @@ export function offerOfMission(mission: Mission, template: MissionTemplate): Mis
   const xp = mission.xp > 0 ? mission.xp : missionXp(template, priced, grade);
   return {
     templateId: template.id,
+    // The board of the moment it left, which is the one it was taken off or the slot after it. A
+    // card of a run already out is never sent back, so the key is only the card's identity.
+    boardKey: missionBoardKey(mission.areaId, new Date(mission.startedAt)),
     name: template.name,
     brief: template.brief,
     kind: template.kind,
@@ -43,7 +53,9 @@ export function offerOfMission(mission: Mission, template: MissionTemplate): Mis
     durationMinutes: timings.durationMinutes,
     totalMinutes: timings.totalMinutes,
     rawTravelMinutes: TRAVEL_BAND_MINUTES[template.travelBand],
-    rawDurationMinutes: template.durationMinutes,
+    // At the row's grade, as `offerFor` quotes it: a harder mark keeps the crew on site longer,
+    // and the authored figure is the job's lowest grade only.
+    rawDurationMinutes: templateTimings(template, grade).durationMinutes,
     /*
      * Null, because a run that is already out has nothing left to quote.
      *

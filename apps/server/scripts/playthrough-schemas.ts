@@ -182,8 +182,6 @@ export const RESPONSE_SCHEMAS: Readonly<Record<string, ResponseShape>> = {
 
   'GET /api/city': CityResponseSchema,
   'GET /api/city/:id': DistrictDetailResponseSchema,
-  'POST /api/city/scout': CityMutationResponseSchema,
-  'POST /api/city/scout/recall': CityMutationResponseSchema,
   'POST /api/city/spy': CityMutationResponseSchema,
   'POST /api/city/spy/recall': CityMutationResponseSchema,
   'POST /api/city/sleepers': CityMutationResponseSchema,
@@ -219,6 +217,5 @@ export const RESPONSE_SCHEMAS: Readonly<Record<string, ResponseShape>> = {
   'POST /api/admin/grant': AdminMutationResponseSchema,
   'POST /api/admin/reset': AdminMutationResponseSchema,
   'POST /api/admin/mock-battle': AdminMutationResponseSchema,
-  'POST /api/admin/fog': AdminMutationResponseSchema,
   'POST /api/admin/knobs': AdminMutationResponseSchema,
 };

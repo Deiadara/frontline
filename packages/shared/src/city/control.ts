@@ -171,7 +171,10 @@ export function territoryEffectsFor(
     // At the level it has been worked up to (§A4): the whole reason to pour resources into
     // ground you might lose. `bonusesAt` is the only reader of `LEVEL_SCALE`, so a location's
     // worth and the number on its card cannot disagree.
-    for (const bonus of bonusesAt(location.kind, control.level)) applyHoldBonus(effects, bonus);
+    const cityId = findDistrict(location.districtId)?.cityId;
+    for (const bonus of bonusesAt(location.kind, control.level)) {
+      applyHoldBonus(effects, bonus, cityId);
+    }
   }
 
   for (const districtId of held) {
@@ -180,10 +183,24 @@ export function territoryEffectsFor(
     const holder = districtHolder(district, controls);
     if (holder?.kind !== 'crew' || holder.baseId !== baseId) continue;
     const unified = unifiedBonusFor(districtId);
-    if (unified) applyHoldBonus(effects, unified.bonus);
+    if (unified) applyHoldBonus(effects, unified.bonus, district.cityId);
   }
 
   return effects;
+}
+
+/**
+ * What a crew's mission speed comes to on a job in `areaId`: the figure that pays everywhere, plus
+ * whatever pays only in that district's city (the Blockhouse's, in Terminus). The misc board
+ * belongs to no city, so it gets the first alone.
+ */
+export function missionSpeedPercentIn(
+  effects: Pick<TerritoryEffects, 'missionSpeedPercent' | 'missionSpeedPercentByCity'>,
+  areaId: string,
+): number {
+  const cityId = findDistrict(areaId)?.cityId;
+  const local = cityId === undefined ? 0 : (effects.missionSpeedPercentByCity[cityId] ?? 0);
+  return effects.missionSpeedPercent + local;
 }
 
 /**
@@ -199,16 +216,10 @@ export function territoryEffectsFor(
  * remembering to garrison it. Deterministic, so the world is the same for every player and a test
  * can state what is on a location rather than sample it.
  *
- * The Combine fields regulars and the looters field rabble, which is most of what makes Combine
- * ground worth being frightened of (§A3).
+ * One size for both parties (maintainer, 2026-09-29): {@link combineSlotBudget}, in unit slots, so
+ * a difficulty-4 plot is the same weight of garrison whether the Combine or the looters stand on
+ * it. What differs is who: the Combine fields regulars and the looters field rabble.
  */
-// Tuned against the opening move, not in the abstract: a new crew fields four Razors and can train
-// more for nothing, so the easiest location in the city has to be takeable by a first-session force
-// that has made a little effort. At 1.2/0.9 Steelbelt's press holds four and the Combine's hard
-// ground holds fifteen, which is the spread the difficulty numbers were written for.
-export const GARRISON_PER_DIFFICULTY = 1.2;
-export const GARRISON_PER_BASE_DEFENSE = 0.9;
-
 // Typed off the row rather than as an `Army`: `units/` imports `city/`, so naming the unit type
 // here would close a cycle. The ids are still unit ids and `city.test.ts` pins that they resolve.
 export function startingGarrison(
@@ -217,15 +228,11 @@ export function startingGarrison(
 ): LocationControl['garrison'] {
   const holder = startingHolder(location, district);
   if (holder.kind === 'unoccupied' || holder.kind === 'crew') return {};
+  // A plot holds no locations (the load guard in `districts.ts`) and carries no difficulty to size
+  // a garrison by. Said here so the compiler can see it too.
+  if (district.kind !== 'contested') return {};
 
-  const strength = Math.max(
-    2,
-    Math.round(
-      district.difficulty * GARRISON_PER_DIFFICULTY +
-        LOCATION_CATALOG[location.kind].baseDefense * GARRISON_PER_BASE_DEFENSE,
-    ),
-  );
-
+  const slots = combineSlotBudget(district.difficulty, LOCATION_CATALOG[location.kind].baseDefense);
   if (holder.kind === 'government') {
     /*
      * Combine ground: the regime's own units, by the district's difficulty (`city/combine.ts`),
@@ -233,15 +240,11 @@ export function startingGarrison(
      * other, which is what makes his death a fact the world can read rather than a flag somebody
      * has to remember to flip: take the plot and he is gone.
      */
-    const line = combineGarrison(
-      district.difficulty,
-      combineSlotBudget(district.difficulty, LOCATION_CATALOG[location.kind].baseDefense),
-    );
+    const line = combineGarrison(district.difficulty, slots);
     const leader = combineLeaderAt(location.id);
     return leader ? { ...line, [leader.unitId]: 1 } : line;
   }
-  // Looters: numbers and knives.
-  return looterGarrison(strength);
+  return looterGarrison(slots);
 }
 
 /** A fresh, untouched location: whoever nominally garrisons the district, and who they left on it. */

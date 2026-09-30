@@ -52,9 +52,10 @@ import { VendorAuctionResultSchema, VendorAuctionSchema } from './market/auction
 import { VendorLineSchema, VendorSessionSchema } from './market/vendor.js';
 import { UnitModificationRaritySchema } from './units/modifications.js';
 import { IdSchema, IsoDateTimeSchema, REQUEST_AMOUNT_MAX, UsernameSchema } from './primitives.js';
+import { PasswordSchema, RESERVED_NAME_MESSAGE, isReservedName } from './accounts.js';
 import { PlayerLevelGrantsSchema, PlayerLevelUnlockSchema } from './progression/index.js';
 import { ActiveResearchSchema } from './research/index.js';
-import { PartialResourcesSchema, ResourcesSchema } from './resources.js';
+import { FractionalResourcesSchema, PartialResourcesSchema, ResourcesSchema } from './resources.js';
 import { OfficerRoleSchema } from './roles.js';
 import { PerksSchema } from './crew/perks.js';
 import { UserSchema } from './user.js';
@@ -119,17 +120,18 @@ export const ApiErrorSchema = z.object({
 });
 export type ApiError = z.infer<typeof ApiErrorSchema>;
 
-export const PasswordSchema = z.string().min(8).max(128);
-
 // --- auth ---
 export const RegisterRequestSchema = z.object({
-  username: UsernameSchema,
+  // Reserved at the door rather than in `UsernameSchema`, which also parses the seeded bots' own
+  // rows: `Vex_Combine` is on the list precisely because a bot already holds it.
+  username: UsernameSchema.refine((name) => !isReservedName(name), RESERVED_NAME_MESSAGE),
   password: PasswordSchema,
 });
 export type RegisterRequest = z.infer<typeof RegisterRequestSchema>;
 
 export const LoginRequestSchema = z.object({
-  username: z.string().min(1).max(64),
+  // Trimmed for the reason `UsernameSchema` is: a stored name never has a space at either end.
+  username: z.string().trim().min(1).max(64),
   password: z.string().min(1).max(128),
 });
 export type LoginRequest = z.infer<typeof LoginRequestSchema>;
@@ -188,6 +190,15 @@ export const MeResponseSchema = z.object({
   buildQuotes: BuildQuotesSchema.optional(),
   /** The clock beside each quote. See {@link BuildClocksSchema}. Optional for the same reason. */
   buildClocks: BuildClocksSchema.optional(),
+  /**
+   * What the district makes an hour right now, per resource, the way the settle pays it: the
+   * structures, the ground held, the crew's line speed and yields, and any disruption running.
+   *
+   * The Production panel's figure. The client can fold the structures and nothing else, so it read
+   * a +20% crew and a crew living off its ground as making less than it banked. Optional for the
+   * same reason as the quotes: a client without it falls back to the structures alone.
+   */
+  productionRates: FractionalResourcesSchema.optional(),
   /**
    * The two badges the HUD draws, on every screen.
    *
@@ -293,22 +304,18 @@ export type OverseerChoicesResponse = z.infer<typeof OverseerChoicesResponseSche
 /**
  * One district as the map shows it *to this crew*.
  *
- * The fog is the interesting field. `scouted` is false until the crew has been there, and while it
- * is false every count below is null, not zero. Zero is a fact about the world; null is a fact
- * about what you know, and a map that reported "0 / 4 held" for ground nobody has walked into
- * would be telling the player something it has no business knowing.
+ * Every district is open to every crew (maintainer, 2026-09-29: "whole city visible"), so who holds
+ * what is on the map for anybody to read. What is *standing* on somebody else's ground is not: a
+ * garrison is known only through a spy report (`LocationView.latestSpyReport`).
  */
 export const DistrictSummarySchema = z.object({
   district: DistrictSchema,
-  scouted: z.boolean(),
   /** Minutes from this crew's home district, with their travel bonuses already applied. */
   travelMinutes: z.number().int().nonnegative(),
-  /** Who holds the whole district, if anyone does. Null when it is split, or unscouted. */
+  /** Who holds the whole district, if anyone does. Null while it is split. */
   holder: LocationHolderSchema.nullable(),
-  /** How many places here this crew holds, of how many there are. Null until scouted. */
-  held: z
-    .object({ mine: z.number().int().nonnegative(), total: z.number().int().nonnegative() })
-    .nullable(),
+  /** How many places here this crew holds, of how many there are. */
+  held: z.object({ mine: z.number().int().nonnegative(), total: z.number().int().nonnegative() }),
   /** The crew living here, for residential ground. Null for contested ground. */
   base: BaseSummarySchema.nullable(),
   /** This crew's own home. Exactly one district on the map has this set. */
@@ -409,32 +416,6 @@ export const LocationViewSchema = z.object({
 export type LocationView = z.infer<typeof LocationViewSchema>;
 
 /**
- * A scouting run in flight, as the city screen reads it.
- *
- * The whole run is one mark: `returnsAt` is when they are home *and* when the ground opens, because
- * a scout who has arrived but not reported has told you nothing. Two marks would be two countdowns
- * on one card for no decision the player can make in between.
- */
-export const ScoutingRunViewSchema = z.object({
-  districtId: IdSchema,
-  districtName: z.string(),
-  /** Null since 2026-09-22: a scout party is nobody in particular. Old runs still name who went. */
-  officerId: IdSchema.nullable(),
-  /** "Scout Party" for a run with nobody on it, which is every run sent since 2026-09-22. */
-  officerName: z.string(),
-  departedAt: IsoDateTimeSchema,
-  returnsAt: IsoDateTimeSchema,
-  /**
-   * The walk out, so the screen can time the recall window off the same leg the server does.
-   * Half the mark is the walk plus half the looking, which is not the same number.
-   */
-  travelMinutes: z.number().int().nonnegative().default(0),
-  /** Set once the crew has turned them round: walking home, and the ground stays shut. */
-  recalledAt: IsoDateTimeSchema.nullable(),
-});
-export type ScoutingRunView = z.infer<typeof ScoutingRunViewSchema>;
-
-/**
  * The Combine legendary over a district, for the district screen (maintainer, 2026-09-19).
  *
  * Public, like the seat-of-power tag: which leader shadows which district is the thing everybody
@@ -466,13 +447,11 @@ export const DistrictDetailResponseSchema = z.object({
   district: DistrictSchema,
   /**
    * The Combine legendary whose power covers this district, dead or alive, or `null` on ground
-   * no legendary commands. Present on a scouted *and* an unscouted district: his existence is
-   * public, what he has under him is not.
+   * no legendary commands. His existence is public, what he has under him is not.
    */
   combineLeader: CombineLeaderViewSchema.nullable().default(null),
-  scouted: z.boolean(),
   travelMinutes: z.number().int().nonnegative(),
-  /** Empty when the district has not been scouted: the fog is enforced server-side. */
+  /** Every location in the district. A garrison on ground not yours is left out of each. */
   locations: z.array(LocationViewSchema),
   holder: LocationHolderSchema.nullable(),
   /** The §A4 unified bonus for taking every location here, named and described. */
@@ -486,58 +465,36 @@ export const DistrictDetailResponseSchema = z.object({
    * far it has been built up. What stays hidden is everything a crew *knows*: the roles they have
    * worked out, the facts they have discovered, what is in their stockpile: none of which is here.
    *
-   * Empty on ground nobody lives on, and on unscouted ground: you cannot describe a place you have
-   * not been to.
+   * Empty on ground nobody lives on.
    */
   residentBuildings: z.array(BuildingSchema),
   raidable: z.boolean(),
   /**
    * A home plot nobody lives on, seen by anybody else: closed until a crew claims it (maintainer,
-   * 2026-09-28). No scene, no scouting, nothing to call. Your own plot is never closed to you.
+   * 2026-09-28). No scene, nothing to call. Your own plot is never closed to you.
    */
   closed: z.boolean().default(false),
   /**
-   * The scouting run this crew has out, wherever it is going, or `null`.
-   *
-   * Not scoped to *this* district on purpose. Only one run is allowed at a time, so a player
-   * looking at a second dark district needs to know somebody is already out and where, or the
-   * refusal when they press the button is the first they hear of it.
+   * The spy jobs this crew has out, wherever they are looking (maintainer, 2026-09-22). On every
+   * district read because a player pricing another job needs to know who is already out, and
+   * where: one party at a time, two with Two Sets of Eyes (2026-09-28).
    */
-  scoutingRun: ScoutingRunViewSchema.nullable(),
+  spyRuns: z.array(SpyRunViewSchema).default([]),
+  /** How many jobs this crew may have out at once. */
+  spyParties: z.number().int().positive().default(1),
   /**
-   * What sending somebody here would cost, or `null` when there is nobody to send.
-   *
-   * Quoted before it is committed to, like every other price in the game. A four-hour run is a
-   * decision about the evening, and finding out how long it was after pressing the button is not
-   * a decision.
+   * The tiers this crew's rungs have opened (maintainer, 2026-09-28). The picker draws the rest
+   * shut, naming the rung off `SpyTierSpec.opensWith`.
    */
-  scoutPlan: z
-    .object({
-      /** There, on the ground, and back. Priced off the Master of Whispers' sheet. */
-      minutes: z.number().int().nonnegative(),
-    })
-    .nullable(),
-  /**
-   * Why a party cannot be sent from here today, or null when it can (2026-09-22). Said on the
-   * wire rather than worked out on the client, so the panel and the route refuse for one reason.
-   */
-  scoutBlocker: z.enum(['no_whispers', 'not_researched']).nullable(),
-  /**
-   * The spy job this crew has out, wherever it is looking, or null (maintainer, 2026-09-22).
-   * One at a time, like a scout party, and for the same reason the scout run is on every
-   * district read: a player pricing a second job needs to know the runners are already out.
-   */
-  spyRun: SpyRunViewSchema.nullable().default(null),
+  spyTiersOpen: z.array(SpyTierSchema).default(['loose_ears']),
   /**
    * How long a job on ground in this district would take, or null when none could be sent.
    * The caps are the tier's, off `SPY_TIER_SPECS`, and are not quoted twice.
    */
   spyQuote: z.object({ minutes: z.number().int().nonnegative() }).nullable().default(null),
   /**
-   * Why no job can be sent today, or null.
-   *
-   * One reason, unlike the scout panel's two: spying is gated on the chair alone (maintainer,
-   * 2026-09-22), so there is no rung to be missing.
+   * Why no job can be sent today, or null. One reason: spying is gated on the chair alone
+   * (maintainer, 2026-09-22), so there is no rung to be missing.
    */
   spyBlocker: z.literal('no_whispers').nullable().default(null),
   /**
@@ -574,12 +531,6 @@ export const UpgradeLocationRequestSchema = z.object({
   locationId: z.string().min(1),
 });
 export type UpgradeLocationRequest = z.infer<typeof UpgradeLocationRequestSchema>;
-
-/** Nobody is named: a scout party is the Master of Whispers' to send (2026-09-22). */
-export const ScoutRequestSchema = z.object({
-  districtId: IdSchema,
-});
-export type ScoutRequest = z.infer<typeof ScoutRequestSchema>;
 
 /** Every city write answers with the district it touched, so the client never re-derives state. */
 export const CityMutationResponseSchema = z.object({
@@ -899,10 +850,6 @@ export const CancelLocationWorkRequestSchema = z.object({
 });
 export type CancelLocationWorkRequest = z.infer<typeof CancelLocationWorkRequestSchema>;
 
-/** `POST /city/scout/recall`: the one scout out. */
-export const RecallScoutRequestSchema = z.object({});
-export type RecallScoutRequest = z.infer<typeof RecallScoutRequestSchema>;
-
 /** `POST /city/spy`: one place, one tier. The caps are the tier's and are taken at the send. */
 export const SpyRequestSchema = z.object({
   target: SpyTargetSchema,
@@ -910,8 +857,13 @@ export const SpyRequestSchema = z.object({
 });
 export type SpyRequest = z.infer<typeof SpyRequestSchema>;
 
-/** `POST /city/spy/recall`: the one job out. The caps stay spent. */
-export const RecallSpyRequestSchema = z.object({});
+/**
+ * `POST /city/spy/recall`: one job out. The caps stay spent.
+ *
+ * Named by id since a crew may have two out (2026-09-28); with no id, the first one still open to
+ * a recall, which is the only one there is for a crew without Two Sets of Eyes.
+ */
+export const RecallSpyRequestSchema = z.object({ runId: IdSchema.optional() });
 export type RecallSpyRequest = z.infer<typeof RecallSpyRequestSchema>;
 
 /** `POST /actions/move`: a column from one of the crew's places to another (2026-09-22). */
@@ -1063,6 +1015,11 @@ export type BattleResponse = z.infer<typeof BattleResponseSchema>;
  */
 export const MissionOfferSchema = z.object({
   templateId: IdSchema,
+  /**
+   * The board this card was dealt from (`missionBoardKey`), which the launch sends back with the
+   * grade so the server takes exactly the card the player read (maintainer, 2026-09-29).
+   */
+  boardKey: z.string().min(1),
   name: z.string().min(1),
   brief: z.string().min(1),
   kind: MissionKindSchema,
@@ -1133,6 +1090,10 @@ export const MissionLeaderSchema = z.object({
   id: IdSchema,
   name: z.string().min(1),
   kind: z.enum(['overseer', 'officer']),
+  /**
+   * The sheet they lead on: the lifted one the crew screen draws, not the card (maintainer,
+   * 2026-09-29). The send dialog prices the odds off it and the launch freezes the same figure.
+   */
   attributes: AttributesSchema,
   /**
    * What is holding them, or null when nothing is (maintainer, 2026-09-10).
@@ -1153,8 +1114,7 @@ export const MissionLeaderSchema = z.object({
   arrivalPercent: z.number().default(0),
   held: LeaderHoldSchema.nullable(),
   /**
-   * When they are free again, where a clock is known: the run's return, the scouting run's, the
-   * end of the injury. Null on a fight, which has no clock until it settles, and null when
+   * When they are free again, where a clock is known: the run's return or the end of the injury. Null on a fight, which has no clock until it settles, and null when
    * nothing holds them.
    */
   heldUntil: IsoDateTimeSchema.nullable(),
@@ -1238,8 +1198,8 @@ export const MissionsResponseSchema = z.object({
   /**
    * Every board this crew may read, `misc` first and then the districts in map order.
    *
-   * Only the ones they have scouted and do not already own outright: a district with every
-   * location taken and its gate down has nothing left in it worth being paid for.
+   * A district's board is open while the crew holds at least one location in it, whole or not
+   * (maintainer, 2026-09-29: `areaIsOpen`). `misc` is always open.
    */
   areas: z.array(MissionAreaSchema),
   /** What is at home to send, after everything already out has been taken off it. */
@@ -1269,6 +1229,13 @@ export const LaunchMissionRequestSchema = z.object({
   templateId: IdSchema,
   /** Which board it was taken off. The area is locked until this crew is home. */
   areaId: MissionAreaIdSchema,
+  /**
+   * The card as the player read it: the board's key and the grade it was dealt at, off the offer
+   * (maintainer, 2026-09-29). The server launches exactly this card if it is on the current board
+   * or the one just before it, and refuses anything else.
+   */
+  boardKey: z.string().min(1),
+  grade: OfficerMarkSchema,
   /** §A5: the units going. A battle job needs at least one of them able to fight. */
   force: ArmySchema,
   /**
@@ -1381,6 +1348,12 @@ export const BarResponseSchema = z.object({
   slotsUsed: z.number().int().nonnegative(),
   slotsTotal: z.number().int().nonnegative(),
   /**
+   * Beds left in the district (`districtUnitSlots().spare`). An officer takes one, so at zero the
+   * Bar refuses a bid with `NO_FREE_BED_TEXT` and the screen greys the control before it is pressed.
+   * Optional so an older payload still parses; a screen without it leaves the refusal to the server.
+   */
+  bedsFree: z.number().int().nonnegative().optional(),
+  /**
    * Two of the facts §H3 judges against (the faction's lifetime infamy is the third, judged on the
    * server), so the client can explain a refusal.
    */
@@ -1413,6 +1386,12 @@ export const BarResponseSchema = z.object({
    * explain.
    */
   bidCeiling: z.number().int().nonnegative(),
+  /**
+   * The crew's negotiators, capped: what comes off a won table's price on the book
+   * (`committedWage`). A table prints the bid beside what this crew would pay (maintainer,
+   * 2026-09-29).
+   */
+  wageDiscountPercent: z.number().nonnegative().default(0),
   /** How yesterday's tables the reader sat at ended. Empty for a crew that bid on nobody. */
   results: z.array(BarAuctionResultSchema).default([]),
   /** Set when this read's settlement crossed a level (§I1). */
@@ -1480,7 +1459,7 @@ export type IncreasePayrollResponse = z.infer<typeof IncreasePayrollResponseSche
 // --- research (GDD §C) ---
 
 /**
- * One rung of one of §C's nineteen role tracks, as the screen shows it.
+ * One rung of one of §C's eighteen role tracks, as the screen shows it.
  *
  * `cost` is what this crew would actually pay: the catalogue price with the track officer's own cut
  * already taken off (§C1d, §C3b), so the number on the card is the number that leaves the
@@ -1550,7 +1529,7 @@ export const ResearchResponseSchema = z.object({
   completesAt: IsoDateTimeSchema.nullable(),
   /** §C: every rung of every track, with what is finished, what is reachable and why not. */
   technologies: z.array(LabTechSchema).default([]),
-  /** §C1b: the nineteen tracks in `OFFICER_ROLES` order, with who is standing on each. */
+  /** §C1b: the eighteen tracks in `OFFICER_ROLES` order, with who is standing on each. */
   tracks: z.array(ResearchTrackStatusSchema).default([]),
   /** §C1c: null when nobody holds the post, which shuts every track at once. */
   head: ResearchHeadSchema.nullable().default(null),
@@ -1577,7 +1556,7 @@ export const CrewOfficerSchema = z.object({
    * spreadsheet of a roster rather than a roster: the whole reason a player agonised over hiring
    * somebody at the Bar is on their sheet, and the screen where that person lives never showed it.
    * Carried on the same payload rather than fetched per officer. It is one small object and the
-   * alternative is nineteen round trips to open nineteen cards.
+   * alternative is eighteen round trips to open eighteen cards.
    */
   attributes: AttributesSchema,
   /**
@@ -1738,7 +1717,7 @@ export const CrewStandingResponseSchema = z.object({
    * What a haul is **actually** multiplied by, which `effects` above cannot say.
    *
    * `effects` is the people-only fold (`crewEffectsFor`), and that is correct for what it is for:
-   * `CrewEffectsPage` calls itself "a ledger of what nineteen people between them are worth", and
+   * `CrewEffectsPage` calls itself "a ledger of what eighteen people between them are worth", and
    * folding the ground into it would credit the officers with the district's work.
    *
    * `lootCapacityPercent` is the one channel on that struct where the difference is not cosmetic.
@@ -1801,16 +1780,25 @@ export const MarketResponseSchema = z.object({
     /** How the lots this crew bid on ended, from the last visit it bid at. */
     results: z.array(VendorAuctionResultSchema),
   }),
-  /** The public board, plus any counter aimed at this crew. */
+  /** This city's public board, plus any counter aimed at this crew pinned to it. */
   offers: z.array(MarketOfferSchema),
-  /** This crew's own standing listings. */
+  /** This crew's own standing listings, in every city: the five-listing limit is the crew's. */
   mine: z.array(MarketOfferSchema),
   /** Goods the board is holding for this crew until it claims them, soonest to lapse first. */
   claims: z.array(MarketClaimSchema).default([]),
   /** Caps into materials, and how much of today's run is left. */
   supply: SupplyBoardSchema,
-  /** What the Broker gives back, at this crew's level. Quoted so the client cannot guess wrong. */
+  /**
+   * What the Broker gives back, at this crew's level and after its market discount. Quoted so the
+   * client cannot guess wrong.
+   */
   barterRate: z.number().positive(),
+  /**
+   * The crew's market discount, capped (`market/discount.ts`): what comes off a won lot at the
+   * close, off the supply run's price and off the Broker's cut. The lot screens print a bid beside
+   * what this crew would pay for it; the supply lines already carry it in `capsPerUnit`.
+   */
+  marketDiscountPercent: z.number().nonnegative().default(0),
   /*
    * §G4: whether the Lab will do the Reimagining trade for this crew, decided on the server.
    *
@@ -1823,6 +1811,12 @@ export const MarketResponseSchema = z.object({
     hasHeadOfResearch: z.boolean(),
     hasReimaginingResearch: z.boolean(),
   }),
+  /**
+   * Whether a Trader fit to work sits in the chair (2026-09-29). Without one the offers board
+   * refuses a post, a counter and an accept with `NO_TRADER_TEXT`, and the screen says so first.
+   * Optional so an older payload still parses; a screen without it leaves the refusal to the server.
+   */
+  traderAtWork: z.boolean().optional(),
 });
 export type MarketResponse = z.infer<typeof MarketResponseSchema>;
 
@@ -1852,6 +1846,11 @@ export const PostOfferRequestSchema = z.object({
   want: TradeBundleSchema,
   /** Set to counter somebody else's listing rather than post a public one. */
   counterTo: IdSchema.optional(),
+  /**
+   * The city whose board this goes up on: the tab the player is looking at. The crew's own city
+   * when absent. A counter ignores it and goes up on its listing's board.
+   */
+  cityId: z.string().min(1).optional(),
 });
 export type PostOfferRequest = z.infer<typeof PostOfferRequestSchema>;
 

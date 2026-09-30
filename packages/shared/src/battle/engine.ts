@@ -41,6 +41,8 @@ import {
   WINNING_RELIEF,
 } from './morale.js';
 import { drawLuck } from './luck.js';
+import { softCap } from './soft-cap.js';
+import type { TrapWire } from './traps.js';
 import {
   officerTargetShare,
   officerUnit,
@@ -230,14 +232,30 @@ export const STEALTH_UNTAGGED_SHARE = 0.6;
 export const FIRST_STRIKE_SHARE = 0.35;
 
 /**
- * The share of a line that has to be jammers before the jam is as deep as it goes
+ * The share of a line's unit slots that has to be jammers before the jam reaches {@link MAX_JAM}
  * (`UnitSpec.jammer`).
  *
- * A quarter, which is {@link MEND_FULL_COVER}'s ratio, and for the same reason: what a speciality is worth depends on the size of the line it is working for.
- * Four Netrunners in a party of sixteen jam the other side as hard as they are going to; four in
- * a party of a hundred manage a sixth of it.
+ * A quarter, which is {@link MEND_FULL_COVER}'s ratio, and for the same reason: what a speciality
+ * is worth depends on the size of the line it is working for. Four Netrunners (12 slots) in a
+ * party of 48 slots jam the other side at the full figure; four in a party of 200 slots manage a
+ * quarter of it.
+ *
+ * Counted in unit slots on both sides of the ratio since 2026-09-30 (maintainer, "jam by slots").
+ * It was bodies against bodies, which charged a 3-slot Netrunner twice: three beds, and one body's
+ * worth of jam. Twelve slots of them in a hundred-body line cut about 7% of the card gains.
  */
 export const JAM_FULL_SHARE = 0.25;
+
+/**
+ * Where a jamming line past {@link JAM_FULL_SHARE} tops out, as a multiple of {@link MAX_JAM}:
+ * 18.7 on nominal ground, approached and never reached.
+ *
+ * The maintainer's rule for unit effects (2026-09-29) is that nothing hard-caps, so the share is
+ * exact up to the full quarter and then climbs slowly (`softCap`), the shape the taunt has
+ * (`TAUNT_CEILING`). One more Netrunner is always worth a little, and a line of nothing but
+ * Netrunners is still a line that cannot shoot.
+ */
+export const JAM_SHARE_CEILING = 1.1;
 
 /**
  * The deepest jam a full jamming line reaches on nominal ground, in percent.
@@ -265,23 +283,43 @@ export const JAM_FULL_SHARE = 0.25;
  * Over-investing still loses: four of them read 40/42 and six read 9/14, which is the shape this
  * should have. A jammer is somebody you bring a couple of, beside a line, and never the line.
  *
+ * That table counted the share in bodies and cut the whole line's armour and damage, so neither
+ * its figures nor its shape describe today's jam; the figure it set was kept through both changes.
+ *
+ * **Seventeen since 2026-09-30** (maintainer: Netrunners "about as good if a bit better than the
+ * average unit against units with modifications", with their price raised). Measured in the
+ * situational balance run, four Netrunners beside a line against normal units carrying two and
+ * three cards each: at 40 they were worth 1.7 and 2.1 times the median fighter of equal cost, at
+ * 17 with the new price and sheet 1.08 and 1.15.
+ *
  * There is no counter to it on any sheet: no armour, no resistance, no saving roll. The only
  * answer is to kill them, and {@link jamPercent} is read fresh every round so killing them works
  * on the next one.
  */
-export const MAX_JAM = 40;
+export const MAX_JAM = 17;
 
 /**
- * The hard ceiling on a jam once the ground has had its say.
+ * The ceiling on a jam once the ground has had its say, approached and never reached.
  *
  * {@link MAX_JAM} is what a full jamming line is worth *in nominal conditions*. The ground moves
  * it (see {@link jamCondition}), and a Netrunner in a crammed unlit basement with the Lab's
- * programmes behind it can be worth half again what the sheet says. This is the stop on that: the
- * jam answers to no stat on the receiving sheet, so an uncapped multiplier would eventually be a
- * unit that turns the other side's armour off. Sixty, which is half again the nominal maximum: a
- * speciality is allowed to be the answer to something and never allowed to be the end of it.
+ * programmes behind it can be worth half again what the sheet says. This is the limit on that: the
+ * jam answers to no stat on the receiving sheet, so an unbounded multiplier would eventually be a
+ * unit that turns the other side's armour off. Half again the nominal maximum: a speciality is
+ * allowed to be the answer to something and never allowed to be the end of it.
+ *
+ * A hard stop until 2026-09-30 (maintainer, "smooth both"). The jam is exact up to
+ * {@link MAX_JAM_KNEE} and curves from there (`softCap`), so a better room is still worth a little
+ * more than a worse one. Both are read off {@link MAX_JAM}, so a retune of it carries them along.
  */
-export const MAX_JAM_CEILING = 60;
+export const MAX_JAM_CEILING = MAX_JAM * 1.5;
+/** Where the ground-scaled jam stops being exact and starts to curve: a quarter over nominal. */
+export const MAX_JAM_KNEE = MAX_JAM * 1.25;
+
+/** A jam once the ground has scaled it: exact to the knee, then curving towards the ceiling. */
+export function groundedJam(scaled: number): number {
+  return softCap(scaled, MAX_JAM_KNEE, MAX_JAM_CEILING);
+}
 
 /** Per-round swing, the Grepolis "luck" idea at a tighter spread so it averages out over a fight. */
 export const ROUND_LUCK = 0.12;
@@ -394,9 +432,9 @@ export interface Stack {
   officer?: BattleOfficer;
   /**
    * A stack of the *attacker's* units fighting for the defender under Directive Xero
-   * (`changeOfHeart`). Three rules follow from the flag: it is not the winner's to recover, it is
-   * not the loser's to rout, and whatever is left of it at the end is reported in
-   * `Simulation.turnedAlive` for the settle to stand on the ground it fought for.
+   * (`changeOfHeart`). Two rules follow from the flag: it is not the winner's to recover and it is
+   * not the loser's to rout. It fights this fight and no other (maintainer, 2026-09-29), so
+   * whatever is left of it at the end goes nowhere.
    */
   turncoat?: boolean;
 }
@@ -453,6 +491,13 @@ export interface SideSetup {
    *     round ({@link changeOfHeart}).
    */
   presence?: CombinePower;
+  /**
+   * The Razor Wire this side walked through on the way in, or absent (`battle/traps.ts`).
+   *
+   * Only an attack ever has one: a trap is set under a fight by whoever is defending it. See
+   * {@link SideState.slowed} for how the speed half is read and `simulate` for the morale half.
+   */
+  slowed?: TrapWire;
 }
 
 export interface SideState {
@@ -487,6 +532,15 @@ export interface SideState {
    * reason.
    */
   steadyNerve: boolean;
+  /**
+   * Points of speed off every sheet on this side for the round being fought, 0 once the side is
+   * out of the wire (`SideSetup.slowed`).
+   *
+   * Applied to copies of the sheets inside `fireRound`, the same way the jam is, so it reaches
+   * reach and closing both when this side fires and when it is fired at, and nothing is left on
+   * `effective` once the wire is behind them.
+   */
+  slowed: number;
 }
 
 const clamp = (value: number, low: number, high: number): number =>
@@ -534,6 +588,44 @@ function rangedShare(side: SideState): number {
     total += stack.alive;
   }
   return total === 0 ? 0 : weighted / total;
+}
+
+/**
+ * Enemy unit slots each intimidating unit slot can frighten (maintainer, 2026-09-29).
+ *
+ * "Make it so that the intimidation can frighten about 1.5 times the unit slot count of each
+ * unit." The pressure used to be the enemy's mean intimidation with no term for numbers, so two
+ * Juggernauts (12 slots, intimidation 75) broke 40 Razors every time and 100 Razors 99% of the
+ * time: fear that one terrifying unit spreads over a legion, which is exactly what the §D3 note on
+ * `nerve` refuses for the pre-fight silencing.
+ */
+export const INTIMIDATION_REACH = 1.5;
+
+/**
+ * The share of a line reached at which each further intimidating slot starts to add less.
+ *
+ * Past it the fear closes on the whole line rather than stopping at it (`softCap`): the
+ * maintainer's rule, 2026-09-29, is that no unit effect hard-caps.
+ */
+export const INTIMIDATION_KNEE = 0.8;
+
+/**
+ * How much of `side`'s line the enemy's menace reaches, 0..1: its unit slots times
+ * {@link INTIMIDATION_REACH} over `side`'s, eased past {@link INTIMIDATION_KNEE}.
+ *
+ * Slots, standing and unbroken, on both sides, the same count `outnumberedBy` weighs a line in.
+ * Every unit reaches, not only the loud ones: the mean below already carries how loud they are,
+ * and this carries how many. A mirror is reached in full, so even fights are unchanged.
+ */
+export function intimidationReach(enemy: SideState, side: SideState): number {
+  const slots = (of: SideState): number =>
+    of.stacks.reduce(
+      (total, stack) => total + (stack.brokeAt === null ? stack.alive * stack.unit.unitSlots : 0),
+      0,
+    );
+  const line = slots(side);
+  if (line <= 0) return 1;
+  return softCap((slots(enemy) * INTIMIDATION_REACH) / line, INTIMIDATION_KNEE, 1);
 }
 
 /** Average intimidation across a side's live units: what the other side has to look at. */
@@ -681,8 +773,8 @@ export function intimidate(side: SideState, against: number): number {
  * Syndic's points are not his to give, and a turned Razor is still a Razor.
  *
  * Returns how many crossed, which is the figure the report prints where it would have printed
- * the intimidated. `ledger` is the by-unit count the settle takes them off the attacker's books with;
- * they are his for good, whichever way the fight goes.
+ * the intimidated. `ledger` is the by-unit count the settle takes them off the attacker's books with.
+ * They fight for him in this fight only and are dead afterwards, whichever way it goes.
  */
 function changeOfHeart(
   side: SideState,
@@ -847,16 +939,6 @@ export function takeDamage(
   return { fell, executed };
 }
 
-/** Of the turncoats on `side`, what is still standing, by unit id (`Simulation.turnedAlive`). */
-function turncoatsStanding(side: SideState): Army {
-  const standing: Army = {};
-  for (const stack of side.stacks) {
-    if (stack.turncoat !== true || stack.alive <= 0) continue;
-    standing[stack.unit.id] = (standing[stack.unit.id] ?? 0) + stack.alive;
-  }
-  return standing;
-}
-
 /**
  * Whether this attacking force brings a Wall Breaker into the line (`UnitSpec.wall_breaker`).
  *
@@ -885,28 +967,121 @@ export function breaksWalls(army: Army, rules: LineRules = bareLineRules()): boo
  * Netrunners is jamming nobody by the next round, and a side whose Netrunners have broken and run
  * (`brokeAt`) is not jamming either, because they are not there.
  *
- * The share is of the line, not of the roster: the units standing in this fight. Suppressed units
- * still count, on both sides of the ratio, because a intimidated jammer is still inside the enemy's
- * systems even if it is not shooting, and `suppressed` is about fire.
+ * The share is of the line, not of the roster: the units standing in this fight, counted in unit
+ * slots on both sides of the ratio (see {@link JAM_FULL_SHARE}). Suppressed units still count,
+ * because an intimidated jammer is still inside the enemy's systems even if it is not shooting,
+ * and `suppressed` is about fire.
  */
-/** The per-round figures a modification can move, and so the ones a jam can weaken. */
-export const MOD_GAIN_KEYS = ['offense', 'armor', 'penetration', 'evasion', 'range'] as const;
-export type ModGain = Partial<Record<(typeof MOD_GAIN_KEYS)[number], number>>;
+/**
+ * The per-round figures a modification can move, and so the ones a jam can weaken.
+ *
+ * Speed is one of them: `exchange` reads both sheets' speed every round for reach, closing and
+ * the dodge, and 17 of the 35 cards move it. It was left off this list, so the jam passed over
+ * the most common figure on the cards it is sold against (bug pass, 2026-09-29).
+ */
+export const MOD_GAIN_KEYS = [
+  'offense',
+  'armor',
+  'penetration',
+  'evasion',
+  'range',
+  'speed',
+] as const;
+
+/**
+ * ...and the figures a modification adds that the engine reads once, as the lines form: morale is
+ * where each stack's running morale starts, intimidation and stealth are spent before the first
+ * shot (§D3 and the ambush), and hit points are the bodies' pools. A jam reaches every figure a card
+ * adds (maintainer, 2026-09-29), so these take the opening jam's share once, in `jamAtFormation`.
+ * The Stereo Rig (intimidation +12, morale +8) and Composite Carapace (hit points +40) kept all of
+ * it under a full jam before.
+ */
+export const FORMATION_GAIN_KEYS = ['morale', 'intimidation', 'stealth', 'vitality'] as const;
+export type ModGain = Partial<
+  Record<(typeof MOD_GAIN_KEYS)[number] | (typeof FORMATION_GAIN_KEYS)[number], number>
+>;
+
+/**
+ * The opening jam on the once-read figures: `jam` percent of what each stack's cards add to its
+ * morale, intimidation, stealth and hit points, taken off before anything reads them. Every body
+ * is whole at this point, so the pools are simply refilled at the lower figure.
+ */
+export function jamAtFormation(side: SideState, jam: number): void {
+  if (jam <= 0) return;
+  for (const stack of side.stacks) {
+    for (const key of FORMATION_GAIN_KEYS) {
+      const cut = (stack.modGain[key] ?? 0) * (jam / 100);
+      if (cut === 0) continue;
+      stack.effective[key] -= cut;
+      if (key === 'morale') stack.morale = clamp(stack.morale - cut, 0, 100);
+    }
+    if ((stack.modGain.vitality ?? 0) !== 0) {
+      stack.effective.vitality = Math.max(1, stack.effective.vitality);
+      stack.bodies = stack.bodies.map(() => stack.effective.vitality);
+      settle(stack);
+    }
+  }
+}
 
 /**
  * What each covered Wonder of Engineering loses, per step of Netrunners (maintainer, 2026-09-27).
  *
- * A Wonder is cut only once the jammers standing cover its unit slots with their own: a 12-slot
- * machine needs four 3-slot Netrunners, and three do nothing to it. Covering it exactly takes 10%
- * off its damage and armour, and each jammer's worth of slots past that takes 10% more, to 50%.
- * Several Wonders are covered as many as possible first, smallest first, and only then do extra
- * jammers deepen the cuts, one step at a time round the covered ones. The ground, the weather and
- * the Lab scale the result the way they scale the jam (`jamCondition`), and may carry it past 50%,
- * to {@link WONDER_JAM_CEILING}.
+ * A Wonder is cut only once the jammers standing cover its unit slots, and each jammer slot covers
+ * {@link WONDER_COVER_PER_SLOT} slots of machine: one 3-slot Netrunner covers a 9-slot machine, and
+ * a 12-slot one needs two. Covering it takes 55% off its damage and armour, and each further
+ * jammer's worth of cover deepens it, curving towards 75 and never reaching it (`wonderCutPercent`),
+ * so two Netrunners on one machine take 73.7% and three 74.9%. Several Wonders
+ * are covered as many as possible first, smallest first, and only then do extra jammers deepen the
+ * cuts, one step at a time round the covered ones. The ground, the weather and the Lab scale the
+ * result the way they scale the jam (`jamCondition`), and may carry it past 75%, towards
+ * {@link WONDER_JAM_CEILING}.
+ *
+ * Fifty-five a step since the maintainer's retune of 2026-09-30: Netrunners "better than the
+ * average unit by about 50% vs Wonders", with their price raised and their power in the ability
+ * rather than the sheet. At 30 a step and 420 caps-equivalent a body they measured 1.19 times the
+ * median fighter of equal cost against a line half in Wonders; at 55, 519 a body and their
+ * range-and-offense sheet, 1.53.
  */
-export const WONDER_JAM_STEP = 10;
-export const WONDER_JAM_CAP = 50;
-export const WONDER_JAM_CEILING = 75;
+export const WONDER_JAM_STEP = 55;
+/**
+ * Slots of machine one jammer slot covers.
+ *
+ * Three since 2026-09-30 (maintainer, "stronger vs Wonders"). Measured in the situational
+ * balance run: at one to one, with 10% steps, four Netrunners beside a line against an enemy half
+ * in Wonders were worth 0.42 of the median fighter per cost, barely above the 0.26 they are worth
+ * against a plain line, because four of them reached only a few machines.
+ */
+export const WONDER_COVER_PER_SLOT = 3;
+/**
+ * Where the steps stop paying in full and start to curve (`softCap`): the first step, exactly.
+ *
+ * The cut was a hard stop at 50 until the maintainer's ruling of 2026-09-30 ("smooth curve"),
+ * under the standing rule that no unit effect hard-caps: the sixth Netrunner on a machine did
+ * nothing.
+ */
+export const WONDER_JAM_KNEE = 55;
+/**
+ * What the cut closes on, on nominal ground, and never reaches: 73.7 at two steps. A machine under
+ * any number of jammers still keeps a quarter of its damage and armour before the ground has its
+ * say.
+ */
+export const WONDER_JAM_NOMINAL_CEILING = 75;
+/**
+ * What the cut closes on once the ground has scaled it, the Wonders' twin of
+ * {@link MAX_JAM_CEILING}. A soft limit since 2026-09-30 (maintainer, "smooth both"): a cut the
+ * ground has scaled is exact to the nominal ceiling and curves from there towards 90.
+ */
+export const WONDER_JAM_CEILING = 90;
+
+/** The cut on nominal ground from this many steps of cover: 55 for the first, then a curve. */
+export function wonderCutPercent(steps: number): number {
+  return softCap(steps * WONDER_JAM_STEP, WONDER_JAM_KNEE, WONDER_JAM_NOMINAL_CEILING);
+}
+
+/** A Wonder cut once the ground has scaled it: exact to 75, then curving towards 90. */
+export function groundedWonderCut(scaled: number): number {
+  return softCap(scaled, WONDER_JAM_NOMINAL_CEILING, WONDER_JAM_CEILING);
+}
 
 /** How deep the jam on `target` is cut into each of its Wonders this round, by stack. */
 export function wonderJam(jamming: SideState, target: SideState): Map<Stack, number> {
@@ -916,7 +1091,7 @@ export function wonderJam(jamming: SideState, target: SideState): Map<Stack, num
   let condition = 0;
   for (const stack of jamming.stacks) {
     if (stack.brokeAt !== null || stack.alive <= 0 || stack.unit.jammer !== true) continue;
-    slots += stack.alive * stack.unit.unitSlots;
+    slots += stack.alive * stack.unit.unitSlots * WONDER_COVER_PER_SLOT;
     bodies += stack.alive;
     condition += stack.alive * jamCondition(stack);
   }
@@ -941,19 +1116,15 @@ export function wonderJam(jamming: SideState, target: SideState): Map<Stack, num
     wonder.steps = 1;
     return true;
   });
-  const maxSteps = WONDER_JAM_CAP / WONDER_JAM_STEP;
-  let extra = Math.floor(pool / perJammer + 1e-9);
-  while (extra > 0 && covered.some((wonder) => wonder.steps < maxSteps)) {
-    for (const wonder of covered) {
-      if (extra <= 0) break;
-      if (wonder.steps >= maxSteps) continue;
-      wonder.steps += 1;
-      extra -= 1;
-    }
-  }
+  // Round the covered machines one step at a time, smallest first: an even share each, with the
+  // remainder going to the smallest.
+  const extra = Math.floor(pool / perJammer + 1e-9);
+  covered.forEach((wonder, at) => {
+    wonder.steps += Math.floor(extra / covered.length) + (at < extra % covered.length ? 1 : 0);
+  });
 
   for (const wonder of wonders) {
-    const cut = Math.min(WONDER_JAM_CEILING, wonder.steps * WONDER_JAM_STEP * factor);
+    const cut = groundedWonderCut(wonderCutPercent(wonder.steps) * factor);
     // A stack of several machines is cut by the average of its members'.
     cuts.set(wonder.stack, (cuts.get(wonder.stack) ?? 0) + cut / wonder.stack.alive);
   }
@@ -989,16 +1160,17 @@ export function jamPercent(side: SideState): number {
   let line = 0;
   for (const stack of side.stacks) {
     if (stack.brokeAt !== null || stack.alive <= 0) continue;
-    line += stack.alive;
+    const slots = stack.alive * stack.unit.unitSlots;
+    line += slots;
     if (stack.unit.jammer !== true) continue;
-    jammers += stack.alive;
-    condition += stack.alive * jamCondition(stack);
+    jammers += slots;
+    condition += slots * jamCondition(stack);
   }
   if (jammers <= 0 || line <= 0) return 0;
-  const share = Math.min(1, jammers / (line * JAM_FULL_SHARE));
-  // The mean across the jamming stacks, weighted by how many of each are standing, so two
-  // different jamming sheets on one side average rather than the last one read winning.
-  return Math.min(MAX_JAM_CEILING, MAX_JAM * share * (condition / jammers));
+  const share = softCap(jammers / (line * JAM_FULL_SHARE), 1, JAM_SHARE_CEILING);
+  // The mean across the jamming stacks, weighted by the slots each has standing, so two different
+  // jamming sheets on one side average rather than the last one read winning.
+  return groundedJam(MAX_JAM * share * (condition / jammers));
 }
 
 /**
@@ -1011,10 +1183,15 @@ export function jamPercent(side: SideState): number {
  * feat is paid on are the one the rounds were actually fought at.
  */
 export function openingJam(side: SideState): number {
-  return jamPercent({
+  return jamPercent(asFormed(side));
+}
+
+/** A copy of the side with everybody back on their feet, as the lines formed. */
+export function asFormed(side: SideState): SideState {
+  return {
     ...side,
     stacks: side.stacks.map((stack) => ({ ...stack, alive: stack.started, brokeAt: null })),
-  });
+  };
 }
 
 /**
@@ -1320,7 +1497,7 @@ function buildStacks(
       sheet: fittedSheet,
       // What the cards add, which is what the enemy's jam weakens (`jammedSheet`).
       modGain: Object.fromEntries(
-        MOD_GAIN_KEYS.map((key) => [
+        [...MOD_GAIN_KEYS, ...FORMATION_GAIN_KEYS].map((key) => [
           key,
           (bare[key] - plain[key]) * (key === 'offense' ? 1 + packed / 100 : 1),
         ]),
@@ -1390,15 +1567,62 @@ export function officerOutcomeOf(side: SideState): OfficerOutcome | null {
 }
 
 /**
- * The share of a stack's fire a taunting enemy pulls onto itself while it is standing.
+ * The share of a stack's fire a taunting wall of {@link TAUNT_FULL_SHARE} of its line pulls.
  *
- * Not all of it, deliberately. "Attack them first" is the promise, and a floor of three quarters
- * keeps it: the wall is what the enemy is dealing with, and the quarter that leaks past is forty
- * people making their own decisions under fire, which is the same reason `allocate` splits at all.
- * Total focus would make a single Ironside a wall of invulnerability for everything behind it, and
- * a taunt that cannot be played around is not a tactic, it is a tax.
+ * Not all of it, deliberately. "Attack them first" is the promise, and three quarters keeps it:
+ * the wall is what the enemy is dealing with, and the quarter that leaks past is forty people
+ * making their own decisions under fire, which is the same reason `allocate` splits at all. Total
+ * focus would make a single Ironside a wall of invulnerability for everything behind it, and a
+ * taunt that cannot be played around is not a tactic, it is a tax.
+ *
+ * A smaller wall takes less and a bigger one a little more; see {@link tauntPull}.
  */
 export const TAUNT_PULL = 0.75;
+
+/**
+ * The taunters' share of their line's unit slots at the knee of the pull (`k` in the ruling).
+ *
+ * The maintainer's ruling, 2026-09-29, option (a) of the bug pass. The pull used to be a flat 75%
+ * whatever the wall's size, so one Ironside (3 slots) screened any line: 36 Razors and 1 Ironside
+ * beat 40 Razors in 300 of 300 fights, and 200 and 1 beat 203 every time. Scaled by share, a wall
+ * has to be half the line to take three quarters of the fire, and a token Ironside takes about
+ * what its size says it should.
+ */
+export const TAUNT_FULL_SHARE = 0.5;
+
+/**
+ * Where a wall past {@link TAUNT_FULL_SHARE} of its line tops out, as a multiple of
+ * {@link TAUNT_PULL}: 0.825 of the fire, approached and never reached.
+ *
+ * The ruling's pull is `min(1, share / k)`, and the maintainer's rule for unit effects
+ * (2026-09-29) is that nothing hard-caps: one more Ironside is always worth a little. So the pull
+ * is the ruling's exactly up to the knee and then climbs slowly (`softCap`). Softening the knee
+ * itself was tried first and cost the anchors: a p-norm curve that sat at 86% of the line at 0.9
+ * of the knee took 22 Razors and 6 Ironsides against 40 Razors from 70% to 39%, because a wall
+ * that is winning grows past the knee as the line in front of it thins.
+ */
+export const TAUNT_CEILING = 1.1;
+
+/**
+ * The share of the fire the taunting stacks in `live` pull, off their share of its unit slots.
+ *
+ * `TAUNT_PULL x softCap(taunt slots / (TAUNT_FULL_SHARE x line slots))`. Slots rather than
+ * bodies, because a unit slot is what the game prices a force in everywhere, and a 3-slot Ironside
+ * is three Razors' worth of line. Read off who is standing now, so a wall that is shot down to a
+ * sliver screens like a sliver. Measured over 1,000 seeds against 40 Razors: 36 Razors and 1
+ * Ironside win 33% (39 Razors win 30%), 30+3 win 26%, 22+6 win 70%.
+ */
+export function tauntPull(live: readonly Stack[]): number {
+  let taunt = 0;
+  let line = 0;
+  for (const stack of live) {
+    const slots = stack.alive * stack.unit.unitSlots;
+    line += slots;
+    if (stack.unit.taunts === true) taunt += slots;
+  }
+  if (line <= 0) return 0;
+  return TAUNT_PULL * softCap(taunt / (TAUNT_FULL_SHARE * line), 1, TAUNT_CEILING);
+}
 
 /**
  * How one stack splits its fire across the enemy's stacks.
@@ -1408,7 +1632,7 @@ export const TAUNT_PULL = 0.75;
  * of forty is forty people making their own decisions: total focus would make every fight a
  * sequence of clean executions and would reward a single hard counter far past what it is worth.
  *
- * **A taunting stack breaks that split** (`UnitSpec.taunts`). It takes {@link TAUNT_PULL} of the
+ * **A taunting stack breaks that split** (`UnitSpec.taunts`). It takes {@link tauntPull} of the
  * incoming fire off the top and the rest of the enemy line divides what is left, which is what
  * makes a shield wall a shield wall: threat weight is damage per point of enemy health, so a unit
  * built to have no damage and a lot of health is otherwise the *least* attractive thing on the
@@ -1470,16 +1694,17 @@ export function allocate(
   if (taunting.length === 0 || taunting.length === live.length) return spread(live, 1);
 
   const behind = live.filter((enemy) => enemy.unit.taunts !== true);
-  return [...spread(taunting, TAUNT_PULL), ...spread(behind, 1 - TAUNT_PULL)];
+  const pull = tauntPull(live);
+  return [...spread(taunting, pull), ...spread(behind, 1 - pull)];
 }
 
 /**
- * Medics per fighting unit at which a field hospital is doing everything it can.
+ * Medics per fighting unit that count as full cover: the unit of the cover ratio `mendShare` reads.
  *
- * One in four. Past that the extra medics are standing behind people who are already being treated,
- * which is why this is a ratio and not a rate: how much a hospital is worth depends on how many
- * casualties there are to work on, and casualties come from the size of the line rather than from
- * the size of the hospital.
+ * One in four. Past about {@link MEND_KNEE} of that the extra medics are mostly standing behind
+ * people who are already being treated, which is why this is a ratio and not a rate: how much a
+ * hospital is worth depends on how many casualties there are to work on, and casualties come from
+ * the size of the line rather than from the size of the hospital.
  *
  * It was an absolute figure in hit points first (`MEND_PER_MEDIC`), and that was measurably the
  * wrong model. In every fight short of a bloodbath the {@link MAX_MEND_SHARE} ceiling bound before
@@ -1490,21 +1715,35 @@ export function allocate(
 export const MEND_FULL_COVER = 0.25;
 
 /**
- * The most of one round's incoming damage a field hospital can undo, at full cover.
+ * The share of one round's incoming damage a field hospital approaches, and never reaches.
  *
  * Strictly under 1 on purpose, and not by a little: a side whose medics could cancel a whole round
  * would end every fight on the round cap with both lines intact, which is the failure mode of every
  * healing mechanic that was written without one of these. Under a ceiling, medics change *how many
  * walk out*, which is what the sheet promises, and never who holds the ground.
+ *
+ * 0.3, from a hard 0.45, on 2026-09-29 (maintainer: "medics are still a strong unit ... but they
+ * should not be OP, so nerf them"). At 0.45, 30 Razors and 6 Stitchers beat 38 Razors every time
+ * while 36 Razors, the same slots spent on the line, won 10%.
  */
-export const MAX_MEND_SHARE = 0.45;
+export const MAX_MEND_SHARE = 0.3;
 
 /**
- * The share of incoming damage this side's medics undo, 0..{@link MAX_MEND_SHARE}.
+ * The cover ratio up to which every medic pays in full; past it each one adds less (`softCap`).
  *
- * Linear in cover up to the full ratio and flat after it. Broken medics do not work, and the
- * denominator is the line they are treating rather than the whole force, so a hospital does not get
- * credit for covering itself.
+ * The maintainer's rule, 2026-09-29: no hard caps on unit effects, "sending 12 medics rather than
+ * 10 should always be better". Below the knee the share is linear in cover at
+ * {@link MAX_MEND_SHARE} per full cover; above it the rest of the way to the ceiling closes
+ * exponentially. Six Stitchers behind thirty (cover 0.8) undo about 24% of a round.
+ */
+export const MEND_KNEE = 0.7;
+
+/**
+ * The share of incoming damage this side's medics undo, under {@link MAX_MEND_SHARE}.
+ *
+ * Linear in cover up to {@link MEND_KNEE}, then rising ever more slowly. Broken medics do not
+ * work, and the denominator is the line they are treating rather than the whole force, so a
+ * hospital does not get credit for covering itself.
  *
  * **A broken stack is not in the denominator either**, and that half was missing (2026-09-17). The
  * 2026-09-16 rule is that a stack which died or fled no longer counts for the fight, and `allocate`
@@ -1522,7 +1761,7 @@ export function mendShare(side: SideState): number {
     else line += stack.alive;
   }
   if (medics <= 0 || line <= 0) return 0;
-  return MAX_MEND_SHARE * Math.min(1, medics / (line * MEND_FULL_COVER));
+  return MAX_MEND_SHARE * softCap(medics / (line * MEND_FULL_COVER), MEND_KNEE, 1);
 }
 
 /**
@@ -1570,6 +1809,23 @@ const NO_JAM: RoundJam = {
   wondersOnShooter: new Map(),
   wondersOnTarget: new Map(),
 };
+
+/**
+ * Out of the wire: the speed comes back from the next round on, and the morale it took is handed
+ * back to every stack still in the fight. A stack that broke in the wire stays broken; the wire
+ * did that, and the rout has already been run.
+ */
+function clearTheWire(side: SideState, took: ReadonlyMap<Stack, number>): void {
+  side.slowed = 0;
+  for (const [stack, points] of took) {
+    if (stack.brokeAt === null) stack.morale = clamp(stack.morale + points, 0, 100);
+  }
+}
+
+/** A sheet with the wire's speed cut on it, for the rounds its side is still in the wire. */
+function inTheWire(effective: Effective, slowed: number): Effective {
+  return slowed > 0 ? { ...effective, speed: Math.max(0, effective.speed - slowed) } : effective;
+}
 
 /** A field effect's percentage off a shooter's damage (`noiseOnEnemy`). */
 function withField(effective: Effective, percent: number): Effective {
@@ -1633,11 +1889,17 @@ function fireRound(
         // The jam first (what it leaves of the cards, and a covered Wonder's cut), then the field
         // effect off whatever damage is left.
         withField(
-          jammedSheet(stack, jam.onShooter, jam.wondersOnShooter.get(stack) ?? 0),
+          inTheWire(
+            jammedSheet(stack, jam.onShooter, jam.wondersOnShooter.get(stack) ?? 0),
+            side.slowed,
+          ),
           field.get(stack)?.percent ?? 0,
         ),
         stack.unit.modifiers,
-        jammedSheet(target, jam.onTarget, jam.wondersOnTarget.get(target) ?? 0),
+        inTheWire(
+          jammedSheet(target, jam.onTarget, jam.wondersOnTarget.get(target) ?? 0),
+          enemy.slowed,
+        ),
         target.morale,
         side.luck,
       );
@@ -1742,10 +2004,31 @@ export function brokenShare(side: SideState, broke: readonly Stack[]): number {
   return Math.min(1, ran / standing);
 }
 
+/** What a side's morale test reads off the enemy line: its menace and how outnumbered we are. */
+export type MoraleOutlook = Pick<MoraleShock, 'enemyIntimidation' | 'outnumberedRatio'>;
+
+/**
+ * Both sides' readings of each other, taken from one moment, before either side's morale test.
+ *
+ * The morale tests run one side after the other, and each marks the stacks that break. Read inside
+ * the second test, the enemy had already lost whatever broke in the first: the defender, tested
+ * second, counted fewer attackers and took the attackers' mean intimidation over whoever had not
+ * broken, while the attacker's test saw the defender whole. Measured on mirrors over 3,000 seeds
+ * (bug pass, 2026-09-29): Juggernauts won 44.8% attacking, Breakers 46.8%, Razors 48.3%, all
+ * 50.0% once both tests read the same snapshot. It is the rule the round loop states for fire,
+ * applied to nerve.
+ */
+export function moraleOutlook(side: SideState, enemy: SideState): MoraleOutlook {
+  return {
+    enemyIntimidation: intimidation(enemy) * intimidationReach(enemy, side),
+    outnumberedRatio: outnumberedBy(side, enemy),
+  };
+}
+
 function moralePhase(
   side: SideState,
   enemy: SideState,
-  battlefield: Battlefield,
+  outlook: MoraleOutlook,
   round: number,
   cascadeFrom: number,
 ): Stack[] {
@@ -1761,8 +2044,7 @@ function moralePhase(
      * them (2026-09-21).
      */
     enemyCasualtyFraction: 0,
-    enemyIntimidation: intimidation(enemy),
-    outnumberedRatio: outnumberedBy(side, enemy),
+    ...outlook,
     // `steady_nerve` cuts exactly this term and nothing else: the line still breaks from its own
     // losses, from being outnumbered and from what is opposite it, and never from the panic beside
     // it. See `SideState.steadyNerve`.
@@ -1811,16 +2093,24 @@ function moralePhase(
 /**
  * A broken stack is run down while it disengages.
  *
+ * Each body is caught with `PURSUIT_LOSS` odds on its own seeded draw (maintainer, 2026-09-29).
+ * It was the stack's share, rounded, so one body rounded to one and two to two: a legendary, a
+ * lone officer's escort and a pair of Juggernauts walked away from every break untouched, while
+ * three lost a third of themselves. The draws come off the fight's own stream, so a fight still
+ * replays from its seed; they are taken in stack order, one per body.
+ *
  * The health pool is scaled by the share of units that got clear, **not** rebuilt from the
  * survivors at full vitality. Rebuilding it was a real bug: a stack at 40% health that routed came
  * out of the pursuit at full health of a smaller number, which made losing your nerve the most
  * reliable way to survive a fight.
  */
-export function pursue(broke: readonly Stack[]): void {
+export function pursue(broke: readonly Stack[], next: () => number): void {
   for (const stack of broke) {
     const before = stack.alive;
     if (before <= 0) continue;
-    const after = Math.max(0, Math.round(before * (1 - PURSUIT_LOSS)));
+    let caught = 0;
+    for (let body = 0; body < before; body += 1) if (next() < PURSUIT_LOSS) caught += 1;
+    const after = before - caught;
     stack.bodies = bodiesFromPool(after, stack.pool * (after / before), stack.effective.vitality);
     settle(stack);
     // The run-down takes the intimidated with the rest, the same way `applyDamage` does.
@@ -1843,13 +2133,16 @@ export interface Simulation {
   defender: SideState;
   rounds: RoundRecord[];
   winner: 'attacker' | 'defender';
-  /** True when nobody broke and the round cap decided it. Kept as the narrower `settledBy`. */
+  /**
+   * True when the round cap decided it with both lines still fighting, which is `settledBy` of
+   * `cap`. Stacks may have broken on either side; what did not happen is a whole side breaking.
+   */
   decidedOnPower: boolean;
   /**
    * How the fight ended: somebody was left standing, the round cap ran out, or both sides fell.
    *
    * The third was invisible before (2026-09-17). `decidedOnPower` is false for it, correctly, since
-   * the line it drives says "neither side broke", and both sides had; so a fight where everyone
+   * the line it drives says both lines were still in it, and both had gone; so a fight where everyone
    * went down and the winner was picked on residual power was reported as an ordinary win.
    */
   settledBy: 'standing' | 'cap' | 'collapse';
@@ -1872,8 +2165,6 @@ export interface Simulation {
    * winning attacks on the Blacksite were his (measured 2026-09-21). Sums to {@link executed}.
    */
   executedForce: Army;
-  /** Of `turned`, the ones still standing when the fight ended, by unit id. */
-  turnedAlive: Army;
   /** The day's luck each side drew, −5.0 … +5.0. */
   luck: { attacker: number; defender: number };
   /**
@@ -1957,6 +2248,7 @@ export function simulate(input: SimulateInput): Simulation {
     luck: 0,
     cohesionPercent: setup.cohesionPercent ?? 0,
     steadyNerve: setup.territory?.steadyNerve ?? false,
+    slowed: setup.slowed?.speedCut ?? 0,
     stacks: buildStacks(
       setup.army,
       ground,
@@ -1997,6 +2289,15 @@ export function simulate(input: SimulateInput): Simulation {
    */
   const presence = input.defender.presence;
   applyPresence(defender, presence);
+  /*
+   * §E: the jam on what the cards add to the figures read once (`jamAtFormation`), before §D3 and
+   * the ambush read them. Both sides' jams are measured before either is laid, for the reason the
+   * round loop gives.
+   */
+  const formationJamOnDefender = jamPercent(attacker);
+  const formationJamOnAttacker = jamPercent(defender);
+  jamAtFormation(defender, formationJamOnDefender);
+  jamAtFormation(attacker, formationJamOnAttacker);
   // The Combine's two ledgers. Filled in by `changeOfHeart` and by `takeDamage` under his line.
   const turnedUnits: Army = {};
   const executedForce: Army = {};
@@ -2043,6 +2344,25 @@ export function simulate(input: SimulateInput): Simulation {
   if (zero) changeOfHeart(attacker, defender, onAttacker, zero.morale, turnedUnits);
   const attackerIntimidated = zero ? 0 : intimidate(attacker, onAttacker);
   const defenderIntimidated = zero ? 0 : intimidate(defender, onDefender);
+
+  /*
+   * The wire's morale half, as the lines meet (`SideSetup.slowed`).
+   *
+   * After §D3 on purpose: who is too intimidated to advance was settled on the sheets the two
+   * sides formed up with, and the wire is something that happens on the way across. Taken off the
+   * fight's running morale rather than the sheet, and handed back with the speed once the attack
+   * is out of it (`clearTheWire`), so it shakes the opening rounds and not the whole fight. Kept
+   * per stack, because a stack already near the floor loses less than the full cut.
+   */
+  const wire = input.attacker.slowed;
+  const wireTook = new Map<Stack, number>();
+  if (wire) {
+    for (const stack of attacker.stacks) {
+      const took = Math.min(stack.morale, wire.moraleCut);
+      stack.morale -= took;
+      wireTook.set(stack, took);
+    }
+  }
 
   // The opening strike, before either side is in position. Only the attacker can take one: an
   // ambush is something you set, and the side standing on the ground it already holds is not
@@ -2185,12 +2505,16 @@ export function simulate(input: SimulateInput): Simulation {
       round === 1 ? openedAttacker : undefined,
     );
 
-    const brokeAttacker = moralePhase(attacker, defender, battlefield, round, attackerCascade);
-    const brokeDefender = moralePhase(defender, attacker, battlefield, round, defenderCascade);
-    pursue(brokeAttacker);
-    pursue(brokeDefender);
+    // Both tests read the enemy as it stood before either broke: see `moraleOutlook`.
+    const attackerOutlook = moraleOutlook(attacker, defender);
+    const defenderOutlook = moraleOutlook(defender, attacker);
+    const brokeAttacker = moralePhase(attacker, defender, attackerOutlook, round, attackerCascade);
+    const brokeDefender = moralePhase(defender, attacker, defenderOutlook, round, defenderCascade);
+    pursue(brokeAttacker, next);
+    pursue(brokeDefender, next);
     attackerCascade = brokenShare(attacker, brokeAttacker);
     defenderCascade = brokenShare(defender, brokeDefender);
+    if (wire && round === wire.rounds) clearTheWire(attacker, wireTook);
 
     rounds.push({
       round,
@@ -2246,7 +2570,6 @@ export function simulate(input: SimulateInput): Simulation {
     turned: turnedUnits,
     executed: executedUnits,
     executedForce,
-    turnedAlive: turncoatsStanding(defender),
     luck: { attacker: attacker.luck, defender: defender.luck },
     intimidated: { attacker: attackerIntimidated, defender: defenderIntimidated },
   };

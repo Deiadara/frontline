@@ -104,6 +104,12 @@ export interface MissionsRepo {
   /** §E: turn a crew around. The return leg is derived from this instant, not stored. */
   markRecalled(missionId: string, recalledAt: string): void;
   findById(missionId: string): StoredMission | undefined;
+  /**
+   * Every run this crew ever sent, out or home, gone: the Console's Clean slate (bug pass,
+   * 2026-09-29). A run still out came home into the fresh crew with its haul, its people and its
+   * report, and the history was the old life's.
+   */
+  forget(baseId: string): void;
 }
 
 /**
@@ -158,7 +164,7 @@ function rowToStored(row: MissionRow): StoredMission {
        * that has since left its catalogue fails `MissionSchema.parse`, and an unparseable row does
        * not merely break its own screen: `basesWithActiveRuns` feeds `settleCrewsComingHome`,
        * whose throw escapes `settleWorld` and skips everything sequenced after it, so one bad row
-       * silently stops the automations, the scouts, the spies and every auction in the world for
+       * silently stops the automations, the spies and every auction in the world for
        * as long as it exists. The crew on that run never comes home either.
        *
        * Forgotten rather than repaired to a neighbour: a page category the game has dropped is not
@@ -193,6 +199,7 @@ export function createMissionsRepo(db: AppDatabase): MissionsRepo {
     ));
   const markRecalledStmt = db.prepare('UPDATE missions SET recalled_at = ? WHERE id = ?');
   const byIdStmt = db.prepare('SELECT * FROM missions WHERE id = ?');
+  const forgetStmt = db.prepare('DELETE FROM missions WHERE base_id = ?');
   /*
    * Bounded, because nothing ever deletes a mission.
    *
@@ -274,6 +281,9 @@ export function createMissionsRepo(db: AppDatabase): MissionsRepo {
     findById(missionId) {
       const row = byIdStmt.get(missionId) as MissionRow | undefined;
       return row ? rowToStored(row) : undefined;
+    },
+    forget(baseId) {
+      forgetStmt.run(baseId);
     },
     markResolved(
       missionId,

@@ -19,7 +19,7 @@ import { installApi, settleFonts } from './harness';
 const AWAY = 'terminus';
 const BOTH = [DEFAULT_CITY_ID, AWAY];
 
-/** A contested district of the away city, which opens as a screen rather than as a scout sheet. */
+/** A contested district of the away city, which opens as a screen. */
 const awayDistrict = districtsOfCity(AWAY).find((one) => one.kind === 'contested')!;
 const homeDistrict = districtsOfCity(DEFAULT_CITY_ID).find((one) => one.kind === 'contested')!;
 

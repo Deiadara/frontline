@@ -27,6 +27,41 @@ test('the census counts the gate, and every row has a Move button', async ({ pag
   await expectNothingOverflowsTheScreen(page);
 });
 
+/**
+ * Every row names its unit in full, at every width the game is drawn at (bug pass, 2026-09-29).
+ *
+ * Everything on a row but the name is fixed, so the name is the one thing a narrow column takes
+ * from. The census went two across at `lg` and three at `2xl`, which at 1024 left "Scavengers" as
+ * "Sca…" and "Razors" as "R…", and did the same to every row between 1536 and about 1700. The
+ * longest name in the catalogue is put on the sheet, because the fixture's own are short enough to
+ * fit a column that "The Crimson Dancer" does not.
+ */
+for (const width of [1024, 1280, 1536, 1920]) {
+  test(`every census row names its unit in full at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 });
+    await installApi(page, lateGame);
+    await page.route('**/api/units', (route) =>
+      route.fulfill({
+        json: {
+          ...unitsResponse,
+          army: { ...unitsResponse.army, the_crimson_dancer: 1, street_enforcers: 3 },
+        },
+      }),
+    );
+    await page.goto('/game/actions/units');
+    await expect(page.getByTestId('census-name-the_crimson_dancer')).toBeVisible();
+    await settleFonts(page);
+
+    const cut = await page.evaluate(() =>
+      [...document.querySelectorAll<HTMLElement>('[data-testid^="census-name-"]')]
+        .filter((name) => name.scrollWidth > name.clientWidth + 1)
+        .map((name) => `${name.textContent} (${name.clientWidth}px of ${name.scrollWidth})`),
+    );
+    expect(cut, 'a unit name cut short on the census').toEqual([]);
+    await page.screenshot({ path: `screenshots/census-names-${width}.png` });
+  });
+}
+
 test('the Move dialog lists where they stand and where they can go, quotes the road, and sends', async ({
   page,
 }) => {

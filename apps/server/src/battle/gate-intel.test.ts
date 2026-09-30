@@ -1,6 +1,6 @@
 import {
-  SCOUTING_RESEARCH_ID,
   SPY_GATE_POINTS_PER_LEVEL,
+  SPY_WRITTEN_RESEARCH_ID,
   armySize,
   counterScore,
   createCommander,
@@ -91,11 +91,6 @@ async function lookedThroughGate(level: number, fittings: readonly string[] = []
     ...mine.commanders,
     createCommander('spy', 'Wire', 'master_of_whispers', makeAttributes(55), []),
   ]);
-  app.repos.bases.updateResearch(attacker.baseId, {
-    ...mine.research,
-    technologies: [...mine.research.technologies, SCOUTING_RESEARCH_ID],
-  });
-  app.repos.city.markScouted(attacker.baseId, theirs.districtId, new Date().toISOString());
 
   const reader = app.repos.bases.findById(attacker.baseId)!;
   const target = { kind: 'gate', districtId: theirs.districtId } as const;
@@ -119,7 +114,7 @@ async function lookedThroughGate(level: number, fittings: readonly string[] = []
     defender,
     districtId: theirs.districtId,
     counter: counterScore(looked.ground.counter),
-    seen: armySize(report.exposed),
+    seen: report.exposedSlots,
   };
 }
 
@@ -188,10 +183,45 @@ describe('the board', () => {
     );
     app.repos.spying.insertReport(report);
 
+    // Unit slots and no names, before Written Reports: said in words, never passed off as heads.
+    const slotsOnly = (
+      await app.inject({ method: 'GET', url: '/api/battles', headers: auth(attacker.token) })
+    ).json<BattlesResponse>().coming[0]!;
+    expect(slotsOnly.enemySize).toBeNull();
+    expect(slotsOnly.enemyIntel).toMatch(new RegExp(`${report.exposedSlots} unit slots`));
+
+    const named = {
+      ...reader,
+      research: { ...reader.research, technologies: [SPY_WRITTEN_RESEARCH_ID] },
+    };
+    app.repos.bases.updateResearch(attacker.baseId, named.research);
+    app.repos.spying.insertReport({
+      ...writeSpyReport(
+        app.repos,
+        named,
+        {
+          id: 'run-board-named',
+          baseId: attacker.baseId,
+          target: { kind: 'gate', districtId },
+          tier: 'loose_ears',
+          capsPaid: 100,
+          departedAt: new Date().toISOString(),
+          returnsAt: new Date().toISOString(),
+          travelMinutes: 0,
+          recalledAt: null,
+        },
+        new Date(),
+      ),
+      writtenAt: new Date(Date.now() + 1000).toISOString(),
+    });
+    const latest = app.repos.spying.latestFor(attacker.baseId, { kind: 'gate', districtId })!;
+    expect(latest.unitsShown).toBe(true);
+
     const after = (
       await app.inject({ method: 'GET', url: '/api/battles', headers: auth(attacker.token) })
     ).json<BattlesResponse>().coming[0]!;
-    expect(after.enemySize).toBe(armySize(report.exposed));
+    expect(after.enemySize).toBe(armySize(latest.exposed));
+    expect(after.enemySize).toBeGreaterThan(0);
     expect(after.enemyIntel).toMatch(/spy report/);
 
     // The defender reads nothing of the column coming at them: nobody spies a road.

@@ -6,6 +6,7 @@ import {
   nextTutorialCard,
   tutorialCard,
   tutorialFinished,
+  tutorialTitle,
 } from './steps.js';
 
 /**
@@ -57,6 +58,29 @@ describe('the opening tutorial', () => {
     // Nobody is quoted, on any card: no card opens a quotation.
     for (const card of TUTORIAL_CARDS) {
       expect(card.body.join(' '), card.step).not.toMatch(/[""]/);
+    }
+  });
+
+  /**
+   * Terminus opened as a home on 2026-09-24 and the welcome card still said "Ashfall" (bug pass,
+   * 2026-09-29), so the heading is the crew's own city and nothing else is renamed.
+   */
+  it('names the welcome card after the city the crew lives in, and no other card', () => {
+    const welcome = tutorialCard('welcome')!;
+    expect(tutorialTitle(welcome, 'Terminus')).toBe('Terminus');
+    expect(tutorialTitle(welcome, undefined)).toBe(welcome.title);
+    const combine = tutorialCard('combine')!;
+    expect(tutorialTitle(combine, 'Terminus')).toBe(combine.title);
+  });
+
+  /**
+   * Scouting left the game on 2026-09-29 and the whole city is visible, so no card may still
+   * explain the map by what has not been scouted, or call it grey for that reason.
+   */
+  it('says nothing about scouting or a grey map', () => {
+    for (const card of TUTORIAL_CARDS) {
+      const copy = [card.title, card.lede, ...card.body].join(' ');
+      expect(copy, card.step).not.toMatch(/scout|grey/i);
     }
   });
 

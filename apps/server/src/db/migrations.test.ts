@@ -15,6 +15,7 @@ import {
   startingEconomy,
   startingProgression,
   startingResearch,
+  unitSlotsUsed,
   type Building,
 } from '@frontline/shared';
 import { describe, expect, it } from 'vitest';
@@ -24,6 +25,11 @@ import { createMissionsRepo } from './repos/missions.js';
 import { createSiegeRepo } from './repos/sieges.js';
 import { createCityRepo } from './repos/city.js';
 import { createSleeperRepo } from './repos/sleepers.js';
+import { createSpyingRepo } from './repos/spying.js';
+import { createBarRepo } from './repos/bar.js';
+import { createFeatsRepo } from './repos/feats.js';
+import { createMovesRepo } from './repos/moves.js';
+import { createSocialRepo } from './repos/social.js';
 
 const MIGRATIONS_DIR = fileURLToPath(new URL('./migrations/', import.meta.url));
 
@@ -516,9 +522,27 @@ describe('every migration from 0081 on, on a database with rows in every table',
     '0124_mission_wasted.sql',
     '0125_market_claims.sql',
     '0126_bar_rooms.sql',
+    '0127_spy_accuracy_withheld.sql',
+    '0128_bar_room_top_rank.sql',
+    '0129_feats_count_what_happened.sql',
+    '0130_scouting_removed.sql',
+    '0131_whispers_rework.sql',
+    '0132_offers_per_city.sql',
+    '0133_invitation_letters.sql',
+    '0134_mailbox_cap.sql',
   ];
-  /** Dropped by 0082 along with the mechanics under them, so they are not there to be counted. */
-  const RETIRED = new Set(['bar_negotiations', 'bar_standoffs', 'bar_slots']);
+  /**
+   * Dropped along with the mechanics under them, so they are not there to be counted: the Bar's
+   * old tables by 0082, and scouting's and the Console's fog by 0130.
+   */
+  const RETIRED = new Set([
+    'bar_negotiations',
+    'bar_standoffs',
+    'bar_slots',
+    'scouting_runs',
+    'district_intel',
+    'admin_fog',
+  ]);
 
   /**
    * What each table needs beyond what {@link insert} can guess.
@@ -782,7 +806,7 @@ describe('every migration from 0081 on, on a database with rows in every table',
       // the table they point at, and an implicit DELETE would empty them without a word.
       expect(n, `${table} lost its row somewhere from 0081 on`).toBe(1);
     }
-    // ...and the three that go are gone, rather than sitting there empty.
+    // ...and the ones that go are gone, rather than sitting there empty.
     for (const table of RETIRED) {
       expect(tablesOf(db), `${table} outlived the mechanic under it`).not.toContain(table);
     }
@@ -1528,19 +1552,18 @@ describe('0104: Directive Xero', () => {
   });
 
   /**
-   * The army column with no floor under it.
+   * The army column that had no floor under it when this was written.
    *
-   * Every other stored army is read through a salvage pass that drops an id the catalogue has lost
-   * (`withoutRetiredUnits` for the garrison and a mission's losses, `knownTrainingQueue` for the
-   * bench). `sleeper_cells` arrived in 0102 and `db/repos/sleepers.ts` hands the column straight to
-   * `SleeperCellSchema`, so a stale id there is not a lost stack, it is a throw on every read of
-   * that crew's cells. He cannot be in one today, because a Combine sheet is met and never held;
-   * this is swept for the same reason the other five are, and it is the one where being wrong
-   * costs an exception rather than a silence.
+   * `db/repos/sleepers.ts` handed the column straight to `SleeperCellSchema`, so a stale id there
+   * was a throw on every read of that crew's cells, and `due` stopped every crew's cells with it.
+   * It drops a retired id now, like every other stored army (bug pass, 2026-09-29), which makes an
+   * unswept cell the garrison's case above: he is lost without a sound. He cannot be in one today,
+   * because a Combine sheet is met and never held; this is swept for the same reason the other
+   * five are.
    */
-  it('renames him in a sleeper cell, the one army column whose reader still throws', () => {
+  it('renames him in a sleeper cell, where leaving him would lose him without a sound', () => {
     const db = legacy();
-    expect(() => sleeperArmy(db), 'the precondition: unswept, this read throws').toThrow();
+    expect(sleeperArmy(db), 'the precondition: unswept, this read drops him').toEqual({});
     runMigrations(db);
     expect(sleeperArmy(db)).toEqual({ directive_xero: 3 });
     db.close();
@@ -2154,6 +2177,557 @@ describe('0120: district and location ids follow the names on the tags', () => {
     const after = read(db);
     runMigrations(db);
     expect(read(db)).toEqual(after);
+    db.close();
+  });
+});
+
+describe('0127: the accuracy on a spy report the reader had not earned', () => {
+  const AT = '0127_spy_accuracy_withheld.sql';
+
+  it('clears it without the rung and on a failed report, and keeps it where it was printed', () => {
+    const db = openDatabase(':memory:');
+    migrateUpTo(db, AT);
+    db.prepare(
+      'INSERT INTO users (id, username, password_hash, created_at) VALUES (?, ?, ?, ?)',
+    ).run('u127', 'spymaster', 'x', NOW);
+    insert(db, 'bases', {
+      id: 'b127',
+      owner_id: 'u127',
+      name: 'Watchers',
+      district_id: 'steelbelt',
+      created_at: NOW,
+    });
+    const report = (id: string, row: { failed: number; shown: number }) =>
+      insert(db, 'spy_reports', {
+        id,
+        base_id: 'b127',
+        target_json: '{"kind":"location","locationId":"steelbelt-press"}',
+        district_id: 'steelbelt',
+        district_name: 'The Rustyard',
+        place_name: 'The Press',
+        holder_json: '{"kind":"government","name":"The Combine","player":null,"faction":null}',
+        tier: 'loose_ears',
+        caps_paid: 100,
+        written_at: NOW,
+        failed: row.failed,
+        exposed_json: row.failed ? '{}' : '{"razors":6}',
+        accuracy: row.failed ? 0.2 : 0.6,
+        unseen: 4,
+        accuracy_shown: row.shown,
+      });
+    report('hidden', { failed: 0, shown: 0 });
+    report('printed', { failed: 0, shown: 1 });
+    report('failed', { failed: 1, shown: 1 });
+
+    runMigrations(db);
+    const rows = db.prepare('SELECT id, accuracy, unseen FROM spy_reports ORDER BY id').all() as {
+      id: string;
+      accuracy: number | null;
+      unseen: number | null;
+    }[];
+    expect(rows).toEqual([
+      { id: 'failed', accuracy: null, unseen: null },
+      { id: 'hidden', accuracy: null, unseen: 4 },
+      { id: 'printed', accuracy: 0.6, unseen: 4 },
+    ]);
+    db.close();
+  });
+});
+
+describe('0130: scouting leaves the game', () => {
+  const AT = '0130_scouting_removed.sql';
+
+  function before(): AppDatabase {
+    const db = openDatabase(':memory:');
+    migrateUpTo(db, AT);
+    db.prepare(
+      'INSERT INTO users (id, username, password_hash, created_at) VALUES (?, ?, ?, ?)',
+    ).run('u130', 'looker', 'x', NOW);
+    insert(db, 'bases', {
+      id: 'b130',
+      owner_id: 'u130',
+      name: 'Lookers',
+      district_id: 'kettle-row',
+      created_at: NOW,
+      research_json: JSON.stringify({
+        active: { project: { kind: 'technology', techId: 'tech_scouting' }, finishesAt: NOW },
+        technologies: ['tech_scouting', 'tech_paid_informants'],
+      }),
+    });
+    return db;
+  }
+
+  it('drops the three tables and nothing else', () => {
+    const db = before();
+    runMigrations(db);
+    const tables = (
+      db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all() as { name: string }[]
+    ).map((row) => row.name);
+    for (const gone of ['scouting_runs', 'district_intel', 'admin_fog']) {
+      expect(tables, gone).not.toContain(gone);
+    }
+    expect(tables).toContain('spy_runs');
+    db.close();
+  });
+
+  it('moves the first Whispers rung onto its new id, finished or on the bench', () => {
+    const db = before();
+    runMigrations(db);
+    const { research_json } = db
+      .prepare('SELECT research_json FROM bases WHERE id = ?')
+      .get('b130') as { research_json: string };
+    expect(research_json).not.toContain('tech_scouting');
+    const research = JSON.parse(research_json) as {
+      active: { project: { techId: string } };
+      technologies: string[];
+    };
+    // 0130 put it on Loose Talk and 0131 moved it on again, to Written Reports: a crew that
+    // finished Scouting holds rung 1 under the id the catalogue has today.
+    expect(research.technologies).toEqual(['tech_written_reports', 'tech_paid_informants']);
+    expect(research.active.project.techId).toBe('tech_written_reports');
+    expect(RESEARCH_ITEMS.some((item) => item.id === 'tech_written_reports')).toBe(true);
+    db.close();
+  });
+
+  it('clears the retired bell kind, and unmutes it without losing the other switches', () => {
+    const db = before();
+    const bell = (id: string, kind: string) =>
+      insert(db, 'notifications', {
+        id,
+        user_id: 'u130',
+        kind,
+        title: 't',
+        link: '/game',
+        created_at: NOW,
+      });
+    bell('n-scout', 'scout_home');
+    bell('n-spy', 'spy_report');
+    const muted = (userId: string, json: string) => {
+      if (userId !== 'u130') {
+        db.prepare(
+          'INSERT INTO users (id, username, password_hash, created_at) VALUES (?, ?, ?, ?)',
+        ).run(userId, userId, 'x', NOW);
+      }
+      insert(db, 'notification_settings', { user_id: userId, muted_json: json });
+    };
+    muted('u130', '["scout_home","spy_report"]');
+    muted('u-last', '["market_won","scout_home"]');
+    muted('u-only', '["scout_home"]');
+    muted('u-none', '["market_won"]');
+
+    runMigrations(db);
+    const kinds = (db.prepare('SELECT kind FROM notifications').all() as { kind: string }[]).map(
+      (row) => row.kind,
+    );
+    expect(kinds).toEqual(['spy_report']);
+    const settings = Object.fromEntries(
+      (
+        db.prepare('SELECT user_id, muted_json FROM notification_settings').all() as {
+          user_id: string;
+          muted_json: string;
+        }[]
+      ).map((row) => [row.user_id, JSON.parse(row.muted_json) as string[]]),
+    );
+    expect(settings).toEqual({
+      u130: ['spy_report'],
+      'u-last': ['market_won'],
+      'u-only': [],
+      'u-none': ['market_won'],
+    });
+    db.close();
+  });
+
+  it('retires the scouting feats and starts the spy jobs ladder at the reports already written', () => {
+    const db = before();
+    for (const featId of ['scouted_1', 'scouting_3', 'spying_1']) {
+      insert(db, 'crew_feats', { base_id: 'b130', feat_id: featId, claimed_at: NOW });
+    }
+    insert(db, 'crew_tallies', { base_id: 'b130', tally: 'scouting_runs', value: 40 });
+    insert(db, 'crew_tallies', { base_id: 'b130', tally: 'spy_reports', value: 1 });
+    for (const [id, failed] of [
+      ['r1', 0],
+      ['r2', 1],
+    ] as const) {
+      insert(db, 'spy_reports', {
+        id,
+        base_id: 'b130',
+        target_json: '{"kind":"gate","districtId":"ccs"}',
+        district_id: 'ccs',
+        district_name: 'The Spire',
+        place_name: 'The gate',
+        holder_json: '{"kind":"government","name":"The Combine","player":null,"faction":null}',
+        tier: 'loose_ears',
+        caps_paid: 100,
+        written_at: NOW,
+        failed,
+        exposed_json: '{}',
+        accuracy: 0.5,
+      });
+    }
+
+    runMigrations(db);
+    const claimed = (
+      db.prepare('SELECT feat_id FROM crew_feats ORDER BY feat_id').all() as { feat_id: string }[]
+    ).map((row) => row.feat_id);
+    expect(claimed).toEqual(['spying_1']);
+    const tallies = Object.fromEntries(
+      (
+        db.prepare('SELECT tally, value FROM crew_tallies WHERE base_id = ?').all('b130') as {
+          tally: string;
+          value: number;
+        }[]
+      ).map((row) => [row.tally, row.value]),
+    );
+    // Both reports, the failed one too: the ladder counts jobs home, not what they learnt.
+    expect(tallies).toEqual({ spy_reports: 1, spy_jobs_returned: 2 });
+    db.close();
+  });
+});
+
+describe("0131: the Master of Whispers' track off the maintainer's ledger", () => {
+  const AT = '0131_whispers_rework.sql';
+
+  function before(research: { active: string | null; technologies: string[] }): AppDatabase {
+    const db = openDatabase(':memory:');
+    migrateUpTo(db, AT);
+    db.prepare(
+      'INSERT INTO users (id, username, password_hash, created_at) VALUES (?, ?, ?, ?)',
+    ).run('u131', 'whisperer', 'x', NOW);
+    insert(db, 'bases', {
+      id: 'b131',
+      owner_id: 'u131',
+      name: 'Listeners',
+      district_id: 'kettle-row',
+      created_at: NOW,
+      research_json: JSON.stringify({
+        active:
+          research.active === null
+            ? null
+            : { project: { kind: 'technology', techId: research.active }, finishesAt: NOW },
+        technologies: research.technologies,
+      }),
+    });
+    return db;
+  }
+
+  function researchOf(db: AppDatabase): { active: string | null; technologies: string[] } {
+    const { research_json } = db
+      .prepare('SELECT research_json FROM bases WHERE id = ?')
+      .get('b131') as { research_json: string };
+    const parsed = JSON.parse(research_json) as {
+      active: { project: { techId: string } } | null;
+      technologies: string[];
+    };
+    return { active: parsed.active?.project.techId ?? null, technologies: parsed.technologies };
+  }
+
+  it('keeps every crew on the step it reached, rungs 8 and 9 swapped without a collision', () => {
+    const db = before({
+      active: 'tech_the_whole_wire',
+      technologies: [
+        'tech_loose_talk',
+        'tech_paid_informants',
+        'tech_sleeper_lists',
+        'tech_turned_runners',
+        'tech_compartmentation',
+      ],
+    });
+    runMigrations(db);
+    expect(researchOf(db)).toEqual({
+      active: 'tech_the_whole_wire',
+      technologies: [
+        'tech_written_reports',
+        'tech_paid_informants',
+        'tech_sleeper_lists',
+        'tech_shared_knowledge',
+        'tech_turned_runners',
+      ],
+    });
+    for (const id of researchOf(db).technologies) {
+      expect(RESEARCH_ITEMS.find((item) => item.id === id)?.track, id).toBe('master_of_whispers');
+    }
+    // Step for step: rung 8 is still rung 8 and rung 9 still rung 9.
+    const step = (id: string) => RESEARCH_ITEMS.find((item) => item.id === id)?.step;
+    expect(step('tech_shared_knowledge')).toBe(8);
+    expect(step('tech_turned_runners')).toBe(9);
+    db.close();
+  });
+
+  it('moves old rung 8 alone to Shared Knowledge, finished or on the bench', () => {
+    const finished = before({ active: null, technologies: ['tech_turned_runners'] });
+    runMigrations(finished);
+    expect(researchOf(finished).technologies).toEqual(['tech_shared_knowledge']);
+    finished.close();
+
+    const benched = before({ active: 'tech_turned_runners', technologies: [] });
+    runMigrations(benched);
+    expect(researchOf(benched).active).toBe('tech_shared_knowledge');
+    benched.close();
+
+    const nine = before({ active: 'tech_compartmentation', technologies: [] });
+    runMigrations(nine);
+    expect(researchOf(nine).active).toBe('tech_turned_runners');
+    nine.close();
+  });
+
+  it('keeps an old report as it was written, units named, and takes a courier report with no tier', () => {
+    const db = before({ active: null, technologies: [] });
+    const row = {
+      base_id: 'b131',
+      target_json: '{"kind":"location","locationId":"steelbelt-press"}',
+      district_id: 'steelbelt',
+      district_name: 'The Rustyard',
+      place_name: 'The Press',
+      holder_json: '{"kind":"government","name":"The Combine","player":null,"faction":null}',
+      caps_paid: 100,
+      written_at: NOW,
+      failed: 0,
+      exposed_json: '{"razors":6}',
+      accuracy: null,
+    };
+    insert(db, 'spy_reports', { ...row, id: 'old', tier: 'loose_ears' });
+    runMigrations(db);
+
+    const old = db.prepare('SELECT * FROM spy_reports WHERE id = ?').get('old') as Record<
+      string,
+      unknown
+    >;
+    expect(old).toMatchObject({
+      tier: 'loose_ears',
+      units_shown: 1,
+      exposed_slots: null,
+      total_slots: null,
+      found_out: 0,
+    });
+    // Read back, the units are the count: an old report says as much as it ever did.
+    const read = createSpyingRepo(db).reportsFor('b131', 5)[0]!;
+    expect(read.unitsShown).toBe(true);
+    expect(read.exposedSlots).toBe(unitSlotsUsed({ razors: 6 }));
+    insert(db, 'spy_reports', { ...row, id: 'courier', tier: null, caps_paid: 0 });
+    expect(
+      (db.prepare('SELECT tier FROM spy_reports WHERE id = ?').get('courier') as { tier: unknown })
+        .tier,
+    ).toBeNull();
+    db.close();
+  });
+});
+
+/**
+ * The two of today's migrations that rewrite or reinterpret rows already written, against those
+ * rows (bug pass, 2026-09-29). The filled-store chain above proves each applies; it does not look
+ * at what a room frozen before 0128 or a crew's counter from before 0129 reads as afterwards.
+ */
+describe('0128 and 0129 on rows written before them', () => {
+  function crewBefore(stopBefore: string): AppDatabase {
+    const db = openDatabase(':memory:');
+    migrateUpTo(db, stopBefore);
+    db.prepare(
+      'INSERT INTO users (id, username, password_hash, created_at) VALUES (?, ?, ?, ?)',
+    ).run('u12x', 'breaker', 'x', NOW);
+    insert(db, 'bases', {
+      id: 'b12x',
+      owner_id: 'u12x',
+      name: 'Breakers',
+      district_id: 'kettle-row',
+      created_at: NOW,
+    });
+    return db;
+  }
+
+  it('0128: a room frozen before it caps the door off its strongest crew, as it was stocked', () => {
+    const db = crewBefore('0128_bar_room_top_rank.sql');
+    insert(db, 'bar_rooms', {
+      day: '2026-09-28',
+      city_id: 'ashfall',
+      lowest_level: 20,
+      lowest_notoriety: 13,
+      highest_level: 80,
+      highest_notoriety: 3,
+      average_level: 40,
+      average_notoriety: 9,
+    });
+    runMigrations(db);
+    expect(createBarRepo(db).room('2026-09-28', 'ashfall')?.highestRank).toBe(3);
+    db.close();
+  });
+
+  it('0129: every gate a crew broke is still counted, and a column already out never rode', () => {
+    const db = crewBefore('0129_feats_count_what_happened.sql');
+    insert(db, 'crew_tallies', { base_id: 'b12x', tally: 'gates_captured', value: 4 });
+    insert(db, 'crew_tallies', { base_id: 'b12x', tally: 'rail_journeys', value: 2 });
+    insert(db, 'unit_moves', {
+      id: 'm12x',
+      base_id: 'b12x',
+      from_json: '{"kind":"district"}',
+      to_json: '{"kind":"gate"}',
+      army_json: '{"razors":2}',
+      vehicles_json: '{}',
+      departed_at: NOW,
+      returns_at: NOW,
+      travel_minutes: 10,
+    });
+    runMigrations(db);
+    expect(createFeatsRepo(db).tallies('b12x')).toEqual({ gates_breached: 4, rail_journeys: 2 });
+    expect(createMovesRepo(db).find('m12x')?.byRail).toBe(false);
+    db.close();
+  });
+});
+
+describe('0132: an offer belongs to a city', () => {
+  const AT = '0132_offers_per_city.sql';
+
+  function offer(db: AppDatabase, id: string, seller: string, extra: Record<string, unknown> = {}) {
+    insert(db, 'market_offers', {
+      id,
+      seller_base_id: seller,
+      seller_name: seller,
+      give_json: '{"resources":{"oil":1},"items":{}}',
+      want_json: '{"resources":{"scrap":1},"items":{}}',
+      status: 'open',
+      created_at: NOW,
+      ...extra,
+    });
+  }
+
+  it("pins an open listing to its poster's home city, and a counter to its listing's", () => {
+    const db = openDatabase(':memory:');
+    migrateUpTo(db, AT);
+    db.prepare(
+      'INSERT INTO users (id, username, password_hash, created_at) VALUES (?, ?, ?, ?)',
+    ).run('u132', 'trader', 'x', NOW);
+    db.prepare(
+      'INSERT INTO users (id, username, password_hash, created_at) VALUES (?, ?, ?, ?)',
+    ).run('u132b', 'other', 'x', NOW);
+    insert(db, 'bases', {
+      id: 'ash',
+      owner_id: 'u132',
+      name: 'Ash',
+      district_id: 'kettle-row',
+      created_at: NOW,
+    });
+    insert(db, 'bases', {
+      id: 'term',
+      owner_id: 'u132b',
+      name: 'Term',
+      district_id: 'coldwater-halt',
+      created_at: NOW,
+    });
+    offer(db, 'o-term', 'term');
+    offer(db, 'o-ash', 'ash');
+    // An Ashfall crew's counter to the Terminus listing goes up on the Terminus board.
+    offer(db, 'o-counter', 'ash', { counter_to: 'o-term', directed_at: 'term' });
+    offer(db, 'o-closed', 'term', { status: 'accepted' });
+
+    runMigrations(db);
+    const cities = Object.fromEntries(
+      (
+        db.prepare('SELECT id, city_id FROM market_offers').all() as {
+          id: string;
+          city_id: string;
+        }[]
+      ).map((row) => [row.id, row.city_id]),
+    );
+    expect(cities).toEqual({
+      'o-term': 'terminus',
+      'o-ash': 'ashfall',
+      'o-counter': 'terminus',
+      // History: read only to name a claim's source, so the default is left.
+      'o-closed': 'ashfall',
+    });
+    db.close();
+  });
+});
+
+describe('0134: every mailbox kept to its newest hundred', () => {
+  const AT = '0134_mailbox_cap.sql';
+
+  function letter(
+    db: AppDatabase,
+    id: string,
+    to: string,
+    minute: number,
+    extra: Record<string, unknown> = {},
+  ): void {
+    insert(db, 'messages', {
+      id,
+      thread_id: `t-${id}`,
+      sender_user_id: 'writer',
+      sender_name: 'writer',
+      recipient_user_id: to,
+      audience: 'player',
+      addressed_to: to,
+      subject: id,
+      body: '.',
+      sent_at: new Date(Date.parse(NOW) + minute * 60_000).toISOString(),
+      ...extra,
+    });
+  }
+
+  it('drops the oldest letters, read or not, and every deleted one', () => {
+    const db = openDatabase(':memory:');
+    migrateUpTo(db, AT);
+    for (const id of ['writer', 'reader']) {
+      db.prepare(
+        'INSERT INTO users (id, username, password_hash, created_at) VALUES (?, ?, ?, ?)',
+      ).run(id, id, 'x', NOW);
+    }
+    // 102 letters, the oldest read, the newest thrown away: 101 visible, so the oldest visible one
+    // goes along with the deleted one.
+    for (let n = 0; n < 102; n += 1) {
+      letter(db, `in-${String(n)}`, 'reader', n, {
+        read_at: n === 0 ? NOW : null,
+        deleted: n === 101 ? 1 : 0,
+      });
+    }
+    // The writer's own copy of the oldest letter, which the fold writes to, and 101 more sends.
+    letter(db, 'sent-0', 'writer', 0, { thread_id: 't-in-0', is_sent_copy: 1 });
+    for (let n = 1; n <= 101; n += 1) {
+      letter(db, `sent-${String(n)}`, 'writer', 200 + n, { is_sent_copy: 1 });
+    }
+
+    runMigrations(db);
+    const ids = (userId: string, sentCopy: number) =>
+      (
+        db
+          .prepare('SELECT id FROM messages WHERE recipient_user_id = ? AND is_sent_copy = ?')
+          .all(userId, sentCopy) as { id: string }[]
+      ).map((row) => row.id);
+
+    const inbox = ids('reader', 0);
+    expect(inbox).toHaveLength(100);
+    expect(inbox).not.toContain('in-0');
+    expect(inbox).not.toContain('in-101');
+
+    const sent = ids('writer', 1);
+    expect(sent).toHaveLength(100);
+    // The two oldest sends go, and with them the copy that carried the fold.
+    expect(sent).not.toContain('sent-0');
+    expect(sent).not.toContain('sent-1');
+    db.close();
+  });
+
+  it('carries a pruned copy into the sender’s count while the sent copy stays', () => {
+    const db = openDatabase(':memory:');
+    migrateUpTo(db, AT);
+    for (const id of ['writer', 'reader']) {
+      db.prepare(
+        'INSERT INTO users (id, username, password_hash, created_at) VALUES (?, ?, ?, ?)',
+      ).run(id, id, 'x', NOW);
+    }
+    letter(db, 'old', 'reader', 0, { read_at: NOW });
+    letter(db, 'old-copy', 'writer', 0, { thread_id: 't-old', is_sent_copy: 1 });
+    for (let n = 1; n <= 100; n += 1) letter(db, `new-${String(n)}`, 'reader', n);
+
+    runMigrations(db);
+    expect(
+      db
+        .prepare('SELECT pruned_recipients, pruned_read FROM messages WHERE id = ?')
+        .get('old-copy'),
+    ).toEqual({ pruned_recipients: 1, pruned_read: 1 });
+    expect(createSocialRepo(db).sent('writer', 100)[0]).toMatchObject({
+      recipients: 1,
+      readBy: 1,
+    });
     db.close();
   });
 });

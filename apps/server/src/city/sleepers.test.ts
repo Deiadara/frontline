@@ -3,8 +3,10 @@ import {
   DECLARE_INFAMY_COST,
   declarationWindow,
   findLocation,
-  MAX_LOCATION_LEVEL,
   reportReaches,
+  SLEEPER_REFUSAL_TEXT,
+  districtHolder,
+  findDistrict,
   type Base,
   type BattlesResponse,
 } from '@frontline/shared';
@@ -13,7 +15,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { buildApp } from '../app.js';
 import { loadConfig } from '../config.js';
 import { openDatabase, runMigrations, type AppDatabase } from '../db/index.js';
-import { settleSleepers } from './sleepers.js';
+import { sendCellsHomeFromShutDistrict, settleSleepers } from './sleepers.js';
 import { settleBattles } from '../battle/resolve.js';
 import { chooseOverseer } from '../testing/overseer.js';
 
@@ -46,7 +48,7 @@ interface World {
   db: AppDatabase;
   token: string;
   base: Base;
-  /** A location in a district this crew has scouted and does not hold. */
+  /** A location in a district this crew does not hold. */
   locationId: string;
   districtId: string;
 }
@@ -85,7 +87,6 @@ async function makeWorld(army: Record<string, number> = { sleepers: 6 }): Promis
   const location = findLocation('chrome-row-coinop');
   if (!location) throw new Error('Coin-Op Row is not on the map');
   const districtId = location.districtId;
-  app.repos.city.markScouted(baseId, districtId, new Date().toISOString());
 
   app.repos.bases.updateArmy(baseId, army, []);
   const base = app.repos.bases.findById(baseId)!;
@@ -164,70 +165,45 @@ describe('planting a cell', () => {
     expect(ours.body).toContain('garrison');
   });
 
-  it('refuses ground the crew has never seen inside', async () => {
-    const world = await makeWorld();
-    const unseen = CITY_LOCATIONS.find(
-      (one) => one.districtId !== world.districtId && one.districtId !== world.base.districtId,
-    );
-    if (!unseen) throw new Error('the map has only two districts');
-
-    const sent = await world.app.inject({
-      method: 'POST',
-      url: '/api/city/sleepers',
-      headers: auth(world.token),
-      payload: { locationId: unseen.id, army: { sleepers: 2 } },
-    });
-    expect(sent.statusCode).toBe(409);
-    expect(sent.body).toContain('eyes on that ground');
-  });
-
   /**
-   * ...and accepts ground only a Satellite Uplink has seen (bug pass, 2026-09-20).
-   *
-   * Two doors were reading two different fogs. `battle/declare.ts` gates a declaration on
-   * `cityContextFor(...).visible`, which is the scouted set plus the ground held plus the Uplink's
-   * range, and says in its own comment why: "deriving it twice from different inputs is how a
-   * screen and a rule quietly disagree about what a crew can see". This door read
-   * `repos.city.scouted` and therefore refused exactly the ground the declaration allowed, so a
-   * crew could call the fight and not put a cell on the plot first. A cell that cannot be planted
-   * before the declaration is a cell with no point.
+   * The whole city is visible (maintainer, 2026-09-29), so a cell can go to ground anywhere on it:
+   * this door used to refuse a district nobody of this crew's had been to.
    */
-  it('accepts ground a Satellite Uplink can see into', async () => {
+  it('plants on ground the crew has never been to', async () => {
     const world = await makeWorld();
-    const uplink = CITY_LOCATIONS.find((one) => one.kind === 'satellite_uplink');
-    if (!uplink) throw new Error('the map has no Satellite Uplink');
-
-    /*
-     * Held and worked to the ceiling, which puts `visionRange` past the eleven districts that are
-     * not this crew's own. Anything less and the target below would depend on where the account
-     * happened to be placed.
-     */
-    const held = world.app.repos.city.control(uplink.id);
-    if (!held) throw new Error('the Uplink has no control row');
-    world.app.repos.city.put({
-      ...held,
-      holder: { kind: 'crew', baseId: world.base.id },
-      level: MAX_LOCATION_LEVEL,
-    });
-
-    const target = CITY_LOCATIONS.find(
+    // ...and in a district that is still split: a district held end to end is shut to a cell
+    // (2026-09-29), which is a different door and has its own test below.
+    const controls = world.app.repos.city.controls();
+    const far = CITY_LOCATIONS.find(
       (one) =>
         one.districtId !== world.districtId &&
         one.districtId !== world.base.districtId &&
-        one.districtId !== uplink.districtId,
+        world.app.repos.city.control(one.id)?.holder.kind !== 'crew' &&
+        districtHolder(findDistrict(one.districtId)!, controls) === null,
     );
-    if (!target) throw new Error('the map has too few districts');
-    // Nothing but the Uplink can see it: no scout has ever been, and the crew holds nothing there.
-    expect(world.app.repos.city.scouted(world.base.id).has(target.districtId)).toBe(false);
+    if (!far) throw new Error('the map has only two districts');
 
     const sent = await world.app.inject({
       method: 'POST',
       url: '/api/city/sleepers',
       headers: auth(world.token),
-      payload: { locationId: target.id, army: { sleepers: 2 } },
+      payload: { locationId: far.id, army: { sleepers: 2 } },
     });
     expect(sent.statusCode, sent.body.slice(0, 300)).toBe(200);
-    expect(cells(world)[0]?.locationId).toBe(target.id);
+    expect(cells(world)[0]?.locationId).toBe(far.id);
+  });
+
+  it('refuses a place the map does not have', async () => {
+    const world = await makeWorld();
+    const sent = await world.app.inject({
+      method: 'POST',
+      url: '/api/city/sleepers',
+      headers: auth(world.token),
+      payload: { locationId: 'nowhere-at-all', army: { sleepers: 2 } },
+    });
+    expect(sent.statusCode).toBe(404);
+    expect(sent.body).toContain('No such location');
+    expect(armyOf(world).sleepers).toBe(6);
   });
 });
 
@@ -239,6 +215,75 @@ describe('planting a cell', () => {
  * army, watch the draw fall, train a second one into the room, and be over the ceiling the day
  * the first lot walks home. A cell did precisely that until this.
  */
+/**
+ * Only into an open district (maintainer, 2026-09-29): a district held end to end is shut, its
+ * gate is the one thing to call on, and a cell cannot be planted behind it. And the rule holds
+ * after the send: the moment the district a cell sits in closes, the cell turns for home.
+ */
+describe('a shut district', () => {
+  it('refuses a cell bound for a location behind a gate held end to end', async () => {
+    const world = await makeWorld();
+    // The Last Platform: every plot the Combine's, so the district is shut from the first day.
+    const refused = await world.app.inject({
+      method: 'POST',
+      url: '/api/city/sleepers',
+      headers: auth(world.token),
+      payload: { locationId: 'last-platform-armoury', army: { sleepers: 2 } },
+    });
+    expect(refused.statusCode).toBe(409);
+    expect(refused.json<{ error: { message: string } }>().error.message).toBe(
+      SLEEPER_REFUSAL_TEXT.district_shut,
+    );
+    expect(cells(world)).toHaveLength(0);
+    expect(armyOf(world).sleepers).toBe(6);
+  });
+
+  it('sends every cell in a district home the moment it closes, and none before', async () => {
+    const world = await makeWorld();
+    const district = findDistrict(world.districtId)!;
+    // Chrome Row is split today, so a cell goes in and lands.
+    expect((await plant(world, { sleepers: 2 })).statusCode).toBe(200);
+    landEverything(world);
+    // ...and a second one, still on the road when the district closes.
+    expect((await plant(world, { sleepers: 1 })).statusCode).toBe(200);
+    const [outbound, waiting] = cells(world).sort((a, b) => a.phase.localeCompare(b.phase));
+    expect(outbound?.phase).toBe('outbound');
+    expect(waiting?.phase).toBe('waiting');
+
+    // Still split: nothing moves.
+    expect(sendCellsHomeFromShutDistrict(world.app.repos, world.districtId, new Date())).toEqual(
+      [],
+    );
+    expect(
+      cells(world)
+        .map((cell) => cell.phase)
+        .sort(),
+    ).toEqual(['outbound', 'waiting']);
+
+    // A rival takes the whole district.
+    for (const location of district.locations) {
+      const control = world.app.repos.city.control(location.id)!;
+      world.app.repos.city.put({ ...control, holder: { kind: 'crew', baseId: 'rival-1' } });
+    }
+    const now = new Date();
+    const sent = sendCellsHomeFromShutDistrict(world.app.repos, world.districtId, now);
+    expect(sent.map((cell) => cell.phase)).toEqual(['returning', 'returning']);
+    // The waiting cell walks the leg it walked out; the one on the road walks back what it covered.
+    const home = (cell: { id: string }) => world.app.repos.sleepers.findById(cell.id)!;
+    expect(Date.parse(home(waiting!).arrivesAt) - now.getTime()).toBe(waiting!.travelMs);
+    expect(Date.parse(home(outbound!).arrivesAt) - now.getTime()).toBeLessThanOrEqual(
+      outbound!.travelMs,
+    );
+    // ...and they rejoin the roster when they land, so nobody is lost to the closing.
+    world.db
+      .prepare('UPDATE sleeper_cells SET arrives_at = ?')
+      .run(new Date(Date.now() - 60_000).toISOString());
+    settleSleepers(world.app.repos, new Date());
+    expect(cells(world)).toHaveLength(0);
+    expect(armyOf(world).sleepers).toBe(6);
+  });
+});
+
 describe('what a planted cell costs the district', () => {
   const slotsUsed = async (world: World): Promise<number> => {
     const seen = await world.app.inject({
@@ -396,7 +441,6 @@ describe('the fight they were planted for', () => {
     const rivalToken = rival.json<{ token: string }>().token;
     const theirs = await chooseOverseer(world.app, rivalToken);
     const rivalBase = theirs.json<{ base: { id: string } }>().base.id;
-    world.app.repos.city.markScouted(rivalBase, world.districtId, new Date().toISOString());
     const purse = world.app.repos.bases.findById(rivalBase)!.economy;
     world.app.repos.bases.updateEconomy(rivalBase, {
       ...purse,
@@ -445,12 +489,7 @@ describe('what the ground says about them', () => {
       payload: { username: 'the_watcher', password: 'hunter2pass' },
     });
     const rivalToken = rival.json<{ token: string }>().token;
-    const theirs = await chooseOverseer(world.app, rivalToken);
-    world.app.repos.city.markScouted(
-      theirs.json<{ base: { id: string } }>().base.id,
-      world.districtId,
-      new Date().toISOString(),
-    );
+    await chooseOverseer(world.app, rivalToken);
 
     const seen = await world.app.inject({
       method: 'GET',

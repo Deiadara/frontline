@@ -4,7 +4,6 @@ import {
   describeResearchPayout,
   findResearchItem,
   markFromPoints,
-  researchItemMinutes,
   researchItemPrice,
   researchItemRefusal,
   researchTimeCutPercent,
@@ -195,9 +194,12 @@ function researchClockFor(repos: Repositories, base: Base, fit: OfficerFitReader
  *
  * Floored at a minute, because the whole screen is built around a clock and a project that lands
  * inside the request that started it never has one.
+ *
+ * Off the rung's own `minutes`, never the depth formula: the Master of Whispers' clocks are the
+ * maintainer's ledger (45 to 1000 minutes), and reading the formula ran The Whole Wire on 270.
  */
 function minutesWith(clock: ResearchClock, spec: ResearchItemSpec): number {
-  const afterBuilding = withReduction(researchItemMinutes(spec.step), clock.buildingPercent);
+  const afterBuilding = withReduction(spec.minutes, clock.buildingPercent);
   const afterCrew = afterBuilding / speedMultiplier(clock.crewSpeedPercent);
   return Math.max(1, Math.round(withReduction(afterCrew, clock.headCutPercent)));
 }

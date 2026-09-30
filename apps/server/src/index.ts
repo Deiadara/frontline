@@ -4,8 +4,10 @@ import { BACKUP_INTERVAL_MS, startBackupSchedule, takeBackup } from './db/backup
 import { CrashBudget } from './crash-budget.js';
 import { resetLoopWindow, vitals, watchEventLoop } from './world/vitals.js';
 import { openDatabase, runMigrations } from './db/index.js';
+import { describeDrift, schemaDrift } from './db/schema-drift.js';
 import { WORLD_TICK_MS, startWorldClock } from './live/clock.js';
 import { backfillPortraits } from './crew/faces.js';
+import { releaseClosedCityGround } from './city/closed-ground.js';
 import { trimLegendaries } from './units/legendaries.js';
 import { devOperatorStillOpen, seedMvpWorld } from './seed/index.js';
 import { MVP_PLAYER } from './seed/constants.js';
@@ -33,8 +35,21 @@ async function main(): Promise<void> {
     );
   }
   const applied = runMigrations(db);
+  /*
+   * The columns this save has against the ones a fresh migration run builds (bug pass, 2026-09-29).
+   * A difference is a migration edited after the save applied it. Development warns and serves,
+   * so a stale dev save stays playable while it is fixed by hand. Production refuses, for the
+   * integrity check's reason: every write served on a schema no test has seen lands on the gap,
+   * the first route that touches the missing column answers 500 to players, and every snapshot
+   * taken afterwards carries the gap forward.
+   */
+  const drift = schemaDrift(db);
+  if (drift.length > 0 && process.env.NODE_ENV === 'production') {
+    throw new Error(describeDrift(drift));
+  }
 
   const app = await buildApp({ config, db });
+  if (drift.length > 0) app.log.warn({ drift }, describeDrift(drift));
 
   /*
    * The last line: nothing that escapes a callback takes the server down (robustness pass,
@@ -102,6 +117,12 @@ async function main(): Promise<void> {
   const trimmed = trimLegendaries(app.repos);
   if (trimmed.removed > 0)
     app.log.warn(trimmed, 'took legendaries over the cap of one off the rosters holding them');
+
+  // Ground claimed in a city that is not open, before its doors were shut, goes back to the atlas
+  // (maintainer, 2026-09-29). Idempotent: a save with no such rows changes nothing.
+  const released = releaseClosedCityGround(app.repos, new Date());
+  if (released.locations > 0)
+    app.log.warn(released, 'handed ground in a closed city back to its authored holder');
 
   // Announced loudly, because a server that has quietly maxed an account is a server whose
   // numbers mean nothing, and the one thing worse than not having a sandbox switch is not

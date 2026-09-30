@@ -71,19 +71,17 @@ describe('splitting a feat reward against the room for it', () => {
     expect(split.wasted).toEqual({ resources: { scrap: 40 } });
   });
 
-  it('leaves xp, infamy, items and boosts whole whatever the stores are doing', () => {
+  it('leaves xp, items and boosts whole whatever the stores are doing', () => {
     const reward = {
       resources: { scrap: 40 },
       items: { scrap_servo: 2 },
       xp: 300,
-      infamy: 50,
       boosts: ['combat_stims'] as [string],
     };
     const split = splitFeatReward(reward, room({ scrap: 0 }));
     expect(split.paid).toEqual({
       items: reward.items,
       xp: 300,
-      infamy: 50,
       boosts: reward.boosts,
     });
     expect(split.wasted).toEqual({ resources: { scrap: 40 } });

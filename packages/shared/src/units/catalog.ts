@@ -405,8 +405,14 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
      * the sheet to 115 offense and 100 vitality moved the roster's gate-to-strength correlation from
      * 0.64 only to 0.67, while pricing the count properly took it to 0.80 with the sheet almost
      * exactly as authored.
+     *
+     * **Priced up on 2026-09-30** (maintainer, "price up Anodics") from 55 caps, 15 supplies and 10
+     * scrap, 51 caps-equivalent a slot, the Razor's price. The balance run of that day put them at
+     * a Razor's value per slot (0.89 against 0.91) and 104% over the rabble median per cost, the
+     * furthest over its tier of any sheet. At 79 a slot they are 33% over: still the second
+     * cheapest fighter per result after the Razor, which is the yardstick and was left alone.
      */
-    cost: { caps: 55, supplies: 15, scrap: 10 },
+    cost: { caps: 90, supplies: 20, scrap: 15 },
     trainSeconds: 60,
     unitSlots: 2,
     stats: sheet({
@@ -573,7 +579,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     trainedAt: 'gauntlet',
     unique: false,
     requires: [gauntlet(6)],
-    cost: { caps: 160, supplies: 25, oil: 20 },
+    cost: { caps: 230, supplies: 25, oil: 20 },
     trainSeconds: 180,
     unitSlots: 2,
     stats: sheet({
@@ -687,7 +693,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     trainedAt: 'gauntlet',
     unique: false,
     requires: [gauntlet(6), structure('greenhouse', 5)],
-    cost: { caps: 190, supplies: 30, scrap: 70, oil: 40 },
+    cost: { caps: 190, supplies: 30, scrap: 20, oil: 10 },
     trainSeconds: 220,
     unitSlots: 2,
     stats: sheet({
@@ -838,7 +844,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     trainedAt: 'gauntlet',
     unique: false,
     requires: [structure('scrapyard', 6), structure('generator', 8)],
-    cost: { caps: 280, supplies: 40, scrap: 120, oil: 80, highQualityMetal: 15 },
+    cost: { caps: 280, supplies: 40, scrap: 120, oil: 80, highQualityMetal: 5 },
     trainSeconds: 330,
     unitSlots: 3,
     stats: sheet({
@@ -896,7 +902,14 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     trainedAt: 'gauntlet',
     unique: false,
     requires: [gauntlet(9), structure('lab', 8), fitted('lab_quantum_modeling')],
-    cost: { caps: 360, supplies: 55, highQualityMetal: 30 },
+    /*
+     * 519 caps-equivalent (maintainer's retune, 2026-09-30: "up their price"). It was 803, then
+     * 420 for a day while the Wonder cut was being made to matter. At this price, this sheet and
+     * today's jam, four of them beside a line measure about 1.5 times the median fighter of equal
+     * cost against an enemy half in Wonders, 1.08 to 1.15 against normal units with two or three
+     * cards each, and 0.5 against a plain unfitted line: most of the worth is in the jam.
+     */
+    cost: { caps: 300, supplies: 50, highQualityMetal: 12 },
     trainSeconds: 380,
     unitSlots: 3,
     stats: sheet({
@@ -907,11 +920,20 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
       resistances: { energy: 40, explosive: -20 },
       damageType: 'energy',
       penetration: 35,
-      range: 55,
-      // Twenty, and the blurb is finally the sheet (maintainer, 2026-09-18). They were a
-      // 460-offense energy gun with Armour Piercing on it, which is a Sniper wearing a hacker's
-      // description. What they are worth is `jammer`, below: they barely shoot.
-      offense: 20,
+      /*
+       * Range 55 to 80 and offense 20 to 60 on 2026-09-30 (maintainer: "reach about 0.5 by upping
+       * their range", and "if range needs to go up too much, add a bit of damage instead"). Against
+       * a plain unfitted line, where the jam has nothing to work on, four of them measured 0.39 of
+       * the median fighter of equal cost. Range alone crawled: 0.41 at 80, 0.46 at 200, which is
+       * twice a Sniper's reach, because second-rank fire multiplies a gun of twenty. Range 80,
+       * under a Sniper's 95, with offense 60 reads 0.50.
+       *
+       * Still a sheet that barely shoots (maintainer, 2026-09-18): they were a 460-offense energy
+       * gun with Armour Piercing on it, which is a Sniper wearing a hacker's description. What
+       * they are worth is `jammer`, below.
+       */
+      range: 80,
+      offense: 60,
       evasion: 20,
       stealth: 55,
       lootCapacity: 10,
@@ -1012,13 +1034,17 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     trainedAt: 'gauntlet',
     unique: false,
     requires: [structure('generator', 10), structure('infirmary', 9), holds('gene_clinic')],
-    cost: { caps: 700, supplies: 105, scrap: 300, oil: 200, highQualityMetal: 90 },
+    cost: { caps: 700, supplies: 105, scrap: 50, oil: 200, highQualityMetal: 20 },
     trainSeconds: 900,
     unitSlots: 6,
     stats: sheet({
       speed: 25,
       vitality: 365,
-      morale: 85,
+      // 95, from 85 (maintainer, 2026-09-29: buff its defence until it holds as well as the
+      // Combine's Suppressor). Armour was the other dial and does nothing here: 68 to 82 left it
+      // turning back 7 of 21 player sheets at 32 slots, against the Suppressor's 12. Morale at 95
+      // turns back 12 over 32 seeds a matchup (`combine-balance.test.ts`).
+      morale: 95,
       armor: 68,
       damageType: 'explosive',
       // Ninety-five points of plate does not care about a pipe.
@@ -1046,7 +1072,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     trainedAt: 'gauntlet',
     unique: false,
     requires: [structure('infirmary', 10), structure('lab', 13), holds('gene_clinic')],
-    cost: { caps: 650, supplies: 200, highQualityMetal: 70 },
+    cost: { caps: 650, supplies: 200, highQualityMetal: 25 },
     trainSeconds: 840,
     unitSlots: 5,
     stats: sheet({
@@ -1076,7 +1102,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     trainedAt: 'gauntlet',
     unique: false,
     requires: [structure('quarters', 12), holds('fight_pit')],
-    cost: { caps: 300, supplies: 120 },
+    cost: { caps: 190, supplies: 120 },
     trainSeconds: 600,
     unitSlots: 3,
     stats: sheet({
@@ -1308,12 +1334,11 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
      *
      * The Lab high enough to attempt it, and the two places in the city where that kind of work is
      * actually done: a Mad Scientist's Lair for the design and a Gene Clinic for the half of it
-     * that is still meat. Two locations rather than one because it is the only legendary in the
-     * game with no weapon on its sheet, and a unit that survives everything has to cost something
-     * on the map rather than only in the stockpile.
+     * that is still meat. Two locations rather than one because a unit that survives everything
+     * has to cost something on the map rather than only in the stockpile.
      */
     requires: [structure('lab', 12), holds('mad_scientist_lair'), holds('gene_clinic')],
-    cost: { caps: 460, supplies: 75, scrap: 190, oil: 90, highQualityMetal: 70 },
+    cost: { caps: 460, supplies: 75, scrap: 60, oil: 90, highQualityMetal: 15 },
     trainSeconds: 520,
     unitSlots: 4,
     /*
@@ -1323,7 +1348,11 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
      * tops out at 80 and 25. Left alone it beat every other unit in the game at equal unit slots, which
      * `balance.test.ts` is there to forbid: a roster is a web and this was the top of a ladder.
      * What it keeps is the shape rather than the numbers, because the shape is the unit: heavy for
-     * its tier, slow, almost impossible to move, and carrying almost no way to hurt anyone.
+     * its tier, slow and almost impossible to move.
+     *
+     * Offense 170 to 300, and the price roughly halved through scrap and HQ metal (maintainer,
+     * 2026-09-30). At 170 it was 42 offense a slot, the least of any fighter, and measured 37% under
+     * the Wonder median per slot and 66% under it per cost.
      */
     stats: sheet({
       speed: 30,
@@ -1334,7 +1363,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
       resistances: { ballistic: 25, blade: 20, energy: -25 },
       penetration: 18,
       range: 10,
-      offense: 170,
+      offense: 300,
       evasion: 5,
       stealth: 0,
       lootCapacity: 60,
@@ -1407,8 +1436,9 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
       offense: 5,
       evasion: 20,
       stealth: 45,
-      // Ten slots, which is the maintainer's figure. Twice a Razor's and half again a Scraper's.
-      lootCapacity: 10,
+      // Thirty a slot (maintainer, 2026-09-30): the one job they have, so they out-carry a Razor
+      // (25) per slot and per cap. Carrier cards stack on top of this.
+      lootCapacity: 30,
       intimidation: 0,
     }),
     /*
@@ -1452,7 +1482,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
      * Both carriers answer to the building that signs them and to nothing else, which is what
      * makes the pair read as one line of progress rather than two unrelated gates. Fifteen is the
      * maintainer's figure and it is a long way up: a crew running barrows instead of bags has a
-     * district behind it, and by then thirty loot slots for two beds is worth the wait.
+     * district behind it, and by then eighty loot slots for two beds is worth the wait.
      */
     requires: [structure('nexus', 15)],
     cost: { caps: 60, supplies: 20, planks: 30 },
@@ -1470,7 +1500,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
       offense: 5,
       evasion: 8,
       stealth: 25,
-      lootCapacity: 30,
+      lootCapacity: 80,
       intimidation: 0,
     }),
     modifiers: [],
@@ -1543,7 +1573,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     trainedAt: 'gauntlet',
     unique: false,
     requires: [gauntlet(6), structure('scrapyard', 4)],
-    cost: { caps: 210, supplies: 30, scrap: 110, highQualityMetal: 8 },
+    cost: { caps: 210, supplies: 30, scrap: 60, highQualityMetal: 8 },
     trainSeconds: 230,
     unitSlots: 2,
     stats: sheet({

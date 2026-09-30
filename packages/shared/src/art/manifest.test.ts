@@ -258,6 +258,10 @@ const EXPECTED: readonly (readonly [key: string, file: string, seed: number])[] 
   ['plate-district-ironmouth', 'plate-district-ironmouth.webp', 130019],
   ['plate-district-marshalling-yards', 'plate-district-marshalling-yards.webp', 130020],
   ['plate-district-bonded-row', 'plate-district-bonded-row.webp', 130021],
+  ['plate-district-telemetry-hill', 'plate-district-telemetry-hill.webp', 130022],
+  ['plate-district-viaduct', 'plate-district-viaduct.webp', 130023],
+  ['plate-district-last-platform', 'plate-district-last-platform.webp', 130024],
+  ['plate-district-blockhouse', 'plate-district-blockhouse.webp', 130025],
   ['unit-razors', 'unit-razors.webp', 145001],
   ['unit-anodics', 'unit-anodics.webp', 145002],
   ['unit-sparks', 'unit-sparks.webp', 145003],
@@ -448,7 +452,7 @@ describe('ART_MANIFEST', () => {
    * which was the seven Combine portraits, the Chosen Chapel's icon and the CCS plate on 337.
    */
   it('holds the 338 MVP assets', () => {
-    expect(ART_MANIFEST).toHaveLength(338);
+    expect(ART_MANIFEST).toHaveLength(342);
   });
 
   it.each(ART_MANIFEST.map((spec) => [spec.key, spec] as const))(
@@ -563,6 +567,11 @@ describe('ART_MANIFEST', () => {
     // first and eight on the second. Neither painting shows a gate, so neither carries one.
     'plate-district-marshalling-yards': { width: 3780, height: 1800, aspect: '21:10' },
     'plate-district-bonded-row': { width: 3780, height: 1800, aspect: '21:10' },
+    // The four Combine districts of Terminus, delivered together 2026-09-29 at the same shape.
+    'plate-district-telemetry-hill': { width: 3780, height: 1800, aspect: '21:10' },
+    'plate-district-viaduct': { width: 3780, height: 1800, aspect: '21:10' },
+    'plate-district-last-platform': { width: 3780, height: 1800, aspect: '21:10' },
+    'plate-district-blockhouse': { width: 3780, height: 1800, aspect: '21:10' },
   };
 
   it('matches the ART-BIBLE §6 resolution and aspect table per class', () => {

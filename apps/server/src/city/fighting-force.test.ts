@@ -84,15 +84,7 @@ async function makeStack(): Promise<Stack> {
     payload: { username: 'porter_boss', password: 'hunter2pass' },
   });
   const token = registered.json<{ token: string }>().token;
-  const chosen = await chooseOverseer(app, token);
-  // Scouting is a journey now (`scouting/scouting.ts`), so the button no longer opens
-  // ground: it sends somebody who walks back hours later. A fixture wants the *state*,
-  // not the trip, so the intel is written directly.
-  app.repos.city.markScouted(
-    chosen.json<{ base: { id: string } }>().base.id,
-    'steelbelt',
-    new Date().toISOString(),
-  );
+  await chooseOverseer(app, token);
 
   // A crew of porters and one fighter, so every case below can be run twice: once with people who
   // cannot fight, once with somebody who can, which is what makes the refusals mean something.
@@ -141,7 +133,6 @@ async function callOutTheNeighbour(stack: Stack): Promise<string> {
   const theirs2 = stack.app.repos.bases.findById(theirBase);
   if (!theirs2) throw new Error('the neighbour has no base');
   stack.app.repos.bases.replace({ ...theirs2, districtId: district });
-  stack.app.repos.city.markScouted(stack.base.id, district, new Date().toISOString());
   const mine = stack.app.repos.bases.findById(stack.base.id);
   if (!mine) throw new Error('the fixture crew vanished');
   stack.app.repos.bases.updateEconomy(mine.id, {
@@ -164,7 +155,7 @@ async function callOutTheNeighbour(stack: Stack): Promise<string> {
   return pending[0].id;
 }
 
-/** A location in the district this crew has scouted, and the control row that goes with it. */
+/** A location in the Steelbelt, and the control row that goes with it. */
 function somewhere(): Location {
   const found = CITY_LOCATIONS.find((location) => location.districtId === 'steelbelt');
   if (!found) throw new Error('the Rustyard has no locations');

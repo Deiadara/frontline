@@ -34,18 +34,22 @@ describe('the report and the Combine', () => {
     expect(turnedLine({ razors: 0 })).toBe('');
   });
 
-  it('says who changed sides under Directive Xero', () => {
+  /*
+   * Turncoats count as dead (maintainer, 2026-09-29), so they are already in "Died" and the line
+   * says so: "Count them as dead, but show a separate line just in Xero-affected reports".
+   */
+  it('says how many Directive Xero turned, and that they are in Died', () => {
     draw({ turned: { razors: 3, scrapers: 1 } });
     expect(screen.getByTestId('report-turned')).toHaveTextContent(
-      '4 units changed sides and are his now: 3 Razors, 1 Scrapers.',
+      '4 turned by Directive Xero (included in Died): 3 Razors, 1 Scrapers.',
     );
     expect(screen.queryByTestId('report-executed')).toBeNull();
   });
 
-  it('counts one turncoat in the singular', () => {
+  it('counts a single turncoat the same way', () => {
     draw({ turned: { razors: 1 } });
     expect(screen.getByTestId('report-turned')).toHaveTextContent(
-      '1 unit changed sides and is his now: 1 Razors.',
+      '1 turned by Directive Xero (included in Died): 1 Razors.',
     );
   });
 

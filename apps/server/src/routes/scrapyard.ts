@@ -39,7 +39,7 @@ export function registerScrapyardRoutes(app: FastifyInstance): void {
     return app.db.transaction(() => {
       const base = settled(request.currentUser.id);
       const standing = standingOf(base);
-      const result = buildAddon(app.repos, base, kind, id, standing, target);
+      const result = buildAddon(app.repos, base, kind, id, standing, target, app.config.admin);
       if (result.kind === 'refused') throw new AppError('SCRAPYARD_REFUSED', result.reason);
       return { scrapyard: projectScrapyard(app.repos, result.base, standing), base: result.base };
     })();

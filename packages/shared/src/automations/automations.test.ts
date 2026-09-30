@@ -100,14 +100,14 @@ describe('what a slot owes next', () => {
 
 describe('filling a size, most suitable unit first (the fifth rung)', () => {
   /*
-   * Off the catalogue as it stands: Razors carry 25 a slot and hit 175 a slot; Haulers carry 15
-   * a slot over two slots and do not fight; Scavengers carry 10 and do not fight; Breakers hit
+   * Off the catalogue as it stands: Razors carry 25 a slot and hit 175 a slot; Haulers carry 40
+   * a slot over two slots and do not fight; Scavengers carry 30 and do not fight; Breakers hit
    * 125 a slot over two; Ironsides 46 over three; a Juggernaut 71 over six.
    */
   it('takes all of the best carrier first for a plain job, then the next, to the slot', () => {
     const party = bestFitParty({ razors: 3, haulers: 2, scavengers: 3 }, 8, 'standard');
-    // Three Razors (3), then both Haulers (4), then one Scavenger for the slot left.
-    expect(party).toEqual({ razors: 3, haulers: 2, scavengers: 1 });
+    // Both Haulers (4), then all three Scavengers (3), then one Razor for the slot left.
+    expect(party).toEqual({ haulers: 2, scavengers: 3, razors: 1 });
     expect(unitSlotsAtHome(party!)).toBe(8);
   });
 

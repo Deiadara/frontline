@@ -1,3 +1,4 @@
+import type { MessagesResponse } from '@frontline/shared';
 import type { FastifyInstance } from 'fastify';
 import { afterEach, describe, expect, it } from 'vitest';
 import { buildApp } from '../app.js';
@@ -415,6 +416,38 @@ describe('the invitation a new crew is given', () => {
     // The positive control for the whole test: the screen it used to point at is *still* gated,
     // so this is not passing because somebody opened the faction door to level one.
     expect(rung?.link).not.toBe('/game/faction');
+  });
+
+  /*
+   * Bug pass, 2026-09-29: the letter is signed with the faction's name, and Reply addressed the
+   * faction's name as if it were a player's, so every answer was refused as `no_such_player`.
+   */
+  it('can be answered, by the account that sent it', async () => {
+    const app = await seededApp();
+    const registered = await app.inject({
+      method: 'POST',
+      url: '/api/auth/register',
+      payload: { username: 'curious', password: 'hunter2pass' },
+    });
+    const token = registered.json<{ token: string }>().token;
+    await chooseOverseer(app, token);
+    reachFactionLevel(app, token);
+
+    const { inbox } = (
+      await app.inject({ method: 'GET', url: '/api/messages', headers: auth(token) })
+    ).json<MessagesResponse>();
+    const letter = inbox.find((message) => message.invite !== null);
+    expect(letter?.senderName).toBe(MVP_FACTION.name);
+    const sender = app.repos.users.findById(letter?.senderUserId ?? '');
+    expect(letter?.replyTo).toBe(sender?.username);
+
+    const reply = await app.inject({
+      method: 'POST',
+      url: '/api/messages',
+      headers: auth(token),
+      payload: { toUsernames: [letter?.replyTo], subject: 'Re: the table', body: 'Tell me more.' },
+    });
+    expect(reply.statusCode, reply.body.slice(0, 200)).toBe(200);
   });
 
   it('can actually be accepted by a crew at level 10', async () => {

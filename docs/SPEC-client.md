@@ -196,18 +196,10 @@ more than the shelf has room for.
      Tag positions are hand-placed fractions of the painting (`DISTRICT_MARKS`), so a tag stays on
      its building at every window size; a district with no mark would have no way in, which
      `CityView.test.tsx` refuses. Clicking a tag goes to `/game/city/:id`, except your own ground,
-     which goes to the district, and except **unscouted ground, which does not open** (maintainer,
-     2026-09-23): its tag opens the scout sheet (`ScoutMenu`) over the map instead, a hand-drawn
-     card with the district's name, the Combine leader's mark when there is one, and one of four
-     states off the district read. Blocked (`scoutBlocker`): a checklist of the two requirements,
-     a Master of Whispers in the chair and Scouting worked out on their track, each with a tick or
-     a cross, and a line saying where to go. Ready: how long the party would be gone, and Send
-     Scouts. A party on the road here: the countdown and the X to turn them round. A party out
-     elsewhere: where, and the countdown. A link straight to `/game/city/:id` for unscouted ground
-     bounces to `/game?scout=<id>`, which the map reads once, strips, and opens the sheet for. That
-     bounce is the backstop for a pasted URL and nothing else: the decision is made at click time
-     off the map's own read, which is asked for the city on screen (`useCity(city)`, keyed per
-     city), so a tag in a city the crew does not live in has a summary to read like any other.
+     which goes to the district. **Every district opens** (maintainer, 2026-09-29: "whole city
+     visible"): there is no scouting and no fog, in the crew's own city or any other, so the tag is
+     a plain link whatever the map's read says. The map's read is asked for the city on screen
+     (`useCity(city)`, keyed per city) for the holdings and the captured gates it draws.
    - **All cities**: the world one step back, as state on this screen rather than a route of its
      own (`CitiesView`), reached by a control on the painting. Five cities as a staggered row of
      tall portraits filling the frame, each carrying a name, a nickname and what the place is, and
@@ -374,6 +366,8 @@ more than the shelf has room for.
    with `held` naming what is holding them, and `heldUntil` the mark they are free at). Every run
    has a leader. **No arithmetic on this screen is the screen's own**:
    `missions.leading.ts` is what the launch is priced with, and the dial reads the same functions.
+   The boards are `misc` plus every district the crew holds at least one place in (maintainer,
+   2026-09-29); the misc board's blurb says so, and the tutorial's missions card says it again.
 
    - **The card** says what the job leans on, as chips off `MISSION_LEANING_LABELS`
      (`A haul`, `Salvage`, `A long road`); each chip's hover is the attributes it reads and how much
@@ -449,6 +443,24 @@ of each group in numbered ink boxes, then the four attribute groups on paper car
 (`AttributeSheet` `paper`). The console shape is kept and pinned by the visual gate: the name fully
 in view, the record beside it, only the record scrolls. Under 820px tall the painting sits beside
 the words and the words scroll behind a fade rather than a cut.
+
+## Spying
+
+One panel (`features/city/SpyPanel.tsx`), opened as a window from a location sheet, a player's
+door and the caller at a shut gate, fed by `spyingOf(districtRead)`. The tiers are five cards;
+the ones the Master of Whispers' track has not opened (`spyTiersOpen`) are drawn shut, dashed and
+disabled, with "Opens with <rung>" in place of the price, so the ladder is visible before it is
+climbed (maintainer, 2026-09-28). Every job out is a line with its countdown and, inside its first
+tenth, the X that turns it round by id; while a party is free (`spyRuns.length < spyParties`, two
+with Two Sets of Eyes) the picker and the send stay under them.
+
+The report window (`features/battle/SpyReportModal.tsx`) draws what the report carries and nothing
+it does not: before Written Reports a count of unit slots and no unit cards (`spy-slots-only`), the
+unit cards after it; under them the exact slots from The Whole Wire (printed on a failed report
+too), the accuracy, the estimate, and "Noticed" on a job on somebody's ground. The Turned Runners
+courier's report is headed with his rung, not a tier, and says nobody paid. The board's list
+labels a slots-only report "N slots" and the courier's with the rung. The Monitor's Spying
+section lists every job out.
 
 ## The Monitor's In progress page
 

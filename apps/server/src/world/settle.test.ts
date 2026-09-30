@@ -69,7 +69,6 @@ describe('settling the world from a city page', () => {
      * is any location fight to hang a column off, so it moves to ground that still has one. The
      * Exchange is in the squatted half, so there is a garrison to turn up for it.
      */
-    app.repos.city.markScouted(attacker.baseId, 'chrome-row', new Date().toISOString());
 
     const target: BattleTarget = {
       kind: 'location',

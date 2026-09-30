@@ -16,6 +16,7 @@ import {
   ClaimMarketRequestSchema,
   OfferActionRequestSchema,
   PostOfferRequestSchema,
+  NO_TRADER_TEXT,
   type Base,
   type ItemId,
   type MarketMutationResponse,
@@ -40,7 +41,7 @@ import { placeVendorBid, settleVendorAuctions } from '../market/auction.js';
 import { AppError, cityQuery, parseBody } from '../errors.js';
 import { ownBase, settledOwnBase } from './own-base.js';
 import { cityAsked, homeCityOf } from '../city/stakes.js';
-import { workingRoles } from '../crew/roster.js';
+import { workingOfficer, workingRoles } from '../crew/roster.js';
 import { awardPlayerXp } from '../progression/award.js';
 import { tallyBenchTrade, tallyPageReimagined, tallyPagesIn } from '../feats/tally.js';
 import { tellPagesFound } from '../social/pages.js';
@@ -58,7 +59,24 @@ import { tellPagesFound } from '../social/pages.js';
  */
 
 function refuse(reason: MarketRefusal, figures?: RefusalFigures): never {
-  throw new AppError('MARKET_REFUSED', marketRefusalText(reason, figures));
+  // A shut city is the market read's own refusal (`cityOrRefuse`), and it answers the same way.
+  throw new AppError(
+    reason === 'city_shut' ? 'CITY_SHUT' : 'MARKET_REFUSED',
+    marketRefusalText(reason, figures),
+  );
+}
+
+/**
+ * District Offers is the Trader's work (maintainer, 2026-09-29): a new deal, posted, countered or
+ * accepted, needs one fit to work in the chair. Withdrawing and claiming are not gated. What is
+ * already on the board stays there and other crews may still take it, so a Trader in a hospital
+ * bed never strands goods held in escrow. See `NO_TRADER_TEXT`.
+ */
+function withTrader(base: Base, now: Date): Base {
+  if (workingOfficer(base.commanders, 'trader', now) === undefined) {
+    throw new AppError('MARKET_REFUSED', NO_TRADER_TEXT);
+  }
+  return base;
 }
 
 export function registerMarketRoutes(app: FastifyInstance): void {
@@ -253,7 +271,7 @@ export function registerMarketRoutes(app: FastifyInstance): void {
           before: base.inventory,
           after: traded.inventory,
           source: { kind: 'lab' },
-          now,
+          at: now,
         });
         return {
           market: board({ ...base, inventory: traded.inventory }, now),
@@ -313,19 +331,23 @@ export function registerMarketRoutes(app: FastifyInstance): void {
   /** Post a listing, or counter somebody else's. */
   app.post('/market/offer', { preHandler: app.authenticate }, (request): MarketMutationResponse => {
     requireAreaFor(app.repos, request.currentUser.id, 'offers');
-    const { give, want, counterTo } = parseBody(PostOfferRequestSchema, request.body);
+    const { give, want, counterTo, cityId } = parseBody(PostOfferRequestSchema, request.body);
     const now = new Date();
     return app.db.transaction(() => {
+      const base = withTrader(settledOwnBase(app, request.currentUser.id, now), now);
       const result = postOffer(
         app.repos,
-        settledOwnBase(app, request.currentUser.id, now),
+        base,
         give,
         want,
         counterTo,
         now,
+        cityId ?? homeCityOf(base),
       );
       if (result.kind === 'refused') refuse(result.reason);
-      return { market: board(result.base, now) };
+      // The board it went up on, which is the tab it was posted from. It answered with the home
+      // city's, so a listing posted on the Terminus tab was not on the board the player got back.
+      return { market: board(result.base, now, result.offer?.cityId) };
     })();
   });
 
@@ -344,7 +366,12 @@ export function registerMarketRoutes(app: FastifyInstance): void {
           acceptWaste,
         );
         if (result.kind === 'refused') refuse(result.reason);
-        return { market: board(result.base, now) };
+        // The listing's own board where the crew may still read it. A crew taking back a listing
+        // from a city it has lost its ground in gets its own city's board instead.
+        const pinned = app.repos.market.findById(offerId)?.cityId;
+        return {
+          market: board(result.base, now, cityAsked(app.repos, result.base, pinned) ?? undefined),
+        };
       })();
     },
   );
@@ -359,13 +386,14 @@ export function registerMarketRoutes(app: FastifyInstance): void {
       return app.db.transaction(() => {
         const result = acceptOffer(
           app.repos,
-          settledOwnBase(app, request.currentUser.id, now),
+          withTrader(settledOwnBase(app, request.currentUser.id, now), now),
           offerId,
           now,
           acceptWaste,
         );
         if (result.kind === 'refused') refuse(result.reason);
-        return { market: board(result.base, now) };
+        // The board the listing was taken off, which `acceptOffer` has just checked the door of.
+        return { market: board(result.base, now, app.repos.market.findById(offerId)?.cityId) };
       })();
     },
   );

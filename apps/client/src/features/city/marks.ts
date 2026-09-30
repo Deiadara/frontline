@@ -71,6 +71,17 @@ export const GATE_MARK: Readonly<Record<string, Mark>> = {
   // deck below the bars rather than across them, so it names the gate without covering the thing
   // that tells a player whether it is shut.
   ironmouth: { x: 0.525, y: 0.22 },
+  // Telemetry Hill's gatehouse closes the bottom centre of the painting, two towers and a barred
+  // gate with a truck stopped at it. The sign stands on the wet road below the bars, right of the
+  // truck, rather than across the gate.
+  'telemetry-hill': { x: 0.6, y: 0.79 },
+  // The Last Platform is painted from inside, so its way in is the row of barrier gates and
+  // guards closing the concourse under the statue. The sign stands on the concourse floor right
+  // of the barriers, clear of the statue's plinth.
+  'last-platform': { x: 0.64, y: 0.585 },
+  // The Blockhouse's way in is the green-lit arch at the left that the train runs under. The sign
+  // stands on the wall to its right rather than over the arch.
+  blockhouse: { x: 0.26, y: 0.655 },
 };
 
 export const LOCATION_MARKS: Readonly<Record<string, Mark>> = {
@@ -367,4 +378,81 @@ export const LOCATION_MARKS: Readonly<Record<string, Mark>> = {
   // from y 0.88, which put the plate's bottom edge at 0.910 against a visible band that ends at
   // 0.897 in the worst viewport the plate room measures (`plateFit.test.ts`, 1280x484).
   'bonded-row-coldstore': { x: 0.725, y: 0.855 },
+
+  /*
+   * The four Combine districts of Terminus (`plate-district-telemetry-hill`, `-viaduct`,
+   * `-last-platform`, `-blockhouse`, all 3780x1800, 2026-09-29), delivered together with no
+   * labelled copies.
+   *
+   * Placed by eye against each painting, the way Ironmouth's and the Yards' were, and then checked
+   * in the browser. The rule is the one every plate above keeps: each sign hangs just under the
+   * thing it names, on the quietest ground there, and none stands above y 0.2, which keeps them
+   * clear of the screen's header strip and the ground box's toggle (`plateFit.test.ts`).
+   */
+  // The roof deck under the three dishes at the upper left.
+  'telemetry-hill-uplink': { x: 0.2, y: 0.215 },
+  // The deck at the foot of the red lattice mast, top centre.
+  'telemetry-hill-repeater': { x: 0.545, y: 0.26 },
+  // The courtyard in front of the green-roofed hall with the banners.
+  'telemetry-hill-quiet': { x: 0.3, y: 0.54 },
+  // The lane between the small houses with the wire aerials, in the middle of the frame.
+  'telemetry-hill-pirate': { x: 0.53, y: 0.56 },
+  // The terrace below the copper dome, upper right.
+  'telemetry-hill-dome': { x: 0.765, y: 0.36 },
+  // The ground in front of the tanks and transformers at the right.
+  'telemetry-hill-array': { x: 0.8, y: 0.62 },
+  // The path through the tent town, lower left.
+  'telemetry-hill-bunkroom': { x: 0.15, y: 0.73 },
+
+  // The platform apron under the glass halt, upper left.
+  'viaduct-halt': { x: 0.13, y: 0.32 },
+  // The approach below the sandbagged gun position at the left.
+  'viaduct-battery': { x: 0.2, y: 0.66 },
+  // The bridge deck below the standing train, on the stone of the parapet.
+  'viaduct-parapet': { x: 0.46, y: 0.335 },
+  // The walkway below the arch with the washing lines and lit rooms, centre.
+  'viaduct-undercroft': { x: 0.45, y: 0.52 },
+  // The floor of the lab down the stair, lower left, below its screens.
+  'viaduct-archnineteen': { x: 0.235, y: 0.8 },
+  // The pier below the two furnaces burning at the right.
+  'viaduct-pierworks': { x: 0.74, y: 0.66 },
+  // The yard in front of the blue-lit armoury, lower centre.
+  'viaduct-sappers': { x: 0.39, y: 0.84 },
+  // The depot floor above the trams on their roads, lower right.
+  'viaduct-gantry': { x: 0.86, y: 0.76 },
+
+  // The platform apron in front of the standing trains, left of the statue.
+  'last-platform-platform': { x: 0.42, y: 0.47 },
+  // The trading floor below the counters and lamps at the left.
+  'last-platform-customs': { x: 0.17, y: 0.53 },
+  // The compound floor inside the fenced cages, lower left.
+  'last-platform-holding': { x: 0.2, y: 0.72 },
+  // The gallery rail under the glazed clinic, top left. Down from the clinic itself, which sits
+  // in the header strip's corner.
+  'last-platform-transit': { x: 0.14, y: 0.27 },
+  // The floor in front of the racks at the lower right.
+  'last-platform-armoury': { x: 0.87, y: 0.78 },
+  // The foot of the plinth, left of the barrier gates.
+  'last-platform-stationmaster': { x: 0.47, y: 0.6 },
+  // The bay floor under the dead armour and its gantries, upper right.
+  'last-platform-sidings': { x: 0.86, y: 0.5 },
+  // The deck of the iron footbridge over the pit, bottom centre.
+  'last-platform-footbridge': { x: 0.6, y: 0.77 },
+
+  // The platform deck left of the locomotive, lower left.
+  'blockhouse-officershalt': { x: 0.15, y: 0.8 },
+  // The floor of the lit control room of desks and screens, left.
+  'blockhouse-panel': { x: 0.19, y: 0.42 },
+  // The terrace below the glass vault, top centre.
+  'blockhouse-chapel': { x: 0.465, y: 0.3 },
+  // The yard among the pipes and tanks, bottom centre.
+  'blockhouse-interlocking': { x: 0.6, y: 0.8 },
+  // The road below the lit library's shelves, centre right.
+  'blockhouse-records': { x: 0.6, y: 0.52 },
+  // The parade ground itself, below the ranks.
+  'blockhouse-parade': { x: 0.35, y: 0.56 },
+  // The ground under the two cooling towers, lower right.
+  'blockhouse-reactor': { x: 0.72, y: 0.77 },
+  // On the lattice tower under its lit cabin, at the right edge, growing left.
+  'blockhouse-towerbox': { x: 0.93, y: 0.5, side: 'left' },
 };

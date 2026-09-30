@@ -5,8 +5,6 @@ import {
   canClaimFeat,
   mergeFeatRewards,
   findFeat,
-  earnedInfamy,
-  gainInfamy,
   splitFeatReward,
   type Base,
   type ClaimAllResponse,
@@ -22,7 +20,6 @@ import { featClaimRoom, spendRoom } from '../feats/room.js';
 import { settleBase } from '../district/settle.js';
 import { creditBase } from '../district/stores.js';
 import { mergeArmies } from '../battle/forces.js';
-import { standingEffectsFor } from '../crew/standing.js';
 import { awardPlayerXp } from '../progression/award.js';
 import { tallyPagesIn, tallyResourcesEarned } from '../feats/tally.js';
 import { tellPagesFound } from '../social/pages.js';
@@ -238,9 +235,12 @@ export function registerFeatRoutes(app: FastifyInstance): void {
  *
  * The tallies at the end are not bookkeeping for its own sake: a feat that pays fifty thousand
  * caps is fifty thousand caps this crew has earned, and leaving it out would make the lifetime
- * ladders quietly wrong for anybody who collects the ones that pay in caps. Infamy and blueprint
- * pages count the same way, which means a large infamy feat can help finish an infamy feat, and
- * that is correct: it is infamy they now have and did not before.
+ * ladders quietly wrong for anybody who collects the ones that pay in caps. Blueprint pages count
+ * the same way.
+ *
+ * There is no infamy channel (maintainer, 2026-09-29): a name is made in fights and on battle jobs,
+ * and a feat pays units, experience or resources instead. The schema has no field for it, so there
+ * is nothing here to pay and nothing for the `infamy_earned` ladder to be told.
  */
 function payFeat(repos: Repositories, base: Base, reward: FeatReward, now: Date): void {
   // Through the stores' one door like every other credit. `reward` is already the part that fits,
@@ -259,38 +259,6 @@ function payFeat(repos: Repositories, base: Base, reward: FeatReward, now: Date)
     // not an order: making somebody wait forty minutes for units they have already earned would
     // be a punishment dressed as a gift.
     repos.bases.updateArmy(base.id, mergeArmies(base.army, reward.units), base.trainingQueue);
-  }
-
-  /*
-   * What the crew is actually paid in infamy, scaled by `infamy_gain` the way a fight's and a
-   * job's are.
-   *
-   * The channel says "everything that earns any" and its chip reads "+X% infamy earned", and this
-   * was the one faucet paying the flat catalogue figure. It read as a bug inside this function
-   * twice over: `awardPlayerXp` a few lines up folds `xpGainPercent` into a feat's XP at its own
-   * funnel, so the same reward already scaled one of its two currencies and not the other.
-   *
-   * Off `standingEffectsFor`, which is the second half of that repair and was missed the first
-   * time. This read `crewEffectsFor`, the people-only fold, while the sentence above claimed
-   * parity with a fight and a job: `battle/resolve.ts` scales its payout off `attackerGround` and
-   * `missions/resolve.ts` off `crew`, and both of those are `standingEffectsFor`. The difference
-   * is not academic. `infamy_gain` is paid by a held location (the Graveyard, +15%) and by a
-   * faction card, and territory and the table are exactly the two things the people-only fold
-   * leaves out, so a crew holding the Graveyard was paid the bonus on every raid and every job and
-   * nothing on a feat. That is the same failure `missions/resolve.ts` records having already had
-   * once, in its own words: "the Graveyard and `sig_name_maker` paid on a raid and nothing on a
-   * job."
-   *
-   * Read once, so the stockpile and the lifetime ladder below cannot be paid different numbers.
-   */
-  const infamy = reward.infamy
-    ? earnedInfamy(reward.infamy, standingEffectsFor(repos, base, now).infamyGainPercent)
-    : 0;
-  if (infamy > 0) {
-    repos.bases.updateEconomy(base.id, {
-      ...base.economy,
-      infamy: gainInfamy(base.economy.infamy, infamy),
-    });
   }
 
   if (reward.boosts) {
@@ -315,12 +283,6 @@ function payFeat(repos: Repositories, base: Base, reward: FeatReward, now: Date)
   }
 
   if (reward.resources) tallyResourcesEarned(repos, base.id, credit.landed);
-  /*
-   * Feat-paid infamy is not counted as earned (bug pass, 2026-09-28). The `infamy` ladder is paid
-   * in infamy, so counting its own reward let one claim finish the rungs above it, and each of
-   * those the next: claiming the twelve-thousand rung once cleared the rest of the ladder. The
-   * ladder measures a name made in fights, which is what it says.
-   */
   if (reward.items) {
     /*
      * A feat is the seventh door a blueprint page comes through, and it was the one that counted
@@ -337,7 +299,7 @@ function payFeat(repos: Repositories, base: Base, reward: FeatReward, now: Date)
       before: base.inventory,
       after: inventory,
       source: { kind: 'feat' },
-      now,
+      at: now,
     });
   }
 }

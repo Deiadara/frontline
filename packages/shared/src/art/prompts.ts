@@ -1203,6 +1203,58 @@ export const PLATE_SUBJECTS = {
     violet on wet concrete, emissives small and at head height. Painted signage is part of the
     street; nothing that reads as a label for a game object.
   `),
+  'plate-district-telemetry-hill': block(`
+    Telemetry Hill from above and slightly forward, the same camera as the other contested plates
+    and **no sky** below the smog line: a walled Combine listening post on the only rise for forty
+    miles, stone terraces climbing to a summit of dishes and masts at night. Seven places a player
+    can stand, each recognisable at a glance: three great dishes on a roof at the upper left, a red
+    lattice mast with a lit cabin at the top centre, a green-roofed hall with banners and lit
+    windows at the centre left, a huddle of small houses bristling with wire aerials in the middle,
+    a green copper dome on a colonnade at the upper right, a switching yard of tanks and
+    transformers at the right, and a tent town of canvas and washing lines in the lower left, with
+    a barred gatehouse closing the bottom centre. Warm sodium windows against cold blue stone,
+    steam off every stack, emissives small and at head height. Painted signage is part of the
+    street; nothing that reads as a label for a game object.
+  `),
+  'plate-district-viaduct': block(`
+    The Viaduct from above and slightly forward, the same camera as the other contested plates and
+    **no sky** below the smog line: forty brick arches carrying the line over a river gorge in
+    cold blue mist, every arch bricked up into something and the Combine on all of them. Eight
+    places a player can stand, each recognisable at a glance: a glass-roofed halt with lit
+    platforms at the upper left, a sandbagged gun battery on the near approach at the left, the
+    parapet of the bridge deck under a standing train at the top centre, a lit workshop under an
+    arch with washing on lines at the centre, a lab down a stair with screens and an operating
+    table at the lower left, twin furnaces burning orange on the far pier at the right, a blue-lit
+    armoury of racks and open crates at the lower centre, and a tram depot with cars on its roads
+    at the lower right. Cold blue stone and white water, warm furnace light, emissives small and at
+    head height. Painted signage is part of the street; nothing that reads as a label for a game
+    object.
+  `),
+  'plate-district-last-platform': block(`
+    The Last Platform from inside, the one contested plate under a roof: the end of the line seen
+    down the length of a great iron and glass train shed, with red Combine banners on every
+    column. Eight places a player can stand, each recognisable at a glance: lit platforms with
+    standing trains down the middle, a trading floor of counters and lamps at the left, a fenced
+    holding compound of cages and containers at the lower left, a glazed clinic on the upper
+    gallery at the top left, an armoury of racks and workbenches at the lower right, a bronze
+    statue with one arm raised in the middle of the concourse, a bay of dead armour and gantries on
+    the upper right, and an iron footbridge over the service pit at the bottom centre, with
+    barrier gates and guards closing the concourse under the statue. Warm sodium under cold
+    daylight through the roof, emissives small and at head height. Painted signage is part of the
+    street; nothing that reads as a label for a game object.
+  `),
+  'plate-district-blockhouse': block(`
+    The Blockhouse from above and slightly forward, the same camera as the other contested plates
+    and **no sky** below the smog line: a walled Combine garrison on a rock at night, green signal
+    lamps on every wall. Eight places a player can stand, each recognisable at a glance: a private
+    platform with a standing train under an arch at the lower left, a lit control room of desks
+    and screens at the left, a glass-vaulted hall with a long table at the top centre, a switching
+    yard of pipes and tanks at the bottom centre, a lit library of shelves at the centre right, a
+    parade ground with troops in ranks in the middle, two cooling towers over a turbine hall at
+    the lower right, and a lattice watchtower with a lit cabin at the far right. Warm sodium
+    windows and green lamps against cold grey stone, emissives small and at head height. Painted
+    signage is part of the street; nothing that reads as a label for a game object.
+  `),
   'plate-district-steelbelt': block(`
     The Steelbelt from above and slightly forward, same camera, no sky: a working yard of press
     houses and furnace rows closing on all four sides, a hoarding fence along the lower left, and

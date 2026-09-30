@@ -2,17 +2,13 @@ import { expect, test, type Locator, type Page } from '@playwright/test';
 import {
   RESOURCE_ORDER,
   cancelRefund,
-  scoutRecalledReturnsAt,
   type PartialResources,
   type ResourceKey,
-  type ScoutingRunView,
 } from '@frontline/shared';
 import {
   BOARD_NOW,
-  UNSCOUTED_DISTRICT_ID,
   city,
   districtDetail,
-  districtDetailFor,
   lateGame,
   lateGameBase,
   missionsResponse,
@@ -252,9 +248,9 @@ test('the road wears one X on every row that can still be turned round', async (
   // The crew on a job, a minute into a day-long run: hours of window, not minutes.
   await expect(page.getByTestId('recall-job-m-1')).toBeVisible();
   await expect(page.getByTestId('recall-job-m-1-window')).toHaveText(LEFT_TO_DECIDE);
-  // The scout is ten minutes in, and its window is a tenth of the whole run.
-  await expect(page.getByTestId('scout-run')).toBeVisible();
-  await expect(page.getByTestId('recall-scout')).toHaveCount(0);
+  // The spy job is fifteen minutes into two hours, and its window is a tenth of the whole job.
+  await expect(page.getByTestId('spy-run')).toBeVisible();
+  await expect(page.getByTestId('recall-spy')).toHaveCount(0);
 
   const sent = page.waitForRequest((request) => request.url().endsWith('/api/missions/recall'));
   await page.getByTestId('recall-job-m-1').click();
@@ -304,70 +300,6 @@ test('work under way on held ground wears the X beside its clock, and the press 
   expect((await sent).postDataJSON()).toEqual({ locationId: held.location.id });
   await expect(page.getByTestId(`upgrading-${held.location.id}`)).toHaveCount(0);
   await expect(page.getByTestId(`upgrade-${held.location.id}`)).toBeVisible();
-});
-
-test('a scout on the road can be turned round, and the street stays shut', async ({ page }) => {
-  await installApi(page, lateGame);
-  /*
-   * Routed here rather than through the harness's own run, because that run is stamped with the
-   * browser's clock while the district it is read from answers on the fixture's fixed one, and
-   * the panel's countdown is the difference between the two. A live `serverNow` on this one read
-   * is what makes "how long is left to decide" a number a player could see.
-   */
-  const dark = districtDetailFor(UNSCOUTED_DISTRICT_ID);
-  let run: ScoutingRunView = {
-    districtId: UNSCOUTED_DISTRICT_ID,
-    districtName: dark.district.name,
-    officerId: 'off-3',
-    officerName: 'Scout Party',
-    departedAt: new Date(Date.now() - 60_000).toISOString(),
-    /*
-     * Thirty minutes' walk each way and an hour on the ground: 120 minutes, so twelve to decide
-     * and eleven left after the minute already walked.
-     *
-     * The window is a tenth of the **whole run** since 2026-09-22. It used to be a tenth of the
-     * walk out, which gave three minutes and meant the hour of looking bought none of it: the
-     * longer a scout was committed for, the less time there was to change your mind.
-     */
-    returnsAt: new Date(Date.now() + 119 * 60_000).toISOString(),
-    travelMinutes: 30,
-    recalledAt: null,
-  };
-  const detail = () => ({
-    ...dark,
-    serverNow: new Date().toISOString(),
-    scoutPlan: null,
-    scoutingRun: run,
-  });
-  await page.route(`**/api/city/${UNSCOUTED_DISTRICT_ID}`, (route) =>
-    route.fulfill({ json: detail() }),
-  );
-  await page.route('**/api/city/scout/recall', (route) => {
-    const now = new Date();
-    run = {
-      ...run,
-      recalledAt: now.toISOString(),
-      returnsAt: scoutRecalledReturnsAt(run, now).toISOString(),
-    };
-    return route.fulfill({ json: { district: detail(), base: lateGameBase } });
-  });
-
-  await page.goto(`/game/city/${UNSCOUTED_DISTRICT_ID}`);
-  await expect(page.getByTestId('scout-underway')).toBeVisible();
-  await settleFonts(page);
-  const x = page.getByTestId('recall-scout');
-  await expect(x).toBeVisible();
-  await expect(x).toHaveAccessibleName('Turn the Scout Party round');
-  // Twelve minutes of window on a two-hour run, one minute of it already walked: eleven or so.
-  await expect(page.getByTestId('recall-scout-window')).toHaveText(/^1[012]m( \d+s)? left/);
-
-  const sent = page.waitForRequest((request) => request.url().endsWith('/api/city/scout/recall'));
-  await x.click();
-  expect((await sent).postDataJSON()).toEqual({});
-  await expect(x).toHaveCount(0);
-  await expect(page.getByTestId('scout-underway')).toContainText('turned round');
-  // Home as far off as they had come: about a minute, not the twenty-nine left of the walk out.
-  await expect(page.getByTestId('scout-countdown')).toHaveText(/^0?[01]:\d\d$/);
 });
 
 test('a gate being raised wears the X on its plate over the city', async ({ page }) => {

@@ -4,6 +4,7 @@ import {
   MAX_WAGE_DISCOUNT,
   askingWage,
   assessJoin,
+  committedWage,
   buildingLevel,
   cancelDrill,
   dismissalFee,
@@ -22,6 +23,7 @@ import { adminCaps, adminWaives } from '../admin/mode.js';
 import { crewEffectsFor } from '../crew/standing.js';
 import { officerDuty } from '../crew/duty.js';
 import type { Repositories } from '../db/repos/index.js';
+import { districtUnitSlots } from '../district/unit-slots.js';
 import { barDay, type BarCharacter } from './roster.js';
 
 /**
@@ -52,12 +54,21 @@ export interface SignInput {
    * (`crew/faces.ts`). Falls back to the hashed face when a caller has none to hand.
    */
   portraitId?: string;
+  /**
+   * Admin mode, handed down from whoever runs the close. The table waives the chair, the bed, the
+   * payroll book and the recruit's doors in admin mode (`bar/auction.ts`), so the close has to
+   * waive the same four, or an accepted admin bid is passed over at midnight with nobody signed
+   * (maintainer, 2026-09-29). `already_hired` is a fact, not a gate, and is never waived.
+   */
+  admin?: boolean;
 }
 
 /** Why a crew cannot take the person they just won. */
 export const HIRE_REFUSALS = [
   'already_hired',
   'no_slots',
+  /** Every bed in the district is taken, and an officer sleeps in one (2026-09-29). */
+  'no_unit_slots',
   'requirement',
   // The two doors the standout seats ask about (§H3, 2026-09-11). Named rather than folded into
   // `requirement`, because the close's reason is what the log and the bell carry.
@@ -156,35 +167,6 @@ export function bidCeilingFor(available: number, discountPercent: number): numbe
 }
 
 /**
- * What the payroll book is actually charged for a contract that closed at `price` (§H7, board
- * 2026-09-07).
- *
- * The auction compares, reports and remembers the price everybody at the table could see. What the
- * winner's own negotiators do is talk that number down **after** it is won, so the crew's Union
- * Rep, its Authority and its Negotiation come off the book entry and off nothing anybody bid
- * against. Everything shared stays shared: the result row, the notification, the results panel and
- * every leaderboard read the price, and only this crew's ledger and their officer's `weeklyWage`
- * carry the figure below it.
- *
- * Capped at `MAX_WAGE_DISCOUNT`, like the asking price (bug pass, 2026-09-23).
- *
- * The note here used to say the opposite, that the ceiling "belongs to the asking price" and the
- * floor here is one cap. It was reachable: Authority, Negotiation and Empathy at eighty are 60
- * points on their own, the seven research rungs add 41 and `sig_paymaster` another 18, so a
- * late crew reaches 119 and every officer it signs costs **one cap a week**. The payroll ceiling
- * is the only thing limiting how many people a crew can have on the books, and at a wage of one
- * it stops binding entirely, which takes the cost out of the whole Bar.
- *
- * Half off is a large discount and the right ceiling for both halves: the two are the same
- * channel talking the same number down, and a player who reads "-50% wages" on the crew sheet
- * should not be paid a different rule by the auction than by the shelf.
- */
-export function committedWage(price: number, discountPercent: number): number {
-  const discount = Math.min(MAX_WAGE_DISCOUNT, Math.max(0, discountPercent));
-  return Math.max(1, Math.round(price * (1 - discount / 100)));
-}
-
-/**
  * The crew's payroll book as every gate in this file reads it.
  *
  * `stepDiscountPercent` is the perk channel for officers who make widening the book cheaper, and
@@ -234,11 +216,16 @@ function refusalFor(
   base: Base,
   recruit: BarCharacter,
   blockers: readonly JoinBlocker[],
-  slots: number,
+  room: { slots: number; bedsFree: number },
+  admin: boolean,
 ): HireRefusal | null {
   if (base.commanders.some((officer) => officer.id === recruit.id)) return 'already_hired';
   // §H8: 2 at the start, +1 per level, read off W6's grant table rather than restated here.
-  if (base.commanders.length >= slots) return 'no_slots';
+  if (base.commanders.length >= room.slots && !adminWaives('no_slots', admin)) return 'no_slots';
+  if (room.bedsFree < 1 && !adminWaives('no_unit_slots', admin)) return 'no_unit_slots';
+  // The doors are waived under the table's name for them, `not_interested`, so admin mode opens
+  // exactly the doors at midnight that it opened when the bid went in.
+  if (adminWaives('not_interested', admin)) return null;
   // `blockers` already arrives in the order `assessJoin` puts them in, which is the order a player
   // should read them, so the first one is the one to report.
   const shut = blockers[0];
@@ -253,11 +240,15 @@ function refusalFor(
  * and the fee is committed against the payroll book. Nothing is charged.
  */
 export function signRecruit(repos: Repositories, input: SignInput): SignResult {
-  const { base, userId, recruit, now } = input;
+  const { base, userId, recruit, now, admin = false } = input;
   const price = Math.max(0, Math.round(input.price));
 
   const { blockers } = assessAgainst(base, recruit, factionInfamyOf(repos, base));
-  const refusal = refusalFor(base, recruit, blockers, recruitSlotsFor(repos, base));
+  const room = {
+    slots: recruitSlotsFor(repos, base),
+    bedsFree: districtUnitSlots(repos, base).spare,
+  };
+  const refusal = refusalFor(base, recruit, blockers, room, admin);
   if (refusal) return { kind: 'refused', reason: refusal };
 
   // Read once. The step discount is the same figure `GET /bar` and the payroll route apply, or the
@@ -266,7 +257,9 @@ export function signRecruit(repos: Repositories, input: SignInput): SignResult {
   const effects = crewEffectsFor(repos, base);
   const wage = committedWage(price, effects.wageDiscountPercent);
   const ledger = ledgerFor(base, effects.payrollStepDiscountPercent);
-  if (!payrollFits(ledger, wage)) return { kind: 'refused', reason: 'no_payroll' };
+  if (!payrollFits(ledger, wage) && !adminWaives('no_payroll', admin)) {
+    return { kind: 'refused', reason: 'no_payroll' };
+  }
 
   const officer: Commander = {
     id: recruit.id,

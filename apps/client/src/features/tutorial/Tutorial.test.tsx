@@ -1,4 +1,4 @@
-import { TUTORIAL_STEPS } from '@frontline/shared';
+import { TERMINUS_CITY_ID, TUTORIAL_STEPS, homePlots } from '@frontline/shared';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -15,19 +15,20 @@ import { useSession } from '../../store/session';
  */
 const fetchMock = vi.fn();
 
-function seat(seen: readonly string[]) {
+function seat(seen: readonly string[], districtId = F.base.districtId) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false, refetchOnWindowFocus: false, staleTime: Infinity } },
   });
   queryClient.setQueryData(queryKeys.me, {
     ...F.me,
     user: { ...F.me.user, tutorialSeen: [...seen] },
+    base: { ...F.base, districtId },
   });
   return queryClient;
 }
 
-function draw(screenName: string, seen: readonly string[]) {
-  const queryClient = seat(seen);
+function draw(screenName: string, seen: readonly string[], districtId?: string) {
+  const queryClient = seat(seen, districtId);
   render(
     <QueryClientProvider client={queryClient}>
       <Tutorial screen={screenName} />
@@ -135,6 +136,12 @@ describe('the opening tutorial on screen', () => {
       </QueryClientProvider>,
     );
     expect(screen.queryByTestId('tutorial-card')).toBeNull();
+  });
+
+  /** The welcome card named Ashfall to a crew that had just picked Terminus (bug pass, 2026-09-29). */
+  it('names the welcome card after the city the crew lives in', () => {
+    draw('city', [], homePlots(TERMINUS_CITY_ID)[0]);
+    expect(screen.getByRole('heading', { name: 'Terminus' })).toBeVisible();
   });
 
   it('counts the cards so the player knows the set ends', () => {

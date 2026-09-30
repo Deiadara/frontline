@@ -19,12 +19,13 @@ import {
   MODIFICATION_SET_SIZE,
   SET_BONUSES,
   describeSetBonus,
+  modificationSlotLevelsFor,
   nextModificationSlotLevel,
   nextQueuedLevel,
   projectedBuildings,
   queueCancelWindowMs,
   queueRemainingMs,
-  structureLevelCap,
+  atLevelCeiling,
   buildingNeedsParts,
   buildingParts,
   hasItems,
@@ -168,7 +169,11 @@ export function StructureDialog({
   const queueFull = buildQueue.length >= buildQueueCapacity(base.research.technologies);
 
   const slots = modificationCapacity(standing);
-  const nextSlotAt = nextModificationSlotLevel(standing?.level ?? 0);
+  const nextSlotAt = nextModificationSlotLevel(standing?.level ?? 0, kind);
+  // A ten-rung structure opens its last two slots together, at 10.
+  const slotsOpeningNext = modificationSlotLevelsFor(kind).filter(
+    (level) => level === nextSlotAt,
+  ).length;
 
   // §F2: the Apothecary's ceiling is filled to the structure *plus* the crew's Logistics, so the
   // line that quotes it reads the same fold the settle does.
@@ -418,7 +423,8 @@ export function StructureDialog({
               request, 2026-09-16). */}
             {nextSlotAt !== null && (
               <p className="mt-2 font-body text-[12px] leading-relaxed text-ink-300">
-                The next slot opens at level {nextSlotAt}. The Scrapyard builds what goes in them.
+                {slotsOpeningNext > 1 ? 'The next two slots open' : 'The next slot opens'} at level{' '}
+                {nextSlotAt}. The Scrapyard builds what goes in them.
               </p>
             )}
             {/*
@@ -529,7 +535,7 @@ function SlotRack({
   onClear: (slot: number) => void;
 }) {
   const standing = findBuilding(base.buildings, kind);
-  const slots = modificationSlots(standing);
+  const slots = modificationSlots(kind, standing);
   /*
    * Which bracket is being stripped, and has not been confirmed yet.
    *
@@ -940,6 +946,13 @@ type Ceiling = { maxed: boolean; line: string };
 
 function ceilingReason(kind: BuildingKind, base: Base): Ceiling {
   const projected = projectedBuildings(base.buildings, base.buildQueue);
+  // The structure's own ceiling, not the game's, and first, in the order the server refuses in: the
+  // Garage and the Infirmary stop at 10, and telling a player at that rung that the Nexus or a
+  // neighbour is in the way sends them off to buy levels that will never sign for an eleventh.
+  const ceiling = levelCeilingFor(kind);
+  if (atLevelCeiling(kind, projected)) {
+    return { maxed: true, line: `LEVEL ${ceiling}, WHICH IS AS HIGH AS IT GOES` };
+  }
   // Every unmet clause (§A1, §I3), not the Nexus rung alone: a structure can be waiting on another
   // building and on the crew's own level at the same time, and naming one of the three sends a
   // player off to do a thing that will not unlock it.
@@ -949,13 +962,6 @@ function ceilingReason(kind: BuildingKind, base: Base): Ceiling {
       maxed: false,
       line: `NEEDS ${unmet.map(describeBuildingRequirement).join(' · ').toUpperCase()}`,
     };
-  }
-  // The structure's own ceiling, not the game's: the Garage and the Infirmary stop at 10, and
-  // telling a player at that rung that the Nexus is in the way sends them off to buy levels that
-  // will never sign for an eleventh.
-  const ceiling = levelCeilingFor(kind);
-  if (kind === CENTRAL_BUILDING || structureLevelCap(kind, projected) === ceiling) {
-    return { maxed: true, line: `LEVEL ${ceiling}, WHICH IS AS HIGH AS IT GOES` };
   }
   return {
     maxed: false,

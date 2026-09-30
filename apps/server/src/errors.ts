@@ -15,6 +15,10 @@ export type ErrorCode =
   /** The screen that pressed was showing a state the row has since left: press again from the new one. */
   | 'STALE_STATE'
   | 'USERNAME_TAKEN'
+  /** A rename onto a name the game keeps for itself (`isReservedName`). Sign-up refuses it at the schema. */
+  | 'USERNAME_RESERVED'
+  /** Another account already goes by that name, as its username or its display name. */
+  | 'DISPLAY_NAME_TAKEN'
   | 'DISTRICT_NAME_TAKEN'
   | 'INVALID_CREDENTIALS'
   | 'OVERSEER_ALREADY_CHOSEN'
@@ -62,6 +66,11 @@ export type ErrorCode =
    * bad request: the screen that showed it was right when it drew it.
    */
   | 'CITY_FULL'
+  /**
+   * No city has a free plot, so a new account could never play (bug pass, 2026-09-29). Refused at
+   * sign-up, before an account exists to hold four overseers out of the pool while it waits.
+   */
+  | 'WORLD_FULL'
   // research (GDD §C)
   | 'RESEARCH_BUSY'
   | 'RESEARCH_OPTION_LOCKED'
@@ -87,7 +96,6 @@ export type ErrorCode =
   | 'MISSING_PARTS'
   | 'NO_HOUSING'
   // the city and its units (GDD §A4, §A5)
-  | 'DISTRICT_UNSCOUTED'
   | 'NO_FORCE'
   | 'PLACE_UNAVAILABLE'
   | 'UNIT_LOCKED'
@@ -128,6 +136,8 @@ const STATUS_BY_CODE: Record<ErrorCode, number> = {
   NOT_FOUND: 404,
   STALE_STATE: 409,
   USERNAME_TAKEN: 409,
+  USERNAME_RESERVED: 409,
+  DISPLAY_NAME_TAKEN: 409,
   DISTRICT_NAME_TAKEN: 409,
   INVALID_CREDENTIALS: 401,
   OVERSEER_ALREADY_CHOSEN: 409,
@@ -146,6 +156,7 @@ const STATUS_BY_CODE: Record<ErrorCode, number> = {
   CITY_SHUT: 403,
   CITY_UNBUILT: 400,
   CITY_FULL: 409,
+  WORLD_FULL: 409,
   TRAINING_REFUSED: 409,
   MARKET_REFUSED: 409,
   BLACK_MARKET_REFUSED: 409,
@@ -180,7 +191,6 @@ const STATUS_BY_CODE: Record<ErrorCode, number> = {
   BUILD_QUEUE_FULL: 409,
   MISSING_PARTS: 409,
   NO_HOUSING: 409,
-  DISTRICT_UNSCOUTED: 409,
   NO_FORCE: 409,
   PLACE_UNAVAILABLE: 409,
   UNIT_LOCKED: 409,

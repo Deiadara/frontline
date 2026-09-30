@@ -1,6 +1,6 @@
 /**
- * The city: the map, ground taken by walking onto it, garrisons, location work, scouting, spying,
- * sleeper cells and a captured gate.
+ * The city: the map, ground taken by walking onto it, garrisons, location work, spying, sleeper
+ * cells and a captured gate.
  */
 import {
   PLAYER_UNITS,
@@ -35,7 +35,6 @@ export async function city(h: Harness, cast: Cast): Promise<void> {
   await garrison(h, a, ground);
   await locationWork(h, a, ground);
   await spying(h, a, ground);
-  await scouting(h, a);
   await sleepers(h, a, ground);
   await capturedGate(h, a, c);
   // C takes ground in Terminus the same way, for the faction and battle scenes later.
@@ -62,9 +61,11 @@ async function mapReads(h: Harness, crew: Player): Promise<Ground | undefined> {
     route: '/api/city',
     query: { city: other },
   });
+  // The whole city is visible (maintainer, 2026-09-29), including one nobody of theirs has been to.
   h.check(
-    abroad?.districts.every((one) => !one.scouted) ?? false,
-    `${crew.label} sees scouted ground in ${other}, a city nobody of theirs has been to`,
+    (abroad?.districts.length ?? 0) > 0 &&
+      (abroad?.districts.every((one) => one.held.total === one.district.locations.length) ?? false),
+    `${crew.label} cannot read the map of ${other}`,
   );
   await h.call({
     as: crew,
@@ -93,7 +94,11 @@ async function mapReads(h: Harness, crew: Player): Promise<Ground | undefined> {
     'the home district read answered with another district',
   );
 
-  for (const summary of map.districts.filter((one) => one.scouted && !one.isHome)) {
+  // The nearest ground first, which is where a new crew would walk.
+  const nearest = map.districts
+    .filter((one) => !one.isHome)
+    .sort((x, y) => x.travelMinutes - y.travelMinutes);
+  for (const summary of nearest) {
     const detail = await h.ok<DistrictDetailResponse>({
       as: crew,
       method: 'GET',
@@ -107,7 +112,7 @@ async function mapReads(h: Harness, crew: Player): Promise<Ground | undefined> {
     );
     if (open) return { district: detail, open, held };
   }
-  h.check(false, `${crew.label} has no scouted district with open ground in it`);
+  h.check(false, `${crew.label} has no district with open ground in it`);
   return undefined;
 }
 
@@ -477,16 +482,22 @@ async function spying(h: Harness, a: Player, ground: Ground): Promise<void> {
     route: '/api/city/spy',
     body: { target, tier: 'loose_ears' },
   });
-  h.check(
-    sent?.district.spyRun !== null && sent?.district.spyRun !== undefined,
-    'the runners did not go out',
-  );
+  h.check(sent?.district.spyRuns.length === 1, 'the runners did not go out');
   if (sent) h.check(sent.base.resources.caps <= before.resources.caps, 'a spy job paid the crew');
   await h.refuse({
     as: a,
     method: 'POST',
     route: '/api/city/spy',
     body: { target, tier: 'loose_ears' },
+    expect: 400,
+    code: 'VALIDATION_ERROR',
+  });
+  // A tier the track has not opened (maintainer, 2026-09-28): Total Intelligence is the last rung's.
+  await h.refuse({
+    as: a,
+    method: 'POST',
+    route: '/api/city/spy',
+    body: { target, tier: 'total_intelligence' },
     expect: 400,
     code: 'VALIDATION_ERROR',
   });
@@ -533,7 +544,7 @@ async function spying(h: Harness, a: Player, ground: Ground): Promise<void> {
     route: '/api/city/spy',
     body: { target, tier: 'loose_ears' },
   });
-  const run = again?.district.spyRun;
+  const run = again?.district.spyRuns[0];
   if (run) h.advanceTo(new Date(run.returnsAt).getTime() + MINUTE);
   h.advance(10 * MINUTE);
   const read = await h.ok<DistrictDetailResponse>({
@@ -548,91 +559,6 @@ async function spying(h: Harness, a: Player, ground: Ground): Promise<void> {
   h.check(
     report !== null && report !== undefined,
     'the runners came home and the location carries no report',
-  );
-}
-
-async function scouting(h: Harness, a: Player): Promise<void> {
-  h.at('city: scouting');
-  const map = await h.ok<CityResponse>({ as: a, method: 'GET', route: '/api/city' });
-  const blind = map?.districts.filter(
-    (one) => !one.scouted && !one.isHome && one.district.kind === 'contested',
-  );
-  const first = blind?.[0];
-  const seen = map?.districts.find((one) => one.scouted && !one.isHome);
-  if (!map || !first) return;
-  const sent = await h.ok<CityMutationResponse>({
-    as: a,
-    method: 'POST',
-    route: '/api/city/scout',
-    body: { districtId: first.district.id },
-  });
-  h.check(
-    sent?.district.scoutingRun !== null && sent?.district.scoutingRun !== undefined,
-    'nobody went out scouting',
-  );
-  const second = blind?.[1];
-  if (second) {
-    await h.refuse({
-      as: a,
-      method: 'POST',
-      route: '/api/city/scout',
-      body: { districtId: second.district.id },
-      expect: 400,
-      code: 'VALIDATION_ERROR',
-    });
-  }
-  await h.ok({ as: a, method: 'POST', route: '/api/city/scout/recall', body: {} });
-  await h.refuse({
-    as: a,
-    method: 'POST',
-    route: '/api/city/scout/recall',
-    body: {},
-    expect: 404,
-    code: 'NOT_FOUND',
-  });
-  // The walk home has to finish before anybody goes out again.
-  h.advance(12 * HOUR);
-  await h.refuse({
-    as: a,
-    method: 'POST',
-    route: '/api/city/scout',
-    body: { districtId: map.homeDistrictId },
-    expect: 400,
-    code: 'VALIDATION_ERROR',
-  });
-  if (seen) {
-    await h.refuse({
-      as: a,
-      method: 'POST',
-      route: '/api/city/scout',
-      body: { districtId: seen.district.id },
-      expect: 400,
-      code: 'VALIDATION_ERROR',
-    });
-  }
-  await h.refuse({
-    as: a,
-    method: 'POST',
-    route: '/api/city/scout',
-    body: { districtId: 'nowhere' },
-    expect: 404,
-    code: 'NOT_FOUND',
-  });
-  await h.refuseMalformed(a, '/api/city/scout', { districtId: 5 });
-  await h.refuseMalformed(a, '/api/city/scout/recall', []);
-
-  const again = await h.ok<CityMutationResponse>({
-    as: a,
-    method: 'POST',
-    route: '/api/city/scout',
-    body: { districtId: first.district.id },
-  });
-  const run = again?.district.scoutingRun;
-  if (run) h.advanceTo(new Date(run.returnsAt).getTime() + MINUTE);
-  const after = await h.ok<CityResponse>({ as: a, method: 'GET', route: '/api/city' });
-  h.check(
-    Boolean(after?.districts.find((one) => one.district.id === first.district.id)?.scouted),
-    `the scout came home and ${first.district.id} is still in the fog`,
   );
 }
 
@@ -713,8 +639,10 @@ async function sleepers(h: Harness, a: Player, ground: Ground): Promise<void> {
 async function capturedGate(h: Harness, a: Player, c: Player): Promise<void> {
   h.at('city: a captured gate');
   const map = await h.ok<CityResponse>({ as: a, method: 'GET', route: '/api/city' });
+  // A district A holds nothing in, so the ground A already stands on keeps its seam for the
+  // battles scene: the bench hands this one over whole.
   const target = map?.districts.find(
-    (one) => one.scouted && !one.isHome && one.district.kind === 'contested',
+    (one) => one.held.mine === 0 && !one.isHome && one.district.kind === 'contested',
   );
   if (!map || !target) return;
   const districtId = target.district.id;

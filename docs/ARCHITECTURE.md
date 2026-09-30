@@ -64,7 +64,7 @@ or client-facing type.
 | `battle/schedule.ts`    | Half-hour marks, the 8-24h declaration window, the one-second deployment cutoff      |
 | `battle/scheduled.ts`   | A declared fight: targets, gates, deployments, and what may legally be called        |
 | `battle/perimeter.ts`   | The ring outside the fight, who does not get away, and whose report goes missing     |
-| `battle/traps.ts`       | What is buried under an approach, and the bounded bite it takes                      |
+| `battle/traps.ts`       | What is buried under an approach: the small bite it takes, or the wire that slows    |
 | `spying/spying.ts`      | The spy contest: tiers, the two scores, cheapest-first exposure, the report schemas  |
 | `moves/moves.ts`        | Columns between the crew's own places: district, gate, held and allied ground        |
 | `battle/analysis.ts`    | The after-action ledger, and who is allowed to read one                              |
@@ -91,7 +91,7 @@ why the client can render the same numbers the server enforces without a DTO for
   shown, never when the day turns over. See `packages/shared/src/time/zone.ts`.
 - **One arithmetic for every road**: `roadMinutes(base, speed, reductionPercent)` in
   `packages/shared/src/time/speed.ts` is the only function that turns a distance into minutes, and
-  the march, a mission's travel leg, a scouting run and the city view's estimates all call it. Speed
+  the march, a mission's travel leg, a spy job and the city view's estimates all call it. Speed
   is a stat 0 to 100 on units and machines alike and **divides**; a crew's travel reduction is a
   percentage of what is left and **multiplies**. The two used to be one number, so a Rotorcraft and
   a Rail Yard were the same kind of thing and a unit's own speed reached no clock at all. See
@@ -170,7 +170,7 @@ stating the split plainly.
 `WORLD_TICK_MS`, one second, from `index.ts`. It calls `settleWorld`
 (`apps/server/src/world/settle.ts`) across the whole world with nobody connected: location upgrades,
 unit movements and moves, sleepers, captured gates, the weekly garrison regrowth, **battles**,
-crews coming home, scouts, spy reports, and the two auction rooms. This is what makes a fight land on its mark, a crew arrive
+crews coming home, spy reports, and the two auction rooms. This is what makes a fight land on its mark, a crew arrive
 home, and ground change hands while its owner is asleep. It is started in `index.ts` rather than
 in `buildApp` so a test that builds an app per case does not get fights resolving underneath it.
 

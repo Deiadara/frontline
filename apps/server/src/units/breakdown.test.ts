@@ -1,6 +1,4 @@
 import {
-  RAID_DISRUPTION_HOURS,
-  MAX_RAID_DISRUPTION_PERCENT,
   STARTING_RESOURCES,
   createCommander,
   startingEconomy,
@@ -284,41 +282,5 @@ describe('where a training percentage comes from', () => {
     const razors = roster.units.find((unit) => unit.id === 'razors')!;
     expect(razors.homeBonus).toBeUndefined();
     expect(razors.homeCostReduction ?? 0).toBe(0);
-  });
-
-  /**
-   * §A4: a raid is a cut, and the page says so on its own line.
-   *
-   * The arithmetic is the half worth pinning. `disrupted` scales the crew's whole positive fold, so
-   * one line of `-(total * off)` at the bottom reproduces it exactly, and a page that instead
-   * shaved a quarter off each contributor would still sum correctly while telling the player their
-   * chemist got worse.
-   */
-  it('shows a raid as one line off the crew half, and still adds up', () => {
-    const repos = openStack();
-    const raided = seedBase(repos, {
-      commanders: [createCommander('c-1', 'Ola Nkemdirim', 'wetware_chief', { chemistry: 88 })],
-      buildings: [build('nexus', 20), build('gauntlet', 12)],
-    });
-    repos.bases.replace({
-      ...raided,
-      economy: {
-        ...raided.economy,
-        disruption: {
-          until: new Date(NOW.getTime() + RAID_DISRUPTION_HOURS * 3_600_000).toISOString(),
-          since: NOW.toISOString(),
-          percent: MAX_RAID_DISRUPTION_PERCENT,
-        },
-      },
-    });
-    const base = repos.bases.findById(raided.id)!;
-
-    const page = trainingBreakdownFor(repos, base, NOW);
-    const cut = page.cost.find((line) => line.source === 'Raided');
-    expect(cut, 'a raided crew should be told it is raided').toBeDefined();
-    expect(cut!.percent).toBeLessThan(0);
-    // The Gauntlet is not in the crew fold, so a raid does not reach it: its line stays whole.
-    expect(page.speed.find((line) => line.source === 'The Gauntlet')?.percent).toBe(24);
-    expectAddsUp(repos, base);
   });
 });

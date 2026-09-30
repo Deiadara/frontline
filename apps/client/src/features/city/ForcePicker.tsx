@@ -24,11 +24,11 @@ import { ErrorNote } from '../../components/ui/ErrorNote';
  * carry home, because loot capacity is the one stat that decides a raid before it starts, and a
  * player who has to work it out on paper will not work it out at all.
  *
- * When the ground has been scouted it also **forecasts the fight**, by running the real engine
+ * When the ground has been counted it also **forecasts the fight**, by running the real engine
  * sixty times against what the player knows is there. Two things about that are deliberate: it is
  * the same code the server will run, so the estimate cannot drift from the result; and it is only
- * as good as the scouting, so on ground nobody has looked at there is simply no forecast rather
- * than a confident number built on nothing.
+ * as good as the spying, so on ground nobody has counted there is simply no forecast rather than a
+ * confident number built on nothing.
  */
 
 interface ForcePickerProps {
@@ -40,7 +40,7 @@ interface ForcePickerProps {
   confirmLabel: string;
   onClose: () => void;
   onConfirm: (force: Army) => void;
-  /** How many are on the ground, if anybody has looked. Absent means unscouted. */
+  /** How many are on the ground, if anybody has counted. Absent means nobody has. */
   facingSize?: number;
   /** The ground, if it is known. Absent falls back to open ground.  */
   battlefield?: Battlefield;
@@ -142,7 +142,7 @@ export function ForcePicker({
          * Only when the caller actually asked about a fight.
          *
          * `Odds` renders "nobody has counted what is on this ground" for an absent `facingSize`,
-         * which is the right sentence when a player is looking at ground nobody has scouted and a
+         * which is the right sentence when a player is looking at ground nobody has counted and a
          * nonsense one when there is no enemy to count. Planting Sleepers, the one caller today, is
          * that case: they go to ground and wait rather than fight.
          */}

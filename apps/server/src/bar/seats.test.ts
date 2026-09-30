@@ -31,7 +31,6 @@ import {
   MAX_ROOM_CALIBRE,
   barCalibre,
   barRoster,
-  barSeatsFor,
   seatKindOf,
   standoutRankBand,
   type BarCharacter,
@@ -80,9 +79,7 @@ const mean = (values: readonly number[]): number =>
 
 /** Every sitter of one kind of chair, across the sample of nights. */
 function sitters(room: RoomProfile | number, kind: SeatKind): BarCharacter[] {
-  return DAYS.flatMap((day) =>
-    barRoster(day, BAR_ROSTER_SIZE, room).filter((_, seat) => seatKindOf(seat) === kind),
-  );
+  return DAYS.flatMap((day) => barRoster(day, room).filter((_, seat) => seatKindOf(seat) === kind));
 }
 
 describe('the chairs', () => {
@@ -98,10 +95,6 @@ describe('the chairs', () => {
       'standout',
       'standout',
     ]);
-    // A widened room adds people who happened to be in, pitched at the middle like the rest.
-    for (let seat = BAR_ROSTER_SIZE; seat < barSeatsFor(1000); seat += 1) {
-      expect(seatKindOf(seat), `widened seat ${seat}`).toBe('average');
-    }
   });
 });
 
@@ -109,7 +102,7 @@ describe('a city of three veterans and a beginner', () => {
   it('seats somebody the beginner can clear and afford, every night', () => {
     const book = basePayrollCapacity(1, 0);
     for (const day of DAYS) {
-      const low = barRoster(day, BAR_ROSTER_SIZE, SPLIT_CITY)[LOW_SEAT]!;
+      const low = barRoster(day, SPLIT_CITY)[LOW_SEAT]!;
       expect(assessJoin(low.requirement, NEW_CREW).interested, day).toBe(true);
       expect(reserveFor(low), `${day}: a starting book cannot hold the floor`).toBeLessThanOrEqual(
         book,
@@ -124,8 +117,8 @@ describe('a city of three veterans and a beginner', () => {
    */
   it('pitches the low seat at the beginner, not at the city', () => {
     for (const day of DAYS.slice(0, 20)) {
-      const split = barRoster(day, BAR_ROSTER_SIZE, SPLIT_CITY)[LOW_SEAT];
-      const alone = barRoster(day, BAR_ROSTER_SIZE, flatRoom(BEGINNER.level))[LOW_SEAT];
+      const split = barRoster(day, SPLIT_CITY)[LOW_SEAT];
+      const alone = barRoster(day, flatRoom(BEGINNER.level))[LOW_SEAT];
       expect(split?.attributes, day).toEqual(alone?.attributes);
     }
     const middle = sitters(SPLIT_CITY, 'average').map((one) => reserveFor(one));
@@ -177,7 +170,7 @@ describe('how far the room climbs', () => {
       );
     }
     // A young city never sees an attribute past the old ceiling, standouts included.
-    for (const one of DAYS.flatMap((day) => barRoster(day, BAR_ROSTER_SIZE, 12))) {
+    for (const one of DAYS.flatMap((day) => barRoster(day, 12))) {
       expect(Math.max(...Object.values(one.attributes))).toBeLessThanOrEqual(
         MAX_RECRUITMENT_ATTRIBUTE,
       );
@@ -245,7 +238,7 @@ describe('doors that climb with the city’s rank', () => {
     );
   });
 
-  it('keeps a standout within one rung of the strongest crew in town', () => {
+  it('keeps a standout within one rung of the highest rank in town', () => {
     // Everybody at rank ten: the door stops at eleven, not at the average plus three.
     expect(standoutRankBand(10, 10)).toEqual({ floor: 10, top: 11 });
     for (const one of sitters(flatRoom(90, 10), 'standout')) {
@@ -253,6 +246,23 @@ describe('doors that climb with the city’s rank', () => {
     }
     // One crew far ahead lets the average's own reach through.
     expect(standoutRankBand(6, 12).top).toBe(9);
+    // A cap under the floor is a band `randomInt` answers outside of: the floor wins.
+    expect(standoutRankBand(10, 3)).toEqual({ floor: 10, top: 10 });
+  });
+
+  /**
+   * The audit's room (2026-09-28): the crew with the most standing is a level-80 crew at rank 3,
+   * and two level-20 crews hold rank 13. Capped off the strongest crew's rank the band came out
+   * as {10, 8}; capped off the highest rank in the room it is {10, 13}.
+   */
+  it('caps the standout door off the highest rank, not off the strongest crew', () => {
+    const room = cityRoomProfile([resident(80, 3), resident(20, 13), resident(20, 13)])!;
+    expect(room.highest.notoriety).toBe(3);
+    const asked = sitters(room, 'standout').map((one) => one.requirement.minNotoriety);
+    expect(Math.min(...asked)).toBeGreaterThanOrEqual(10);
+    expect(Math.max(...asked)).toBeLessThanOrEqual(13);
+    // Rolled across the band rather than pinned to its floor by the clamp.
+    expect(Math.max(...asked)).toBeGreaterThan(10);
   });
 
   it('keeps the wallet door within what a rank-ten crew holds', () => {

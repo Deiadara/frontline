@@ -10,18 +10,11 @@ import {
   overseerRemaining,
   cityHomeOffer,
   cityHomeOffers,
-  cityOfDistrict,
   DEFAULT_CITY_ID,
   findCity,
   freeHomePlots,
   pickHomePlot,
-  districtHolder,
-  districtsOfCity,
-  districtIsShut,
   STARTER_DISTRICT_ID,
-  findDistrict,
-  type District,
-  travelMinutesBetween,
   type Base,
   type CreateOverseerResponse,
   type OverseerChoicesResponse,
@@ -36,6 +29,7 @@ import { MVP_PLAYER } from '../seed/constants.js';
 import { offerOpeningInvitationAt } from '../factions/opening.js';
 import { tallyOverseerTaken } from '../feats/tally.js';
 import { AppError, parseBody } from '../errors.js';
+import { takenHomes } from '../city/homes.js';
 import type { Repositories } from '../db/repos/index.js';
 
 /**
@@ -76,99 +70,6 @@ function freeDistrictName(app: FastifyInstance, username: string): string {
   }
   // A thousand crews with one name is not a state this game reaches; the id keeps them apart.
   return `${wanted.slice(0, DISTRICT_NAME_MAX - 9)} ${randomUUID().slice(0, 8)}`;
-}
-
-/**
- * §A4: one district open from the first minute (maintainer request).
- *
- * Scouting is a journey now, and a new crew has nobody worth sending and nothing to do while they
- * walk. Starting wholly fogged in meant a first session that opens with a four-hour wait before
- * the first mission board can be read, which is the worst possible first five minutes.
- *
- * The **nearest district nobody lives in and whose gate is not shut**, so the free ground is
- * somewhere a new player can actually work: the closest district overall is often another crew's
- * home, and opening that would hand a beginner a view of somebody's defences and nothing to do
- * with it. Nearest rather than best, because the map's geography should be the thing that decides,
- * and nearest is also the one they would have sent somebody to first.
- *
- * ## Shut ground counts as nowhere to work (maintainer, 2026-09-18)
- *
- * The clause was only "nobody lives there" until new crews were spread across the four residential
- * plots (`quietestDistrict`). A district nobody lives in can still be held end to end by one party,
- * which shuts its gate, and nothing behind a shut gate can be called: the card offers a dead
- * "Behind the gate" button where "Call a fight" would be. A crew planted on the Ashen Terraces was
- * handed `annexes`, Combine-held from end to end, and opened its first evening with a
- * district it could look at and not touch. Measured across all four homes, that was one in four
- * new players.
- *
- * So the promise in the paragraph above is now actually checked rather than approximated by
- * occupancy, which is the weaker half of it.
- */
-function openTheNearestGround(repos: Repositories, base: Base, nowIso: string): void {
-  const nearest = nearestOpenGround(repos, base);
-  if (nearest) repos.city.markScouted(base.id, nearest.id, nowIso);
-}
-
-/**
- * The one district a new crew is shown for free, or nothing when there is none.
- *
- * Exported so it can be asked the question directly. The rule it has to obey is true of every home
- * in the world and only one home in the world reaches the case that used to break it, so a test
- * that registered a crew and looked at the result was passing on a fixture rather than on the rule.
- */
-export function nearestOpenGround(repos: Repositories, base: Base): District | undefined {
-  const home = findDistrict(base.districtId);
-  if (!home) return undefined;
-  const occupied = new Set(repos.bases.listSummaries().map((other) => other.districtId));
-  const controls = repos.city.controls();
-  const lived = new Set(repos.bases.listSummaries().map((other) => other.districtId));
-  /*
-   * Searched inside the crew's **own** city (2026-09-24).
-   *
-   * A new account picks which playable city to start in, so the crew this opens ground for is as
-   * likely to be standing in Terminus as in Ashfall. The ids are sorted by `travelMinutesBetween`,
-   * which measures normalized positions inside one map, and both cities run 0 to 1: searching the
-   * world would hand a Terminus crew whichever Ashfall district happened to sit near its own
-   * coordinates, which is a free scout on a map forty miles away and the nearest ground at home
-   * left fogged. It was already wrong before the choose screen, because this is not only reached
-   * from registration.
-   */
-  const found = districtsOfCity(cityOfDistrict(base.districtId))
-    .filter(
-      (district) =>
-        /*
-         * Contested ground, because ground is what this opens.
-         *
-         * It filtered out districts somebody *lives* on and not districts that are somewhere to
-         * live, which are two different things: an empty residential plot passed, and a plot holds
-         * no locations at all. So a new crew's one free scout could be spent on a street with
-         * nothing in it to take, and the district it opened read as callable with nothing to call
-         * on. It was only reachable once crews stopped all starting on the same plot, which is
-         * what choosing a city did (2026-09-24), and the live walkthrough is what found it.
-         */
-        district.kind === 'contested' &&
-        district.id !== base.districtId &&
-        !occupied.has(district.id) &&
-        !districtIsShut(districtHolder(district, controls) ?? null, lived.has(district.id)),
-    )
-    .sort(
-      (a, b) =>
-        travelMinutesBetween(home, a) - travelMinutesBetween(home, b) || a.id.localeCompare(b.id),
-    )[0];
-  return found;
-}
-
-/**
- * The districts somebody lives on, which is what decides whether a plot is free.
- *
- * Bots count (maintainer, 2026-09-28: "there should be no bots seated on players' locations").
- * They used to be left out so the seeded rivals on three of Ashfall's four plots did not fill the
- * city, and the price was a player seated on a bot's plot: two crews in one home district, one of
- * them unraidable and the other's army conscripted into every raid there. While the bots are
- * seeded, a dev world has four free plots rather than eight. They go before launch (`seed/index.ts`).
- */
-function takenHomes(repos: Repositories): string[] {
-  return repos.bases.listSummaries().map((home) => home.districtId);
 }
 
 /**
@@ -468,7 +369,6 @@ export function registerOverseerRoutes(app: FastifyInstance): void {
             districtId: newHome(app.repos, cityId, randomUUID()),
           });
         if (standing === undefined) app.repos.bases.insert(home);
-        openTheNearestGround(app.repos, home, now);
         /*
          * ...and the feats board's first rung is finished before the player has seen it.
          *

@@ -7,6 +7,7 @@ import { FeatsDoorGlyph } from '../feats/marks';
 import { cn } from '../../lib/cn';
 import { useAdmin, useMe } from '../../lib/queries';
 import { useUnlockFacts } from '../../lib/unlocks';
+import { compactDoors, doorStyle, useViewportWidth } from './navFit';
 
 /**
  * The scenery switcher, along the bottom of the frame.
@@ -203,7 +204,7 @@ function Destination({
           // layers a border and a flat fill cannot give, and the reason these read as struck
           // plates rather than as coloured squares. Shared with the standing bar's own doors so
           // the two rows are visibly the same kind of object.
-          'door-tile relative flex h-[52px] w-[52px] items-center justify-center rounded-lg border',
+          'door-tile relative flex h-[var(--door-tile,52px)] w-[var(--door-tile,52px)] items-center justify-center rounded-lg border',
           'transition-all duration-150 ease-out',
           active
             ? 'door-tile-active z-10 -translate-y-1 scale-[1.06] border-brass-300 text-brass-100'
@@ -223,7 +224,7 @@ function Destination({
           <Icon
             name={destination.icon}
             className={cn(
-              'relative z-[2] h-7 w-7 drop-shadow-[0_1px_2px_rgba(0,0,0,0.65)]',
+              'relative z-[2] h-[var(--door-icon,28px)] w-[var(--door-icon,28px)] drop-shadow-[0_1px_2px_rgba(0,0,0,0.65)]',
               locked !== null && 'opacity-40',
             )}
           />
@@ -231,7 +232,7 @@ function Destination({
           <span
             aria-hidden
             className={cn(
-              'relative z-[2] block h-7 w-7 drop-shadow-[0_1px_2px_rgba(0,0,0,0.65)]',
+              'relative z-[2] block h-[var(--door-icon,28px)] w-[var(--door-icon,28px)] drop-shadow-[0_1px_2px_rgba(0,0,0,0.65)]',
               locked !== null && 'opacity-40',
             )}
           >
@@ -272,7 +273,7 @@ function Destination({
                 it, so nothing drawn crosses the glyph it sits over. */}
             <DrawnGlyph
               name="lock"
-              className="h-[30px] w-[30px] text-oxblood-300 drop-shadow-[0_1px_3px_rgba(0,0,0,0.8)]"
+              className="h-[var(--door-lock,30px)] w-[var(--door-lock,30px)] text-oxblood-300 drop-shadow-[0_1px_3px_rgba(0,0,0,0.8)]"
             />
           </span>
         )}
@@ -287,7 +288,7 @@ function Destination({
       </span>
       <span
         className={cn(
-          'font-display text-[11px] font-bold uppercase tracking-[0.1em] transition-colors duration-150',
+          'font-display text-[length:var(--door-label,11px)] font-bold uppercase tracking-[0.1em] transition-colors duration-150',
           active ? 'text-glow-cyan text-brass-100' : 'text-ink-300 group-hover:text-ink-100',
         )}
       >
@@ -299,7 +300,7 @@ function Destination({
   if (destination.to === undefined) {
     return (
       <span
-        className="group flex w-[72px] cursor-not-allowed flex-col items-center gap-1 opacity-40"
+        className="group flex w-[var(--door-w,72px)] cursor-not-allowed flex-col items-center gap-1 opacity-40"
         aria-disabled="true"
         data-testid={testId(destination.label)}
       >
@@ -326,7 +327,7 @@ function Destination({
        * The lit frame on hover is the `door-tile` styling and is untouched: that is the feedback
        * worth having.
        */
-      className="group flex w-[72px] flex-col items-center gap-1 focus-visible:outline-none"
+      className="group flex w-[var(--door-w,72px)] flex-col items-center gap-1 focus-visible:outline-none"
       data-testid={testId(destination.label)}
     >
       {({ isActive }) => body(isActive)}
@@ -348,7 +349,7 @@ function FightMark({ count }: { count: number }) {
     <NavLink
       to="/game/battles"
       className={cn(
-        'group flex w-[72px] flex-col items-center gap-1 focus-visible:outline-none',
+        'group flex w-[var(--door-w,72px)] flex-col items-center gap-1 focus-visible:outline-none',
         /*
          * `left-[94px]`, not `left-4`: the Feats door took the corner (maintainer request,
          * 2026-09-13) and two doors pinned to the same edge are one door drawn on top of another.
@@ -371,7 +372,7 @@ function FightMark({ count }: { count: number }) {
     >
       <span
         className={cn(
-          'door-tile relative flex h-[52px] w-[52px] items-center justify-center rounded-lg border',
+          'door-tile relative flex h-[var(--door-tile,52px)] w-[var(--door-tile,52px)] items-center justify-center rounded-lg border',
           'border-oxblood-300/80 text-oxblood-300 shadow-[0_0_14px_rgba(201,88,79,0.45)]',
           'motion-safe:animate-pulse group-hover:-translate-y-1 group-hover:scale-[1.04]',
           'transition-all duration-150 ease-out',
@@ -379,7 +380,7 @@ function FightMark({ count }: { count: number }) {
       >
         <Icon
           name="alert"
-          className="relative z-[2] h-7 w-7 drop-shadow-[0_1px_2px_rgba(0,0,0,0.65)]"
+          className="relative z-[2] h-[var(--door-icon,28px)] w-[var(--door-icon,28px)] drop-shadow-[0_1px_2px_rgba(0,0,0,0.65)]"
         />
         {count > 1 && (
           <span
@@ -390,7 +391,7 @@ function FightMark({ count }: { count: number }) {
           </span>
         )}
       </span>
-      <span className="font-display text-[11px] font-bold uppercase tracking-[0.1em] text-oxblood-300">
+      <span className="font-display text-[length:var(--door-label,11px)] font-bold uppercase tracking-[0.1em] text-oxblood-300">
         Fight
       </span>
     </NavLink>
@@ -401,6 +402,15 @@ export function BottomNav() {
   const admin = useAdmin();
   const me = useMe();
   const destinations = admin.data ? [...DESTINATIONS, CONSOLE] : DESTINATIONS;
+  const fights = me.data?.unread?.fightsOnYou ?? 0;
+  const rowWidth = useViewportWidth();
+  /*
+   * How many doors stand in the row. From 1500px Feats and Settings are pinned to the ends, out of
+   * the flow (the notes on each below); under it they are two more doors in the row.
+   */
+  const inRow = destinations.length + (fights > 0 ? 1 : 0) + (rowWidth >= 1500 ? 0 : 2);
+  // Null whenever the row fits, which is every frame but the narrowest: see `navFit.ts`.
+  const compact = compactDoors(inRow, rowWidth);
   // §I3: read once for the row, off the same helper the route guards use, so a door cannot be
   // shut in the bar and open on the page behind it.
   const facts = useUnlockFacts();
@@ -425,13 +435,14 @@ export function BottomNav() {
        * build where every gate was shut.
        */
       data-gates={facts === null ? 'loading' : 'ready'}
-      // `flex-wrap`. Fourteen doors (twelve places, Settings, and the Console in an admin build) do
-      // not fit one 1024px row, and without it the row does not
-      // spill: it *shrinks*, squeezing each door to 65px until "Workshop" wraps onto two lines
-      // inside a target the pointer can barely tell from its neighbour. Wrapping puts the overflow
-      // on a second row instead, which the shell absorbs for free because it measures this bar's
-      // height rather than assuming it. Adding `shrink-0` here without the wrap is the version that
-      // really does push a destination off the side of the screen.
+      data-compact={compact === null ? undefined : 'true'}
+      style={doorStyle(compact)}
+      // `flex-wrap`, as the last resort. Thirteen doors (fourteen with the Console) do not fit a
+      // 1024px row at their drawn size, so a row that would wrap is tightened first: smaller doors
+      // and less space between them (`navFit.ts`, maintainer 2026-09-29), which keeps it one row
+      // on every supported frame. Without the wrap a row that still did not fit would not spill:
+      // it *shrinks*, squeezing each door until its label breaks onto two lines. Adding
+      // `shrink-0` here without the wrap is the version that pushes a destination off the side.
       // `items-start`, so the row of plates is one straight line.
       //
       // It was `items-end`, which lines up the *bottoms* of the doors, and a door behind a level
@@ -440,7 +451,7 @@ export function BottomNav() {
       // glyphs were visibly higher than City, District and Units in the same row. Aligning the
       // tops puts every plate on one line and lets the extra line hang below, where a caption
       // belongs.
-      className="glass painted washed rivets pointer-events-auto relative flex shrink-0 flex-wrap items-start justify-center gap-x-1.5 gap-y-2 border-t-2 border-brass-500/45 px-4 pb-2.5 pt-3 shadow-panel"
+      className="glass painted washed rivets pointer-events-auto relative flex shrink-0 flex-wrap items-start justify-center gap-x-[var(--door-gap,6px)] gap-y-2 border-t-2 border-brass-500/45 px-[var(--door-pad,16px)] pb-2.5 pt-3 shadow-panel"
     >
       {/*
        * Feats, in the corner, and the mark that says how many are waiting.
@@ -470,7 +481,7 @@ export function BottomNav() {
           badge={me.data?.unread?.featsReady ?? 0}
         />
       </span>
-      <FightMark count={me.data?.unread?.fightsOnYou ?? 0} />
+      <FightMark count={fights} />
       {destinations.map((destination) => (
         <Destination
           key={destination.label}

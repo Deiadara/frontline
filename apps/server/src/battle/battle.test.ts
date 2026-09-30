@@ -110,15 +110,10 @@ async function makeStack(username = 'caller', engine?: SkirmishEngine): Promise<
   app.repos.bases.updateEconomy(baseId, { ...purse, infamy: DECLARE_INFAMY_COST * 8 });
 
   /*
-   * Scouting is a journey now (`scouting/scouting.ts`), so the button no longer opens ground: it
-   * sends somebody who walks back hours later. A fixture wants the *state*, not the trip.
-   *
-   * Reading every control in the district as well, which the removed HTTP call used to do as a
-   * side effect. `city.control()` writes the starting row the first time it is asked for one, so
-   * a district nobody had read had no rows for a fixture to hand over, put a garrison on, or read
-   * a holder back out of.
+   * Every control in the district read once. `city.control()` writes the starting row the first
+   * time it is asked for one, so a district nobody had read had no rows for a fixture to hand
+   * over, put a garrison on, or read a holder back out of.
    */
-  app.repos.city.markScouted(baseId, 'steelbelt', new Date().toISOString());
   for (const locationId of RUSTYARD_LOCATIONS) app.repos.city.control(locationId);
 
   /*
@@ -408,10 +403,10 @@ describe('calling a fight (§A4)', () => {
   /**
    * The location has to be in the district the target names.
    *
-   * The two ids arrived separately and nothing tied them together: the visibility and gate rules
-   * read the district, the capture read the location. Naming a shut, unscouted district's
-   * location under the open Rustyard's id walked the shorter road and took the location behind a
-   * gate the caller was never allowed through.
+   * The two ids arrived separately and nothing tied them together: the gate rules read the
+   * district, the capture read the location. Naming a shut district's location under the open
+   * Rustyard's id walked the shorter road and took the location behind a gate the caller was never
+   * allowed through.
    */
   it('refuses a location named under a district it is not in', async () => {
     const stack = await makeStack();
@@ -1150,7 +1145,7 @@ describe('what a name buys (§D7)', () => {
       ...base.economy,
       infamy: first!.cost + second!.cost + 5,
     });
-    const rung = RESEARCH_ITEMS.find((item) => item.payout.bonus.kind === 'battle_boosts')!;
+    const rung = RESEARCH_ITEMS.find((item) => item.payout.bonus?.kind === 'battle_boosts')!;
     stack.repos.bases.updateResearch(base.id, {
       ...base.research,
       technologies: [...base.research.technologies, rung.id],

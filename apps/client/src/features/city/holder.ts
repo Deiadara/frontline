@@ -1,4 +1,12 @@
-import type { LocationHolder } from '@frontline/shared';
+import {
+  garrisonOf,
+  isContested,
+  sameHolder,
+  startingHolder,
+  type District,
+  type LocationHolder,
+  type LocationView,
+} from '@frontline/shared';
 
 /**
  * Who holds a piece of ground, as a colour (maintainer, 2026-09-20).
@@ -71,3 +79,56 @@ export const HOLDER_PLATE: Record<HolderTone, { frame: string; plate: string; na
     name: 'text-ink-200',
   },
 };
+
+/**
+ * Who holds the district now, in a sentence, for the Garrison row (maintainer, 2026-09-29).
+ *
+ * The row used to print `garrisonOf` off the district's allegiance whatever had happened to the
+ * ground, so the Docks held end to end by a crew still promised a thin line of Civic Levy. That
+ * sentence is what the catalogue authored, and it stays only while every location is still with
+ * its authored holder. Once anything has changed hands the row says who is standing there.
+ *
+ * Only the Combine's ground has an authored sentence. Open ground was promised "whoever holds the
+ * ground and has decided to keep it" until the maintainer struck it (2026-09-30), so it goes
+ * straight to the count, which names the looters and the empty plots. A residential plot has no
+ * locations and no Garrison row.
+ */
+export function districtHoldLine(
+  district: District,
+  locations: readonly Pick<LocationView, 'location' | 'holder' | 'holderName'>[],
+): string {
+  const asAuthored = locations.every((view) =>
+    sameHolder(view.holder, startingHolder(view.location, district)),
+  );
+  const authored = asAuthored && isContested(district) ? garrisonOf(district) : null;
+  if (authored !== null) return `Expect ${authored}.`;
+
+  const total = locations.length;
+  const crews = new Map<string, { name: string; count: number }>();
+  let government = 0;
+  let looters = 0;
+  let empty = 0;
+  for (const view of locations) {
+    if (view.holder.kind === 'crew') {
+      const crew = crews.get(view.holder.baseId) ?? { name: view.holderName, count: 0 };
+      crews.set(view.holder.baseId, { ...crew, count: crew.count + 1 });
+    } else if (view.holder.kind === 'government') government += 1;
+    else if (view.holder.kind === 'looters') looters += 1;
+    else empty += 1;
+  }
+
+  const [only] = crews.values();
+  if (crews.size === 1 && only && only.count === total) return `Held by ${only.name}.`;
+
+  const of = (count: number) => `${count} of ${total} locations`;
+  const crewCount = [...crews.values()].reduce((sum, crew) => sum + crew.count, 0);
+  return [
+    government > 0 && `The Combine holds ${of(government)}.`,
+    looters > 0 && `The looters hold ${of(looters)}.`,
+    crews.size === 1 && only && `${only.name} holds ${of(only.count)}.`,
+    crews.size > 1 && `${crews.size} crews hold ${of(crewCount)}.`,
+    empty > 0 && `${empty} ${empty === 1 ? 'stands' : 'stand'} empty.`,
+  ]
+    .filter(Boolean)
+    .join(' ');
+}

@@ -21,8 +21,18 @@ import {
   openAreas,
   payoutSlots,
   scaledSpoils,
+  missionWalkMinutes,
 } from './missions.areas.js';
-import { CITY_DISTRICTS } from './city/index.js';
+import {
+  ALL_DISTRICTS,
+  CITY_DISTRICTS,
+  INTER_CITY_MINUTES,
+  TERMINUS_CITY_ID,
+  districtsOfCity,
+  isContested,
+  rawMinutesBetween,
+  type District,
+} from './city/index.js';
 import { MISSION_TEMPLATES, missionRewards } from './missions.js';
 import { GRADES, gradeIndex, gradePeakLevel } from './missions.grade.js';
 import { RESOURCE_KG, lootCapacityOf } from './raid.js';
@@ -176,8 +186,9 @@ describe('what an area pays (§A4)', () => {
   });
 
   it('pays more the harder the ground', () => {
-    const easiest = [...CITY_DISTRICTS].sort((a, b) => a.difficulty - b.difficulty)[0]!;
-    const hardest = [...CITY_DISTRICTS].sort((a, b) => b.difficulty - a.difficulty)[0]!;
+    const contested = CITY_DISTRICTS.filter(isContested);
+    const easiest = [...contested].sort((a, b) => a.difficulty - b.difficulty)[0]!;
+    const hardest = [...contested].sort((a, b) => b.difficulty - a.difficulty)[0]!;
     expect(areaPayPercent(hardest.id)).toBeGreaterThan(areaPayPercent(easiest.id));
   });
 
@@ -218,33 +229,39 @@ describe('which areas are open', () => {
   const contested = CITY_DISTRICTS.find((d) => d.kind === 'contested')!;
   const residential = CITY_DISTRICTS.find((d) => d.kind === 'residential')!;
 
-  it('needs a scout, and closes once one party holds the whole thing', () => {
-    expect(areaIsOpen(contested, { scouted: false, heldWhole: false })).toBe(false);
-    expect(areaIsOpen(contested, { scouted: true, heldWhole: true })).toBe(false);
-    expect(areaIsOpen(contested, { scouted: true, heldWhole: false })).toBe(true);
+  /** Maintainer, 2026-09-29: a foothold opens the board, and holding the lot keeps it open. */
+  it('opens on one location held, and stays open with every location held', () => {
+    expect(areaIsOpen(contested, { heldByCrew: 0 })).toBe(false);
+    expect(areaIsOpen(contested, { heldByCrew: 1 })).toBe(true);
+    expect(areaIsOpen(contested, { heldByCrew: contested.locations.length })).toBe(true);
   });
 
   /**
    * A residential district is somebody's plot (maintainer, 2026-09-21).
    *
    * The four of them hold no capturable locations at all, which `districts.ts` guards at module
-   * load, so `heldWhole` can never be true of one and the scout is the only other condition: with
-   * the kind unchecked, every scouted plot in the city posted three jobs a day.
+   * load, so a crew can never hold one there; the kind is checked anyway, so a count that arrived
+   * wrong could not post three jobs a day on somebody's home.
    */
   it('never offers work on a plot, however open it looks', () => {
     expect(residential.locations).toHaveLength(0);
-    expect(areaIsOpen(residential, { scouted: true, heldWhole: false })).toBe(false);
+    expect(areaIsOpen(residential, { heldByCrew: 1 })).toBe(false);
+  });
+
+  /** Maintainer, 2026-09-29: a city that is not open has no work in it, whatever is held there. */
+  it('never offers work in a city that is not open', () => {
+    const drowned = ALL_DISTRICTS.find(
+      (d) => d.kind === 'contested' && d.cityId === 'saltmarch' && d.locations.length > 0,
+    );
+    if (!drowned) throw new Error('fixture: Saltmarch has no contested ground');
+    expect(areaIsOpen(drowned, { heldByCrew: drowned.locations.length })).toBe(false);
   });
 
   it('lists open contested districts in map order, and no plots', () => {
-    const open = openAreas((district) => ({
-      scouted: district.difficulty <= 3,
-      heldWhole: false,
-    }));
+    const soft = (district: District) => isContested(district) && district.difficulty <= 3;
+    const open = openAreas((district) => ({ heldByCrew: soft(district) ? 1 : 0 }));
     expect(open.length).toBeGreaterThan(0);
-    expect(open.map((d) => d.id)).toEqual(
-      CITY_DISTRICTS.filter((d) => d.kind === 'contested' && d.difficulty <= 3).map((d) => d.id),
-    );
+    expect(open.map((d) => d.id)).toEqual(CITY_DISTRICTS.filter(soft).map((d) => d.id));
     expect(open.every((d) => d.kind === 'contested')).toBe(true);
   });
 });
@@ -276,6 +293,23 @@ describe('who goes, and what they can carry (§A5, §E)', () => {
     expect(missionForceRefusal(porters, roster, 'standard')).toBeNull();
     expect(missionForceRefusal(porters, roster, 'battle')).toBe('needs_fighters');
     expect(missionForceRefusal({ ...porters, razors: 1 }, roster, 'battle')).toBeNull();
+  });
+
+  /**
+   * ...unless the crew has put them in the line (bug pass, 2026-09-29). Under `carriers_fight` a
+   * porter fights at its full sheet, the declared-battle door already sends one, and the settle
+   * fights them on a job too; the job's door was the one still asking `isCombatUnit`.
+   */
+  it('lets porters take a fight alone once the crew fields them (`carriers_fight`)', () => {
+    const porters = { haulers: 12 };
+    const roster = { haulers: 12 };
+    const fielded = { carriersFight: true, unitMarks: {} };
+    expect(missionForceRefusal(porters, roster, 'battle', fielded)).toBeNull();
+    expect(missionForceRefusal(porters, roster, 'battle')).toBe('needs_fighters');
+    // It only opens the fighter gate: the roster still has to cover the party.
+    expect(missionForceRefusal({ haulers: 13 }, roster, 'battle', fielded)).toBe(
+      'not_enough_units',
+    );
   });
 
   it('adds up what a crew can carry, off the same sheets a raid reads', () => {
@@ -445,7 +479,7 @@ describe('who goes, and what they can carry (§A5, §E)', () => {
  * The pool was never small: thirty-eight templates, and the pick already walked it from a seeded
  * start. What made it feel like the same three every time is that the key was the *day*, so a
  * player who opened the page five times in an evening saw one board five times. The districts
- * keep that on purpose, because a district's board is a fact about ground somebody scouted and
+ * keep that on purpose, because a district's board is a fact about ground somebody holds and
  * came back for; `misc` is the board with no address, always open, and its whole job is to be
  * the thing there is always something new on.
  */
@@ -496,5 +530,23 @@ describe('how often a board turns over', () => {
     const district = CITY_DISTRICTS[0]?.id;
     if (!district) throw new Error('the map has no districts');
     expect(launchableBoardKeys(district, now)).toEqual([missionBoardKey(district, now)]);
+  });
+});
+
+/** "Add the walk" (maintainer, 2026-09-29): a job in another city is the road a move there walks. */
+describe('the walk to a job in another city', () => {
+  const home = CITY_DISTRICTS[0]!;
+  const abroad = districtsOfCity(TERMINUS_CITY_ID)[0]!;
+
+  it('is the cross-city road, frontier and all', () => {
+    expect(missionWalkMinutes(home.id, abroad.id)).toBe(
+      Math.round(rawMinutesBetween(home, abroad)),
+    );
+    expect(missionWalkMinutes(home.id, abroad.id)).toBeGreaterThanOrEqual(INTER_CITY_MINUTES);
+  });
+
+  it('is nothing inside one city and nothing on the misc board', () => {
+    for (const district of CITY_DISTRICTS) expect(missionWalkMinutes(home.id, district.id)).toBe(0);
+    expect(missionWalkMinutes(home.id, MISC_AREA_ID)).toBe(0);
   });
 });

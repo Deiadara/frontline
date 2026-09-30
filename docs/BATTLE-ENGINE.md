@@ -25,6 +25,10 @@ attacks if it is the attacker's or a faction-mate's, defends if it is the defend
 faction-mate's, and otherwise is parked, neither counted nor killed. The place is the location, the
 gate or the district raided. Columns that land after the mark are not in either line: they walk on
 to whatever the fight leaves. The engine only ever receives the two armies that result.
+A raid on a home through a broken gate is defended by every unit standing in the district, deployed
+or not; units on the road or on a job are elsewhere, and the gate garrison lost at the door
+(maintainer, 2026-09-29). What a won raid costs the district afterwards, a share of its stock and a
+cut to its structures' output for six hours, is the server's business: `docs/SPEC-server.md`.
 
 ## One round
 
@@ -36,10 +40,10 @@ first a free volley against a stack that is already dead.
    wall gets nothing for being twice as many.
 2. **Fire.** Each stack splits its damage across the enemy's stacks by `allocate`, which weights by
    `threatWeight` (damage per point of enemy health) times how many of them there are, with a
-   taunting stack pulling `TAUNT_PULL` off the top first and an officer drawing
+   taunting stack pulling its share off the top first (`tauntPull`, below) and an officer drawing
    `OFFICER_TARGET_SHARE` of what an equal threat would.
 3. **Medics.** The _receiving_ side's own medics take a share off what is landing, before it lands
-   (`mend`), capped at `MAX_MEND_SHARE`.
+   (`mend`), closing on `MAX_MEND_SHARE` without reaching it (see "No hard caps" below).
 4. **Damage.** Walked down the stack's bodies, front to back (`takeDamage`). A stack keeps one
    health value per standing body (`Stack.bodies`): the front body is the only one ever part-hurt,
    everything behind it is whole, and `pool` and `alive` are its sum and its length. The front body
@@ -49,12 +53,37 @@ first a free volley against a stack that is already dead.
    brought to `EXECUTIONER_THRESHOLD` of a life, and what it had left below the line is forfeited,
    neither spent on that body nor carried to the next. An officer's body is never on the line
    (§D4).
-5. **Morale.** Every stack tests: see below. Stacks that break stop firing.
-6. **Pursuit.** A stack that broke this round is run down for `PURSUIT_LOSS` of itself while it
-   disengages.
+5. **Morale.** Every stack tests: see below. Stacks that break stop firing. Both sides read the
+   other's menace and head count from one snapshot taken before either tests (`moraleOutlook`),
+   for the same reason both fire from one.
+6. **Pursuit.** Each body of a stack that broke this round is run down with `PURSUIT_LOSS` (20%)
+   odds while it disengages, on its own draw from the fight's stream (maintainer, 2026-09-29). It
+   was a fifth of the stack, rounded, so a stack of one or two was never caught at all.
 
 The loop runs to `MAX_ROUNDS` or until one side has nobody fighting. If both collapse in the same
 round it is settled on `residualPower`, which counts broken stacks at `BROKEN_WEIGHT`.
+
+### No hard caps
+
+The maintainer's rule for unit effects (2026-09-29): more of a unit is always at least slightly
+better, and nothing stops paying at a line. The three effects that were `min(1, ...)` now go
+through `softCap(x, knee, ceiling)` (`battle/soft-cap.ts`): `x` up to the knee, then an
+exponential approach to the ceiling that leaves the knee at the same slope. Each is swept in
+`engine.test.ts` for never lowering a side's win rate when more of the unit is added.
+
+- **Taunt.** The taunting stacks take
+  `TAUNT_PULL x softCap(taunt slots / (TAUNT_FULL_SHARE x line slots), 1, TAUNT_CEILING)` of each
+  enemy stack's fire: 75% once the wall is half its line's unit slots, a little more past that
+  towards 82.5%, counted off who is standing now. One Ironside in front of 40 Razors takes about
+  a tenth. The knee is left sharp because the ruled anchors need it:
+  a p-norm curve that bent early took 22 Razors and 6 Ironsides against 40 from 70% to 39%.
+- **Intimidation.** Each unit slot frightens `INTIMIDATION_REACH` (1.5) slots of the enemy line.
+  The pressure a line feels is the enemy's mean intimidation times `intimidationReach`, its reach
+  over the line's slots, eased past `INTIMIDATION_KNEE` (0.8) towards all of it. A mirror is
+  reached in full. Two Juggernauts (12 slots) reach 18 of 40 Razors.
+- **Medics.** `MAX_MEND_SHARE` is 0.3, from a hard 0.45, and is the ceiling of
+  `softCap(cover, MEND_KNEE, 1)` rather than a cut-off: linear up to 0.7 of full cover, then each
+  medic adds less. Six Stitchers behind thirty Razors undo about 24% of a round.
 
 ### Before round one
 
@@ -70,6 +99,43 @@ round it is settled on `residualPower`, which counts broken stacks at `BROKEN_WE
   unmarked one at `STEALTH_UNTAGGED_SHARE`. It was missing until 2026-09-21, and without it the
   mark was worth exactly nothing: the stealth term is a weighted mean, so for a force whose
   stacks are marked alike the weight cancelled and the mark bought no share at all.
+
+### Traps
+
+A trap goes off before round one and is spent whatever happens next (`battle/traps.ts`,
+`springAnyTrap` in the server's settle). A Colossus in the column walks through any of them.
+
+- **A bite** takes `bite x sqrt(attacking units)` off the column, rounded, at least one, spread
+  over the stacks in proportion. No ceiling and no share: a bigger column always loses a little
+  more and a smaller part of itself (maintainer, 2026-09-29). It used to be a share of the column up
+  to a ceiling in units, and at even strength it decided the fight: 40 Razors and 10 Breakers
+  against the same won 51.5% of 200 seeds and 3% once Pressure Plates had taken three of them.
+  The engine turns on single units near parity (one unit off an even 50-a-side attack took it from
+  53% to 30%, at 200 a side to 35% and at 1,000 to 45%, over 150 to 300 seeds), and less so the
+  bigger the fight, so the bite grows with the square root.
+- **Razor Wire** kills nobody. The attack loses `speedCut` speed and `moraleCut` running morale
+  for its first `rounds` rounds, and gets both back after them (`SideSetup.slowed`, `inTheWire`,
+  `clearTheWire`). Speed is read as reach and closing, so the wire is worth most in front of a
+  line that shoots. The morale is handed back because a cut that lasted the fight decided big even
+  ones: 4 points kept took 1,000 a side from 53.5% to 8%, and 4 points for two rounds to 36.5%.
+
+Measured over 300 seeds on 40 Razors and 10 Breakers a side, scaled, and against a rifle line
+(24 Razors, 8 Snipers, 6 Breakers). The attack's win rate:
+
+| Trap              | Takes of 50 / 200 / 1,000 | 50 even | 200 even | 1,000 even | vs rifles | Points off per 100 scrap |
+| ----------------- | ------------------------- | ------- | -------- | ---------- | --------- | ------------------------ |
+| none              |                           | 52.7%   | 54.0%    | 53.3%      | 64.0%     |                          |
+| Razor Wire        | nobody, slowed            | 44.3%   | 39.0%    | 46.0%      | 37.0%     | 3.2                      |
+| Pressure Plates   | 1 / 2 / 4                 | 31.3%   | 23.0%    | 26.0%      | 59.0%     | 3.0                      |
+| Buried Shell      | 1 / 2 / 5                 | 31.3%   | 23.0%    | 21.7%      | 59.0%     | 1.2                      |
+| Fuel Fougasse     | 1 / 3 / 6                 | 31.3%   | 13.7%    | 19.0%      | 59.0%     | 1.1                      |
+| Prepared Collapse | 2 / 3 / 8                 | 15.3%   | 13.7%    | 12.7%      | 30.0%     | 0.9                      |
+| Flooded Cellar    | 2 / 4 / 9                 | 15.3%   | 8.7%     | 11.7%      | 30.0%     | 0.7                      |
+
+The last column is the mean drop over the four fights, per 100 scrap of the trap's price. Against
+an attack at 1.3 times the defence every trap leaves it at 100%. `traps-engine.test.ts` holds
+Pressure Plates between 25% and 35% on the even 50, every trap at 10% or better, and the wire's
+two halves and their hand-back.
 
 ## Morale
 
@@ -156,6 +222,16 @@ What the retune changed, so that each rating has a use of its own:
   chance that interacted with nothing. `tracking` on the attacker's sheet (Kite Crews and the
   Cartographer) takes half of whatever dodge is left (`evasionCut`), so it counters evasion by cutting the
   miss chance rather than by adding damage.
+- **Terror** (`vs_low_morale`, the Hollow Men, the Abomination, the Crimson Dancer, the
+  Executioner) pays in two tiers against the target's running morale (maintainer, 2026-09-29):
+  `SHAKEN_TERROR_SHARE` (0.4) of the card's 35% below 60, where the report says shaken, and all of
+  it below 35, where it says wavering (`terrorShare` in `matchup.ts`, which reads both lines off
+  `MORALE_THRESHOLDS`). It was one line at 40, so a target the report called shaken at 45 took
+  nothing, and then a full tier at 30, five points inside the wavering band. Measured over 200
+  seeds as the defenders it takes to hold the attack half the time, the same seeds for every
+  variant: 8 Hollow Men need 43.4 Razors at 35 against 42.8 at 30, 42.8 under the old single line
+  and 41.2 with no Terror at all; 19.8 Breakers against 19.7 at 30; the Crimson Dancer 18.4
+  Razors either way.
 - **Gates** live on their own channel (`gatePercent`), folded into the defender's toughness beside
   `defensePercent`. `breaching` (Breakers, Demolishers) divides that share back out of the hits it
   lands (`Effective.gateToughness`), so for them there is no gate while the rest of their line still
@@ -165,11 +241,27 @@ What the retune changed, so that each rating has a use of its own:
   2026-09-28): the server hands the engine a `gatePercent` of zero for a location fight, a raid, or
   a crew whose home Gate is somewhere else.
 - **Jamming** (`jammer`, the Netrunners) does two things that stack, each round off the jammers
-  still standing. The jam percent (`jamPercent`, up to 40 on nominal ground) weakens every enemy
-  modification by that share of what it adds (`Stack.modGain`, `jammedSheet`). And each Wonder of
-  Engineering the jammers' unit slots cover loses 10% of its damage and armour, 10% more per extra
-  jammer, 50% on nominal ground and up to 75% where the ground favours them (`wonderJam`). Machines
-  are covered as many as possible first, smallest first, before any cut deepens.
+  still standing. The jam percent (`jamPercent`) weakens every enemy modification by that share of
+  what it adds (`Stack.modGain`, `jammedSheet`). It is 17 on nominal ground once jammers are a
+  quarter of their own line's unit slots (`JAM_FULL_SHARE`), linear below that, and past it climbs
+  slowly towards 18.7 (`JAM_SHARE_CEILING`, a soft cap, never a hard one). It was 40 until the
+  maintainer's Netrunner retune of 2026-09-30, which moved their worth from the card jam to the
+  Wonder cut and raised their price. The ground can scale it further: exact to 21.25
+  (`MAX_JAM_KNEE`), then curving towards 25.5 and never reaching it (`MAX_JAM_CEILING`, `groundedJam`,
+  both read off `MAX_JAM`). Jammers and line are both counted in unit slots, not bodies
+  (maintainer, 2026-09-30): four 3-slot Netrunners beside 36 Razors are 12 of 48 slots and jam at
+  the full 17. And the jammers' unit slots cover Wonders of Engineering, three slots of machine to
+  each jammer slot (`WONDER_COVER_PER_SLOT`). A covered machine loses 55% of its damage and armour
+  (`WONDER_JAM_STEP`, `WONDER_JAM_KNEE`), and each further jammer's worth of cover cuts deeper by
+  less each time, closing on 75% and never reaching it (`WONDER_JAM_NOMINAL_CEILING`: 73.7% at two
+  steps). The ground can carry a cut past 75, curving towards 90 (`WONDER_JAM_CEILING`,
+  `groundedWonderCut`, `wonderJam`). Machines are covered as many as possible first, smallest
+  first, before any cut deepens, and the steps past cover go round them evenly, smallest first. The
+  jam reaches every figure a card adds and nothing else (maintainer, 2026-09-29). The ones a round
+  reads (`MOD_GAIN_KEYS`: offense, armour, penetration, evasion, range and speed) are jammed each
+  round; the ones read once (`FORMATION_GAIN_KEYS`: morale, intimidation, stealth and hit points)
+  take the opening jam's share as the lines form, before §D3 and the ambush read them
+  (`jamAtFormation`).
 - **Range** fires from the second rank (`SECOND_RANK_FIRE`): bodies queued behind the frontage
   still contribute in proportion to their range, so range is worth the most on narrow ground.
   Reach is also a duel now, bounded by the target's range as well as its speed, so two Sniper
@@ -180,7 +272,8 @@ What the retune changed, so that each rating has a use of its own:
   exchange, morale decided how long the loser lasted and never who lost.
 - **Intimidation** is mostly its per-round pressure (`INTIMIDATION_PRESSURE`, down from 14 to 6)
   and `CASUALTY_SHOCK` went up from 14 to 35 in the same pass, so a line now breaks mainly from
-  what it loses rather than from a clock the enemy's sheet sets.
+  what it loses rather than from a clock the enemy's sheet sets. Since 2026-09-29 the pressure is
+  scaled by how much of the line the enemy's numbers reach (`intimidationReach`).
 - **Stealth** counts towards the opening strike on unmarked units at `STEALTH_UNTAGGED_SHARE`.
 - **Casualties** are what a line breaks from. `CASUALTY_SHOCK` went from 14 to 35, and two things
   had to change with it because the retune made them audible. The enemy's loss share is now
@@ -323,7 +416,7 @@ use and is therefore worth exactly as much against the penalty as it is to deplo
 Twenty-one of the thirty-one sheets carried no `resistances` at all, so `damageTypeMultiplier`
 returned 1.0 for two thirds of the roster whatever was shooting at it. The axis read as designed on
 the ten cards that had one and did nothing anywhere else, which meant the defending player had no
-counter-build to make and scouting told them nothing they could act on.
+counter-build to make and spying told them nothing they could act on.
 
 Every unit now carries both a resistance and a weakness, and `matchup.test.ts` refuses a new unit
 that arrives with an empty sheet. The spine the ten authored sheets already drew, now applied to all
@@ -356,6 +449,28 @@ Kept because each of them was invisible and each would be easy to reintroduce.
   at 15, under `MORALE_THRESHOLDS.wavering`, and broke almost at once, cascading onto the crew they
   led. It was hidden by the targeting bug; with that fixed, an average officer took a mirror from
   51.5% to **0%**. `officerMorale` now maps the rating onto the roster's band.
+- **The defender's morale test read a thinner attacker.** The two tests ran one after the other,
+  and the second (the defender's) read the attacker's head count and mean intimidation after the
+  attacker's own breaks that round had been marked, while the attacker's test saw the defender
+  whole. Mirrors on bare ground over 3,000 seeds: Juggernauts won 44.8% attacking, Breakers
+  46.8%, Razors 48.3%. From one snapshot all three read 50%. Small officer-led fights moved the
+  most: a Raid Boss with four Razors on a grade E job went from 48 practice wins in 48 to 13.
+- **The forecast's "walk out" figure was the share still standing.** On a lost fight most of
+  those are routing bodies the rout then rolls for, so 40 Razors against 60 read 54% and brought
+  home 32%. It is now the winner's standing and the loser's expected runners (`escapeChance`),
+  counted as the report counts a force.
+- **One Ironside screened any line.** The taunt pulled a flat 75% of every enemy stack's fire
+  whatever the wall's size, so 36 Razors and 1 Ironside beat 40 Razors in 300 of 300 fights, the
+  Ironside never fell, and 200 and 1 beat 203 every time. Scaled by share, 36+1 wins 33% (39 Razors
+  win 30%), 30+3 wins 26% and 22+6 wins 70%, over 1,000 seeds.
+- **Two Juggernauts routed any number of Razors.** The per-round pressure was the enemy's mean
+  intimidation with no term for numbers: 2 Juggernauts beat 40 Razors 100% of the time and 100
+  Razors 99%, and 3 beat 200 Razors 88%. With fear reaching 1.5 slots per slot they win 0% against
+  40 and against 100, and still 100% against 12, over 300 seeds.
+- **Six slots of Stitchers were worth ninety points of win rate.** Under a hard 0.45 ceiling 30
+  Razors and 6 Stitchers beat 38 Razors every time and 36 Razors won 10%. With the ceiling at 0.3
+  and soft, the medics win 76% and the Razors 9%: still the stronger six slots, no longer a sure
+  thing.
 - **Morale recovery could not happen.** The recovery branch was `damage > 0 ? -damage :
 MORALE_RECOVERY`, and `damage` included the enemy's ambient intimidation, which is present every
   round of every fight. Against an enemy at intimidation 0 every morale level recovered; against one

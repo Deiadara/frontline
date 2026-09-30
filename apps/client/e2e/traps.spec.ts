@@ -1,4 +1,9 @@
-import { TRAP_CATALOG, type BattlesResponse, type TrapOption } from '@frontline/shared';
+import {
+  TRAP_CATALOG,
+  trapEffectLine,
+  type BattlesResponse,
+  type TrapOption,
+} from '@frontline/shared';
 import { expect, test, type Page } from '@playwright/test';
 import { HELD_TRAP, battles, lateGame, market, scrapyard } from './fixtures';
 import { expectNothingOverflowsTheScreen, installApi, settleFonts } from './harness';
@@ -25,6 +30,7 @@ const trapOptions: TrapOption[] = TRAP_CATALOG.map((spec, index) => ({
   trapId: spec.id,
   name: spec.name,
   description: spec.description,
+  effect: trapEffectLine(spec),
   held: index === 0 ? 2 : 0,
   available: index === 0,
   blocker: index === 0 ? '' : 'None in the bag. The Scrapyard cuts them',
@@ -256,6 +262,10 @@ test('the trap picker offers the whole catalogue and greys what is not in the ba
   await expect(options.first()).toContainText('2 in the bag');
   await expect(options.nth(1)).toContainText('None in the bag');
   await expect(options.nth(1)).toHaveAttribute('aria-disabled', 'true');
+  // Each row says what the trap does, the Scrapyard's line, held or not (bug pass, 2026-09-29).
+  for (const [index, spec] of TRAP_CATALOG.entries()) {
+    await expect(options.nth(index)).toContainText(trapEffectLine(spec));
+  }
 
   await expectNothingOverflowsTheScreen(page);
   await page.screenshot({ path: 'e2e-out/battles-trap-picker.png' });

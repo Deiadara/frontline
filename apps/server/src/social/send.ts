@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { tallyMessageSent } from '../feats/tally.js';
-import type { MessageAudience, NotificationKind } from '@frontline/shared';
+import { MAILBOX_LIMIT, type MessageAudience, type NotificationKind } from '@frontline/shared';
 import type { Repositories } from '../db/repos/index.js';
 import { notify } from './notify.js';
 
@@ -60,13 +60,15 @@ export function sendMessage(repos: Repositories, outgoing: Outgoing): void {
 
   for (const recipientUserId of outgoing.recipients) {
     repos.social.putMessage({ ...common, id: randomUUID(), recipientUserId, isSentCopy: false });
+    // The oldest goes as the newest lands, the way the bell is trimmed (maintainer, 2026-09-29).
+    repos.social.trimMailbox(recipientUserId, MAILBOX_LIMIT);
     notify(repos, {
       userId: recipientUserId,
       kind: outgoing.notification.kind,
       title: outgoing.notification.title,
       body: outgoing.notification.body,
       link: outgoing.notification.link,
-      now: outgoing.sentAt,
+      at: outgoing.sentAt,
     });
   }
 
@@ -77,6 +79,7 @@ export function sendMessage(repos: Repositories, outgoing: Outgoing): void {
       recipientUserId: outgoing.sender.id,
       isSentCopy: true,
     });
+    repos.social.trimSentFolder(outgoing.sender.id, MAILBOX_LIMIT);
     /*
      * Feats: a letter this player wrote.
      *

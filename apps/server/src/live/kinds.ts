@@ -12,7 +12,6 @@ import type { LiveEventKind, NotificationKind } from '@frontline/shared';
  */
 export const NOTIFICATION_LIVE_KINDS: Partial<Record<NotificationKind, LiveEventKind>> = {
   battle_report: 'battle',
-  battle_incoming: 'battle',
   district_attacked: 'battle',
   reinforcement_arrived: 'battle',
   message_received: 'message',

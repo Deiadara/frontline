@@ -2,6 +2,7 @@ import {
   ALL_DISTRICTS,
   DEFAULT_CITY_ID,
   SALTMARCH_CITY_ID,
+  TERMINUS_CITY_ID,
   type BarResponse,
   type LocationControl,
 } from '@frontline/shared';
@@ -68,14 +69,14 @@ const readBar = (app: FastifyInstance, token: string, city?: string) =>
     headers: auth(token),
   });
 
-/** Saltmarch's locations: the ground every crew in these fixtures is a visitor to. */
-const SALTMARCH_LOCATIONS = ALL_DISTRICTS.filter(
-  (district) => district.cityId === SALTMARCH_CITY_ID,
+/** Terminus's locations: the ground every crew in these fixtures is a visitor to. */
+const TERMINUS_LOCATIONS = ALL_DISTRICTS.filter(
+  (district) => district.cityId === TERMINUS_CITY_ID,
 ).flatMap((district) => district.locations);
 
 /** A location in a city the crew does not live in, for the visitor cases. */
 const AWAY_LOCATION = ALL_DISTRICTS.filter(
-  (district) => district.cityId === SALTMARCH_CITY_ID && district.locations.length > 0,
+  (district) => district.cityId === TERMINUS_CITY_ID && district.locations.length > 0,
 )[0]!.locations[0]!;
 
 /** A control row for a location, held by whoever is named. */
@@ -117,7 +118,7 @@ describe('which bar a crew may drink in', () => {
     const app = await makeApp();
     const one = await player(app, 'bar_stranger');
 
-    const response = await readBar(app, one.token, SALTMARCH_CITY_ID);
+    const response = await readBar(app, one.token, TERMINUS_CITY_ID);
 
     expect(response.statusCode).toBe(403);
     expect(response.json<{ error: { code: string } }>().error.code).toBe('CITY_SHUT');
@@ -140,18 +141,35 @@ describe('which bar a crew may drink in', () => {
     const app = await makeApp();
     const one = await player(app, 'bar_visitor');
 
-    expect((await readBar(app, one.token, SALTMARCH_CITY_ID)).statusCode).toBe(403);
+    expect((await readBar(app, one.token, TERMINUS_CITY_ID)).statusCode).toBe(403);
 
     give(app, AWAY_LOCATION.id, one.baseId);
-    const inside = await readBar(app, one.token, SALTMARCH_CITY_ID);
+    const inside = await readBar(app, one.token, TERMINUS_CITY_ID);
     expect(inside.statusCode, inside.body).toBe(200);
     const bar = inside.json<BarResponse>();
-    expect(bar.cityId).toBe(SALTMARCH_CITY_ID);
+    expect(bar.cityId).toBe(TERMINUS_CITY_ID);
     // The picker carries both rooms, the crew's own first.
-    expect(bar.cities).toEqual([DEFAULT_CITY_ID, SALTMARCH_CITY_ID]);
+    expect(bar.cities).toEqual([DEFAULT_CITY_ID, TERMINUS_CITY_ID]);
 
     take(app, AWAY_LOCATION.id);
-    expect((await readBar(app, one.token, SALTMARCH_CITY_ID)).statusCode).toBe(403);
+    expect((await readBar(app, one.token, TERMINUS_CITY_ID)).statusCode).toBe(403);
+  });
+
+  /*
+   * Maintainer, 2026-09-29: ground claimed in Saltmarch before its doors were shut opened its Bar
+   * to the crew holding it. A city that is not open has no rooms, whatever is held there.
+   */
+  it('stays shut in a city that is not open, even to a crew holding ground in it', async () => {
+    const app = await makeApp();
+    const one = await player(app, 'bar_drowned');
+    const drowned = ALL_DISTRICTS.find(
+      (district) => district.cityId === SALTMARCH_CITY_ID && district.locations.length > 0,
+    )!.locations[0]!;
+    give(app, drowned.id, one.baseId);
+    const response = await readBar(app, one.token, SALTMARCH_CITY_ID);
+    expect(response.statusCode).toBe(403);
+    expect(response.json<{ error: { code: string } }>().error.code).toBe('CITY_SHUT');
+    expect((await readBar(app, one.token)).json<BarResponse>().cities).toEqual([DEFAULT_CITY_ID]);
   });
 
   /**
@@ -167,7 +185,7 @@ describe('which bar a crew may drink in', () => {
     give(app, AWAY_LOCATION.id, one.baseId);
 
     const home = (await readBar(app, one.token)).json<BarResponse>();
-    const away = (await readBar(app, one.token, SALTMARCH_CITY_ID)).json<BarResponse>();
+    const away = (await readBar(app, one.token, TERMINUS_CITY_ID)).json<BarResponse>();
 
     expect(away.day).toBe(home.day);
     expect(away.recruits.map((one) => one.id)).not.toEqual(home.recruits.map((one) => one.id));
@@ -225,7 +243,7 @@ describe('what a city’s room is stocked against', () => {
     return async () => {
       vi.setSystemTime(TOMORROW);
       const served = (await readBar(app, token, city)).json<BarResponse>();
-      const unmoved = barRoster(served.day, served.recruits.length, frozen, served.cityId);
+      const unmoved = barRoster(served.day, frozen, served.cityId);
       return { served: sheetTotal(served.recruits), unmoved: sheetTotal(unmoved) };
     };
   }
@@ -261,12 +279,12 @@ describe('what a city’s room is stocked against', () => {
     app.repos.bases.updateEconomy(loud.baseId, { ...base.economy, notoriety: 10 });
 
     // A location each: both through the door, both pulling a tenth of a share.
-    give(app, SALTMARCH_LOCATIONS[0]!.id, quiet.baseId);
-    give(app, SALTMARCH_LOCATIONS[1]!.id, loud.baseId);
-    const tomorrow = await nextDay(app, quiet.token, SALTMARCH_CITY_ID);
+    give(app, TERMINUS_LOCATIONS[0]!.id, quiet.baseId);
+    give(app, TERMINUS_LOCATIONS[1]!.id, loud.baseId);
+    const tomorrow = await nextDay(app, quiet.token, TERMINUS_CITY_ID);
 
     // The loud one takes nine more, which is the ceiling: a whole share against the other's tenth.
-    for (const location of SALTMARCH_LOCATIONS.slice(2, 11)) give(app, location.id, loud.baseId);
+    for (const location of TERMINUS_LOCATIONS.slice(2, 11)) give(app, location.id, loud.baseId);
     const { served, unmoved } = await tomorrow();
 
     expect(served, 'ground held in a city buys no say in it').toBeGreaterThan(unmoved);

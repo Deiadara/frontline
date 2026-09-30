@@ -253,6 +253,26 @@ describe('§C3a: the Head of Research shortens every clock', () => {
     expect(minutesFor(repos, makeBase([]), LAST_MEDIC, fitFor(makeBase([]), repos))).toBe(270);
   });
 
+  /**
+   * The Master of Whispers' clocks are the maintainer's ledger (2026-09-28), set by hand on the
+   * catalogue rather than left to `researchItemMinutes`. The Lab read the formula by depth, so The
+   * Whole Wire ran on 270 minutes where the ledger says 1000, and the page quoted the same.
+   */
+  it("runs a Master of Whispers rung on the ledger's clock, not the depth formula", () => {
+    const { repos } = fakeRepos();
+    const bare = makeBase([]);
+    const fit = fitFor(bare, repos);
+    const onThePage = new Map(labResearchItems(repos, bare, fit).map((row) => [row.id, row]));
+    const track = itemsInTrack('master_of_whispers');
+    // The control: the ledger and the formula part company, or this proves nothing.
+    expect(track.filter((spec) => spec.minutes !== researchItemMinutes(spec.step)).length).toBe(8);
+    for (const spec of track) {
+      expect(minutesFor(repos, bare, spec, fit), spec.id).toBe(spec.minutes);
+      expect(onThePage.get(spec.id)?.minutes, spec.id).toBe(spec.minutes);
+    }
+    expect(track.at(-1)?.minutes).toBe(1000);
+  });
+
   it('moves when a single attribute the chair reads is trained by one point', () => {
     const weakest = weightedAttributesOf('head_of_research').at(-1);
     if (!weakest) throw new Error('the chair reads nothing');
@@ -593,7 +613,10 @@ describe('the catalogue on the wire', () => {
     }
     // The control: the three chairs above mean the answers are not all the same anyway.
     expect(new Set(shipped.map((item) => item.blocker)).size).toBeGreaterThan(2);
-    expect(new Set(shipped.map((item) => item.minutes)).size).toBe(10);
+    // One clock per distinct catalogue clock: ten by depth, and the Master of Whispers' ledger.
+    expect(new Set(shipped.map((item) => item.minutes)).size).toBe(
+      new Set(RESEARCH_ITEMS.map((spec) => spec.minutes)).size,
+    );
   });
 });
 
@@ -656,8 +679,8 @@ describe('the research payload publishes nothing finer than its grain (§B8)', (
  *
  * `researchEffects` turning the switch on is asserted in shared. What cannot be asserted there is
  * that the switch survives the fold this side does on top of it: `standingEffectsFor` merges the
- * Lab into the ground and the people, then adds the table, the Gate and the rank, then runs the
- * whole struct through `disrupted`. A boolean has been dropped by that chain before, which is why
+ * Lab into the ground and the people, then adds the table, the Gate and the rank. A boolean has
+ * been dropped by that chain before, which is why
  * `mergeCrewEffects` has an arm of its own for it, and why a sibling switch is folded beside this
  * one here rather than trusted to behave the same.
  */
@@ -666,7 +689,7 @@ describe('a recovered unit carrying its share home, through the standing fold', 
   if (!CARRY_BOTH) throw new Error('the Chief Medic track has no sixth rung');
 
   /** The sibling switch: a permission a rung grants, ored into the same struct. */
-  const YARD = RESEARCH_ITEMS.find((spec) => spec.payout.bonus.kind === 'carriers_fight');
+  const YARD = RESEARCH_ITEMS.find((spec) => spec.payout.bonus?.kind === 'carriers_fight');
   if (!YARD) throw new Error('expected a carriers_fight rung');
 
   const standingWith = (...technologies: string[]) =>
@@ -700,9 +723,9 @@ describe('a recovered unit carrying its share home, through the standing fold', 
   });
 
   it('survives a raid, the way a permission should', () => {
-    // `disrupted` takes a quarter off every positive percentage while a raid lasts. A switch is
-    // not a percentage: half a permission is not a thing, and a raided crew that had bought this
-    // still gets its people home with their packs.
+    // A raid cuts what the structures make and nothing in this fold (2026-09-29). The pin stays
+    // because it once took a share off the whole struct, and half a permission is not a thing: a
+    // raided crew that had bought this still gets its people home with their packs.
     const raided = makeBase([], { ...startingResearch(), technologies: [CARRY_BOTH.id] });
     raided.economy = {
       ...raided.economy,

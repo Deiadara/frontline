@@ -289,12 +289,10 @@ test('a sign says who holds it, in its own colour', async ({ page }) => {
     }),
   );
   /*
-   * The Spire, scouted and Combine-held end to end.
+   * The Spire, Combine-held end to end.
    *
-   * `districtDetailFor` returns it in the fog with no locations at all, which is the fixture
-   * working as intended: the CCS is the city's unscouted district. It is also the only ground the
-   * Combine holds, so it is the only place the orange can be seen, and a scouted copy has to be
-   * built here rather than the fog fixture bent into one.
+   * The fixture's rows for it carry its usual mix of holders, and the Combine's orange needs rows
+   * the Combine holds, so a copy with every plot in its hands is built here.
    */
   const spire = findDistrict('ccs')!;
   const held = districtDetailFor('annexes').locations[0]!;
@@ -304,7 +302,6 @@ test('a sign says who holds it, in its own colour', async ({ page }) => {
       contentType: 'application/json',
       body: JSON.stringify({
         ...districtDetailFor('ccs'),
-        scouted: true,
         locations: spire.locations.map((location) => ({
           ...held,
           location,

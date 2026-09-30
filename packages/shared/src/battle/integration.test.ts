@@ -8,7 +8,7 @@ import {
 } from './battlefield.js';
 import { simulate, type Simulation } from './engine.js';
 import { LUCK_LIMIT } from './luck.js';
-import { moraleState } from './morale.js';
+import { moraleState, PURSUIT_LOSS } from './morale.js';
 import { FINDING_KINDS, FINDING_VISIBILITIES } from './report.js';
 import { TacticalSkirmishEngine, type SkirmishOutcome } from './skirmish.js';
 
@@ -293,15 +293,25 @@ describe('across every scenario at once', () => {
     }
   });
 
-  it('takes units off a stack the round it breaks', () => {
+  /*
+   * Each body is run down on its own draw since 2026-09-29, so one broken stack can get away
+   * untouched: a lone legendary does four times in five. The claim that survives is about the
+   * stacks that break taken together.
+   */
+  it('takes units off the stacks that break', () => {
+    let started = 0;
+    let standing = 0;
     for (const { simulation } of everything) {
       for (const side of [simulation.attacker, simulation.defender]) {
         for (const stack of side.stacks.filter((candidate) => candidate.brokeAt !== null)) {
-          // Pursuit takes a share the round it breaks, so a broken stack cannot be untouched.
-          expect(stack.alive, stack.unit.id).toBeLessThan(stack.started);
+          expect(stack.alive, stack.unit.id).toBeLessThanOrEqual(stack.started);
+          started += stack.started;
+          standing += stack.alive;
         }
       }
     }
+    expect(started).toBeGreaterThan(0);
+    expect(standing / started).toBeLessThan(1 - PURSUIT_LOSS);
   });
 
   /**

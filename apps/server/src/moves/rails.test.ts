@@ -2,6 +2,7 @@ import {
   RAIL_LINK_MINUTES,
   TERMINUS_CITY_ID,
   districtsOfCity,
+  featMeasureKey,
   findDistrict,
   type MoveQuoteResponse,
 } from '@frontline/shared';
@@ -11,7 +12,14 @@ import { buildApp } from '../app.js';
 import { loadConfig } from '../config.js';
 import { openDatabase, runMigrations, type AppDatabase } from '../db/index.js';
 import { chooseOverseer, pinOverseer } from '../testing/overseer.js';
-import { moveMinutes, railOfferFor, stationsHeldBy } from './moves.js';
+import {
+  moveMinutes,
+  railOfferFor,
+  recallMove,
+  sendMove,
+  settleMoves,
+  stationsHeldBy,
+} from './moves.js';
 
 /**
  * Terminus's railway, from the server's side (maintainer, 2026-09-24).
@@ -263,5 +271,53 @@ describe('a ride is only offered when it is quicker than walking', () => {
     }
     // A positive control: a sweep that offered nothing anywhere would assert nothing.
     expect(offers).toBeGreaterThan(0);
+  });
+});
+
+/**
+ * The ride on the feats board is counted when the column arrives (audit, 2026-09-28).
+ *
+ * It was counted when the train was chosen, so a move put on the line and turned round inside its
+ * first tenth was home in seconds with a journey banked: the ladder was a pair of buttons.
+ */
+describe('a journey on the feats board', () => {
+  it('counts a ride that arrives, and none for one turned round on the way', async () => {
+    const { app, baseId } = await world();
+    giveStations(app, baseId, ['coldwater-halt', 'blockhouse'], 'coldwater-halt');
+    const from = { kind: 'location' as const, locationId: PLATFORMS.get('coldwater-halt')! };
+    const to = { kind: 'location' as const, locationId: PLATFORMS.get('blockhouse')! };
+    const platform = app.repos.city.control(from.locationId)!;
+    app.repos.city.put({ ...platform, garrison: { razors: 8 } });
+    const journeys = () => app.repos.feats.tallies(baseId)[featMeasureKey('rail_journeys')] ?? 0;
+    const ride = (now: Date) => {
+      const sent = sendMove(app.repos, {
+        base: app.repos.bases.findById(baseId)!,
+        from,
+        to,
+        army: { razors: 4 },
+        vehicles: {},
+        now,
+        byRail: true,
+      });
+      if (sent.kind !== 'sent') throw new Error(`fixture: the ride was refused, ${sent.reason}`);
+      return sent.move;
+    };
+
+    const T0 = new Date('2026-09-24T12:00:00.000Z');
+    const turned = ride(T0);
+    expect(journeys(), 'nothing is counted on the platform').toBe(0);
+    const recalled = recallMove(
+      app.repos,
+      app.repos.bases.findById(baseId)!,
+      turned.id,
+      new Date(T0.getTime() + 30_000),
+    );
+    expect(recalled.kind).toBe('recalled');
+    settleMoves(app.repos, new Date(T0.getTime() + 3_600_000));
+    expect(journeys(), 'a ride turned round on the way went nowhere').toBe(0);
+
+    const arrived = ride(new Date(T0.getTime() + 2 * 3_600_000));
+    settleMoves(app.repos, new Date(arrived.arrivesAt));
+    expect(journeys()).toBe(1);
   });
 });

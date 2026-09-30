@@ -16,7 +16,7 @@ import { findUnit, isCombatUnit } from '../units/catalog.js';
  * The maintainer asked for this to be composable, so nothing here says "mission" in its shape.
  * An automation is a **slot** holding a `kind`, a force to commit, and a cooldown; the settler
  * that knows how to spend one is looked up by `kind` on the server (`automations/runners.ts`).
- * Adding a second thing the Right Hand can be told to do, a standing scout rotation, a standing
+ * Adding a second thing the Right Hand can be told to do, a standing spy rotation, a standing
  * buy order at the Bar, is a new `kind`, a new runner and nothing else: no new table, no new
  * screen, no change to the unlock ladder or the cooldown.
  *
@@ -28,6 +28,15 @@ import { findUnit, isCombatUnit } from '../units/catalog.js';
  * not how that should ever be made. `AUTOMATION_KINDS` has no entry for it and the runner table
  * has nowhere to put one.
  */
+
+/**
+ * Why no standing order runs while the Right Hand is not at work (maintainer, 2026-09-29).
+ *
+ * The orders are that chair's work, so an empty chair, a benched officer or one in a hospital bed
+ * stalls every slot, and `POST /automations` refuses to switch one on. Switching one off is never
+ * refused. The same words are the stall on the order card and the refusal on the save.
+ */
+export const NO_RIGHT_HAND_TEXT = 'No Right Hand at work. The chair is empty or they are hurt';
 
 /** What a slot can be told to do. One entry per runner on the server. */
 export const AUTOMATION_KINDS = ['missions'] as const;

@@ -428,3 +428,64 @@ describe('a structure held down by the Nexus', () => {
     expect(panel?.className).toContain('shadow-panel');
   });
 });
+
+/*
+ * A Garage at its tenth and last rung that admin mode raised past what its Nexus and neighbours
+ * would sign for. It is finished, and the window has to say so before it lists what it is waiting
+ * on, in the order the server refuses in. Its last two brackets open at 10 (maintainer,
+ * 2026-09-29), so all three are open and there is no next slot to promise.
+ */
+describe('a ten-rung structure at its ceiling', () => {
+  const garageAt = (level: number): Base => ({
+    ...base,
+    buildings: [
+      { id: 'b-nexus', kind: 'nexus', level: 12, modifications: [] },
+      { id: 'b-garage', kind: 'garage', level, modifications: [] },
+    ],
+  });
+
+  async function openGarage(garageBase: Base): Promise<HTMLElement> {
+    const reply = (body: unknown) =>
+      Promise.resolve({
+        headers: new Headers(),
+        ok: true,
+        status: 200,
+        statusText: '',
+        json: () => Promise.resolve(body),
+      } as Response);
+    fetchMock.mockImplementation((path: string) => {
+      if (path.endsWith('/overseer/me')) return reply(crewStanding());
+      if (path.endsWith('/me')) return reply({ ...me, base: garageBase });
+      if (path.includes('/base/')) return reply({ base: garageBase });
+      throw new Error(`unstubbed request: ${path}`);
+    });
+    renderDistrict();
+    await waitFor(() => expect(plot('The Garage')).toBeInTheDocument());
+    fireEvent.click(plot('The Garage'));
+    return screen.findByRole('dialog');
+  }
+
+  it('says both of its last two slots open at level 10', async () => {
+    const dialog = await openGarage(garageAt(7));
+    expect(dialog).toHaveTextContent('The next two slots open at level 10.');
+    for (const index of [1, 2]) {
+      expect(within(dialog).getByTestId(`slot-garage-${index}`)).toHaveTextContent(
+        'LockedLevel 10',
+      );
+    }
+  });
+
+  it('reads as finished, and promises no slot past level 10', async () => {
+    const dialog = await openGarage(garageAt(10));
+
+    expect(within(dialog).getByTestId('structure-ceiling')).toHaveTextContent(
+      'LEVEL 10, WHICH IS AS HIGH AS IT GOES',
+    );
+    expect(dialog).not.toHaveTextContent(/next slots? opens?/i);
+    expect(dialog).toHaveTextContent('Modifications: 0 of 3 slots');
+    for (const index of [0, 1, 2]) {
+      expect(within(dialog).getByTestId(`slot-door-garage-${index}`)).toBeInTheDocument();
+    }
+    expect(dialog).not.toHaveTextContent(/level 20/i);
+  });
+});

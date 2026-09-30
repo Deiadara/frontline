@@ -85,7 +85,6 @@ describe('calling a fight on somebody', () => {
       upgradingUntil: null,
       garrison: {},
     });
-    app.repos.city.markScouted(raider.baseId, district.id, new Date().toISOString());
 
     const mark = declarationWindow(new Date()).earliest;
     const called = await app.inject({
@@ -142,7 +141,6 @@ describe('calling a fight on somebody', () => {
       upgradingUntil: null,
       garrison: {},
     });
-    app.repos.city.markScouted(raider.baseId, district.id, new Date().toISOString());
 
     const called = await app.inject({
       method: 'POST',
@@ -187,7 +185,6 @@ describe('calling a fight on somebody', () => {
     if (!district) throw new Error('fixture: no open contested district with two locations');
     const location = district.locations[0];
     if (!location) throw new Error('fixture: no location');
-    app.repos.city.markScouted(raider.baseId, district.id, new Date().toISOString());
 
     const called = await app.inject({
       method: 'POST',

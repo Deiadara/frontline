@@ -10,7 +10,7 @@ import { findUnit } from '../units/index.js';
  *
  * ## One currency for the balance check, not for the player
  *
- * A feat can pay six different things and the maintainer asked for all of them. That makes "is this
+ * A feat can pay five different things and the maintainer asked for all of them. That makes "is this
  * reward fair" impossible to answer by eye across five hundred entries, so everything is
  * priced into one number, caps-equivalent, and every feat declares which band it is supposed to
  * land in. `catalog.test.ts` then checks the whole catalogue in one pass, which is the only way a
@@ -24,6 +24,13 @@ import { findUnit } from '../units/index.js';
  * Resources use `RESOURCE_CAP_VALUE`, the game's own table, so a feat and a market listing agree
  * about what a pile of scrap is worth. Units and items are priced at what they cost to make or
  * buy. The two rates below are the ones that had to be chosen rather than read off something.
+ *
+ * ## What a feat never pays
+ *
+ * Infamy (maintainer, 2026-09-29). A name is made in fights and on battle jobs and nowhere else,
+ * so the channel is not in the schema at all: a reward written with it fails to typecheck, and one
+ * parsed off the wire loses the key. The feats that used to pay it now pay units, experience or
+ * resources of the same band value, and `catalog.test.ts` pins the schema shut.
  */
 
 /**
@@ -42,27 +49,12 @@ import { findUnit } from '../units/index.js';
 export const CAPS_PER_XP = 7;
 
 /**
- * What one point of infamy is worth in caps.
- *
- * Infamy has one real sink, the back room, where a good costs 120 to 520 infamy and hands over a
- * bundle worth a few thousand caps. That puts the street rate near ten, and ten is what this uses.
- * It is worth more than the arithmetic suggests, because infamy is not farmable: the only faucets
- * are fights and a battle mission landing, so a feat paying infamy is paying in the one currency a
- * patient player cannot simply wait for.
- *
- * Ten times that since the rank ladder was repriced (2026-09-28): infamy's other job, buying a
- * name, got about seven hundred times cheaper at the tenth rung, and at the old rate two late feats
- * paid enough infamy to buy the whole ladder. The feat tables pay a tenth for the same value. The
- * back room's own prices are unchanged, so `CAPS_PER_BOOST` still reads them at the street rate.
- */
-export const CAPS_PER_INFAMY = 100;
-
-/**
  * What a one-time battle boost is worth.
  *
- * Priced off the back room it comes from: the shelf sells these for 120 to 520 infamy, so the
- * middle of the shelf at the street rate of ten caps a point is about three thousand, and a feat
- * handing one over is handing over a back-room visit nobody had to spend infamy on.
+ * Priced off the back room it comes from: the shelf sells these for 120 to 520 infamy, and a good
+ * there hands over a bundle worth a few thousand caps, which puts a point of infamy near ten caps
+ * on the street. The middle of the shelf at that rate is about three thousand, and a feat handing
+ * one over is handing over a back-room visit nobody had to spend infamy on.
  */
 export const CAPS_PER_BOOST = 3_000;
 
@@ -74,7 +66,6 @@ export const FeatRewardSchema = z
     /** Units, delivered straight onto the roster at home rather than into the training queue. */
     units: ArmySchema.optional(),
     xp: z.number().int().positive().optional(),
-    infamy: z.number().int().positive().optional(),
     /** One-time battle boosts, into the stash the back room fills. By black-market good id. */
     boosts: z.array(z.string().min(1)).nonempty().optional(),
   })
@@ -118,7 +109,6 @@ export function featRewardValue(reward: FeatReward): number {
     itemsValue(reward.items) +
     unitsValue(reward.units) +
     (reward.xp ?? 0) * CAPS_PER_XP +
-    (reward.infamy ?? 0) * CAPS_PER_INFAMY +
     (reward.boosts?.length ?? 0) * CAPS_PER_BOOST
   );
 }

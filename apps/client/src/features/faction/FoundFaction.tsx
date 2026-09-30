@@ -1,9 +1,11 @@
 import {
   DEFAULT_BADGE,
   FACTION_BLURB_MAX,
+  FACTION_REFUSAL_TEXT,
   FACTION_NAME_MAX,
   FACTION_NAME_MIN,
   MAX_FACTION_MEMBERS,
+  canFoundFaction,
   randomBadge,
   type FactionBadge as Badge,
   type FactionResponse,
@@ -14,7 +16,7 @@ import { Button } from '../../components/ui/Button';
 import { Dropdown } from '../../components/ui/Dropdown';
 import { Icon } from '../../components/ui/Icon';
 import { cn } from '../../lib/cn';
-import { useAnswerFactionInvite, useCreateFaction } from '../../lib/queries';
+import { useAnswerFactionInvite, useCreateFaction, useMe } from '../../lib/queries';
 import { BadgeBuilder } from './BadgeBuilder';
 import { FactionBadge } from './FactionBadge';
 import { refusalText } from './refusal';
@@ -252,6 +254,11 @@ function CreateSheet({ onCancel }: { onCancel: () => void }) {
   const [badge, setBadge] = useState<Badge>(DEFAULT_BADGE);
   const [blurb, setBlurb] = useState('');
   const tooShort = name.trim().length < FACTION_NAME_MIN;
+  // §B1: the Faction door opens at the founding level, so the Nexus is the half a crew is short
+  // of here. Said up front rather than as a refusal after the form is filled in. Unknown until
+  // `/me` answers, and the route decides meanwhile.
+  const crew = useMe().data?.base;
+  const unestablished = crew ? !canFoundFaction(crew) : false;
 
   return (
     <section
@@ -306,16 +313,21 @@ function CreateSheet({ onCancel }: { onCancel: () => void }) {
 
           <Button
             className="mt-auto"
-            disabled={create.isPending || tooShort}
+            disabled={create.isPending || tooShort || unestablished}
             data-testid="found-faction"
             onClick={() => create.mutate({ name: name.trim(), badge, blurb: blurb.trim() })}
           >
             Create
           </Button>
-          <span className="font-body text-[11px] leading-snug text-ink-400">
-            {tooShort
-              ? `A name is at least ${FACTION_NAME_MIN} letters.`
-              : 'The name and the badge can both be changed later.'}
+          <span
+            className="font-body text-[11px] leading-snug text-ink-400"
+            data-testid="found-faction-note"
+          >
+            {unestablished
+              ? FACTION_REFUSAL_TEXT.not_established
+              : tooShort
+                ? `A name is at least ${FACTION_NAME_MIN} letters.`
+                : 'The name and the badge can both be changed later.'}
           </span>
         </div>
 

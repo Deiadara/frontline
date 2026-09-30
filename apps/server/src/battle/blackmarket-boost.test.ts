@@ -105,10 +105,6 @@ async function makeStack(): Promise<Stack> {
   const purse = app.repos.bases.findById(baseId)!.economy;
   app.repos.bases.updateEconomy(baseId, { ...purse, infamy: DECLARE_INFAMY_COST * 8 });
 
-  // Scouting is a journey now (`scouting/scouting.ts`), so the button no longer opens
-  // ground: it sends somebody who walks back hours later. A fixture wants the *state*,
-  // not the trip, so the intel is written directly.
-  app.repos.city.markScouted(baseId, 'steelbelt', new Date().toISOString());
   // One location off the looters, so the Rustyard's gate is no longer armed and a location can be called.
   const control = app.repos.city.control('steelbelt-bonefield');
   if (control) {

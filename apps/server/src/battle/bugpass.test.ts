@@ -181,7 +181,6 @@ describe('a location taken and held with an ally beside you', () => {
     const caller = await register(app, 'caller');
     const helper = await register(app, 'helper');
     await ally(app, caller, helper, 'helper');
-    app.repos.city.markScouted(caller.baseId, 'steelbelt', new Date().toISOString());
     const battleId = await declare(
       app,
       caller,
@@ -224,7 +223,6 @@ describe('a raid on a crew that never touched the fight', () => {
     const resident = await register(app, 'resident');
     const HOME = 'ashen-terraces';
     db.prepare('UPDATE bases SET district_id = ? WHERE id = ?').run(HOME, resident.baseId);
-    app.repos.city.markScouted(raider.baseId, HOME, new Date().toISOString());
     app.repos.sieges.breakGate(HOME, new Date(Date.now() + 24 * 3_600_000).toISOString());
     const battleId = await declare(app, raider, { kind: 'district', districtId: HOME });
     return { app, db, engine, raider, resident, battleId };
@@ -268,7 +266,6 @@ describe('who names the leader of a side', () => {
     const caller = await register(app, 'caller');
     const helper = await register(app, 'helper');
     await ally(app, caller, helper, 'helper');
-    app.repos.city.markScouted(caller.baseId, 'steelbelt', new Date().toISOString());
     const battleId = await declare(app, caller, {
       kind: 'location',
       districtId: 'steelbelt',
@@ -378,7 +375,6 @@ describe('a fight nothing can resolve', () => {
   it('hands back the units and vehicles already on the ground', async () => {
     const { app, db, engine } = await world('attacker');
     const caller = await register(app, 'caller');
-    app.repos.city.markScouted(caller.baseId, 'steelbelt', new Date().toISOString());
     const battleId = await declare(app, caller, {
       kind: 'location',
       districtId: 'steelbelt',
@@ -420,7 +416,6 @@ describe('a breach is a window (maintainer, 2026-09-27)', () => {
     const resident = await register(app, 'resident');
     const HOME = 'ashen-terraces';
     db.prepare('UPDATE bases SET district_id = ? WHERE id = ?').run(HOME, resident.baseId);
-    app.repos.city.markScouted(raider.baseId, HOME, new Date().toISOString());
     app.repos.sieges.breakGate(HOME, new Date(Date.now() + hours * 3_600_000).toISOString());
     return { app, db, engine, raider, resident, HOME };
   }
@@ -494,8 +489,6 @@ describe('ground with a fight called on it (maintainer, 2026-09-27)', () => {
     const { app, db } = await world('attacker');
     const caller = await register(app, 'caller');
     const holder = await register(app, 'holder');
-    app.repos.city.markScouted(caller.baseId, 'steelbelt', new Date().toISOString());
-    app.repos.city.markScouted(holder.baseId, 'steelbelt', new Date().toISOString());
     const control = app.repos.city.control(SQUATTED)!;
     app.repos.city.put({
       ...control,
@@ -545,8 +538,6 @@ describe('ground with a fight called on it (maintainer, 2026-09-27)', () => {
     const { app } = await world('attacker');
     const caller = await register(app, 'caller');
     const walker = await register(app, 'walker');
-    app.repos.city.markScouted(caller.baseId, 'steelbelt', new Date().toISOString());
-    app.repos.city.markScouted(walker.baseId, 'steelbelt', new Date().toISOString());
     // The one empty plot of the Belt, with a fight called on it.
     const EMPTY = 'steelbelt-ramp';
     await declare(app, caller, { kind: 'location', districtId: 'steelbelt', locationId: EMPTY });

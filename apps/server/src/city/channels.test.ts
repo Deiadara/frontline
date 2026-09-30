@@ -47,7 +47,6 @@ const CHANNELS = Object.keys(noTerritoryEffects()) as (keyof TerritoryEffects)[]
 /** What one bonus is worth, whatever shape it is. Enough to tell "moved" from "did not". */
 function magnitude(bonus: HoldBonus): number {
   if ('perHour' in bonus) return bonus.perHour;
-  if ('districts' in bonus) return bonus.districts;
   if ('flat' in bonus) return bonus.flat;
   if ('minutes' in bonus) return bonus.minutes;
   // The rules carry no quantity at all and do not ladder with a level (`scaledBonus`), so they
@@ -154,7 +153,9 @@ describe('every channel a location pays into', () => {
     for (const perk of PERK_CATALOG) applyPerkBonus(effects, perk.bonus);
     // The three doors (another crew out, another chair, another fight called) are research's
     // alone: no perk opens one, and a rung does.
-    for (const rung of RESEARCH_ITEMS) applyResearchBonus(effects, rung.payout.bonus);
+    for (const rung of RESEARCH_ITEMS) {
+      if (rung.payout.bonus) applyResearchBonus(effects, rung.payout.bonus, rung.track);
+    }
 
     const crewOnly = Object.keys(noCrewEffects()).filter(
       (key) => !CHANNELS.includes(key as never) && !SPEND_DESTINATIONS.includes(key),

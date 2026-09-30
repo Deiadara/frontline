@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { IdSchema, IsoDateTimeSchema, UsernameSchema } from './primitives.js';
+import { withoutInvisibleCharacters } from './accounts.js';
 import { GAME_TIMEZONE } from './time/zone.js';
 
 /**
@@ -86,7 +87,14 @@ export const UserSchema = z.object({
 });
 export type User = z.infer<typeof UserSchema>;
 
-/** The name to put on screen: what they chose to be called, or the one they log in with. */
+/**
+ * The name to put on screen: what they chose to be called, or the one they log in with.
+ *
+ * Cleaned on the way out as well as on the way in (bug pass, 2026-09-29): a name saved before
+ * `DisplayNameSchema` stripped invisible characters is still on the row, and one that was nothing
+ * but a bidi override and a zero-width space falls back to the username rather than to a blank.
+ */
 export function displayNameOf(user: Pick<User, 'username' | 'displayName'>): string {
-  return user.displayName ?? user.username;
+  const shown = withoutInvisibleCharacters(user.displayName ?? '').trim();
+  return shown === '' ? user.username : shown;
 }

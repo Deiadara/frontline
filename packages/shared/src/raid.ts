@@ -30,9 +30,8 @@ import {
  *   * **What leaves** is bounded by what the raiders can physically carry. That is what
  *     `lootCapacity` on the unit sheet is for, and it is why a stack of Road Reavers is worth
  *     bringing on a raid you intend to win and worth nothing on one you intend to fight.
- *   * **What stays broken** is disruption: the district's structures run at reduced effectiveness
- *     for a while. It costs the victim time rather than stock, which is the part they cannot buy
- *     back.
+ *   * **What stays broken** is disruption: the district's structures make less for a few hours.
+ *     It costs the victim time rather than stock, which is the part they cannot buy back.
  */
 
 /**
@@ -247,59 +246,72 @@ export function weightOf(bundle: PartialResources): number {
 // --- disruption: what a raid leaves behind ---
 
 /**
- * What a broken gate costs a district (GDD §A4, battle rework).
+ * What a won raid costs a district after the loot (GDD §A4; maintainer ruling, 2026-09-29).
  *
- * A home district still cannot be taken: that rule has not moved and it is not going to. What a
- * breach buys instead is a window in which the place runs badly: things get carried out and what
- * is left limps for a few hours. That is the whole design. A player who loses a siege loses
- * *tempo and stock*, not the thing they have spent three weeks building, so a bad night is
- * something to come back from rather than a reason to stop playing.
+ * A home district still cannot be taken. What a raid leaves behind is a cut to what the district's
+ * **structures** make, for {@link RAID_DISRUPTION_HOURS} hours, sized by how hard the raid hit. The
+ * ruling, verbatim: "all production by buildings is cut by a percentage based on how much it was
+ * attacked. It should not be too punishing since the player needs to be able to recover somehow."
  *
- * ## The cut is a percentage, and it is capped at half
+ * Structures and nothing else. The held ground's own output runs at full rate, and so does every
+ * bonus the crew holds: the chairs' rungs, the Lab, the table, the Gate. The rule this replaced
+ * (2026-09-09) took a share off every positive percentage as well, which missed the chair rungs
+ * because they are a list rather than a channel, and taxed a raided crew's fights, training and
+ * research for a raid on its warehouse.
  *
- * The board's ceiling, and the right one (maintainer, 2026-09-18: "let us keep it to 50% meaning
- * that it can reduce it by half at most"). Half is enough to hurt and not enough to end anything.
- * Nothing in this game drains a stockpile on a clock, so a production cut slows the fill rate and
- * can never starve a roster: what it takes is the evening, which is the part the victim cannot buy
- * back. A district stopped dead would be a punishment loop rather than a setback, and one crew
- * holding another at zero is the grief tactic {@link refreshDisruption} exists to refuse.
+ * ## How hard it hit
  *
- * ## One penalty, not two
+ * A raid's **blow** is the share of the defending line the raiders put in the ground, 0 to 1, and 1
+ * when nobody stood in it (`defenderLossShare` in `battle/resolve.ts`). Chosen over the attacking
+ * force measured against the defence because it is what the fight settled rather than what was
+ * sent: forty Razors who won by a hair against a full line hit less hard than forty who walked
+ * through an empty one, and the loss share is the one number the settle already has for that.
  *
- * A raid used to do this *and* wreck three structures on a 24 hour repair clock, so the same win
- * was charged to the victim twice: once per roof and once across the district. The per-structure
- * half is gone, along with `damage` on a structure and everything that read it. What is left is
- * this one number, scaled by how badly the defence lost so that the size of a raid still matters.
+ * ## The curve
+ *
+ * `RAID_CUT_ASYMPTOTE x blow / (blow + RAID_CUT_HALF_BLOW)`: the hyperbola the Collective rule uses
+ * (`units/collective.ts`). Every extra bit of blow costs the district something, each costs less than
+ * the one before, and the cut closes on the asymptote without ever reaching it, so there is no clamp
+ * anywhere (the maintainer's standing rule: no hard caps). One raid:
+ *
+ *   * light, a fifth of the line lost: 10%, 0.6 hours of the structures' output over the window;
+ *   * medium, half the line lost: 20%, 1.2 hours;
+ *   * crushing, the whole line lost or nobody home: 30%, 1.8 hours.
+ *
+ * Nothing drains a stockpile on a clock, so a cut slows the fill rate and never starves anything,
+ * and the district is whole again when the window closes.
  */
 
-/** The least a won raid takes: a breach nobody felt is a siege the attacker paid for and got nothing from. */
-export const MIN_RAID_DISRUPTION_PERCENT = 10;
+/** What the cut closes on and never reaches. Two crushing raids stacked are 40%, three are 45%. */
+export const RAID_CUT_ASYMPTOTE = 60;
 
-/** ...and the most, the board's half (§A4). */
-export const MAX_RAID_DISRUPTION_PERCENT = 50;
+/** The blow that buys half the asymptote: one crushing raid, which is 30%. */
+export const RAID_CUT_HALF_BLOW = 1;
 
 /** And for how long. Long enough to matter, short enough to be worth logging in to fix. */
 export const RAID_DISRUPTION_HOURS = 6;
 
+const RAID_DISRUPTION_MS = RAID_DISRUPTION_HOURS * 3_600_000;
+
+/** The cut a blow buys, in percent off what the structures make. See the curve above. */
+export function raidDisruptionPercent(blow: number): number {
+  const hit = Math.max(0, blow);
+  return (RAID_CUT_ASYMPTOTE * hit) / (hit + RAID_CUT_HALF_BLOW);
+}
+
 /**
- * How hard the raid landed, from how badly the defence lost.
+ * The blow a standing cut stands for: {@link raidDisruptionPercent} run backwards.
  *
- * `defenderLossShare` is the share of the defending line that was put in the ground, and it is 1
- * when nobody turned up at all. A fight that went the distance leaves the district at
- * {@link MIN_RAID_DISRUPTION_PERCENT} and an undefended one at
- * {@link MAX_RAID_DISRUPTION_PERCENT}: half the line lost is 30%, which is about what the flat
- * quarter this replaced used to charge everybody.
+ * Read off the stored percentage rather than stored beside it, so a record written before this
+ * ruling (at most the old ceiling of 50, under the asymptote of 60) stacks like any other.
  */
-export function raidDisruptionPercent(defenderLossShare: number): number {
-  const share = Math.min(1, Math.max(0, defenderLossShare));
-  return Math.round(
-    MIN_RAID_DISRUPTION_PERCENT +
-      (MAX_RAID_DISRUPTION_PERCENT - MIN_RAID_DISRUPTION_PERCENT) * share,
-  );
+function blowOf(percent: number): number {
+  const cut = Math.max(0, percent);
+  return (RAID_CUT_HALF_BLOW * cut) / (RAID_CUT_ASYMPTOTE - cut);
 }
 
 export const DisruptionSchema = z.object({
-  /** When the district stops running at reduced effectiveness. Null when it is not. */
+  /** When the district's structures stop running at reduced output. Null when they are not. */
   until: z.string().datetime().nullable(),
   /**
    * ...and when it started, which the window needs as much as its end (maintainer, 2026-09-18).
@@ -316,7 +328,7 @@ export const DisruptionSchema = z.object({
    * reading of that is the old one: unbounded backwards.
    */
   since: z.string().datetime().nullable().default(null),
-  /** Percentage points off production and build speed while it lasts. */
+  /** Percent off what the district's structures make while it lasts. */
   percent: z.number().min(0).max(100),
 });
 export type Disruption = z.infer<typeof DisruptionSchema>;
@@ -325,12 +337,12 @@ export function noDisruption(): Disruption {
   return { until: null, since: null, percent: 0 };
 }
 
-/** A fresh raid's worth of disruption, starting now, priced off how badly the defence lost. */
-export function disruptionFrom(now: Date, defenderLossShare: number): Disruption {
+/** A fresh raid's worth of disruption, starting now, priced off how hard it hit. */
+export function disruptionFrom(now: Date, blow: number): Disruption {
   return {
-    until: new Date(now.getTime() + RAID_DISRUPTION_HOURS * 3_600_000).toISOString(),
+    until: new Date(now.getTime() + RAID_DISRUPTION_MS).toISOString(),
     since: now.toISOString(),
-    percent: raidDisruptionPercent(defenderLossShare),
+    percent: raidDisruptionPercent(blow),
   };
 }
 
@@ -350,47 +362,40 @@ export function disruptionPercentAt(disruption: Disruption, now: Date): number {
 }
 
 /**
- * A second raid does not stack: it **refreshes**.
+ * A second raid adds its blow to what is left of the first, and the sum goes through the curve.
  *
- * Stacking would let a coordinated pair of crews hold a district at zero output indefinitely,
- * which is a grief tactic rather than a strategy. The later expiry and the harsher percentage,
- * taken field by field: the percentage moved with the defeat when it stopped being a constant, so
- * taking the whole of the later record wholesale would let a crew throw a token raid at a district
- * they had just flattened and *lift* it from 50% back to 10%. Neither field ever sums, so the cap
- * still holds and repeat raids stay meaningful without being terminal.
+ * What is left of the first is its blow times the share of its window still to run, so a raid
+ * that is nearly over adds almost nothing and one that has run out adds exactly nothing: the
+ * audit fix of 2026-09-28 (a record that expired before the next raid landed is no record) is the
+ * end of this slope rather than a special case. Summing blows rather than cuts is what keeps
+ * repeated raids smooth: two crushing raids are 40% and three are 45%, where multiplying what is
+ * left (70% of 70%) would be 51% and heading for zero. Two crews taking turns cannot hold a
+ * district past the asymptote, and they cannot hold it at the old rate for ever either, since
+ * every blow wears off with its window.
+ *
+ * The new record starts at the new raid. The caller settles the district to that instant first
+ * (`resolveOne` settles every crew in a fight before it is fought), so the hours before it are
+ * already banked at the old rate and nothing is charged twice or at the wrong rate.
+ *
+ * A token raid on a district that was just flattened can lower the rate for the next few hours,
+ * and that is not a way out: the cut still owed never falls. With `r` the share of the old window
+ * left, the curve's concavity gives `cut(r x blow) >= r x cut(blow)`, so six fresh hours at the
+ * stacked rate always owe at least what the old record still did. `raid.test.ts` measures it.
  */
-export function refreshDisruption(current: Disruption, next: Disruption): Disruption {
+export function stackDisruption(current: Disruption, next: Disruption): Disruption {
   if (current.until === null) return next;
-  if (next.until === null) return current;
-  /*
-   * A record that ran out before the new raid landed is no record (audit, 2026-09-28). Merged, a
-   * 46% raid at 10:00 that expired at 16:00 met a 12% raid at 20:00 and came out as 46% from
-   * 10:00 until 02:00: the new raid inherited the old one's rate *and* its start, so the quiet
-   * evening between them was billed as disrupted and the new raid ran at the old one's rate.
-   */
-  if (next.since !== null && Date.parse(current.until) <= Date.parse(next.since)) return next;
-  /*
-   * `since` travels with the *percent*, not with the expiry, because those two fields are what a
-   * settle reads together: the record says "cut by `percent` from `since` until `until`". Pairing
-   * the start with the expiry instead would hand the surviving percentage a start that belongs to
-   * the other raid, and a crew who raided at 10% yesterday, followed by one who raided at 50%
-   * just now, would see yesterday's quiet hours charged at 50%. On a tie the earlier start wins,
-   * which is exact: the rate is the same across both.
-   */
-  const until = Date.parse(next.until) > Date.parse(current.until) ? next.until : current.until;
-  const harsher =
-    next.percent > current.percent
-      ? next
-      : next.percent < current.percent
-        ? current
-        : earlierStart(current, next);
-  return { until, since: harsher.since, percent: harsher.percent };
-}
-
-/** Of two records at the same rate, the one that has been running longer. A null start is oldest. */
-function earlierStart(a: Disruption, b: Disruption): Disruption {
-  if (a.since === null || b.since === null) return a.since === null ? a : b;
-  return Date.parse(a.since) <= Date.parse(b.since) ? a : b;
+  if (next.until === null || next.since === null) return current;
+  const landed = Date.parse(next.since);
+  const left = Date.parse(current.until) - landed;
+  if (left <= 0) return next;
+  // Never more than the whole of it. Only a hand-written record can have more than one window left.
+  const share = Math.min(1, left / RAID_DISRUPTION_MS);
+  const until = Date.parse(current.until) > Date.parse(next.until) ? current.until : next.until;
+  return {
+    until,
+    since: next.since,
+    percent: raidDisruptionPercent(blowOf(next.percent) + blowOf(current.percent) * share),
+  };
 }
 
 /**

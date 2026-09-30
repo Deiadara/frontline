@@ -45,6 +45,7 @@ const NOW = '2026-08-13T12:00:00.000Z';
 /** A job that leans on one thing, so a leader's fit on it is a fact and not a blend. */
 const HAUL: MissionOffer = {
   templateId: 'test-haul',
+  boardKey: '2026-09-13',
   name: 'Bay Clearance',
   brief: 'Somebody wants a bay emptied before the morning shift.',
   kind: 'standard',
@@ -300,7 +301,6 @@ describe('the leader picker', () => {
         OVERSEER,
         leader('h-run', 'Rosa Vey', 'officer', makeAttributes(20), 'run', backAt),
         leader('h-fight', 'Tam Brisk', 'officer', makeAttributes(20), 'fight', null),
-        // No scouting hold since 2026-09-22: a scout party takes nobody with it.
         leader('h-hurt', 'Bea Quill', 'officer', makeAttributes(20), 'injury', backAt),
       ]),
     );

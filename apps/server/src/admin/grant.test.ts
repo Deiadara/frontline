@@ -1,4 +1,10 @@
-import { BLUEPRINTS, RESEARCH_ITEMS, type Base, type ScrapyardResponse } from '@frontline/shared';
+import {
+  ARMY_COUNT_MAX,
+  BLUEPRINTS,
+  RESEARCH_ITEMS,
+  type Base,
+  type ScrapyardResponse,
+} from '@frontline/shared';
 import type { FastifyInstance } from 'fastify';
 import { afterEach, describe, expect, it } from 'vitest';
 import { buildApp } from '../app.js';
@@ -97,6 +103,25 @@ describe('the Console hands over', () => {
     for (const spec of track) expect(after.research.technologies, spec.id).toContain(spec.id);
     const other = RESEARCH_ITEMS.find((spec) => spec.track !== 'security_officer')!;
     expect(after.research.technologies).not.toContain(other.id);
+  });
+
+  /*
+   * Bug pass, 2026-09-29: a second grant of ten million wrote a roster past `ARMY_COUNT_MAX`, and
+   * the crew stopped loading on every route, the Console included. The same grant handed out five
+   * of a legendary, the one thing the console was asked by name never to do again.
+   */
+  it('bodies up to the roster limits, and one of each legendary', async () => {
+    const app = await makeApp(true);
+    const token = await crew(app);
+    for (let twice = 0; twice < 2; twice += 1) {
+      const res = await grant(app, token, { units: { razors: ARMY_COUNT_MAX, the_colossus: 5 } });
+      expect(res.statusCode, res.body.slice(0, 200)).toBe(200);
+    }
+    const res = await app.inject({ method: 'GET', url: '/api/me', headers: auth(token) });
+    expect(res.statusCode, res.body.slice(0, 200)).toBe(200);
+    const { army } = res.json<{ base: Base }>().base;
+    expect(army.razors).toBe(ARMY_COUNT_MAX);
+    expect(army.the_colossus).toBe(1);
   });
 
   it('nothing at all when admin mode is off, and refuses an empty grant', async () => {

@@ -10,14 +10,12 @@ import type { Repositories } from '../db/repos/index.js';
 /**
  * Whether an officer is free to be sent somewhere.
  *
- * Three systems dispatch an officer and each used to check only its own table: `/battles/lead`
- * refused an officer already leading another unresolved battle, `/missions` checked injury and
- * nothing else, and `sendScout` checked that the *crew* had no run out rather than that the
- * *officer* was free. So one officer could hold three jobs at once: launch a six-hour mission with
- * X at 15:00, send X scouting at 15:05, name X to lead the 21:00 fight at 15:10, and at the mark
- * `leaderFor` finds X on the books, not injured, and puts their sheet and their leading perks into
- * the battle while X is out on a job and walking home from another district. The crew pays one
- * wage and collects three officers' worth of sheet.
+ * The systems that dispatch an officer each used to check only their own table: `/battles/lead`
+ * refused an officer already leading another unresolved battle and `/missions` checked injury and
+ * nothing else. So one officer could hold two jobs at once: launch a six-hour mission with X at
+ * 15:00, name X to lead the 21:00 fight at 15:10, and at the mark `leaderFor` finds X on the
+ * books, not injured, and puts their sheet and their leading perks into the battle while X is out
+ * on a job in another district. The crew pays one wage and collects two officers' worth of sheet.
  *
  * That is word for word the argument `leadingElsewhere`'s own doc makes about one officer at the
  * head of every declared battle, applied across systems instead of within one.
@@ -76,7 +74,6 @@ export function officerDuty(
   if (officerIsInjured(officer.injuredUntil, now)) {
     return { held: 'injury', until: officer.injuredUntil };
   }
-  // No scouting hold since 2026-09-22: a scout party takes nobody with it.
   if (officer.role === null) return { held: 'bench', until: null };
   return null;
 }

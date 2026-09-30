@@ -62,10 +62,10 @@ export const GATE_DEFENSE_PERCENT_PER_LEVEL = 2.5;
 /**
  * §B7: percentage points of intel resistance, per Gate level.
  *
- * A wall is not only something to shoot from. What a scout brings back about a district is decided
- * by `intelResistancePercent` (`battle/intel.ts`), and a district nobody can walk up to is a
- * district nobody can count. Slower than the defence figure on purpose: a maxed Gate is 30 points
- * of resistance, which coarsens a scout's report without ever blanking it.
+ * A wall is not only something to shoot from. What a spy brings back about a district is decided
+ * by `intelResistancePercent`, and a district nobody can walk up to is a district nobody can
+ * count. Slower than the defence figure on purpose: a maxed Gate is 30 points of resistance, which
+ * coarsens a spy report without ever blanking it.
  */
 /**
  * What a level of Gate is worth against spies (2026-09-22): the same figure the spy contest

@@ -1,6 +1,8 @@
 import {
   IncreasePayrollRequestSchema,
   LEADER_HOLD_LABELS,
+  MAX_WAGE_DISCOUNT,
+  NO_FREE_BED_TEXT,
   PlaceBidRequestSchema,
   ReleaseOfficerRequestSchema,
   SealBidRequestSchema,
@@ -35,13 +37,14 @@ import {
 } from '../bar/hire.js';
 import { projectOfficer, projectRecruit } from '../bar/project.js';
 import { rosterFaces } from '../crew/faces.js';
-import { barSeatsFor, barDay, barRoster, cityOfRecruit, findBarRecruit } from '../bar/roster.js';
+import { barDay, barRoster, cityOfRecruit, findBarRecruit } from '../bar/roster.js';
 import { barRoomOf } from '../bar/room.js';
 import { cityAsked, citiesFor } from '../city/stakes.js';
 import { seatedRoles } from '../crew/roster.js';
 import { crewEffectsFor } from '../crew/standing.js';
 import type { BarBid } from '../db/repos/bar.js';
 import { settleBase } from '../district/settle.js';
+import { districtUnitSlots } from '../district/unit-slots.js';
 import { AppError, cityQuery, parseBody, type ErrorCode } from '../errors.js';
 import { takeLevelUp } from '../progression/award.js';
 
@@ -72,7 +75,7 @@ function requireOwnBase(app: FastifyInstance, ownerId: string): Base {
  * then refuse them at. Read *after* it, because signing writes to this crew.
  */
 function settledBase(app: FastifyInstance, ownerId: string, now: Date): Base {
-  settleBarAuctions(app.repos, now);
+  settleBarAuctions(app.repos, now, app.config.admin);
   return settleBase(app.repos, requireOwnBase(app, ownerId), now).base;
 }
 
@@ -120,6 +123,7 @@ const BID_ERRORS: Record<BidRefusal, { code: ErrorCode; message: (minimum: numbe
   },
   already_hired: { code: 'RECRUIT_UNAVAILABLE', message: () => 'They already work for you' },
   no_slots: { code: 'NO_RECRUIT_SLOTS', message: () => 'You have no room for another recruit' },
+  no_unit_slots: { code: 'NO_UNIT_SLOTS', message: () => NO_FREE_BED_TEXT },
   too_many_auctions: {
     code: 'TOO_MANY_AUCTIONS',
     // Not "at two tables": a level-40 crew may sit at three, and the count the screen prints is
@@ -164,8 +168,7 @@ export function registerBarRoutes(app: FastifyInstance): void {
     if (cityId === null) {
       throw new AppError('CITY_SHUT', 'You hold no ground in that city. Take a place in it first.');
     }
-    const seats = barSeatsFor(crewEffectsFor(app.repos, base).recruitPoolPercent);
-    const recruit = findBarRecruit(day, recruitId, seats, barRoomOf(app.repos, cityId, day));
+    const recruit = findBarRecruit(day, recruitId, barRoomOf(app.repos, cityId, day));
     if (!recruit) throw new AppError('NOT_FOUND', 'They are not at the Bar today');
     return { recruit, cityId };
   }
@@ -247,8 +250,6 @@ export function registerBarRoutes(app: FastifyInstance): void {
     }
     const window = auctionWindow(now);
     const day = window.day;
-    // §F2: Charisma and Diplomacy widen the room. Word gets around about who is hiring.
-    const seats = barSeatsFor(crewEffectsFor(app.repos, base).recruitPoolPercent);
     /*
      * §H2: the room scales with the city, weighted by who has a stake in it.
      *
@@ -262,7 +263,7 @@ export function registerBarRoutes(app: FastifyInstance): void {
      * the strongest (`seatKindOf`), and the profile is frozen for the day at the first read
      * (`barRoomOf`), so a crew levelling at noon does not re-roll the room under everybody's bids.
      */
-    const roster = barRoster(day, seats, barRoomOf(app.repos, cityId, day), cityId);
+    const roster = barRoster(day, barRoomOf(app.repos, cityId, day), cityId);
     // One face each, free of every crew's in the city: the face the contract will keep.
     const faces = rosterFaces(
       app.repos,
@@ -286,6 +287,7 @@ export function registerBarRoutes(app: FastifyInstance): void {
       officers: base.commanders.map((officer) => projectOfficer(base, officer)),
       slotsUsed: base.commanders.length,
       slotsTotal: recruitSlotsFor(app.repos, base),
+      bedsFree: districtUnitSlots(app.repos, base).spare,
       infamy: base.economy.infamy,
       notoriety: base.economy.notoriety,
       level: base.level,
@@ -311,6 +313,7 @@ export function registerBarRoutes(app: FastifyInstance): void {
       auctionsAllowed: maxOpenAuctionsFor(base.level),
       // The most this crew can put on a table: what the book holds after its own negotiators.
       bidCeiling: bidCeilingFor(ledger.available, effects.wageDiscountPercent),
+      wageDiscountPercent: Math.min(MAX_WAGE_DISCOUNT, Math.max(0, effects.wageDiscountPercent)),
       // Only the tables this crew sat at, from the last night it sat at any. A results panel that
       // carried every close in the city would be a leaderboard nobody asked for.
       results: latestResultsFor(app.repos, request.currentUser.id, day, cityId),

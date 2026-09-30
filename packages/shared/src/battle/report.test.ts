@@ -47,8 +47,8 @@ describe('a report says what the field hospital did', () => {
  * (maintainer, 2026-09-18: "add an info for the jam in the report").
  *
  * A Netrunner deals twenty damage. A player reading a report saw a unit that killed nobody and
- * concluded it had done nothing, when it may have been taking forty per cent off the other
- * side's armour *and* their damage for the whole fight. There is no absence to read here and no
+ * concluded it had done nothing, when it may have been taking forty per cent off every card on the
+ * other side's sheets for the whole fight. There is no absence to read here and no
  * number on the list: without a finding the mechanic is invisible.
  */
 describe('a report says what the jammers did', () => {
@@ -75,7 +75,7 @@ describe('a report says what the jammers did', () => {
   it('names the unit and the figure when they held', () => {
     const text = ours({ razors: 200, netrunners: 30 }, { razors: 10 });
     expect(text).toContain('Netrunners');
-    expect(text, 'the finding quotes no figure').toMatch(/\d+% off their armour and their damage/);
+    expect(text, 'the finding quotes no figure').toMatch(/\d+% off what their modifications give/);
     expect(text).toContain('the whole way');
   });
 
@@ -95,7 +95,7 @@ describe('a report says what the jammers did', () => {
    *
    * `implied` is the report's third visibility and this is what it is for: a crew that has just
    * been jammed knows their shots landed soft, and handing them the percentage would hand them
-   * the counter-list for a unit they have not scouted.
+   * the counter-list for a unit they have not spied on.
    */
   it('tells the other side they were jammed, and not how hard', () => {
     const theirs = findings({ razors: 200, netrunners: 30 }, { razors: 10 }).find(

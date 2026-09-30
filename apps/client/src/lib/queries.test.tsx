@@ -105,6 +105,8 @@ describe('a refused launch that had already settled the board', () => {
     result.current.mutate({
       templateId: 'convoy-ambush',
       areaId: 'misc',
+      boardKey: '2026-09-13',
+      grade: 'E',
       force: { razors: 1 },
       leaderId: 'ov-1',
     });
@@ -127,6 +129,8 @@ describe('a refused launch that had already settled the board', () => {
     result.current.mutate({
       templateId: 'scrap-run',
       areaId: 'misc',
+      boardKey: '2026-09-13',
+      grade: 'E',
       force: { razors: 1 },
       leaderId: 'ov-1',
     });
@@ -142,6 +146,8 @@ describe('a refused launch that had already settled the board', () => {
     result.current.mutate({
       templateId: 'scrap-run',
       areaId: 'misc',
+      boardKey: '2026-09-13',
+      grade: 'E',
       force: { razors: 1 },
       leaderId: 'ov-1',
     });
@@ -188,6 +194,8 @@ describe('a level-up refreshes the §G layer it moved', () => {
     result.current.mutate({
       templateId: 'convoy-ambush',
       areaId: 'misc',
+      boardKey: '2026-09-13',
+      grade: 'E',
       force: { razors: 1 },
       leaderId: 'ov-1',
     });

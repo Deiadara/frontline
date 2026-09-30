@@ -73,13 +73,16 @@ test('the Vehicles tab lists every machine and builds one', async ({ page }) => 
 
   // The one this crew can build today. The fixture holds the Scrappy's plans and a Garage at 5.
   const bike = page.getByTestId('vehicle-motorcycle');
-  // Three held, one of them at a fight: the roster's own chip, stamped on the corner of the
+  // Three held, one of them out: the roster's own chip, stamped on the corner of the
   // picture (maintainer, 2026-09-18, "make the vehicle boxes be more similar to the unit boxes").
   // The total leads and the slice after the slash is what is away, which is how `UnitCard` writes
   // the same pair. The sentence it replaced is on the hover.
   const count = bike.getByTestId('vehicle-count-motorcycle');
   await expect(count).toHaveText('3 / 1');
-  await expect(count).toHaveAttribute('data-tip', '2 in the yard, 1 out at a fight');
+  await expect(count).toHaveAttribute(
+    'data-tip',
+    '2 in the yard, 1 out: at a fight, on a job or on the road',
+  );
   const posted = page.waitForRequest(
     (request) => request.url().includes('/api/garage/build') && request.method() === 'POST',
   );

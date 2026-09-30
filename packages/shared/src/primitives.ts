@@ -21,9 +21,16 @@ export type Id = z.infer<typeof IdSchema>;
 /** ISO-8601 datetime string (UTC), e.g. `2026-08-12T10:00:00.000Z`. */
 export const IsoDateTimeSchema = z.iso.datetime();
 
-/** 3-24 chars, alphanumeric + underscore. */
+/**
+ * 3-24 chars, alphanumeric + underscore.
+ *
+ * Trimmed first (bug pass, 2026-09-29). A phone keyboard puts a space after a word it completes,
+ * and `alice ` was refused at sign-up as though it held a bad character and answered "Invalid
+ * username or password" at sign-in. No username can hold a space, so the trim loses nothing.
+ */
 export const UsernameSchema = z
   .string()
+  .trim()
   .min(3)
   .max(24)
   .regex(/^[a-zA-Z0-9_]+$/, 'Username may only contain letters, digits and underscores');

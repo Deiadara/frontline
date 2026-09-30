@@ -9,7 +9,7 @@ import {
   buildingLevel,
   canAfford,
   isUnlockedForQueue,
-  levelCeilingFor,
+  atLevelCeiling,
   nextQueuedLevel,
   projectedBuildings,
   queueStartsAt,
@@ -19,7 +19,6 @@ import {
   addItems,
   spendResources,
   type PartialResources,
-  structureLevelCap,
   type Base,
   type BuildQueueEntry,
   type BuildingKind,
@@ -31,6 +30,7 @@ import {
   unmetForQueue,
   buildBoostPercent,
   withReduction,
+  xpForClock,
   type BuildingRequirement,
   type CrewEffects,
   BUILDING_KINDS,
@@ -112,15 +112,15 @@ function refusalFor(
 ): BuildRefusal | null {
   const { buildings, buildQueue } = base;
 
+  // The end of the content before any gate, because it is the one of the three admin mode does not
+  // waive. Checked after `locked` it never ran for a Garage admin mode had raised past what its
+  // Nexus and neighbours allow: `locked` was waived and the order went in for an eleventh Garage,
+  // or a twenty-first Lab, which no stored level parses, and the save stopped loading.
+  if (atLevelCeiling(structure, projectedBuildings(buildings, buildQueue))) return 'at_max_level';
   if (!isUnlockedForQueue(structure, buildings, buildQueue, base.level)) return 'locked';
 
   const level = nextQueuedLevel(structure, buildings, buildQueue);
-  if (level === null) {
-    const projected = projectedBuildings(buildings, buildQueue);
-    return structureLevelCap(structure, projected) === levelCeilingFor(structure)
-      ? 'at_max_level'
-      : 'nexus_cap';
-  }
+  if (level === null) return 'nexus_cap';
 
   if (buildQueue.length >= buildQueueCapacity(base.research.technologies)) return 'queue_full';
   // The part gate before the price: "you need a Coolant Cell" is a thing a player can go and do
@@ -211,6 +211,34 @@ function orderSeconds(
   admin: boolean,
 ): number {
   const burn = buildBoostPercent(base.economy.buildBoostUntil, now);
+  return clockSeconds(structure, level, base, effects, burn, admin);
+}
+
+/**
+ * What an order pays in XP when it lands, fixed now (maintainer, 2026-09-29).
+ *
+ * Priced off the clock with every discount except the burn: the burn is time bought with oil, so an
+ * order placed during it pays what the same order would have paid the minute before it was lit.
+ * Speed perks still shorten the clock the XP is priced on, which is the rule they always followed.
+ */
+function orderXp(
+  structure: BuildingKind,
+  level: number,
+  base: Base,
+  effects: ReturnType<typeof standingEffectsFor>,
+  admin: boolean,
+): number {
+  return xpForClock('buildingConstructed', clockSeconds(structure, level, base, effects, 0, admin));
+}
+
+function clockSeconds(
+  structure: BuildingKind,
+  level: number,
+  base: Base,
+  effects: ReturnType<typeof standingEffectsFor>,
+  burn: number,
+  admin: boolean,
+): number {
   return adminSeconds(
     Math.max(
       1,
@@ -292,7 +320,11 @@ export function queueBuild(repos: Repositories, input: BuildInput): BuildResult 
   const cost = quoted ?? priceOf(structure, level, base.buildings, effects);
   // §A1: the handful of levels that ask for a part as well as a price. Taken at the moment the
   // order is placed, like the materials: a queued build has already been paid for.
-  const parts = buildingParts(structure, level);
+  //
+  // Nothing in admin mode, like the materials. The part gate is waived there, so the entry used to
+  // record parts the crew never held and a cancel handed them over: two Gyro Assemblies out of an
+  // empty inventory for every Garage level 5 ordered and called off.
+  const parts = admin ? {} : buildingParts(structure, level);
 
   // §B4: an order placed while the Generator's burn is running is short by the same quarter the
   // burn already took off everything ahead of it. Applied here, at order time, alongside every
@@ -303,6 +335,7 @@ export function queueBuild(repos: Repositories, input: BuildInput): BuildResult 
     level,
     startedAt: queueStartsAt(base.buildQueue, now).toISOString(),
     durationSeconds: orderSeconds(structure, level, base, effects, now, admin),
+    xp: orderXp(structure, level, base, effects, admin),
     // What was actually taken, so a cancel in the first tenth can hand ninety percent back. The
     // testing build takes nothing, and refunds nothing.
     paid: adminCost(cost, admin),

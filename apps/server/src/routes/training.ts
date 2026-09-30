@@ -23,6 +23,7 @@ import { crewEffectsFor, crewSheetsFor } from '../crew/standing.js';
 import { AppError, parseBody } from '../errors.js';
 import { standingEffectsFor } from '../crew/standing.js';
 import { settledOwnBase } from './own-base.js';
+import { adminSeconds } from '../admin/mode.js';
 
 /**
  * §A4: how many extra sessions the crew's ground buys them today (the Gym).
@@ -132,7 +133,8 @@ export function registerTrainingRoutes(app: FastifyInstance): void {
         subjectId,
         attribute,
         startedAt: now,
-        durationSeconds: TRAINING_SECONDS,
+        // Five seconds in admin mode, like every other clock (maintainer ruling, 2026-09-29).
+        durationSeconds: adminSeconds(TRAINING_SECONDS, app.config.admin),
       };
       const training = beginTraining(base.training, session, now);
       app.repos.bases.updateTraining(base.id, training, base.commanders);

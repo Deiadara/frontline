@@ -42,7 +42,7 @@ import { settleBase } from '../district/settle.js';
 import { AppError, parseBody, type ErrorCode } from '../errors.js';
 import { declareBattle, type DeclareRefusal } from './declare.js';
 import { adjustDeployment, deployQuote, sideOf, type DeployRefusal } from './deploy.js';
-import { recallColumn, type RecallRefusal, retimeColumns } from './movement.js';
+import { oversellsSeats, recallColumn, type RecallRefusal, retimeColumns } from './movement.js';
 import {
   holdingsRefusal,
   moveMinutes,
@@ -86,7 +86,6 @@ const MOVE_ERRORS: Record<MoveRefusal, { code: ErrorCode; message: string }> = {
     message: 'They will not stand on ground for a name like yours',
   },
   not_yours: { code: 'FORBIDDEN', message: 'You have nobody standing there' },
-  unscouted: { code: 'VALIDATION_ERROR', message: 'Nobody of yours has been there yet' },
   held_by_others: {
     code: 'INVALID_TARGET',
     message: 'Somebody else holds that. Call a fight on it instead',
@@ -99,6 +98,10 @@ const MOVE_ERRORS: Record<MoveRefusal, { code: ErrorCode; message: string }> = {
   garrison_locked: {
     code: 'PLACE_UNAVAILABLE',
     message: 'A fight lands there within the hour. Nobody leaves the ground now',
+  },
+  city_closed: {
+    code: 'INVALID_TARGET',
+    message: 'That city is not open yet. Nobody gets in',
   },
 };
 
@@ -127,7 +130,8 @@ export const REFUSAL_MESSAGES: Record<DeclareRefusal | DeployRefusal, string> = 
    * which layer refused them. `declarationRefusal` is the one rule, and this is the one wording.
    */
   ...DECLARATION_REFUSAL_MESSAGES,
-  unscouted: 'You have not had eyes on that ground',
+  no_such_place: 'There is no such place',
+  city_closed: 'That city is not open yet. Nobody gets in',
   already_declared: 'Somebody has already called that one',
   too_many_pending: 'You have as many calls out as you can answer for',
   breach_closes: 'The gate is back up before then. Call it for while the breach is still open',
@@ -159,8 +163,8 @@ export function registerBattleRoutes(app: FastifyInstance): void {
     // that landed while nobody was looking are folded in *before* the fights, a force that arrived
     // at 14:59 for a 15:00 battle has to be on the ground when that battle is resolved, and a
     // captured gate that finished before the mark has to be standing: this path used to settle
-    // neither gates nor scouting.
-    settleWorld(app.repos, app.skirmishEngine, now);
+    // no gates.
+    settleWorld(app.repos, app.skirmishEngine, now, undefined, app.config.admin);
     // Read *after* the fights, because a resolution writes to this crew's roster and stockpile.
     const fresh = app.repos.bases.findByOwnerId(ownerId) ?? owned;
     return settleBase(app.repos, fresh, now).base;
@@ -230,6 +234,7 @@ export function registerBattleRoutes(app: FastifyInstance): void {
           perimeterChanges: body.perimeterChanges,
           byRail: body.byRail,
           now,
+          admin: app.config.admin,
         }),
       )();
       if (outcome.kind === 'refused') refuse(outcome.reason);
@@ -544,10 +549,10 @@ export function registerBattleRoutes(app: FastifyInstance): void {
        */
       /*
        * ...and one job, not one fight. The clause above was applied only within this system, so an
-       * officer already out on a six-hour mission or walking home from a scouting run could still
-       * be named to lead: at the mark `leaderFor` finds them on the books and not injured, and puts
-       * their sheet and their leading perks into a fight they are nowhere near. `officerDuty` asks
-       * the question once for all three doors.
+       * officer already out on a six-hour mission could still be named to lead: at the mark
+       * `leaderFor` finds them on the books and not injured, and puts their sheet and their leading
+       * perks into a fight they are nowhere near. `officerDuty` asks the question once for every
+       * door.
        */
       const duty = officerDuty(app.repos, base, officer, now, battle.id);
       if (duty !== null) {
@@ -607,6 +612,8 @@ export function registerBattleRoutes(app: FastifyInstance): void {
           throw new AppError('FORBIDDEN', 'You do not have that many in the yard');
         }
       }
+      // One seat, one column, whichever door was used first.
+      if (oversellsSeats(app.repos, base, battleId, side, vehicles, now)) refuse('no_seats');
 
       const fleet = removeFleet(available, vehicles);
       // Three writes that have to land together: a throw in the retime (a legacy row naming a
@@ -620,7 +627,7 @@ export function registerBattleRoutes(app: FastifyInstance): void {
         });
         app.repos.bases.updateFleet(base.id, fleet);
         // Whatever is already walking to this fight rides on the new set from here.
-        retimeColumns(app.repos, base, battleId, vehicles, now);
+        retimeColumns(app.repos, base, battleId, vehicles, now, app.config.admin);
       })();
       return respond({ ...base, fleet }, now);
     },
@@ -667,7 +674,9 @@ export function registerBattleRoutes(app: FastifyInstance): void {
     const body = parseBody(MoveUnitsRequestSchema, request.body);
     const now = new Date();
     const base = settled(request.currentUser.id, now);
-    const result = app.db.transaction(() => sendMove(app.repos, { base, ...body, now }))();
+    const result = app.db.transaction(() =>
+      sendMove(app.repos, { base, ...body, now, admin: app.config.admin }),
+    )();
     if (result.kind === 'refused') {
       const { code, message } = MOVE_ERRORS[result.reason];
       throw new AppError(code, message);

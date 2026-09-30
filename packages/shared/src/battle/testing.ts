@@ -29,7 +29,6 @@ export function skirmishOutcome(partial: Partial<SkirmishOutcome> = {}): Skirmis
     turned: {},
     executed: 0,
     executedForce: {},
-    turnedAlive: {},
     rounds: 1,
     findings: [],
     standing: { attacker: [], defender: [] },

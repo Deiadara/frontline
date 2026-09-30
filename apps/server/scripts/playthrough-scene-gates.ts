@@ -108,9 +108,9 @@ export async function levelGates(h: Harness, cast: Cast): Promise<void> {
       method: 'POST',
       route: '/api/black-market/bid',
       body: { slotIndex: lot.slot.index, goodId: lot.slot.goodId, amount: 1 },
-      // The back room holds its own door: a name too small is refused with its own code.
-      expect: 409,
-      code: 'BLACK_MARKET_REFUSED',
+      // The read stays open (the Battle page reads the stash off it); the bid is the door.
+      expect: 403,
+      code: 'AREA_LOCKED',
     });
   }
 }

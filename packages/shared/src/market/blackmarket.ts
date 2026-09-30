@@ -8,6 +8,7 @@ import type { ItemCost } from '../items/inventory.js';
 import { MILESTONE_STANDING_INVITATION, isPlayerUnlockActive } from '../progression/unlocks.js';
 import { dayInZone, GAME_TIMEZONE, instantAtHourInZone } from '../time/zone.js';
 import { LotAuctionSchema, canOpenLot, lotSeed, nextLotBid } from './auction.js';
+import { drawWeighted } from '../rng.js';
 
 /**
  * The back room of the market (black-market extension).
@@ -164,16 +165,23 @@ export interface BlackMarketGoodSpec {
  * treat and blueprints the thing you wait for.
  */
 const SPECS: readonly BlackMarketGoodSpec[] = [
-  // Battle boosts: one fight each, and they are what a crew comes back for.
+  /*
+   * Battle boosts: one fight each, and they are what a crew comes back for.
+   *
+   * Morale at half what it was (maintainer, 2026-09-29), the same cut as Make An Example: a morale
+   * point is worth about two of attack or defence in the engine, so Combat Stims at +16 bought
+   * nearly twice the force per infamy of the Biochemical Infusers, and the Nerve Gas's -8 cancelled
+   * most of its +26 attack. `morale-price.test.ts` has the measurement.
+   */
   {
     id: 'adrenaline_syringes',
     kind: 'battle_boost',
     name: 'Adrenaline Syringes',
     description: 'A case of autoinjectors with the dosage label scraped off.',
     effect:
-      'Any fight you take it into: +18% offense, +10% morale. Everybody is faster and nobody is calm.',
+      'Any fight you take it into: +18% offense, +5% morale. Everybody is faster and nobody is calm.',
     infamy: 120,
-    boost: { offensePercent: 18, defensePercent: 0, moralePercent: 10 },
+    boost: { offensePercent: 18, defensePercent: 0, moralePercent: 5 },
   },
   {
     id: 'biochemical_infusers',
@@ -190,7 +198,8 @@ const SPECS: readonly BlackMarketGoodSpec[] = [
     kind: 'battle_boost',
     name: 'Banned Explosives',
     description: 'Pre-Collapse breaching charges. The kind the Combine put a bounty on.',
-    effect: 'Any fight you take it into: +30% offense. Doors, walls and the people behind them.',
+    effect:
+      'Any fight you take it into: +30% offense, -4% defence. Doors, walls and the people behind them.',
     infamy: 260,
     boost: { offensePercent: 30, defensePercent: -4, moralePercent: 0 },
   },
@@ -200,9 +209,9 @@ const SPECS: readonly BlackMarketGoodSpec[] = [
     name: 'Combat Stims',
     description: 'Blister packs, chalky, bitter, and they work.',
     effect:
-      'Any fight you take it into: +16% morale, +8% defence. Nobody breaks and nobody sleeps after.',
+      'Any fight you take it into: +8% defence, +8% morale. Nobody breaks and nobody sleeps after.',
     infamy: 140,
-    boost: { offensePercent: 0, defensePercent: 8, moralePercent: 16 },
+    boost: { offensePercent: 0, defensePercent: 8, moralePercent: 8 },
   },
   {
     id: 'nerve_gas_canisters',
@@ -210,10 +219,10 @@ const SPECS: readonly BlackMarketGoodSpec[] = [
     name: 'Nerve Gas Canisters',
     description: 'Four squat cylinders in a foam case, seals intact, stencils in a dead language.',
     effect:
-      'Any fight you take it into: +26% offense, -8% morale. Your own people know what you brought.',
+      'Any fight you take it into: +26% offense, -4% morale. Your own people know what you brought.',
     infamy: 320,
     minNotoriety: 3,
-    boost: { offensePercent: 26, defensePercent: 0, moralePercent: -8 },
+    boost: { offensePercent: 26, defensePercent: 0, moralePercent: -4 },
   },
 
   // Contraband: parts and materiel that never reaches the Runner's barrow.
@@ -401,10 +410,11 @@ export function findBlackMarketGood(id: string): BlackMarketGoodSpec | undefined
 }
 
 /**
- * How often each kind comes up.
+ * How often each kind comes up, on average across its goods.
  *
  * Read as a ratio rather than a probability: for every blueprint on the shelf there are six boosts.
  * The numbers are the design, so they live here rather than being smeared across the draw below.
+ * Within a kind the weight is split by strength ({@link blackMarketDrawWeight}).
  */
 const KIND_WEIGHT: Readonly<Record<BlackMarketKind, number>> = {
   battle_boost: 6,
@@ -421,6 +431,43 @@ const KIND_WEIGHT: Readonly<Record<BlackMarketKind, number>> = {
    */
   blueprint_page: 1,
 };
+
+/**
+ * How much a good does, in the one unit its kind can be compared in.
+ *
+ * A crate's boost in percentage points of force, morale counted twice: `morale-price.test.ts`
+ * measured a morale point at about two of attack or defence in the engine, and the same test
+ * put the Nerve Gas, the shelf's dearest crate, at the least force of the three it measured.
+ * Everything else grants items, and the fence's price is the one measure of those there is.
+ */
+export function blackMarketStrength(spec: BlackMarketGoodSpec): number {
+  const boost = spec.boost;
+  if (!boost) return spec.infamy;
+  return Math.max(1, boost.offensePercent + boost.defensePercent + 2 * boost.moralePercent);
+}
+
+/**
+ * How often one good comes round, as a weight on the fence's sequence (maintainer, 2026-09-29).
+ *
+ * "Have them be rarer when they are better and more common when they are weaker." Inverse to the
+ * good's strength within its kind, and scaled so the kind's goods average {@link KIND_WEIGHT}: the
+ * shelf shows as many boosts as it did, and the strong ones less often than the weak. Every kind
+ * got one flat weight before, so the Adrenaline Syringes came round exactly as often as the Nerve
+ * Gas and a whole page of a Colossus as often as a page of a two-page drawing.
+ */
+export function blackMarketDrawWeight(spec: BlackMarketGoodSpec): number {
+  const kin = KIND_MEMBERS.get(spec.kind) ?? [spec];
+  const inverse = (good: BlackMarketGoodSpec) => 1 / blackMarketStrength(good);
+  const total = kin.reduce((sum, good) => sum + inverse(good), 0);
+  return (KIND_WEIGHT[spec.kind] * kin.length * inverse(spec)) / total;
+}
+
+const KIND_MEMBERS: ReadonlyMap<BlackMarketKind, readonly BlackMarketGoodSpec[]> = new Map(
+  BLACK_MARKET_KINDS.map((kind) => [
+    kind,
+    Object.values(BLACK_MARKET_GOODS).filter((good) => good.kind === kind),
+  ]),
+);
 
 /** FNV-1a then an LCG: the same derivation the Runner's barrow uses, kept local for the same reason. */
 function rngFrom(seed: string): () => number {
@@ -488,9 +535,51 @@ export function pagesOnShelf(day: string): string[] {
   return keyed.slice(0, PAGES_ON_THE_SHELF).map((entry) => entry.id);
 }
 
-function decksFor(day: string, room: string): string[][] {
+/**
+ * What each slot opens the day with, drawn kind first (maintainer, 2026-09-29: "fence kinds by
+ * weight").
+ *
+ * A slot picks its kind by {@link KIND_WEIGHT} among the kinds with anything left in the day's pool,
+ * then one good of that kind by {@link blackMarketDrawWeight}, which inside a kind is inverse to
+ * strength. So a kind shows as often as its weight says whatever its size: drawn good by good, a
+ * kind's share was its weight times how many goods it had, and five boosts at 6 against three kits
+ * at 2 was five to one where the design says three to one.
+ *
+ * Without replacement, so the five are five different things. This is the shelf a city sees: a
+ * slot's generation only moves at its lot's close, after the day is over.
+ */
+function openingDraw(day: string, room: string): string[] {
+  const left = [...BLACK_MARKET_GOOD_IDS, ...pagesOnShelf(day)].flatMap((id) => {
+    const spec = GOODS_BY_ID.get(id);
+    return spec ? [spec] : [];
+  });
+  const opening: string[] = [];
+  for (let slot = 0; slot < BLACK_MARKET_SLOTS; slot++) {
+    const seed = `${room}${day}:black:${slot}:opening`;
+    const kinds = BLACK_MARKET_KINDS.filter((kind) => left.some((good) => good.kind === kind));
+    const kind = drawWeighted(
+      kinds.map((id) => ({ id, weight: KIND_WEIGHT[id] })),
+      `${seed}:kind`,
+    );
+    const good = drawWeighted(
+      left
+        .filter((spec) => spec.kind === kind)
+        .map((spec) => ({ id: spec, weight: blackMarketDrawWeight(spec) })),
+      `${seed}:good`,
+    );
+    if (!good) break;
+    opening.push(good.id);
+    left.splice(left.indexOf(good), 1);
+  }
+  return opening;
+}
+
+/** The rest of the day's pool, dealt into one refill deck per slot. */
+function decksFor(day: string, room: string, opening: readonly string[]): string[][] {
   const rng = rngFrom(`${room}${day}:black:deal`);
-  const shuffled = [...BLACK_MARKET_GOOD_IDS, ...pagesOnShelf(day)];
+  const shuffled = [...BLACK_MARKET_GOOD_IDS, ...pagesOnShelf(day)].filter(
+    (id) => !opening.includes(id),
+  );
   // Fisher-Yates, drawn from the same stream so the deal is reproducible from the date alone.
   for (let index = shuffled.length - 1; index > 0; index--) {
     const swap = Math.floor(rng() * (index + 1));
@@ -512,21 +601,25 @@ function decksFor(day: string, room: string): string[][] {
  *
  * Rarity survives because the sequence is built in *passes*: everything appears in pass one,
  * everything with weight above one appears again in pass two, and so on, so a common item comes
- * round six times as often as a blueprint. Each pass is rotated by one, which is what keeps the
+ * round about six times as often as a blueprint. A weight between two whole numbers rounds up. Each pass is rotated by one, which is what keeps the
  * item at the end of a pass different from the item at the start of the next.
  */
 function sequenceFor(day: string, index: number, deck: readonly string[], room: string): string[] {
   const rng = rngFrom(`${room}${day}:black:${index}:order`);
-  const distinct = [...deck];
-  for (let at = distinct.length - 1; at > 0; at--) {
-    const swap = Math.floor(rng() * (at + 1));
-    [distinct[at], distinct[swap]] = [distinct[swap]!, distinct[at]!];
-  }
-
   const weightOf = (id: string) => {
-    const spec = BLACK_MARKET_GOODS[id];
-    return spec ? KIND_WEIGHT[spec.kind] : 1;
+    const spec = GOODS_BY_ID.get(id);
+    return spec ? blackMarketDrawWeight(spec) : 1;
   };
+  /*
+   * The first pass in a weighted order, not a flat one (2026-09-29), keyed the way `pagesOnShelf`
+   * takes its weighted sample, so the first refill is each good's weight over the deck's and the
+   * passes below hand the common goods the later ones. What a slot opens the day with, which is
+   * what a city sees, is `openingDraw`'s.
+   */
+  const distinct = deck
+    .map((id) => ({ id, key: rng() ** (1 / weightOf(id)) }))
+    .sort((a, b) => b.key - a.key)
+    .map((entry) => entry.id);
   const passes = Math.max(...distinct.map(weightOf), 1);
 
   const sequence: string[] = [];
@@ -553,11 +646,15 @@ function sequenceFor(day: string, index: number, deck: readonly string[], room: 
  * The shelf is **one shared shelf for the whole city**, and it is the only thing in the game that
  * is. That is what makes this necessary rather than decorative: a fixed catalogue is either
  * unaffordable to the crews who need it or free to the crews who do not, depending entirely on how
- * far along everybody else happens to be, and a fixed *effect* is a rounding error at level fifty
- * and a decisive advantage at level three, which is the same problem read the other way.
+ * far along everybody else happens to be. The dealer reads the street and prices what it will
+ * bear.
  *
- * So both move with the room. The dealer reads the street, prices what it will bear, and stocks
- * what is worth stocking for the company he is currently keeping.
+ * Only the price moves (maintainer, 2026-09-29: "make these be flat"). What a crate does used to
+ * move with the room as well, up to half again in a veteran city, so the same Adrenaline Syringes
+ * read +18% offense on the stash tab and applied +27% in a fight, and no screen that was not
+ * looking at a particular fight could say which. A crate does what its card says now, everywhere.
+ * The price stays because it was never there for the effect: infamy comes in faster in a veteran
+ * city too, and the price is what keeps a crate the same share of a crew's name.
  *
  * Measured off the **average**, not off the buyer. Off the buyer it would be a per-player price
  * list, which is not a black market, it is a shop; off the average it is a fact about the city that
@@ -566,18 +663,8 @@ function sequenceFor(day: string, index: number, deck: readonly string[], room: 
  */
 const REFERENCE_CITY_LEVEL = 1;
 
-/** Fraction added to a price, and to a boost, per level of city average above the reference. */
+/** Fraction added to a price per level of city average above the reference. */
 export const BLACK_MARKET_PRICE_PER_LEVEL = 0.06;
-export const BLACK_MARKET_POTENCY_PER_LEVEL = 0.03;
-
-/**
- * The ceiling on the potency multiplier.
- *
- * Prices may run away: infamy is earned faster in a veteran city too, so the two curves track each
- * other, but a boost may not. Doubling every figure on the crate turns a +18% syringe into +36%,
- * which is past the point where a defence can be built against it at all. Capped at half again.
- */
-export const MAX_BLACK_MARKET_POTENCY = 1.5;
 
 /** The city's average player level, floored at the reference. Bots are not players (§A3). */
 export function averageCityLevel(levels: readonly number[]): number {
@@ -593,26 +680,19 @@ export function blackMarketPrice(spec: BlackMarketGoodSpec, cityLevel: number): 
   return Math.max(1, Math.round(spec.infamy * (1 + BLACK_MARKET_PRICE_PER_LEVEL * above)));
 }
 
-/** How much better the goods are in a city this far along, as a multiplier on every figure. */
-export function blackMarketPotency(cityLevel: number): number {
-  const above = Math.max(0, cityLevel - REFERENCE_CITY_LEVEL);
-  return Math.min(MAX_BLACK_MARKET_POTENCY, 1 + BLACK_MARKET_POTENCY_PER_LEVEL * above);
-}
-
 /**
- * One crate's boost as it would actually land, in a city this far along.
+ * One crate's card line, written from the figures a fight applies.
  *
- * Rounded per figure rather than scaled as a bundle, because these are the numbers a player reads
- * on the card and then expects to see in the report. A penalty (the Chem Cocktail's -4% defence)
- * scales with everything else: a better batch is a stronger batch, not a safer one.
+ * The same in every city and on every screen: the shelf, the fight page's list and the stash tab
+ * all print a figure that is the one the settle adds (`blackmarket.test.ts` holds the authored
+ * line to it as well).
  */
-export function blackMarketEffect(spec: BlackMarketGoodSpec, cityLevel: number): string {
-  const boost = blackMarketBoost(spec, cityLevel);
+export function blackMarketEffect(spec: BlackMarketGoodSpec): string {
+  const boost = blackMarketBoost(spec);
   if (!boost) return spec.effect;
 
-  // Written from the numbers rather than authored, because the authored line has the *catalogue's*
-  // figures baked into its prose, and a card that reads "+18% offense" over a fight that applied
-  // +27% is the card lying, which is worse than the card being plain.
+  // Written from the numbers rather than authored, so a retune of a crate's figures cannot leave
+  // the old ones in the sentence.
   const parts = [
     ['offense', boost.offensePercent],
     ['defence', boost.defensePercent],
@@ -629,18 +709,9 @@ export function blackMarketEffect(spec: BlackMarketGoodSpec, cityLevel: number):
     : `Any fight you take it into: ${parts.join(', ')}. ${spec.effect.split('. ').slice(1).join('. ')}`.trim();
 }
 
-export function blackMarketBoost(
-  spec: BlackMarketGoodSpec,
-  cityLevel: number,
-): BattleBoost | undefined {
-  if (!spec.boost) return undefined;
-  const potency = blackMarketPotency(cityLevel);
-  const scale = (value: number): number => Math.round(value * potency);
-  return {
-    offensePercent: scale(spec.boost.offensePercent),
-    defensePercent: scale(spec.boost.defensePercent),
-    moralePercent: scale(spec.boost.moralePercent),
-  };
+/** What a crate adds to the fight it is taken into: its card's figures, wherever that fight is. */
+export function blackMarketBoost(spec: BlackMarketGoodSpec): BattleBoost | undefined {
+  return spec.boost;
 }
 
 /** The Athens calendar date a moment belongs to. The shelf's unit of time. */
@@ -671,18 +742,23 @@ export function blackMarketBoard(
   cityId: string = DEFAULT_CITY_ID,
 ): BlackMarketSlot[] {
   const room = blackRoomKey(cityId);
-  const decks = decksFor(day, room);
+  const opening = openingDraw(day, room);
+  const decks = decksFor(day, room, opening);
   return Array.from({ length: BLACK_MARKET_SLOTS }, (_, index) => {
     const generation = Math.max(0, generations[index] ?? 0);
+    const first = opening[index] ?? SPECS[0]!.id;
     // A deck can only run short if the catalogue is smaller than the shelf, which a test forbids;
     // falling back to everything keeps this total rather than throwing on a data edit.
     const deck = decks[index] ?? [];
-    const sequence = sequenceFor(
+    const refills = sequenceFor(
       day,
       index,
-      deck.length > 0 ? deck : [...BLACK_MARKET_GOOD_IDS],
+      deck.length > 0 ? deck : BLACK_MARKET_GOOD_IDS.filter((id) => id !== first),
       room,
     );
+    // The opening good is in no deck, so the refill after it, and the wrap back to it, always
+    // differ from it.
+    const sequence = [first, ...refills];
     return {
       index,
       generation,
@@ -703,6 +779,8 @@ export const BLACK_MARKET_REFUSALS = [
   'outbid_yourself',
   /** §H7a: `MAX_OPEN_LOTS` lots at once, counted across one city's shelf on the night it stands. */
   'too_many_lots',
+  /** The crew already holds the document this lot sells. A second copy is worth nothing to it. */
+  'already_known',
 ] as const;
 export const BlackMarketRefusalSchema = z.enum(BLACK_MARKET_REFUSALS);
 export type BlackMarketRefusal = z.infer<typeof BlackMarketRefusalSchema>;
@@ -715,6 +793,7 @@ export const BLACK_MARKET_REFUSAL_TEXT: Readonly<Record<BlackMarketRefusal, stri
   too_low: 'He will not write that down. Somebody has already said more.',
   too_many_lots: 'You have a name down on every crate you can hold. Wait for one to close.',
   outbid_yourself: 'You are the one in front. Bidding against yourself is not a negotiation.',
+  already_known: 'You already have these plans. He does not sell the same set twice.',
 };
 
 /*
@@ -877,6 +956,24 @@ export interface BlackBidRequest {
    */
   lotId?: string;
   openLots?: readonly string[];
+  /** What the crew holds, so a blueprint lot it already has is refused (`alreadyKnown`). */
+  inventory?: Readonly<Record<string, number | undefined>>;
+}
+
+/**
+ * Whether this lot would hand the crew a document it already holds (bug pass, 2026-09-28).
+ *
+ * The fence's blueprint lots sell whole documents, which are untradeable and unlock once, so a
+ * second copy is infamy and a day's crate spent on nothing. Read by the bid, by the shelf's
+ * `affordable`, and by the close, which walks past such a crew to the one behind.
+ */
+export function alreadyKnown(
+  spec: BlackMarketGoodSpec,
+  inventory: Readonly<Record<string, number | undefined>>,
+): boolean {
+  if (spec.kind !== 'blueprint') return false;
+  const granted = Object.keys(spec.grants ?? {});
+  return granted.length > 0 && granted.every((id) => (inventory[id] ?? 0) > 0);
 }
 
 /**
@@ -905,6 +1002,7 @@ export function blackBidRefusal(request: BlackBidRequest): BlackMarketRefusal | 
    * Being told "you are short of infamy" about a crate he was never going to sell you sends a
    * player away to earn a number that was not the reason.
    */
+  if (request.inventory && alreadyKnown(spec, request.inventory)) return 'already_known';
   if ((request.notoriety ?? 0) < (spec.minNotoriety ?? 0)) return 'not_known_enough';
   if (request.leadingIsYou) return 'outbid_yourself';
   /*

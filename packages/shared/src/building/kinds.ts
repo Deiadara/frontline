@@ -246,7 +246,7 @@ export const BUILDING_CATALOG: Record<BuildingKind, BuildingSpec> = {
     shortName: 'Gate',
     description:
       'The first thing anyone coming for this district sees. Better make sure they are scared.',
-    role: 'Adds a percentage of defence to every unit holding this district, and makes the place harder to scout.',
+    role: 'Adds a percentage of defence to every unit holding this district, and makes the place harder to spy on.',
     requires: [nexus(1)],
     baseCost: { caps: 200, scrap: 220, planks: 150, oil: 20 },
     // Armour plate. Past the fifth level the wall is metal rather than whatever was to hand.

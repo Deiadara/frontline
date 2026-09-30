@@ -12,7 +12,6 @@ import type { FastifyInstance } from 'fastify';
 import { sideOf } from '../battle/deploy.js';
 import { REPORT_HISTORY } from '../battle/view.js';
 import { districtsHeldWhole } from '../city/gates.js';
-import { cityContextFor } from '../city/view.js';
 import type { Repositories } from '../db/repos/index.js';
 import { AppError } from '../errors.js';
 import { settleWorld } from '../world/settle.js';
@@ -41,7 +40,7 @@ export function registerCrewProfileRoutes(app: FastifyInstance): void {
       const viewer = app.repos.bases.findByOwnerId(request.currentUser.id);
       if (!viewer) throw new AppError('NO_BASE', 'You do not have a base yet');
       // A fight whose mark has passed may have moved half of what this file lists.
-      settleWorld(app.repos, app.skirmishEngine, now);
+      settleWorld(app.repos, app.skirmishEngine, now, undefined, app.config.admin);
 
       const crew =
         app.repos.bases.findById(request.params.id) ??
@@ -58,7 +57,7 @@ export function registerCrewProfileRoutes(app: FastifyInstance): void {
 interface ProfileInput {
   crew: Base;
   user: NonNullable<ReturnType<Repositories['users']['findById']>>;
-  /** The crew doing the reading. Its fog, not the subject's, decides what the file shows. */
+  /** The crew doing the reading, which decides whether the file is its own. */
   viewer: Base;
   now: Date;
 }
@@ -70,34 +69,23 @@ export function projectCrewProfile(
   const overseer = user.overseerId ? repos.overseers.findById(user.overseerId) : undefined;
   const home = findDistrict(crew.districtId);
 
-  /*
-   * The fog is the *reader's*, not the subject's.
-   *
-   * What this crew holds is world state and every location row is public; which of those rows
-   * the reader is allowed to see depends on where the reader has been. `cityContextFor` is the one
-   * function that answers that for the city read, so it answers it here too, and a district the
-   * reader has never walked contributes a count and nothing else.
-   */
-  const visible = cityContextFor(repos, viewer).visible;
-  // Their street is public once walked, and only then: the district read applies the same rule.
-  const homeSeen = visible.has(crew.districtId);
   const controls = repos.city.controls();
-  // Every location in the world (2026-09-24): a crew's file lists what it holds, and ground held in
-  // a second city is ground it holds. The reader's fog still decides what of it is printed below.
-  const held = EVERY_LOCATION.filter((location) => {
+  /*
+   * Every location in the world (2026-09-24): a crew's file lists what it holds, and ground held in
+   * a second city is ground it holds. All of it, whoever is reading: the whole city is visible
+   * (maintainer, 2026-09-29), so what the map says about who holds what, the file says too.
+   */
+  const holdings: ProfileHolding[] = EVERY_LOCATION.filter((location) => {
     const holder = controls.get(location.id)?.holder;
     return holder?.kind === 'crew' && holder.baseId === crew.id;
-  });
-  const holdings: ProfileHolding[] = held
-    .filter((location) => visible.has(location.districtId))
-    .map((location) => ({
-      locationId: location.id,
-      name: location.name,
-      kind: LOCATION_CATALOG[location.kind].label,
-      districtId: location.districtId,
-      districtName: findDistrict(location.districtId)?.name ?? location.districtId,
-      level: controls.get(location.id)?.level ?? 1,
-    }));
+  }).map((location) => ({
+    locationId: location.id,
+    name: location.name,
+    kind: LOCATION_CATALOG[location.kind].label,
+    districtId: location.districtId,
+    districtName: findDistrict(location.districtId)?.name ?? location.districtId,
+    level: controls.get(location.id)?.level ?? 1,
+  }));
 
   const fights = repos.sieges.resolvedFor(crew.id, REPORT_HISTORY).reduce(
     (tally, { battle, analysis }) => {
@@ -159,21 +147,15 @@ export function projectCrewProfile(
     home: {
       districtId: crew.districtId,
       districtName: home?.name ?? crew.districtId,
-      seen: homeSeen,
-      buildings: homeSeen
-        ? crew.buildings
-            .filter((building) => BUILDING_CATALOG[building.kind] !== undefined)
-            .map((building) => ({ kind: building.kind, level: building.level }))
-        : [],
+      buildings: crew.buildings
+        .filter((building) => BUILDING_CATALOG[building.kind] !== undefined)
+        .map((building) => ({ kind: building.kind, level: building.level })),
     },
     holdings,
-    hiddenHoldings: held.length - holdings.length,
-    districtsHeldWhole: districtsHeldWhole(repos, crew.id)
-      .filter((districtId) => visible.has(districtId))
-      .map((districtId) => ({
-        districtId,
-        name: findDistrict(districtId)?.name ?? districtId,
-      })),
+    districtsHeldWhole: districtsHeldWhole(repos, crew.id).map((districtId) => ({
+      districtId,
+      name: findDistrict(districtId)?.name ?? districtId,
+    })),
     serverNow: now.toISOString(),
   };
 }

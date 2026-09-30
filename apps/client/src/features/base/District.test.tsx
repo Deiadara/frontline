@@ -146,6 +146,8 @@ interface Stubbed {
   quotes?: MeResponse['buildQuotes'];
   /** `/me`'s `buildClocks`: how long the server would actually take. */
   clocks?: MeResponse['buildClocks'];
+  /** `/me`'s `productionRates`: what the settle pays an hour, ground and crew included. */
+  rates?: MeResponse['productionRates'];
 }
 
 function stubApi({
@@ -154,6 +156,7 @@ function stubApi({
   effects = {},
   quotes,
   clocks,
+  rates,
   roster,
 }: Stubbed = {}): void {
   const reply = (body: unknown, { ok = true, status = 200 } = {}) =>
@@ -187,6 +190,7 @@ function stubApi({
         base: detail,
         ...(quotes ? { buildQuotes: quotes } : {}),
         ...(clocks ? { buildClocks: clocks } : {}),
+        ...(rates ? { productionRates: rates } : {}),
       });
     if (path.includes('/base/')) return reply({ base: current, serverNow: NOW });
     if (roster && path.endsWith('/units')) return reply(roster);
@@ -596,6 +600,20 @@ describe('§A1: what the district houses and what it makes', () => {
     openReports();
     await waitFor(() => expect(screen.getByTestId('housing-balance')).toHaveTextContent('6 / 26'));
     expect(screen.getByText(/20 unit slots spare/)).toBeInTheDocument();
+  });
+
+  /*
+   * The server's figure, not the structures'. The fixture district makes 6 oil an hour from its
+   * Generator and nothing else; the quote says the crew's line speed takes that to 7.2 and the
+   * ground adds caps, neither of which the client can fold for itself.
+   */
+  it('quotes what the settle pays an hour, the ground and the crew included', async () => {
+    stubApi({ rates: { oil: 7.2, caps: 12 } });
+    renderDistrict();
+    await waitFor(() => expect(screen.getByTestId('reports-toggle')).toBeInTheDocument());
+    openReports();
+    await waitFor(() => expect(screen.getByTestId('production')).toHaveTextContent('Caps+12/h'));
+    expect(screen.getByTestId('production')).toHaveTextContent('Oil+7.2/h');
   });
 
   it('§A1: mentions no power, no energy and no grid anywhere on the district', async () => {

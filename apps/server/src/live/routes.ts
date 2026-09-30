@@ -3,6 +3,7 @@ import type { FastifyInstance } from 'fastify';
 import { registerLiveBroadcast } from './broadcast.js';
 import { liveHub } from './hub.js';
 import { AppError } from '../errors.js';
+import { sessionIsCurrent } from '../auth/session.js';
 import { addressBucket } from '../limits/plugin.js';
 
 /**
@@ -91,7 +92,24 @@ export function registerLiveRoutes(app: FastifyInstance): void {
     // waiting for the first thing to happen in the game, which may be hours.
     write(`event: ready\ndata: ${JSON.stringify({ at: new Date().toISOString() })}\n\n`);
 
+    /*
+     * The token is checked once, when the stream opens, and the stream then stays open for as long
+     * as the tab does (bug pass, 2026-09-29). "Log out everywhere", a password change and a token
+     * past its thirty days all ended every request but this one, which went on telling whoever held
+     * the old token each time the account was attacked, written to or paid. So the session is read
+     * again before anything goes down the stream, and on every heartbeat.
+     */
+    const token = request.user;
+    const signedIn = (): boolean =>
+      typeof token.exp === 'number' &&
+      token.exp * 1000 > Date.now() &&
+      sessionIsCurrent(token, app.repos.users.sessionVersion(userId));
+
     const send = (event: LiveEvent): void => {
+      if (!signedIn()) {
+        close();
+        return;
+      }
       write(`event: ${event.kind}\ndata: ${JSON.stringify(event)}\n\n`);
     };
 
@@ -102,7 +120,7 @@ export function registerLiveRoutes(app: FastifyInstance): void {
     // connection from being reaped: a proxy or a mobile network will close a TCP connection that
     // has carried nothing for a minute or two, and a quiet game is quiet for hours.
     const heartbeat = setInterval(() => {
-      if (!write(': beat\n\n')) close();
+      if (!signedIn() || !write(': beat\n\n')) close();
     }, LIVE_HEARTBEAT_MS);
     heartbeat.unref?.();
 

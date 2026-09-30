@@ -20,6 +20,7 @@ import { z } from 'zod';
 import * as api from './api.js';
 import { AdminKnobsRequestSchema } from './api.accounts.js';
 import { PLAYER_LEVEL_UNLOCKS } from './progression/unlocks.js';
+import { OFFICER_ROLES } from './roles.js';
 
 /** Every line of client source, concatenated. Built once: it is read for every key. */
 const CLIENT = (() => {
@@ -89,5 +90,19 @@ describe('the admin level knob reaches every authored stage', () => {
   it('refuses a level the game authors nothing at', () => {
     const deepest = Math.max(...PLAYER_LEVEL_UNLOCKS.map((unlock) => unlock.level));
     expect(AdminKnobsRequestSchema.safeParse({ playerLevel: deepest + 1 }).success).toBe(false);
+  });
+
+  it('seats at most one officer per chair the game has', () => {
+    const seat = (count: number) =>
+      AdminKnobsRequestSchema.safeParse({ officers: { count, rating: 50 } }).success;
+    expect(seat(OFFICER_ROLES.length)).toBe(true);
+    expect(seat(OFFICER_ROLES.length + 1)).toBe(false);
+  });
+
+  it('refuses a structure named with no level to put it at', () => {
+    expect(AdminKnobsRequestSchema.safeParse({ structure: 'lab' }).success).toBe(false);
+    expect(AdminKnobsRequestSchema.safeParse({ structure: 'lab', buildingLevel: 3 }).success).toBe(
+      true,
+    );
   });
 });

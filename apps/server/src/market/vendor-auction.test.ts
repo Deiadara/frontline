@@ -3,6 +3,7 @@ import {
   EVERY_LOCATION,
   ITEM_CATALOG,
   MAX_LOCATION_LEVEL,
+  discountedCaps,
   instantAtHourInZone,
   nextLotBid,
   vendorSessionsFor,
@@ -19,12 +20,7 @@ import { buildApp } from '../app.js';
 import { loadConfig } from '../config.js';
 import { standingEffectsFor } from '../crew/standing.js';
 import { openDatabase, runMigrations, type AppDatabase } from '../db/index.js';
-import {
-  discountedCaps,
-  latestLotResultsFor,
-  placeVendorBid,
-  settleVendorAuctions,
-} from './auction.js';
+import { latestLotResultsFor, placeVendorBid, settleVendorAuctions } from './auction.js';
 import { marketRefusalText, projectMarket } from './board.js';
 import { chooseOverseer, pinOverseer } from '../testing/overseer.js';
 import { openDoors } from '../testing/doors.js';
@@ -416,6 +412,10 @@ describe('the close', () => {
     expect(lost).toHaveLength(1);
     expect(lost[0]?.title).toContain(`went to bex for ${winning}`);
     expect(lost[0]?.link).toBe('/game/market');
+
+    // Both dated at the close, not at the settle a minute after it (maintainer, 2026-09-29).
+    const closed = visitClosesAt(day, 0).toISOString();
+    expect([won[0]?.createdAt, lost[0]?.createdAt]).toEqual([closed, closed]);
   });
 
   /**
@@ -519,6 +519,44 @@ describe('the close', () => {
   });
 
   /**
+   * Two crews over the winner and neither could pay. The second of them was told it lost, beside a
+   * price under its own bid (bug pass, 2026-09-29): passed is anybody the close walked past.
+   */
+  it('tells every crew the close walked past that it passed, not only the top one', async () => {
+    const app = await makeApp();
+    const ana = await signIn(app, 'ana');
+    const bex = await signIn(app, 'bex');
+    const cal = await signIn(app, 'cal');
+    const day = aDayWhere(() => true);
+    const line = vendorStockFor(day)[0]!;
+    const now = duringVisit(day, 0);
+    const second = nextLotBid(line.price, line.price);
+    const third = nextLotBid(line.price, second);
+
+    expect(bid(app, ana, { lineId: line.id, amount: line.price, now }).kind).toBe('placed');
+    expect(bid(app, bex, { lineId: line.id, amount: second, now }).kind).toBe('placed');
+    expect(bid(app, cal, { lineId: line.id, amount: third, now }).kind).toBe('placed');
+    for (const crew of [bex, cal]) {
+      app.repos.bases.updateResources(crew.baseId, { ...baseOf(app, crew).resources, caps: 0 });
+    }
+    const closed = afterVisit(day, 0);
+    settleVendorAuctions(app.repos, closed);
+
+    const outcome = (crew: Crew) =>
+      latestLotResultsFor(app.repos, crew.userId, closed, DEFAULT_CITY_ID)[0];
+    expect(outcome(ana)).toMatchObject({ outcome: 'won', winner: 'ana' });
+    expect(outcome(cal)).toMatchObject({ outcome: 'passed', winner: 'ana', yourBid: third });
+    expect(outcome(bex)).toMatchObject({ outcome: 'passed', winner: 'ana', yourBid: second });
+    // The bell as well: "went to ana" under a bid over ana's reads as a broken barrow.
+    for (const crew of [bex, cal]) {
+      const [told] = bells(app, crew, 'market_outbid');
+      expect(told?.title).toMatch(
+        new RegExp(`^You could not take .+ at the close, so ana did at ${line.price}$`),
+      );
+    }
+  });
+
+  /**
    * The leading crew is settled before it is asked to pay (audit, 2026-09-28): caps its own
    * ground made since it last looked are caps it has. Read raw, the lot went to the next bid down.
    */
@@ -586,11 +624,13 @@ describe('the close', () => {
     expect(baseOf(app, ana).inventory[line.item as keyof Base['inventory']] ?? 0).toBe(0);
     expect(baseOf(app, bex).inventory[line.item as keyof Base['inventory']] ?? 0).toBe(0);
 
-    for (const crew of [ana, bex]) {
-      const lost = bells(app, crew, 'market_outbid');
-      expect(lost).toHaveLength(1);
-      expect(lost[0]?.title).toContain('went unsold');
-    }
+    // The bells say the two different things too (bug pass, 2026-09-29): bex led and could not pay.
+    const [unsold] = bells(app, ana, 'market_outbid');
+    expect(unsold?.title).toContain('went unsold');
+    const [passed] = bells(app, bex, 'market_outbid');
+    expect(passed?.title).toMatch(
+      /^You could not take .+ at the close, and nobody else could either$/,
+    );
     expect(latestLotResultsFor(app.repos, bex.userId, closed, DEFAULT_CITY_ID)[0]).toMatchObject({
       outcome: 'passed',
       price: null,

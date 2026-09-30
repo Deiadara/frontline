@@ -217,8 +217,14 @@ export function Census() {
             </header>
             {/* Two and three across on a wide sheet. One column of 1850px-wide rows put the
                 name at one end and the four figures at the other with a metre of nothing in
-                between; at 600px a row is a card you can read in one go. */}
-            <ul className="grid grid-cols-1 gap-1.5 lg:grid-cols-2 2xl:grid-cols-3">
+                between; at 600px a row is a card you can read in one go.
+
+                Columns off the row's own width rather than off breakpoints (bug pass,
+                2026-09-29). Everything on a row but the name is fixed, about 450px of it, so
+                `lg:grid-cols-2` at 1024 left the name 40px and printed "Sca…" and "R…"; the
+                `2xl` third column did the same between 1536 and 1700. A column is let in only
+                when a row keeps room for the longest name in the catalogue. */}
+            <ul className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,37rem),1fr))] gap-1.5">
               {rows.map((row) => (
                 <CensusRow
                   key={row.unitId}
@@ -369,7 +375,10 @@ function CensusRow({
       {/* The name over the strip, and the strip is why this column is `min-w-0`: it takes the
           width nothing else claims, which is what makes it comparable from row to row. */}
       <span className="flex min-w-0 flex-1 flex-col gap-1">
-        <span className="truncate font-display text-[14px] font-bold leading-none text-ink-100">
+        <span
+          className="truncate font-display text-[14px] font-bold leading-none text-ink-100"
+          data-testid={`census-name-${row.unitId}`}
+        >
           {row.name}
         </span>
         <SplitBar

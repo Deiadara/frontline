@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import type { ModificationRequirement } from './requirements.js';
-import { BUILDING_KINDS, type BuildingKind } from './kinds.js';
+import { BUILDING_KINDS, levelCeilingFor, type BuildingKind } from './kinds.js';
 import type { ModificationRarity } from '../modification-rarity.js';
 
 /**
@@ -1270,20 +1270,34 @@ export function modificationsOfRarity(rarity: ModificationRarity): readonly Modi
 export const MODIFICATIONS_PER_BUILDING = 7;
 
 /**
- * Structure levels at which a modification slot opens (§A1: "unlocked when the building reaches
- * lvl 5, 10 and 20"). Three entries, so three is also the cap.
+ * Structure levels at which a modification slot opens on a twenty-rung structure (§A1: "unlocked
+ * when the building reaches lvl 5, 10 and 20"). Three entries, so three is also the cap.
+ * A structure with a lower ceiling opens its slots at {@link modificationSlotLevelsFor}.
  */
 export const MODIFICATION_SLOT_LEVELS: readonly number[] = [5, 10, 20];
 export const MAX_MODIFICATION_SLOTS = MODIFICATION_SLOT_LEVELS.length;
 
-/** How many modifications a structure at `level` may hold. */
-export function modificationSlotsAt(level: number): number {
-  return MODIFICATION_SLOT_LEVELS.filter((needed) => level >= needed).length;
+/**
+ * The levels at which `kind`'s three slots open: {@link MODIFICATION_SLOT_LEVELS}, with any slot
+ * past the structure's last rung opening at that rung instead.
+ *
+ * The Garage and the Infirmary stop at 10 (`BUILDING_LEVEL_CEILINGS`), so theirs open at 5, 10
+ * and 10 (maintainer, 2026-09-29). With the third slot at 20 they drew a bracket that could never
+ * open and could never complete a set.
+ */
+export function modificationSlotLevelsFor(kind: BuildingKind): readonly number[] {
+  const ceiling = levelCeilingFor(kind);
+  return MODIFICATION_SLOT_LEVELS.map((level) => Math.min(level, ceiling));
 }
 
-/** The structure level that would open the next slot, or `null` when all three are open. */
-export function nextModificationSlotLevel(level: number): number | null {
-  return MODIFICATION_SLOT_LEVELS.find((needed) => level < needed) ?? null;
+/** How many modifications `kind` at `level` may hold. */
+export function modificationSlotsAt(level: number, kind: BuildingKind): number {
+  return modificationSlotLevelsFor(kind).filter((needed) => level >= needed).length;
+}
+
+/** The structure level that would open `kind`'s next slot, or `null` when every slot is open. */
+export function nextModificationSlotLevel(level: number, kind: BuildingKind): number | null {
+  return modificationSlotLevelsFor(kind).find((needed) => level < needed) ?? null;
 }
 
 /**

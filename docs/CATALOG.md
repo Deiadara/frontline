@@ -12,7 +12,7 @@ The mission board used to carry a tag at the right of the "Board 1 of N" row rea
 - [Consumables and other items](#consumables-and-other-items) (91 entries)
 - [Traps](#traps) (6 entries)
 - [Battle boosts](#battle-boosts) (10 entries)
-- [Feats](#feats) (597 entries)
+- [Feats](#feats) (598 entries)
 - [Missions](#missions) (300 entries)
 - [Mission areas and districts](#mission-areas-and-districts) (13 entries)
 - [Locations](#locations) (107 entries)
@@ -32,7 +32,7 @@ The mission board used to carry a tag at the right of the "Board 1 of N" row rea
 - [Attributes and officer roles](#attributes-and-officer-roles) (53 entries)
 - [Notoriety tiers](#notoriety-tiers) (14 entries)
 - [Player level unlocks](#player-level-unlocks) (11 entries)
-- [Notification kinds](#notification-kinds) (22 entries)
+- [Notification kinds](#notification-kinds) (20 entries)
 - [Blueprint motifs](#blueprint-motifs) (111 entries)
 
 ## Blueprints and their pages
@@ -874,14 +874,14 @@ The 258 page items are generated one per blueprint page and are listed under Blu
 
 Source: `packages/shared/src/battle/traps.ts`
 
-| Id | Name | Needs | Yard level | Cost | Kill share | Max kills | Description |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| `trap_pressure_plates` | Pressure Plates | `tech_pressure_plates` | 2 | 400 Caps, 700 Scrap, 520 Planks | 6% | 6 | Boards over a stairwell with something underneath them. Cheap, and everybody forgets whic… |
-| `trap_gas_shell` | Buried Shell | `tech_shaped_charges` | 3 | 1100 Caps, 300 Oil, 1800 Scrap | 10% | 14 | A cracked chemical round under the approach, wired to whatever walks over it. |
-| `trap_collapse` | Prepared Collapse | `tech_demolition_doctrine` | 5 | 2600 Caps, 4200 Scrap, 2400 Planks, 260 HQ metal | 16% | 28 | The whole frontage, cut most of the way through, and one charge holding it up. |
-| `trap_razor_wire` | Razor Wire | `tech_watch_schedules` | 1 | 240 Caps, 450 Scrap, 180 Planks | 4% | 4 | A belt of tape across the approach. Nobody dies of it; everybody slows down in it. |
-| `trap_fuel_fougasse` | Fuel Fougasse | `tech_sally_ports` | 4 | 1400 Caps, 620 Oil, 2400 Scrap, 400 Planks | 12% | 18 | A drum of thickened oil laid in a pit at an angle, with a charge behind it. |
-| `trap_flooded_cellar` | Flooded Cellar | `tech_layered_defence` | 6 | 3200 Caps, 900 Oil, 5600 Scrap, 1800 Planks, 340 HQ metal | 20% | 34 | The basement filled from the culvert, and two bus bars sitting in the far wall. |
+| Id | Name | Needs | Yard level | Cost | Effect | Description |
+| --- | --- | --- | --- | --- | --- | --- |
+| `trap_pressure_plates` | Pressure Plates | `tech_pressure_plates` | 2 | 400 Caps, 700 Scrap, 520 Planks | Takes 1 of 50, 2 of 200, 4 of 1,000 attacking units before contact | Boards over a stairwell with something underneath them. Cheap, and everybody forgets whic… |
+| `trap_gas_shell` | Buried Shell | `tech_shaped_charges` | 3 | 1100 Caps, 300 Oil, 1800 Scrap | Takes 1 of 50, 2 of 200, 5 of 1,000 attacking units before contact | A cracked chemical round under the approach, wired to whatever walks over it. |
+| `trap_collapse` | Prepared Collapse | `tech_demolition_doctrine` | 5 | 2600 Caps, 4200 Scrap, 2400 Planks, 260 HQ metal | Takes 2 of 50, 3 of 200, 8 of 1,000 attacking units before contact | The whole frontage, cut most of the way through, and one charge holding it up. |
+| `trap_razor_wire` | Razor Wire | `tech_watch_schedules` | 1 | 240 Caps, 450 Scrap, 180 Planks | Kills nobody. The attack loses 15 speed and 2 morale for its first 2 rounds | A belt of tape across the approach. Nobody dies of it; everybody slows down in it. |
+| `trap_fuel_fougasse` | Fuel Fougasse | `tech_sally_ports` | 4 | 1400 Caps, 620 Oil, 2400 Scrap, 400 Planks | Takes 1 of 50, 3 of 200, 6 of 1,000 attacking units before contact | A drum of thickened oil laid in a pit at an angle, with a charge behind it. |
+| `trap_flooded_cellar` | Flooded Cellar | `tech_layered_defence` | 6 | 3200 Caps, 900 Oil, 5600 Scrap, 1800 Planks, 340 HQ metal | Takes 2 of 50, 4 of 200, 9 of 1,000 attacking units before contact | The basement filled from the culvert, and two bus bars sitting in the far wall. |
 
 ## Battle boosts
 
@@ -891,7 +891,7 @@ Source: `packages/shared/src/battle/boosts.ts`
 | --- | --- | --- | --- | --- | --- |
 | `boost_call_in_the_name` | Call In The Name | 200 | +12% attack for everything you send | Anybody | Every debt the street owes you, called in at once and spent on this one night. |
 | `boost_stand_your_ground` | Stand Your Ground | 200 | +15% defence for everything you send | Anybody | Word goes out that anybody who runs tonight does not come back to this district. |
-| `boost_make_an_example` | Make An Example | 320 | +20% morale for everything you send | Anybody | Something public, something ugly, and nobody on your side thinking about home. |
+| `boost_make_an_example` | Make An Example | 320 | +10% morale for everything you send | Anybody | Something public, something ugly, and nobody on your side thinking about home. |
 | `boost_paid_in_advance` | Paid In Advance | 620 | +40% attack for your rabble | Proposed by your Head of Finance | The cheap end of the roster, paid before the fight instead of after it. They notice. |
 | `boost_drilled_all_week` | Drilled All Week | 420 | +28% attack for your engineered units | Proposed by your Instructor of the Young | Seven days of the same approach, walked until nobody has to be told twice. |
 | `boost_the_right_doors` | The Right Doors | 560 | +30% attack for your specialists | Proposed by your Master of Whispers | Somebody has already been inside and marked which way the specialists go in. |
@@ -908,7 +908,7 @@ Every feat, its ladder, and what finishing it pays. A step with something in **A
 
 | Id | Name | Era | Size | Chain | After | Measure | Target | Pays | Worth |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `runs_1` | Out the Gate | early | small | `runs` | - | `missions_done` | 5 | resources | 468 |
+| `runs_1` | Out the Gate | early | small | `runs` | - | `missions_done` | 5 | resources, units | 429 |
 | `runs_2` | A Working Week | early | medium | `runs` | `runs_1` | `missions_done` | 25 | resources | 1,812 |
 | `runs_3` | Regulars | mid | medium | `runs` | `runs_2` | `missions_done` | 100 | resources | 17,700 |
 | `runs_4` | The Firm | late | medium | `runs` | `runs_3` | `missions_done` | 400 | resources | 103,200 |
@@ -918,7 +918,7 @@ Every feat, its ladder, and what finishing it pays. A step with something in **A
 | `runs_8` | Past Counting | late | large | `runs` | `runs_7` | `missions_done` | 4,500 | xp | 987,000 |
 | `runs_9` | Older Than the Board | late | large | `runs` | `runs_8` | `missions_done` | 8,000 | xp | 1,176,000 |
 | `runs_10` | The Work Itself | late | large | `runs` | `runs_9` | `missions_done` | 14,000 | xp | 1,407,000 |
-| `clean_1` | Clean Work | early | small | `clean` | - | `missions_won` | 10 | xp | 210 |
+| `clean_1` | Clean Work | early | small | `clean` | - | `missions_won` | 10 | units, xp | 208 |
 | `clean_2` | Reliable | mid | small | `clean` | `clean_1` | `missions_won` | 60 | xp | 2,240 |
 | `clean_3` | Never Yet Failed Us | late | medium | `clean` | `clean_2` | `missions_won` | 250 | xp | 77,000 |
 | `clean_4` | Never a Bad Season | late | large | `clean` | `clean_3` | `missions_won` | 800 | xp | 364,000 |
@@ -926,13 +926,13 @@ Every feat, its ladder, and what finishing it pays. A step with something in **A
 | `clean_6` | The Quiet Record | late | large | `clean` | `clean_5` | `missions_won` | 3,500 | xp | 567,000 |
 | `clean_7` | No Bad Weeks | late | large | `clean` | `clean_6` | `missions_won` | 6,500 | xp | 672,000 |
 | `clean_8` | The Firm Does Not Miss | late | large | `clean` | `clean_7` | `missions_won` | 12,000 | xp | 819,000 |
-| `raids_1` | Shooting Work | early | small | `raids` | - | `missions_of_kind:battle` | 5 | infamy | 200 |
-| `raids_2` | The Loud Half | mid | medium | `raids` | `raids_1` | `missions_of_kind:battle` | 40 | infamy | 15,000 |
-| `raids_3` | Nothing Quiet Left | late | medium | `raids` | `raids_2` | `missions_of_kind:battle` | 150 | infamy | 80,000 |
-| `raids_4` | Four Hundred Loud Ones | late | medium | `raids` | `raids_3` | `missions_of_kind:battle` | 400 | infamy | 80,200 |
-| `raids_5` | The Shooting Trade | late | medium | `raids` | `raids_4` | `missions_of_kind:battle` | 900 | infamy | 118,200 |
-| `raids_6` | Eighteen Hundred Doors | late | large | `raids` | `raids_5` | `missions_of_kind:battle` | 1,800 | infamy | 189,900 |
-| `raids_7` | War as a Day Job | late | large | `raids` | `raids_6` | `missions_of_kind:battle` | 3,500 | infamy | 362,900 |
+| `raids_1` | Shooting Work | early | small | `raids` | - | `missions_of_kind:battle` | 5 | xp | 210 |
+| `raids_2` | The Loud Half | mid | medium | `raids` | `raids_1` | `missions_of_kind:battle` | 40 | xp | 14,000 |
+| `raids_3` | Nothing Quiet Left | late | medium | `raids` | `raids_2` | `missions_of_kind:battle` | 150 | xp | 77,000 |
+| `raids_4` | Four Hundred Loud Ones | late | medium | `raids` | `raids_3` | `missions_of_kind:battle` | 400 | xp | 79,800 |
+| `raids_5` | The Shooting Trade | late | medium | `raids` | `raids_4` | `missions_of_kind:battle` | 900 | xp | 117,600 |
+| `raids_6` | Eighteen Hundred Doors | late | large | `raids` | `raids_5` | `missions_of_kind:battle` | 1,800 | xp | 189,000 |
+| `raids_7` | War as a Day Job | late | large | `raids` | `raids_6` | `missions_of_kind:battle` | 3,500 | xp | 361,200 |
 | `first_jobs` | Three Jobs Home | early | small | `hauls` | - | `missions_of_kind:standard` | 3 | resources, units | 343 |
 | `hauls_1` | Quiet Money | early | small | `hauls` | `first_jobs` | `missions_of_kind:standard` | 10 | resources | 468 |
 | `hauls_2` | The Long Way Round | mid | small | `hauls` | `hauls_1` | `missions_of_kind:standard` | 75 | resources | 2,500 |
@@ -941,7 +941,7 @@ Every feat, its ladder, and what finishing it pays. A step with something in **A
 | `hauls_5` | The Freight Line | late | large | `hauls` | `hauls_4` | `missions_of_kind:standard` | 1,500 | resources | 189,900 |
 | `hauls_6` | Everything Moves Through You | late | large | `hauls` | `hauls_5` | `missions_of_kind:standard` | 3,000 | resources | 362,920 |
 | `hauls_7` | The Long Convoy | late | large | `hauls` | `hauls_6` | `missions_of_kind:standard` | 6,000 | resources | 464,200 |
-| `oddjobs_1` | Whatever Is Going | early | small | `oddjobs` | - | `missions_in_area:misc` | 3 | resources | 468 |
+| `oddjobs_1` | Whatever Is Going | early | small | `oddjobs` | - | `missions_in_area:misc` | 3 | resources, units | 429 |
 | `oddjobs_2` | Odd Jobs | early | medium | `oddjobs` | `oddjobs_1` | `missions_in_area:misc` | 20 | resources | 1,812 |
 | `oddjobs_3` | Anything At All | mid | medium | `oddjobs` | `oddjobs_2` | `missions_in_area:misc` | 75 | resources | 17,700 |
 | `oddjobs_4` | Whatever Needs Doing | late | medium | `oddjobs` | `oddjobs_3` | `missions_in_area:misc` | 250 | resources | 103,200 |
@@ -1012,29 +1012,29 @@ Every feat, its ladder, and what finishing it pays. A step with something in **A
 | `area_blockhouse_2` | Fifty in The Blockhouse | late | medium | `area_blockhouse` | `area_blockhouse` | `missions_in_area:blockhouse` | 50 | resources | 103,200 |
 | `area_blockhouse_3` | Two Hundred in The Blockhouse | late | large | `area_blockhouse` | `area_blockhouse_2` | `missions_in_area:blockhouse` | 200 | resources | 189,900 |
 | `area_blockhouse_4` | Six Hundred in The Blockhouse | late | large | `area_blockhouse` | `area_blockhouse_3` | `missions_in_area:blockhouse` | 600 | resources | 362,920 |
-| `fights_1` | First Blood | early | small | `fights` | - | `battles_fought` | 1 | infamy | 200 |
-| `fights_2` | Known For It | early | medium | `fights` | `fights_1` | `battles_fought` | 10 | infamy | 1,300 |
-| `fights_3` | A Standing Army | mid | medium | `fights` | `fights_2` | `battles_fought` | 50 | resources, infamy | 20,100 |
-| `fights_4` | The War | late | large | `fights` | `fights_3` | `battles_fought` | 200 | resources, infamy | 183,200 |
-| `fights_5` | Five Hundred Fights | late | large | `fights` | `fights_4` | `battles_fought` | 500 | infamy | 189,900 |
-| `fights_6` | Always Somewhere | late | large | `fights` | `fights_5` | `battles_fought` | 1,200 | infamy | 362,900 |
-| `fights_7` | The Permanent War | late | large | `fights` | `fights_6` | `battles_fought` | 2,800 | infamy | 464,200 |
-| `fights_8` | Six Thousand Called | late | large | `fights` | `fights_7` | `battles_fought` | 6,000 | infamy | 569,700 |
-| `wins_1` | Win One | early | medium | `wins` | - | `battles_won` | 1 | infamy | 1,300 |
-| `wins_2` | Ten Straight | mid | medium | `wins` | `wins_1` | `battles_won` | 10 | infamy | 15,000 |
-| `wins_3` | Undefeated Enough | late | medium | `wins` | `wins_2` | `battles_won` | 50 | infamy | 80,000 |
-| `wins_4` | Two Hundred Standing | late | large | `wins` | `wins_3` | `battles_won` | 200 | resources, infamy | 183,200 |
+| `fights_1` | First Blood | early | small | `fights` | - | `battles_fought` | 1 | units | 260 |
+| `fights_2` | Known For It | early | medium | `fights` | `fights_1` | `battles_fought` | 10 | units | 1,245 |
+| `fights_3` | A Standing Army | mid | medium | `fights` | `fights_2` | `battles_fought` | 50 | resources, xp | 19,940 |
+| `fights_4` | The War | late | large | `fights` | `fights_3` | `battles_fought` | 200 | resources, xp | 180,200 |
+| `fights_5` | Five Hundred Fights | late | large | `fights` | `fights_4` | `battles_fought` | 500 | resources, units | 189,420 |
+| `fights_6` | Always Somewhere | late | large | `fights` | `fights_5` | `battles_fought` | 1,200 | resources, units | 362,158 |
+| `fights_7` | The Permanent War | late | large | `fights` | `fights_6` | `battles_fought` | 2,800 | resources, units | 464,539 |
+| `fights_8` | Six Thousand Called | late | large | `fights` | `fights_7` | `battles_fought` | 6,000 | resources, units | 569,792 |
+| `wins_1` | Win One | early | medium | `wins` | - | `battles_won` | 1 | units | 1,245 |
+| `wins_2` | Ten Straight | mid | medium | `wins` | `wins_1` | `battles_won` | 10 | units | 14,922 |
+| `wins_3` | Undefeated Enough | late | medium | `wins` | `wins_2` | `battles_won` | 50 | units | 59,030 |
+| `wins_4` | Two Hundred Standing | late | large | `wins` | `wins_3` | `battles_won` | 200 | resources, xp | 180,200 |
 | `wins_5` | Four Hundred and Fifty Held | late | large | `wins` | `wins_4` | `battles_won` | 450 | resources | 189,900 |
 | `wins_6` | A Thousand Wins | late | large | `wins` | `wins_5` | `battles_won` | 1,000 | resources | 362,920 |
 | `wins_7` | They Send Somebody Else | late | large | `wins` | `wins_6` | `battles_won` | 2,200 | resources | 464,200 |
 | `wins_8` | Nobody Left to Beat | late | large | `wins` | `wins_7` | `battles_won` | 4,500 | resources | 569,700 |
-| `attack_1` | Go and Take It | early | medium | `attack` | - | `battles_attacked_won` | 5 | resources, infamy | 2,012 |
-| `attack_2` | On the Front Foot | mid | medium | `attack` | `attack_1` | `battles_attacked_won` | 25 | resources, infamy | 20,100 |
-| `attack_3` | Everything Is Somebody Else’s | late | large | `attack` | `attack_2` | `battles_attacked_won` | 100 | resources, infamy | 183,200 |
-| `attack_4` | Two Hundred and Fifty Called | late | large | `attack` | `attack_3` | `battles_attacked_won` | 250 | infamy | 189,900 |
-| `attack_5` | Always the One Knocking | late | large | `attack` | `attack_4` | `battles_attacked_won` | 600 | infamy | 362,900 |
-| `attack_6` | The Weather Comes to Them | late | large | `attack` | `attack_5` | `battles_attacked_won` | 1,400 | infamy | 464,200 |
-| `attack_7` | Three Thousand Uninvited | late | large | `attack` | `attack_6` | `battles_attacked_won` | 3,000 | infamy | 569,700 |
+| `attack_1` | Go and Take It | early | medium | `attack` | - | `battles_attacked_won` | 5 | resources, xp | 2,022 |
+| `attack_2` | On the Front Foot | mid | medium | `attack` | `attack_1` | `battles_attacked_won` | 25 | resources, xp | 19,940 |
+| `attack_3` | Everything Is Somebody Else’s | late | large | `attack` | `attack_2` | `battles_attacked_won` | 100 | resources, xp | 180,200 |
+| `attack_4` | Two Hundred and Fifty Called | late | large | `attack` | `attack_3` | `battles_attacked_won` | 250 | resources, units | 189,420 |
+| `attack_5` | Always the One Knocking | late | large | `attack` | `attack_4` | `battles_attacked_won` | 600 | resources, units | 362,158 |
+| `attack_6` | The Weather Comes to Them | late | large | `attack` | `attack_5` | `battles_attacked_won` | 1,400 | resources, units | 464,539 |
+| `attack_7` | Three Thousand Uninvited | late | large | `attack` | `attack_6` | `battles_attacked_won` | 3,000 | resources, units | 569,792 |
 | `defend_1` | Hold the Door | early | medium | `defend` | - | `battles_defended_won` | 3 | resources | 1,812 |
 | `defend_2` | Nobody Gets In | mid | medium | `defend` | `defend_1` | `battles_defended_won` | 15 | resources | 17,700 |
 | `defend_3` | They Stopped Trying | late | large | `defend` | `defend_2` | `battles_defended_won` | 60 | resources | 422,000 |
@@ -1043,153 +1043,153 @@ Every feat, its ladder, and what finishing it pays. A step with something in **A
 | `defend_6` | Nobody Knocks Twice | late | large | `defend` | `defend_5` | `battles_defended_won` | 900 | resources | 675,200 |
 | `deployed_1` | Send Somebody | early | small | `deployed` | - | `bodies_deployed` | 50 | units | 260 |
 | `deployed_2` | A Column | mid | small | `deployed` | `deployed_1` | `bodies_deployed` | 500 | units | 2,420 |
-| `deployed_3` | Numbers | late | medium | `deployed` | `deployed_2` | `bodies_deployed` | 5,000 | units | 88,330 |
-| `deployed_4` | Fifteen Thousand Sent | late | medium | `deployed` | `deployed_3` | `bodies_deployed` | 15,000 | units | 117,750 |
-| `deployed_5` | The Levy | late | large | `deployed` | `deployed_4` | `bodies_deployed` | 45,000 | units | 189,475 |
-| `deployed_6` | More Than the District Holds | late | large | `deployed` | `deployed_5` | `bodies_deployed` | 130,000 | units | 362,511 |
-| `deployed_7` | Everything You Ever Had | late | large | `deployed` | `deployed_6` | `bodies_deployed` | 380,000 | units | 466,296 |
+| `deployed_3` | Numbers | late | medium | `deployed` | `deployed_2` | `bodies_deployed` | 5,000 | units | 59,030 |
+| `deployed_4` | Fifteen Thousand Sent | late | medium | `deployed` | `deployed_3` | `bodies_deployed` | 15,000 | resources, units | 118,078 |
+| `deployed_5` | The Levy | late | large | `deployed` | `deployed_4` | `bodies_deployed` | 45,000 | resources, units | 189,420 |
+| `deployed_6` | More Than the District Holds | late | large | `deployed` | `deployed_5` | `bodies_deployed` | 130,000 | resources, units | 362,158 |
+| `deployed_7` | Everything You Ever Had | late | large | `deployed` | `deployed_6` | `bodies_deployed` | 380,000 | resources, units | 464,539 |
 | `muster_1` | A Hundred on the Ground | early | medium | `muster` | - | `supply_deployed` | 100 | units | 1,245 |
 | `muster_2` | Five Hundred | mid | medium | `muster` | `muster_1` | `supply_deployed` | 500 | units | 14,922 |
-| `muster_3` | Two and a Half Thousand | late | large | `muster` | `muster_2` | `supply_deployed` | 2,500 | units | 402,790 |
-| `muster_4` | Eight Thousand Slots | late | large | `muster` | `muster_3` | `supply_deployed` | 8,000 | units | 466,296 |
-| `muster_5` | The Standing Muster | late | large | `muster` | `muster_4` | `supply_deployed` | 25,000 | units | 571,410 |
-| `muster_6` | Weight, Not Numbers | late | large | `muster` | `muster_5` | `supply_deployed` | 80,000 | resources, units | 678,445 |
-| `kills_1` | Twenty Five Down | early | small | `kills` | - | `kills` | 25 | infamy | 200 |
-| `kills_2` | Five Hundred Down | mid | medium | `kills` | `kills_1` | `kills` | 500 | infamy | 15,000 |
-| `kills_3` | A Number, Not a Word | late | large | `kills` | `kills_2` | `kills` | 5,000 | infamy | 200,000 |
-| `kills_4` | Ten Thousand Down | late | large | `kills` | `kills_3` | `kills` | 10,000 | infamy | 464,200 |
-| `kills_5` | The Infirmary Stopped Asking | late | large | `kills` | `kills_4` | `kills` | 20,000 | infamy | 569,700 |
-| `kills_6` | Somebody Is Writing This Down | late | large | `kills` | `kills_5` | `kills` | 35,000 | infamy | 675,200 |
-| `kills_7` | Sixty Thousand | late | large | `kills` | `kills_6` | `kills` | 60,000 | infamy | 822,900 |
-| `kills_8` | Six Figures | late | large | `kills` | `kills_7` | `kills` | 100,000 | infamy | 991,700 |
-| `kills_9` | The Long List | late | large | `kills` | `kills_8` | `kills` | 170,000 | infamy | 1,181,600 |
-| `kills_10` | What the War Cost | late | large | `kills` | `kills_9` | `kills` | 280,000 | infamy | 1,413,700 |
+| `muster_3` | Two and a Half Thousand | late | large | `muster` | `muster_2` | `supply_deployed` | 2,500 | units | 256,290 |
+| `muster_4` | Eight Thousand Slots | late | large | `muster` | `muster_3` | `supply_deployed` | 8,000 | resources, units | 464,539 |
+| `muster_5` | The Standing Muster | late | large | `muster` | `muster_4` | `supply_deployed` | 25,000 | resources, units | 569,792 |
+| `muster_6` | Weight, Not Numbers | late | large | `muster` | `muster_5` | `supply_deployed` | 80,000 | resources, units | 676,321 |
+| `kills_1` | Twenty Five Down | early | small | `kills` | - | `kills` | 25 | units | 260 |
+| `kills_2` | Five Hundred Down | mid | medium | `kills` | `kills_1` | `kills` | 500 | units | 14,922 |
+| `kills_3` | A Number, Not a Word | late | large | `kills` | `kills_2` | `kills` | 5,000 | resources, units | 189,420 |
+| `kills_4` | Ten Thousand Down | late | large | `kills` | `kills_3` | `kills` | 10,000 | resources, units | 464,539 |
+| `kills_5` | The Infirmary Stopped Asking | late | large | `kills` | `kills_4` | `kills` | 20,000 | resources, units | 569,792 |
+| `kills_6` | Somebody Is Writing This Down | late | large | `kills` | `kills_5` | `kills` | 35,000 | resources, units | 676,321 |
+| `kills_7` | Sixty Thousand | late | large | `kills` | `kills_6` | `kills` | 60,000 | resources, units | 824,021 |
+| `kills_8` | Six Figures | late | large | `kills` | `kills_7` | `kills` | 100,000 | resources, units | 992,821 |
+| `kills_9` | The Long List | late | large | `kills` | `kills_8` | `kills` | 170,000 | resources, units | 1,182,721 |
+| `kills_10` | What the War Cost | late | large | `kills` | `kills_9` | `kills` | 280,000 | resources, units | 1,414,821 |
 | `skirmish_1` | Street Scrap | early | small | `skirmishes` | - | `fights_won_in_category:skirmish` | 5 | resources | 468 |
-| `skirmish_2` | Known on the Block | early | medium | `skirmishes` | `skirmish_1` | `fights_won_in_category:skirmish` | 25 | resources, infamy | 2,012 |
+| `skirmish_2` | Known on the Block | early | medium | `skirmishes` | `skirmish_1` | `fights_won_in_category:skirmish` | 25 | resources, xp | 2,022 |
 | `battle_1` | Proper Fight | mid | small | `battles_graded` | - | `fights_won_in_category:battle` | 1 | resources | 2,500 |
-| `battle_2` | Regular Work | mid | medium | `battles_graded` | `battle_1` | `fights_won_in_category:battle` | 15 | resources, infamy | 20,100 |
+| `battle_2` | Regular Work | mid | medium | `battles_graded` | `battle_1` | `fights_won_in_category:battle` | 15 | resources, xp | 19,940 |
 | `siege_held` | A Siege Held | late | medium | `sieges` | - | `fights_won_in_category:siege` | 1 | resources, items | 82,540 |
 | `siege_2` | Wallbreakers | late | large | `sieges` | `siege_held` | `fights_won_in_category:siege` | 10 | resources, items | 459,100 |
-| `fight_five` | The Heaviest Thing They Send | late | large | `mayhem` | - | `fights_won_in_category:mayhem` | 1 | units | 466,296 |
-| `mayhem_2` | Their Worst, Twice Over | late | large | `mayhem` | `fight_five` | `fights_won_in_category:mayhem` | 5 | units | 571,410 |
+| `fight_five` | The Heaviest Thing They Send | late | large | `mayhem` | - | `fights_won_in_category:mayhem` | 1 | resources, units | 464,539 |
+| `mayhem_2` | Their Worst, Twice Over | late | large | `mayhem` | `fight_five` | `fights_won_in_category:mayhem` | 5 | resources, units | 569,792 |
 | `graded_d` | A D on the Stamp | early | small | `graded_d` | - | `jobs_won_at_letter:D` | 1 | resources | 468 |
 | `graded_d_2` | Steady Hands | mid | small | `graded_d` | `graded_d` | `jobs_won_at_letter:D` | 20 | resources | 2,500 |
 | `graded_c` | A C on the Stamp | mid | small | `graded_c` | - | `jobs_won_at_letter:C` | 1 | resources | 2,500 |
-| `graded_c_2` | C for Consistent | mid | medium | `graded_c` | `graded_c` | `jobs_won_at_letter:C` | 20 | resources, infamy | 20,100 |
+| `graded_c_2` | C for Consistent | mid | medium | `graded_c` | `graded_c` | `jobs_won_at_letter:C` | 20 | resources, xp | 19,940 |
 | `graded_b` | Top of the Pile | mid | medium | `graded_b` | - | `jobs_won_at_letter:B` | 1 | resources | 17,700 |
 | `graded_b_2` | A Thick File | late | medium | `graded_b` | `graded_b` | `jobs_won_at_letter:B` | 15 | resources, items | 82,540 |
 | `graded_a` | First Class | late | medium | `graded_a` | - | `jobs_won_at_letter:A` | 1 | resources, items | 82,540 |
 | `graded_a_2` | Nothing Less | late | large | `graded_a` | `graded_a` | `jobs_won_at_letter:A` | 10 | resources, items | 459,100 |
-| `graded_s` | Off the Scale | late | large | `graded_s` | - | `jobs_won_at_letter:S` | 1 | units | 466,296 |
-| `graded_s_2` | Past the Top | late | large | `graded_s` | `graded_s` | `jobs_won_at_letter:S` | 5 | units | 571,410 |
+| `graded_s` | Off the Scale | late | large | `graded_s` | - | `jobs_won_at_letter:S` | 1 | resources, units | 464,539 |
+| `graded_s_2` | Past the Top | late | large | `graded_s` | `graded_s` | `jobs_won_at_letter:S` | 5 | resources, units | 569,792 |
 | `long_odds_1` | Long Odds | early | small | `long_odds` | - | `jobs_won_long_odds` | 1 | resources | 468 |
-| `long_odds_2` | Nobody Told Them | mid | medium | `long_odds` | `long_odds_1` | `jobs_won_long_odds` | 10 | resources, infamy | 20,100 |
-| `odds_1` | Against the Odds | mid | medium | `odds` | - | `battles_won_outnumbered` | 1 | resources, infamy | 20,100 |
-| `odds_2` | A Habit of It | late | medium | `odds` | `odds_1` | `battles_won_outnumbered` | 10 | resources, infamy | 116,200 |
-| `odds_3` | The Smaller Side | late | large | `odds` | `odds_2` | `battles_won_outnumbered` | 50 | resources, infamy | 183,200 |
-| `overwhelmed_1` | Four to One | late | medium | `overwhelmed` | - | `battles_won_overwhelmed` | 1 | infamy | 80,000 |
-| `overwhelmed_2` | Five Times Over | late | large | `overwhelmed` | `overwhelmed_1` | `battles_won_overwhelmed` | 5 | resources, infamy | 183,200 |
-| `overwhelmed_3` | They Stopped Counting | late | large | `overwhelmed` | `overwhelmed_2` | `battles_won_overwhelmed` | 25 | infamy | 189,900 |
-| `unbloodied_1` | Everybody Home | mid | medium | `unbloodied` | - | `battles_won_flawless` | 1 | infamy | 15,000 |
-| `unbloodied_2` | Not a Scratch | late | medium | `unbloodied` | `unbloodied_1` | `battles_won_flawless` | 15 | resources, infamy | 116,200 |
+| `long_odds_2` | Nobody Told Them | mid | medium | `long_odds` | `long_odds_1` | `jobs_won_long_odds` | 10 | resources, xp | 19,940 |
+| `odds_1` | Against the Odds | mid | medium | `odds` | - | `battles_won_outnumbered` | 1 | resources, xp | 19,940 |
+| `odds_2` | A Habit of It | late | medium | `odds` | `odds_1` | `battles_won_outnumbered` | 10 | resources, xp | 115,800 |
+| `odds_3` | The Smaller Side | late | large | `odds` | `odds_2` | `battles_won_outnumbered` | 50 | resources, xp | 180,200 |
+| `overwhelmed_1` | Four to One | late | medium | `overwhelmed` | - | `battles_won_overwhelmed` | 1 | units | 59,030 |
+| `overwhelmed_2` | Five Times Over | late | large | `overwhelmed` | `overwhelmed_1` | `battles_won_overwhelmed` | 5 | resources, xp | 180,200 |
+| `overwhelmed_3` | They Stopped Counting | late | large | `overwhelmed` | `overwhelmed_2` | `battles_won_overwhelmed` | 25 | resources, units | 189,420 |
+| `unbloodied_1` | Everybody Home | mid | medium | `unbloodied` | - | `battles_won_flawless` | 1 | units | 14,922 |
+| `unbloodied_2` | Not a Scratch | late | medium | `unbloodied` | `unbloodied_1` | `battles_won_flawless` | 15 | resources, xp | 115,800 |
 | `unbloodied_3` | Nobody Buried | late | large | `unbloodied` | `unbloodied_2` | `battles_won_flawless` | 75 | resources | 189,900 |
-| `jammed_1` | In Their Systems | mid | medium | `jammed` | - | `battles_won_jamming` | 1 | infamy | 15,000 |
-| `jammed_2` | Nothing Fired Straight | late | medium | `jammed` | `jammed_1` | `battles_won_jamming` | 10 | resources, infamy | 116,200 |
-| `jammed_3` | The Quiet War | late | large | `jammed` | `jammed_2` | `battles_won_jamming` | 40 | infamy | 189,900 |
-| `planted_1` | Already Inside | mid | medium | `planted` | - | `battles_won_planted` | 1 | infamy | 15,000 |
-| `planted_2` | The Long Game | late | medium | `planted` | `planted_1` | `battles_won_planted` | 10 | resources, infamy | 116,200 |
-| `planted_3` | Nobody Saw Them Arrive | late | large | `planted` | `planted_2` | `battles_won_planted` | 30 | infamy | 189,900 |
-| `loud_1` | Bring the Noise | early | small | `loud` | - | `battles_won_loud` | 1 | infamy | 200 |
-| `loud_2` | Nobody Heard the Order | mid | medium | `loud` | `loud_1` | `battles_won_loud` | 15 | resources, infamy | 20,100 |
-| `loud_3` | The Din | late | large | `loud` | `loud_2` | `battles_won_loud` | 60 | infamy | 189,900 |
-| `routs_1` | Ten for One | mid | medium | `routs` | - | `battles_won_lopsided` | 1 | resources, infamy | 20,100 |
-| `routs_2` | One Sided | late | medium | `routs` | `routs_1` | `battles_won_lopsided` | 20 | infamy | 80,000 |
-| `routs_3` | A Bad Trade to Take | late | large | `routs` | `routs_2` | `battles_won_lopsided` | 100 | resources, infamy | 183,200 |
+| `jammed_1` | In Their Systems | mid | medium | `jammed` | - | `battles_won_jamming` | 1 | units | 14,922 |
+| `jammed_2` | Nothing Fired Straight | late | medium | `jammed` | `jammed_1` | `battles_won_jamming` | 10 | resources, xp | 115,800 |
+| `jammed_3` | The Quiet War | late | large | `jammed` | `jammed_2` | `battles_won_jamming` | 40 | resources, units | 189,420 |
+| `planted_1` | Already Inside | mid | medium | `planted` | - | `battles_won_planted` | 1 | units | 14,922 |
+| `planted_2` | The Long Game | late | medium | `planted` | `planted_1` | `battles_won_planted` | 10 | resources, xp | 115,800 |
+| `planted_3` | Nobody Saw Them Arrive | late | large | `planted` | `planted_2` | `battles_won_planted` | 30 | resources, units | 189,420 |
+| `loud_1` | Bring the Noise | early | small | `loud` | - | `battles_won_loud` | 1 | units | 260 |
+| `loud_2` | Nobody Heard the Order | mid | medium | `loud` | `loud_1` | `battles_won_loud` | 15 | resources, xp | 19,940 |
+| `loud_3` | The Din | late | large | `loud` | `loud_2` | `battles_won_loud` | 60 | resources, units | 189,420 |
+| `routs_1` | Ten for One | mid | medium | `routs` | - | `battles_won_lopsided` | 1 | resources, xp | 19,940 |
+| `routs_2` | One Sided | late | medium | `routs` | `routs_1` | `battles_won_lopsided` | 20 | units | 59,030 |
+| `routs_3` | A Bad Trade to Take | late | large | `routs` | `routs_2` | `battles_won_lopsided` | 100 | resources, xp | 180,200 |
 | `sacked_1` | Inside the Wall | mid | medium | `sacked` | - | `districts_raided` | 1 | resources | 17,700 |
 | `sacked_2` | Ten Doors In | late | medium | `sacked` | `sacked_1` | `districts_raided` | 10 | resources | 103,200 |
 | `sacked_3` | The Sacking Season | late | large | `sacked` | `sacked_2` | `districts_raided` | 40 | resources | 189,900 |
-| `repelled_1` | Not Today | mid | medium | `repelled` | - | `raids_repelled` | 1 | infamy | 15,000 |
-| `repelled_2` | The Door Holds | late | medium | `repelled` | `repelled_1` | `raids_repelled` | 10 | resources, infamy | 116,200 |
-| `repelled_3` | The District Holds | late | large | `repelled` | `repelled_2` | `raids_repelled` | 40 | infamy | 189,900 |
-| `snares_1` | Before They Knew | mid | small | `snares` | - | `trap_kills` | 25 | resources | 2,500 |
-| `snares_2` | The Ground Is Wired | late | medium | `snares` | `snares_1` | `trap_kills` | 500 | resources, infamy | 116,200 |
-| `snares_3` | Nothing Walks In Clean | late | large | `snares` | `snares_2` | `trap_kills` | 5,000 | infamy | 189,900 |
+| `repelled_1` | Not Today | mid | medium | `repelled` | - | `raids_repelled` | 1 | units | 14,922 |
+| `repelled_2` | The Door Holds | late | medium | `repelled` | `repelled_1` | `raids_repelled` | 10 | resources, xp | 115,800 |
+| `repelled_3` | The District Holds | late | large | `repelled` | `repelled_2` | `raids_repelled` | 40 | resources, units | 189,420 |
+| `snares_1` | Before They Knew | mid | small | `snares` | - | `trap_kills` | 10 | resources | 2,500 |
+| `snares_2` | The Ground Is Wired | late | medium | `snares` | `snares_1` | `trap_kills` | 120 | resources, xp | 115,800 |
+| `snares_3` | Nothing Walks In Clean | late | large | `snares` | `snares_2` | `trap_kills` | 500 | resources, units | 189,420 |
 | `breaker_1` | Knock Knock | late | small | `breaker` | - | `gate_levels_broken` | 1 | resources | 12,200 |
-| `breaker_2` | Rubble Merchant | late | medium | `breaker` | `breaker_1` | `gate_levels_broken` | 25 | resources, infamy | 116,200 |
+| `breaker_2` | Rubble Merchant | late | medium | `breaker` | `breaker_1` | `gate_levels_broken` | 25 | resources, xp | 115,800 |
 | `ring_1` | Nowhere to Run | late | small | `ring` | - | `runners_caught` | 10 | resources | 12,200 |
-| `ring_2` | The Ring Holds | late | medium | `ring` | `ring_1` | `runners_caught` | 250 | resources, infamy | 116,200 |
-| `ring_3` | No Way Back | late | large | `ring` | `ring_2` | `runners_caught` | 2,500 | resources, infamy | 183,200 |
-| `regime_1` | The First Ten | early | small | `regime` | - | `combine_kills` | 10 | infamy | 200 |
-| `regime_2` | A Hundred in Grey | mid | small | `regime` | `regime_1` | `combine_kills` | 100 | resources, infamy | 4,900 |
-| `regime_3` | A Bad Quarter for the Ministry | mid | medium | `regime` | `regime_2` | `combine_kills` | 500 | infamy | 15,000 |
-| `regime_4` | Two Thousand Uniforms | late | medium | `regime` | `regime_3` | `combine_kills` | 2,000 | resources, infamy | 116,200 |
-| `regime_5` | The Conscription Notices | late | large | `regime` | `regime_4` | `combine_kills` | 6,000 | infamy | 200,000 |
-| `regime_6` | What the Spire Cannot Replace | late | large | `regime` | `regime_5` | `combine_kills` | 15,000 | infamy | 464,200 |
+| `ring_2` | The Ring Holds | late | medium | `ring` | `ring_1` | `runners_caught` | 250 | resources, xp | 115,800 |
+| `ring_3` | No Way Back | late | large | `ring` | `ring_2` | `runners_caught` | 2,500 | resources, xp | 180,200 |
+| `regime_1` | The First Ten | early | small | `regime` | - | `combine_kills` | 10 | units | 260 |
+| `regime_2` | A Hundred in Grey | mid | small | `regime` | `regime_1` | `combine_kills` | 100 | resources, xp | 4,740 |
+| `regime_3` | A Bad Quarter for the Ministry | mid | medium | `regime` | `regime_2` | `combine_kills` | 500 | units | 14,922 |
+| `regime_4` | Two Thousand Uniforms | late | medium | `regime` | `regime_3` | `combine_kills` | 2,000 | resources, xp | 115,800 |
+| `regime_5` | The Conscription Notices | late | large | `regime` | `regime_4` | `combine_kills` | 6,000 | resources, units | 189,420 |
+| `regime_6` | What the Spire Cannot Replace | late | large | `regime` | `regime_5` | `combine_kills` | 15,000 | resources, units | 464,539 |
 | `levy_1` | Fortnight of Drill | early | small | `levy` | - | `combine_kills_of:civic_levy` | 25 | resources | 468 |
 | `levy_2` | Every Street Corner | mid | small | `levy` | `levy_1` | `combine_kills_of:civic_levy` | 250 | resources | 2,500 |
-| `levy_3` | The Quota | mid | medium | `levy` | `levy_2` | `combine_kills_of:civic_levy` | 1,000 | resources, infamy | 20,100 |
-| `levy_4` | Nobody Left to Conscript | late | medium | `levy` | `levy_3` | `combine_kills_of:civic_levy` | 4,000 | resources, infamy | 116,200 |
-| `greycoats_1` | A Rifle and a Number | early | medium | `greycoats` | - | `combine_kills_of:greycoat` | 20 | infamy | 1,300 |
-| `greycoats_2` | The Coats Come Off | mid | small | `greycoats` | `greycoats_1` | `combine_kills_of:greycoat` | 200 | resources, infamy | 4,900 |
-| `greycoats_3` | A Rifle Company, Twice | mid | large | `greycoats` | `greycoats_2` | `combine_kills_of:greycoat` | 800 | infamy | 60,000 |
-| `greycoats_4` | Three Thousand Helmets | late | large | `greycoats` | `greycoats_3` | `combine_kills_of:greycoat` | 3,000 | resources, infamy | 183,200 |
+| `levy_3` | The Quota | mid | medium | `levy` | `levy_2` | `combine_kills_of:civic_levy` | 1,000 | resources, xp | 19,940 |
+| `levy_4` | Nobody Left to Conscript | late | medium | `levy` | `levy_3` | `combine_kills_of:civic_levy` | 4,000 | resources, xp | 115,800 |
+| `greycoats_1` | A Rifle and a Number | early | medium | `greycoats` | - | `combine_kills_of:greycoat` | 20 | units | 1,245 |
+| `greycoats_2` | The Coats Come Off | mid | small | `greycoats` | `greycoats_1` | `combine_kills_of:greycoat` | 200 | resources, xp | 4,740 |
+| `greycoats_3` | A Rifle Company, Twice | mid | large | `greycoats` | `greycoats_2` | `combine_kills_of:greycoat` | 800 | units | 40,920 |
+| `greycoats_4` | Three Thousand Helmets | late | large | `greycoats` | `greycoats_3` | `combine_kills_of:greycoat` | 3,000 | resources, xp | 180,200 |
 | `enforcers_1` | The Batons Were Not for Show | mid | small | `enforcers` | - | `combine_kills_of:street_enforcers` | 10 | resources | 2,500 |
 | `enforcers_2` | Nobody Is Being Arrested | mid | medium | `enforcers` | `enforcers_1` | `combine_kills_of:street_enforcers` | 100 | boosts | 9,000 |
-| `enforcers_3` | The Raids Stop | late | medium | `enforcers` | `enforcers_2` | `combine_kills_of:street_enforcers` | 400 | resources, infamy | 116,200 |
-| `enforcers_4` | The Plate Did Not Help | late | large | `enforcers` | `enforcers_3` | `combine_kills_of:street_enforcers` | 1,500 | infamy | 362,900 |
+| `enforcers_3` | The Raids Stop | late | medium | `enforcers` | `enforcers_2` | `combine_kills_of:street_enforcers` | 400 | resources, xp | 115,800 |
+| `enforcers_4` | The Plate Did Not Help | late | large | `enforcers` | `enforcers_3` | `combine_kills_of:street_enforcers` | 1,500 | resources, units | 362,158 |
 | `suppressors_1` | The Street Is Open | mid | small | `suppressors` | - | `combine_kills_of:suppressor` | 5 | items | 1,800 |
 | `suppressors_2` | Fifty Tripods | late | medium | `suppressors` | `suppressors_1` | `combine_kills_of:suppressor` | 50 | resources, items | 82,540 |
 | `suppressors_3` | Nothing Left to Deny | late | large | `suppressors` | `suppressors_2` | `combine_kills_of:suppressor` | 250 | resources | 464,200 |
-| `liberated_1` | Off the Regime | early | medium | `liberated` | - | `combine_locations_taken` | 1 | resources, infamy | 2,012 |
-| `liberated_2` | Five Doors the Combine Lost | mid | medium | `liberated` | `liberated_1` | `combine_locations_taken` | 5 | resources, infamy | 20,100 |
-| `liberated_3` | Up the Hill | late | medium | `liberated` | `liberated_2` | `combine_locations_taken` | 12 | resources, infamy | 116,200 |
-| `liberated_4` | The Annexes Answer to You | late | large | `liberated` | `liberated_3` | `combine_locations_taken` | 25 | resources, infamy | 183,200 |
-| `liberated_5` | Every Plot on the Climb | late | large | `liberated` | `liberated_4` | `combine_locations_taken` | 50 | resources | 569,700 |
-| `pushback_1` | Against the Uniform | early | medium | `pushback` | - | `combine_fights_won` | 1 | resources, infamy | 2,012 |
-| `pushback_2` | Ten Over the Regime | mid | medium | `pushback` | `pushback_1` | `combine_fights_won` | 10 | resources, infamy | 20,100 |
-| `pushback_3` | A Standing Problem | late | medium | `pushback` | `pushback_2` | `combine_fights_won` | 40 | resources, infamy | 116,200 |
-| `pushback_4` | The Blacksite Takes Notes | late | large | `pushback` | `pushback_3` | `combine_fights_won` | 120 | infamy | 200,000 |
-| `pushback_5` | The Only Uniform Saluted | late | large | `pushback` | `pushback_4` | `combine_fights_won` | 300 | infamy | 464,200 |
-| `clean_sweep_1` | Not One of Ours | mid | medium | `clean_sweep` | - | `combine_fights_won_flawless` | 1 | infamy | 15,000 |
-| `clean_sweep_2` | Ten Clean Against the Regime | late | medium | `clean_sweep` | `clean_sweep_1` | `combine_fights_won_flawless` | 10 | resources, infamy | 116,200 |
-| `clean_sweep_3` | The Berms Were Empty | late | large | `clean_sweep` | `clean_sweep_2` | `combine_fights_won_flawless` | 40 | infamy | 200,000 |
+| `liberated_1` | Off the Regime | early | medium | `liberated` | - | `combine_locations_taken` | 1 | resources, xp | 2,022 |
+| `liberated_2` | Three Doors the Combine Lost | mid | medium | `liberated` | `liberated_1` | `combine_locations_taken` | 3 | resources, xp | 19,940 |
+| `liberated_3` | Up the Hill | late | medium | `liberated` | `liberated_2` | `combine_locations_taken` | 6 | resources, xp | 115,800 |
+| `liberated_4` | New Signage | late | large | `liberated` | `liberated_3` | `combine_locations_taken` | 10 | resources, xp | 180,200 |
+| `liberated_5` | The Map Moves One Way | late | large | `liberated` | `liberated_4` | `combine_locations_taken` | 15 | resources | 362,920 |
+| `pushback_1` | Against the Uniform | early | medium | `pushback` | - | `combine_fights_won` | 1 | resources, xp | 2,022 |
+| `pushback_2` | Ten Over the Regime | mid | medium | `pushback` | `pushback_1` | `combine_fights_won` | 10 | resources, xp | 19,940 |
+| `pushback_3` | A Standing Problem | late | medium | `pushback` | `pushback_2` | `combine_fights_won` | 40 | resources, xp | 115,800 |
+| `pushback_4` | The Blacksite Takes Notes | late | large | `pushback` | `pushback_3` | `combine_fights_won` | 120 | resources, units | 189,420 |
+| `pushback_5` | The Only Uniform Saluted | late | large | `pushback` | `pushback_4` | `combine_fights_won` | 300 | resources, units | 464,539 |
+| `clean_sweep_1` | Not One of Ours | mid | medium | `clean_sweep` | - | `combine_fights_won_flawless` | 1 | units | 14,922 |
+| `clean_sweep_2` | Ten Clean Against the Regime | late | medium | `clean_sweep` | `clean_sweep_1` | `combine_fights_won_flawless` | 10 | resources, xp | 115,800 |
+| `clean_sweep_3` | The Berms Were Empty | late | large | `clean_sweep` | `clean_sweep_2` | `combine_fights_won_flawless` | 40 | resources, units | 189,420 |
 | `clean_sweep_4` | The Combine Buries, You Do Not | late | large | `clean_sweep` | `clean_sweep_3` | `combine_fights_won_flawless` | 120 | resources | 464,200 |
-| `shadow_1` | Under His Eye | mid | medium | `shadow` | - | `combine_fights_won_shadowed` | 1 | infamy | 15,000 |
-| `shadow_2` | Ten in His Shadow | late | medium | `shadow` | `shadow_1` | `combine_fights_won_shadowed` | 10 | infamy | 80,000 |
-| `shadow_3` | Where the Executioner Walks | late | large | `shadow` | `shadow_2` | `combine_fights_won_shadowed` | 30 | resources, infamy | 183,200 |
-| `shadow_4` | A Hundred Morale Means Nothing | late | large | `shadow` | `shadow_3` | `combine_fights_won_shadowed` | 75 | infamy | 675,200 |
-| `broken_1` | They Ran | early | small | `broken` | - | `units_routed` | 20 | infamy | 200 |
-| `broken_2` | Nobody Stays For It | mid | medium | `broken` | `broken_1` | `units_routed` | 200 | infamy | 15,000 |
-| `broken_3` | The Sound Of Your Name | late | large | `broken` | `broken_2` | `units_routed` | 1,000 | infamy | 200,000 |
+| `shadow_1` | Under His Eye | mid | medium | `shadow` | - | `combine_fights_won_shadowed` | 1 | units | 14,922 |
+| `shadow_2` | Ten in His Shadow | late | medium | `shadow` | `shadow_1` | `combine_fights_won_shadowed` | 10 | units | 59,030 |
+| `shadow_3` | Where the Executioner Walks | late | large | `shadow` | `shadow_2` | `combine_fights_won_shadowed` | 30 | resources, xp | 180,200 |
+| `shadow_4` | A Hundred Morale Means Nothing | late | large | `shadow` | `shadow_3` | `combine_fights_won_shadowed` | 75 | resources, units | 676,321 |
+| `broken_1` | They Ran | early | small | `broken` | - | `units_routed` | 20 | units | 260 |
+| `broken_2` | Nobody Stays For It | mid | medium | `broken` | `broken_1` | `units_routed` | 200 | units | 14,922 |
+| `broken_3` | The Sound Of Your Name | late | large | `broken` | `broken_2` | `units_routed` | 1,000 | resources, units | 189,420 |
 | `turncoats_1` | One of Yours Stayed | late | small | `turncoats` | - | `units_turned` | 1 | xp | 12,600 |
 | `turncoats_2` | The Roll Call Is Shorter | late | medium | `turncoats` | `turncoats_1` | `units_turned` | 25 | xp | 77,000 |
-| `turncoats_3` | They Wear Grey Now | late | large | `turncoats` | `turncoats_2` | `units_turned` | 150 | xp | 364,000 |
+| `turncoats_3` | They Died in Grey | late | large | `turncoats` | `turncoats_2` | `units_turned` | 150 | xp | 364,000 |
 | `annexed_1` | A District the Regime Lost | mid | large | `annexed` | - | `combine_districts_held` | 1 | resources, xp | 77,800 |
 | `annexed_2` | Half Their Map | late | large | `annexed` | `annexed_1` | `combine_districts_held` | 3 | resources, xp | 499,000 |
 | `annexed_3` | A City’s Worth | late | large | `annexed` | `annexed_2` | `combine_districts_held` | 6 | resources | 675,200 |
 | `annexed_4` | The Regime Holds Nothing | late | large | `annexed` | `annexed_3` | `combine_districts_held` | 10 | resources | 822,900 |
 | `syndic_slain` | The Liaison Is Dead | late | large | - | - | `combine_leaders_slain:syndic` | 1 | resources, items | 459,100 |
-| `executioner_slain` | Arrests Resume | late | large | - | - | `combine_leaders_slain:executioner` | 1 | units | 466,296 |
-| `directive_xero_slain` | The Chapel Is Quiet | late | large | - | - | `combine_leaders_slain:directive_xero` | 1 | infamy | 675,200 |
+| `executioner_slain` | Arrests Resume | late | large | - | - | `combine_leaders_slain:executioner` | 1 | resources, units | 464,539 |
+| `directive_xero_slain` | The Chapel Is Quiet | late | large | - | - | `combine_leaders_slain:directive_xero` | 1 | resources, units | 676,321 |
 | `chapel_held` | Whose Chapel It Is | late | large | `chapels` | - | `chapel_held` | 1 | resources | 362,920 |
 | `chapel_held_2` | Both Their Chapels | late | large | `chapels` | `chapel_held` | `chapel_held` | 2 | resources | 569,700 |
-| `stripped_1` | Nobody Left at the Door | mid | small | `stripped` | - | `districts_emptied` | 1 | resources, infamy | 4,900 |
-| `stripped_2` | Three Blocks Nobody Answers For | mid | medium | `stripped` | `stripped_1` | `districts_emptied` | 3 | infamy | 15,000 |
-| `stripped_3` | The Weekly Requisition | late | medium | `stripped` | `stripped_2` | `districts_emptied` | 10 | resources, infamy | 116,200 |
+| `stripped_1` | Nobody Left at the Door | mid | small | `stripped` | - | `districts_emptied` | 1 | resources, xp | 4,740 |
+| `stripped_2` | Three Blocks Nobody Answers For | mid | medium | `stripped` | `stripped_1` | `districts_emptied` | 3 | units | 14,922 |
+| `stripped_3` | The Weekly Requisition | late | medium | `stripped` | `stripped_2` | `districts_emptied` | 10 | resources, xp | 115,800 |
 | `stripped_4` | Faster Than They Can Post Them | late | large | `stripped` | `stripped_3` | `districts_emptied` | 25 | resources | 422,000 |
 | `kept_1` | Still There on Monday | early | small | `kept` | - | `plots_held_through_regrowth` | 1 | resources | 468 |
 | `kept_2` | Ten Times Unbothered | early | medium | `kept` | `kept_1` | `plots_held_through_regrowth` | 10 | resources, xp | 2,022 |
 | `kept_3` | The Ground Stopped Moving | mid | medium | `kept` | `kept_2` | `plots_held_through_regrowth` | 60 | resources | 17,700 |
-| `kept_4` | Older Than the Rota | late | medium | `kept` | `kept_3` | `plots_held_through_regrowth` | 250 | resources, infamy | 116,200 |
+| `kept_4` | Older Than the Rota | late | medium | `kept` | `kept_3` | `plots_held_through_regrowth` | 250 | resources, xp | 115,800 |
 | `holdings_1` | Something of Your Own | early | medium | `holdings` | - | `locations_held` | 1 | resources, xp | 2,022 |
 | `holdings_2` | A Portfolio | mid | medium | `holdings` | `holdings_1` | `locations_held` | 5 | resources, xp | 19,940 |
 | `holdings_3` | Landlord | late | large | `holdings` | `holdings_2` | `locations_held` | 15 | resources, xp | 499,000 |
 | `holdings_4` | Thirty Addresses | late | large | `holdings` | `holdings_3` | `locations_held` | 30 | resources | 569,700 |
 | `holdings_5` | Half the City on Paper | late | large | `holdings` | `holdings_4` | `locations_held` | 45 | resources | 675,200 |
 | `holdings_6` | Ninety Rent Books | late | large | `holdings` | `holdings_5` | `locations_held` | 90 | resources | 822,900 |
-| `taken_1` | Took It Off Them | early | medium | `taken` | - | `locations_captured` | 1 | resources, infamy | 2,012 |
-| `taken_2` | Ten Changes of Hands | mid | medium | `taken` | `taken_1` | `locations_captured` | 10 | resources, infamy | 20,100 |
-| `taken_3` | Forty | late | large | `taken` | `taken_2` | `locations_captured` | 40 | resources, infamy | 183,200 |
+| `taken_1` | Took It Off Them | early | medium | `taken` | - | `locations_captured` | 1 | resources, xp | 2,022 |
+| `taken_2` | Ten Changes of Hands | mid | medium | `taken` | `taken_1` | `locations_captured` | 10 | resources, xp | 19,940 |
+| `taken_3` | Forty | late | large | `taken` | `taken_2` | `locations_captured` | 40 | resources, xp | 180,200 |
 | `taken_4` | Ninety Doors | late | large | `taken` | `taken_3` | `locations_captured` | 90 | resources | 464,200 |
 | `taken_5` | Two Hundred Addresses | late | large | `taken` | `taken_4` | `locations_captured` | 200 | resources | 569,700 |
 | `taken_6` | The Landlord | late | large | `taken` | `taken_5` | `locations_captured` | 450 | resources | 675,200 |
@@ -1202,39 +1202,40 @@ Every feat, its ladder, and what finishing it pays. A step with something in **A
 | `whole_3` | Half the City | late | large | `whole` | `whole_2` | `districts_held_whole` | 6 | resources, xp | 499,000 |
 | `whole_4` | Eight Districts Whole | late | large | `whole` | `whole_3` | `districts_held_whole` | 8 | resources | 569,700 |
 | `whole_5` | Twelve, Across the Frontier | late | large | `whole` | `whole_4` | `districts_held_whole` | 12 | resources | 675,200 |
-| `gates_1` | Through the Gate | mid | medium | `gates` | - | `gates_captured` | 1 | resources, infamy | 20,100 |
-| `gates_2` | Five Gates | late | medium | `gates` | `gates_1` | `gates_captured` | 5 | resources, infamy | 116,200 |
-| `gates_3` | Every Door in the Wall | late | large | `gates` | `gates_2` | `gates_captured` | 15 | resources, infamy | 183,200 |
-| `gates_4` | Forty Gates | late | large | `gates` | `gates_3` | `gates_captured` | 40 | resources | 189,900 |
-| `gates_5` | The Tollkeeper | late | large | `gates` | `gates_4` | `gates_captured` | 100 | resources | 362,920 |
-| `gates_6` | Every Road In | late | large | `gates` | `gates_5` | `gates_captured` | 250 | resources | 464,200 |
-| `scouted_1` | Have a Look | early | small | `scouted` | - | `districts_scouted` | 3 | xp | 210 |
-| `scouted_2` | Eight Streets | early | medium | `scouted` | `scouted_1` | `districts_scouted` | 8 | xp | 1,260 |
-| `scouted_3` | Nowhere Left Dark | mid | medium | `scouted` | `scouted_2` | `districts_scouted` | 11 | xp | 14,000 |
-| `scouted_4` | The Whole Frontier | late | medium | `scouted` | `scouted_3` | `districts_scouted` | 23 | xp | 77,000 |
+| `gates_1` | Through the Gate | mid | medium | `gates` | - | `gates_breached` | 1 | resources, xp | 19,940 |
+| `gates_2` | Five Gates | late | medium | `gates` | `gates_1` | `gates_breached` | 5 | resources, xp | 115,800 |
+| `gates_3` | Every Door in the Wall | late | large | `gates` | `gates_2` | `gates_breached` | 15 | resources, xp | 180,200 |
+| `gates_4` | Forty Gates | late | large | `gates` | `gates_3` | `gates_breached` | 40 | resources | 189,900 |
+| `gates_5` | The Battering Ram | late | large | `gates` | `gates_4` | `gates_breached` | 100 | resources | 362,920 |
+| `gates_6` | Every Road In | late | large | `gates` | `gates_5` | `gates_breached` | 250 | resources | 464,200 |
 | `spying_1` | Loose Ears | early | small | `spying` | - | `spy_reports` | 3 | items | 240 |
 | `spying_2` | Somebody on the Inside | mid | small | `spying` | `spying_1` | `spy_reports` | 20 | items | 2,520 |
 | `spying_3` | The Whole Wire | late | small | `spying` | `spying_2` | `spy_reports` | 80 | resources, items | 7,700 |
 | `spying_4` | Total Intelligence | late | medium | `spying` | `spying_3` | `spy_reports` | 250 | xp | 77,000 |
-| `scouting_1` | Send a Scout | early | small | `scouting` | - | `scouting_runs` | 5 | items | 240 |
-| `scouting_2` | Eyes Out | mid | small | `scouting` | `scouting_1` | `scouting_runs` | 40 | items | 2,520 |
-| `scouting_3` | The Standing Watch | late | small | `scouting` | `scouting_2` | `scouting_runs` | 150 | resources, items | 7,700 |
-| `scouting_4` | Nothing Unmapped | late | medium | `scouting` | `scouting_3` | `scouting_runs` | 500 | xp | 77,000 |
-| `scouting_5` | Twelve Hundred Walks | late | medium | `scouting` | `scouting_4` | `scouting_runs` | 1,200 | xp | 79,800 |
-| `scouting_6` | The Standing Map | late | medium | `scouting` | `scouting_5` | `scouting_runs` | 2,800 | xp | 117,600 |
-| `scouting_7` | Eyes Everywhere | late | large | `scouting` | `scouting_6` | `scouting_runs` | 6,500 | xp | 189,000 |
-| `scouting_8` | You Knew Before They Did | late | large | `scouting` | `scouting_7` | `scouting_runs` | 15,000 | xp | 361,200 |
+| `spy_jobs_1` | Send the Runners | early | small | `spy_jobs` | - | `spy_jobs_returned` | 5 | items | 240 |
+| `spy_jobs_2` | Eyes Out | mid | small | `spy_jobs` | `spy_jobs_1` | `spy_jobs_returned` | 25 | items | 2,520 |
+| `spy_jobs_3` | The Standing Watch | late | small | `spy_jobs` | `spy_jobs_2` | `spy_jobs_returned` | 60 | resources, items | 7,700 |
+| `spy_jobs_4` | Nothing Unread | late | medium | `spy_jobs` | `spy_jobs_3` | `spy_jobs_returned` | 150 | xp | 77,000 |
+| `spy_jobs_5` | Three Hundred Evenings | late | medium | `spy_jobs` | `spy_jobs_4` | `spy_jobs_returned` | 300 | xp | 79,800 |
+| `spy_jobs_6` | The Standing Map | late | medium | `spy_jobs` | `spy_jobs_5` | `spy_jobs_returned` | 600 | xp | 117,600 |
+| `spy_jobs_7` | Eyes Everywhere | late | large | `spy_jobs` | `spy_jobs_6` | `spy_jobs_returned` | 1,000 | xp | 189,000 |
+| `spy_jobs_8` | You Knew Before They Did | late | large | `spy_jobs` | `spy_jobs_7` | `spy_jobs_returned` | 1,600 | xp | 361,200 |
+| `spy_unnoticed_1` | Nobody Saw a Thing | mid | small | `spy_unnoticed` | - | `spy_jobs_unnoticed` | 5 | items | 2,520 |
+| `spy_unnoticed_2` | In and Out | late | small | `spy_unnoticed` | `spy_unnoticed_1` | `spy_jobs_unnoticed` | 30 | resources, items | 7,700 |
+| `spy_unnoticed_3` | Ghost Stories | late | medium | `spy_unnoticed` | `spy_unnoticed_2` | `spy_jobs_unnoticed` | 120 | xp | 77,000 |
+| `courier_1` | He Stops Here First | late | small | `courier` | - | `courier_reports` | 7 | resources, items | 7,700 |
+| `courier_2` | Their Post, Our Table | late | medium | `courier` | `courier_1` | `courier_reports` | 60 | xp | 77,000 |
 | `abroad_1` | A Foot in the Door | mid | medium | `abroad` | - | `locations_held_abroad` | 1 | resources, xp | 19,940 |
 | `abroad_2` | Five Addresses Away | late | medium | `abroad` | `abroad_1` | `locations_held_abroad` | 5 | resources, xp | 115,800 |
 | `abroad_3` | The Other Half of Your Ledger | late | large | `abroad` | `abroad_2` | `locations_held_abroad` | 15 | resources, xp | 499,000 |
 | `abroad_4` | Forty, and None of Them Home | late | large | `abroad` | `abroad_3` | `locations_held_abroad` | 40 | resources | 569,700 |
-| `two_cities` | Two Cities | late | medium | - | - | `cities_held` | 2 | resources, infamy | 116,200 |
+| `two_cities` | Two Cities | late | medium | - | - | `cities_held` | 2 | resources, xp | 115,800 |
 | `expat_1` | A Whole District, Elsewhere | late | large | `expat` | - | `districts_held_whole_abroad` | 1 | resources, xp | 499,000 |
 | `expat_2` | Three Districts Abroad | late | large | `expat` | `expat_1` | `districts_held_whole_abroad` | 3 | resources | 569,700 |
-| `away_1` | Won It Away From Home | mid | medium | `away` | - | `battles_won_abroad` | 1 | resources, infamy | 20,100 |
-| `away_2` | Ten on the Road | late | medium | `away` | `away_1` | `battles_won_abroad` | 10 | resources, infamy | 116,200 |
-| `away_3` | They Know You There | late | large | `away` | `away_2` | `battles_won_abroad` | 50 | resources, infamy | 183,200 |
-| `away_4` | Two Hundred Away Wins | late | large | `away` | `away_3` | `battles_won_abroad` | 200 | infamy | 362,900 |
+| `away_1` | Won It Away From Home | mid | medium | `away` | - | `battles_won_abroad` | 1 | resources, xp | 19,940 |
+| `away_2` | Ten on the Road | late | medium | `away` | `away_1` | `battles_won_abroad` | 10 | resources, xp | 115,800 |
+| `away_3` | They Know You There | late | large | `away` | `away_2` | `battles_won_abroad` | 50 | resources, xp | 180,200 |
+| `away_4` | Two Hundred Away Wins | late | large | `away` | `away_3` | `battles_won_abroad` | 200 | resources, units | 362,158 |
 | `platforms_1` | One Platform | mid | medium | `platforms` | - | `rail_stations_held` | 1 | resources, xp | 19,940 |
 | `platforms_2` | The Line Runs | late | medium | `platforms` | `platforms_1` | `rail_stations_held` | 2 | resources, xp | 115,800 |
 | `platforms_3` | Four Stops | late | large | `platforms` | `platforms_2` | `rail_stations_held` | 4 | resources, xp | 499,000 |
@@ -1300,15 +1301,15 @@ Every feat, its ladder, and what finishing it pays. A step with something in **A
 | `fittings_2` | Every Slot Earns | mid | small | `fittings` | `fittings_1` | `modifications_fitted` | 8 | items | 2,520 |
 | `fittings_3` | Rebuilt From The Inside | late | medium | `fittings` | `fittings_2` | `modifications_fitted` | 20 | resources, items | 82,540 |
 | `fittings_4` | Twenty Seven Fitted | late | medium | `fittings` | `fittings_3` | `modifications_fitted` | 27 | resources | 118,160 |
-| `fittings_5` | Every Bracket Full | late | large | `fittings` | `fittings_4` | `modifications_fitted` | 31 | resources | 189,900 |
+| `fittings_5` | Every Bracket Full | late | large | `fittings` | `fittings_4` | `modifications_fitted` | 33 | resources | 189,900 |
 | `sets_1` | Built Around One Idea | late | small | `sets` | - | `modification_sets` | 1 | resources, items | 7,700 |
 | `sets_2` | A Hand, Not A Pile | late | medium | `sets` | `sets_1` | `modification_sets` | 3 | resources, items | 82,540 |
 | `sets_3` | Nothing Here By Accident | late | large | `sets` | `sets_2` | `modification_sets` | 5 | resources, items | 459,100 |
 | `kitted_1` | Taped Up | early | small | `kitted` | - | `unit_modifications_fitted` | 1 | items | 240 |
 | `kitted_2` | Three Full Racks | mid | small | `kitted` | `kitted_1` | `unit_modifications_fitted` | 9 | items | 2,520 |
 | `kitted_3` | Nobody Standard | late | medium | `kitted` | `kitted_2` | `unit_modifications_fitted` | 20 | resources, items | 82,540 |
-| `kitted_4` | Thirty Cards in Brackets | late | medium | `kitted` | `kitted_3` | `unit_modifications_fitted` | 30 | units | 117,750 |
-| `kitted_5` | Nothing Off the Shelf | late | large | `kitted` | `kitted_4` | `unit_modifications_fitted` | 40 | units | 189,475 |
+| `kitted_4` | Thirty Cards in Brackets | late | medium | `kitted` | `kitted_3` | `unit_modifications_fitted` | 30 | resources, units | 118,078 |
+| `kitted_5` | Nothing Off the Shelf | late | large | `kitted` | `kitted_4` | `unit_modifications_fitted` | 40 | resources, units | 189,420 |
 | `masterpiece_fitted` | Known By Name | late | small | - | - | `masterpieces_fitted` | 1 | resources, items | 7,700 |
 | `addons_1` | Fitted Out | early | small | `addons` | - | `addons_built` | 3 | items | 240 |
 | `addons_2` | The Yard Earns Its Keep | mid | small | `addons` | `addons_1` | `addons_built` | 25 | items | 2,520 |
@@ -1328,8 +1329,8 @@ Every feat, its ladder, and what finishing it pays. A step with something in **A
 | `roster_1` | Twenty at Home | early | small | `roster` | - | `army_units` | 20 | resources | 468 |
 | `roster_2` | A Hundred and Fifty | mid | small | `roster` | `roster_1` | `army_units` | 150 | resources | 2,500 |
 | `roster_3` | Six Hundred | late | medium | `roster` | `roster_2` | `army_units` | 600 | resources | 103,200 |
-| `roster_4` | A Thousand Under Arms | late | medium | `roster` | `roster_3` | `army_units` | 1,000 | units | 117,750 |
-| `roster_5` | The Standing Host | late | large | `roster` | `roster_4` | `army_units` | 1,600 | units | 189,475 |
+| `roster_4` | A Thousand Under Arms | late | medium | `roster` | `roster_3` | `army_units` | 1,000 | resources, units | 118,078 |
+| `roster_5` | The Standing Host | late | large | `roster` | `roster_4` | `army_units` | 1,600 | resources, units | 189,420 |
 | `beds_1` | Forty Slots Full | early | small | `beds` | - | `army_unit_slots` | 40 | resources | 468 |
 | `beds_2` | Three Hundred | mid | small | `beds` | `beds_1` | `army_unit_slots` | 300 | resources | 2,500 |
 | `beds_3` | A Thousand at Home | late | medium | `beds` | `beds_2` | `army_unit_slots` | 1,000 | resources | 103,200 |
@@ -1339,18 +1340,18 @@ Every feat, its ladder, and what finishing it pays. A step with something in **A
 | `trained_1` | Put Them Through It | early | small | `trained` | - | `units_trained` | 25 | xp | 210 |
 | `trained_2` | The Drill Yard | mid | medium | `trained` | `trained_1` | `units_trained` | 400 | xp | 14,000 |
 | `trained_3` | Two Thousand Through the Gate | late | medium | `trained` | `trained_2` | `units_trained` | 2,000 | xp | 77,000 |
-| `trained_4` | A Generation | late | large | `trained` | `trained_3` | `units_trained` | 10,000 | units | 402,790 |
-| `trained_5` | Two Generations | late | large | `trained` | `trained_4` | `units_trained` | 22,000 | units | 571,410 |
-| `trained_6` | Bigger Than the District | late | large | `trained` | `trained_5` | `units_trained` | 48,000 | resources, units | 678,445 |
-| `trained_7` | A Hundred Thousand Through | late | large | `trained` | `trained_6` | `units_trained` | 105,000 | resources, units | 826,145 |
-| `trained_8` | Nobody Learned It Anywhere Else | late | large | `trained` | `trained_7` | `units_trained` | 230,000 | resources, units | 994,945 |
-| `trained_9` | Half a Million Taught | late | large | `trained` | `trained_8` | `units_trained` | 500,000 | resources, units | 1,184,845 |
-| `trained_10` | The Institution | late | large | `trained` | `trained_9` | `units_trained` | 1,100,000 | resources, units | 1,416,945 |
+| `trained_4` | A Generation | late | large | `trained` | `trained_3` | `units_trained` | 10,000 | units | 256,290 |
+| `trained_5` | Two Generations | late | large | `trained` | `trained_4` | `units_trained` | 22,000 | resources, units | 569,792 |
+| `trained_6` | Bigger Than the District | late | large | `trained` | `trained_5` | `units_trained` | 48,000 | resources, units | 676,321 |
+| `trained_7` | A Hundred Thousand Through | late | large | `trained` | `trained_6` | `units_trained` | 105,000 | resources, units | 824,021 |
+| `trained_8` | Nobody Learned It Anywhere Else | late | large | `trained` | `trained_7` | `units_trained` | 230,000 | resources, units | 992,821 |
+| `trained_9` | Half a Million Taught | late | large | `trained` | `trained_8` | `units_trained` | 500,000 | resources, units | 1,182,721 |
+| `trained_10` | The Institution | late | large | `trained` | `trained_9` | `units_trained` | 1,100,000 | resources, units | 1,414,821 |
 | `kinds_1` | Three Kinds of Trouble | early | small | `kinds` | - | `unit_kinds_held` | 3 | resources | 468 |
 | `kinds_2` | Combined Arms | mid | medium | `kinds` | `kinds_1` | `unit_kinds_held` | 8 | resources | 17,700 |
 | `kinds_3` | The Whole Catalogue | late | medium | `kinds` | `kinds_2` | `unit_kinds_held` | 15 | resources | 103,200 |
-| `kinds_4` | Twenty Kinds | late | medium | `kinds` | `kinds_3` | `unit_kinds_held` | 20 | units | 117,750 |
-| `kinds_5` | One of Nearly Everything | late | large | `kinds` | `kinds_4` | `unit_kinds_held` | 26 | units | 189,475 |
+| `kinds_4` | Twenty Kinds | late | medium | `kinds` | `kinds_3` | `unit_kinds_held` | 20 | resources, units | 118,078 |
+| `kinds_5` | One of Nearly Everything | late | large | `kinds` | `kinds_4` | `unit_kinds_held` | 26 | resources, units | 189,420 |
 | `officers_1` | Somebody in Charge | early | medium | `officers` | - | `officers_held` | 1 | resources | 1,812 |
 | `officers_2` | A Command | mid | medium | `officers` | `officers_1` | `officers_held` | 4 | resources | 17,700 |
 | `officers_3` | A Staff | late | medium | `officers` | `officers_2` | `officers_held` | 8 | resources | 103,200 |
@@ -1361,8 +1362,8 @@ Every feat, its ladder, and what finishing it pays. A step with something in **A
 | `hired_3` | Everybody Has Worked For You | late | small | `hired` | `hired_2` | `officers_hired` | 30 | xp | 12,600 |
 | `hired_4` | Eighty Signed | late | small | `hired` | `hired_3` | `officers_hired` | 80 | resources | 12,660 |
 | `hired_5` | The Revolving Door | late | medium | `hired` | `hired_4` | `officers_hired` | 200 | resources | 37,980 |
-| `hired_6` | Five Hundred Signed On | late | medium | `hired` | `hired_5` | `officers_hired` | 500 | resources | 80,180 |
-| `hired_7` | The Employer | late | medium | `hired` | `hired_6` | `officers_hired` | 1,200 | resources | 118,160 |
+| `hired_6` | Four Hundred Signed On | late | medium | `hired` | `hired_5` | `officers_hired` | 400 | resources | 80,180 |
+| `hired_7` | The Employer | late | medium | `hired` | `hired_6` | `officers_hired` | 600 | resources | 118,160 |
 | `mark_1` | Marked D | early | medium | `mark` | - | `officer_best_mark` | 7 | xp | 1,260 |
 | `mark_2` | Marked B | mid | medium | `mark` | `mark_1` | `officer_best_mark` | 13 | xp | 14,000 |
 | `mark_3` | Marked S | late | large | `mark` | `mark_2` | `officer_best_mark` | 19 | xp | 364,000 |
@@ -1429,24 +1430,24 @@ Every feat, its ladder, and what finishing it pays. A step with something in **A
 | `contraband_1` | The Back Room | early | small | `contraband` | - | `contraband_taken` | 1 | resources | 468 |
 | `contraband_2` | A Regular Back There | mid | medium | `contraband` | `contraband_1` | `contraband_taken` | 15 | boosts | 15,000 |
 | `contraband_3` | Nothing Is Not For Sale | late | medium | `contraband` | `contraband_2` | `contraband_taken` | 50 | resources, items | 82,540 |
-| `contraband_4` | A Standing Arrangement | late | large | `contraband` | `contraband_3` | `contraband_taken` | 200 | resources, infamy | 183,200 |
-| `contraband_5` | Four Hundred and Fifty Off the Shelf | late | large | `contraband` | `contraband_4` | `contraband_taken` | 450 | infamy | 189,900 |
-| `contraband_6` | The Back Room Regular | late | large | `contraband` | `contraband_5` | `contraband_taken` | 1,000 | infamy | 362,900 |
-| `contraband_7` | Nothing Is Off Limits | late | large | `contraband` | `contraband_6` | `contraband_taken` | 2,200 | infamy | 464,200 |
+| `contraband_4` | A Standing Arrangement | late | large | `contraband` | `contraband_3` | `contraband_taken` | 200 | resources, xp | 180,200 |
+| `contraband_5` | Two Hundred and Eighty Off the Shelf | late | large | `contraband` | `contraband_4` | `contraband_taken` | 280 | resources | 189,900 |
+| `contraband_6` | The Back Room Regular | late | large | `contraband` | `contraband_5` | `contraband_taken` | 350 | resources | 362,920 |
+| `contraband_7` | Nothing Is Off Limits | late | large | `contraband` | `contraband_6` | `contraband_taken` | 420 | resources | 464,200 |
 | `infamy_1` | Heard Of | early | medium | `infamy` | - | `infamy_earned` | 100 | resources | 1,812 |
 | `infamy_2` | Talked About | mid | medium | `infamy` | `infamy_1` | `infamy_earned` | 2,500 | resources | 17,700 |
 | `infamy_3` | A Name Like a Threat | late | large | `infamy` | `infamy_2` | `infamy_earned` | 8,000 | resources | 422,000 |
-| `infamy_4` | Told as a Warning | late | large | `infamy` | `infamy_3` | `infamy_earned` | 12,000 | infamy | 464,200 |
-| `infamy_5` | No Introduction | late | large | `infamy` | `infamy_4` | `infamy_earned` | 17,000 | infamy | 569,700 |
-| `infamy_6` | The Price of a Rank | late | large | `infamy` | `infamy_5` | `infamy_earned` | 20,000 | infamy | 675,200 |
-| `infamy_7` | Past Grading | late | large | `infamy` | `infamy_6` | `infamy_earned` | 28,000 | infamy | 822,900 |
-| `infamy_8` | A Story Told Wrong | late | large | `infamy` | `infamy_7` | `infamy_earned` | 36,000 | infamy | 991,700 |
-| `infamy_9` | Forty Six Thousand Reasons | late | large | `infamy` | `infamy_8` | `infamy_earned` | 46,000 | infamy | 1,181,600 |
-| `infamy_10` | The Name Itself | late | large | `infamy` | `infamy_9` | `infamy_earned` | 60,000 | infamy | 1,413,700 |
+| `infamy_4` | Told as a Warning | late | large | `infamy` | `infamy_3` | `infamy_earned` | 12,000 | xp | 462,000 |
+| `infamy_5` | No Introduction | late | large | `infamy` | `infamy_4` | `infamy_earned` | 17,000 | xp | 567,000 |
+| `infamy_6` | The Price of a Rank | late | large | `infamy` | `infamy_5` | `infamy_earned` | 20,000 | xp | 672,000 |
+| `infamy_7` | Past Grading | late | large | `infamy` | `infamy_6` | `infamy_earned` | 28,000 | xp | 819,000 |
+| `infamy_8` | A Story Told Wrong | late | large | `infamy` | `infamy_7` | `infamy_earned` | 36,000 | xp | 987,000 |
+| `infamy_9` | Forty Six Thousand Reasons | late | large | `infamy` | `infamy_8` | `infamy_earned` | 46,000 | xp | 1,176,000 |
+| `infamy_10` | The Name Itself | late | large | `infamy` | `infamy_9` | `infamy_earned` | 60,000 | xp | 1,407,000 |
 | `notoriety_1` | Off Nobody | early | medium | `notoriety` | - | `notoriety` | 1 | resources | 1,812 |
 | `notoriety_2` | Four Rungs Up | early | large | `notoriety` | `notoriety_1` | `notoriety` | 4 | resources | 4,580 |
 | `notoriety_3` | Seven | mid | large | `notoriety` | `notoriety_2` | `notoriety` | 7 | resources | 63,800 |
-| `notoriety_4` | Ten Rungs Up | late | large | `notoriety` | `notoriety_3` | `notoriety` | 10 | infamy | 464,200 |
+| `notoriety_4` | Ten Rungs Up | late | large | `notoriety` | `notoriety_3` | `notoriety` | 10 | xp | 462,000 |
 | `research_1` | Finish Something | early | small | `research` | - | `research_done` | 1 | items | 240 |
 | `research_2` | Fifteen Programmes | mid | medium | `research` | `research_1` | `research_done` | 15 | resources, items | 5,700 |
 | `research_3` | Sixty | late | medium | `research` | `research_2` | `research_done` | 60 | resources, items | 82,540 |
@@ -1454,12 +1455,12 @@ Every feat, its ladder, and what finishing it pays. A step with something in **A
 | `research_5` | Most of What There Is to Know | late | large | `research` | `research_4` | `research_done` | 150 | xp | 189,000 |
 | `research_6` | The Whole Book | late | large | `research` | `research_5` | `research_done` | 180 | xp | 361,200 |
 | `pages_1` | A Page | early | medium | `pages` | - | `pages_found` | 1 | items | 540 |
-| `pages_2` | Twenty Pages | mid | medium | `pages` | `pages_1` | `pages_found` | 20 | resources, items | 5,700 |
-| `pages_3` | Eighty Pages | late | medium | `pages` | `pages_2` | `pages_found` | 80 | resources, items | 82,540 |
-| `pages_4` | Two Hundred Pages | late | medium | `pages` | `pages_3` | `pages_found` | 200 | resources | 118,160 |
-| `pages_5` | The Library | late | large | `pages` | `pages_4` | `pages_found` | 450 | resources | 189,900 |
-| `pages_6` | A Thousand Leaves | late | large | `pages` | `pages_5` | `pages_found` | 1,000 | resources | 362,920 |
-| `pages_7` | Paper Is a Habit | late | large | `pages` | `pages_6` | `pages_found` | 2,200 | resources | 464,200 |
+| `pages_2` | Forty Pages | mid | medium | `pages` | `pages_1` | `pages_found` | 40 | resources, items | 5,700 |
+| `pages_3` | A Hundred and Fifty Pages | late | medium | `pages` | `pages_2` | `pages_found` | 150 | resources, items | 82,540 |
+| `pages_4` | Four Hundred Pages | late | medium | `pages` | `pages_3` | `pages_found` | 400 | resources | 118,160 |
+| `pages_5` | The Library | late | large | `pages` | `pages_4` | `pages_found` | 800 | resources | 189,900 |
+| `pages_6` | Fourteen Hundred Leaves | late | large | `pages` | `pages_5` | `pages_found` | 1,400 | resources | 362,920 |
+| `pages_7` | Paper Is a Habit | late | large | `pages` | `pages_6` | `pages_found` | 2,600 | resources | 464,200 |
 | `bench_1` | One Good Sheet | mid | small | `bench` | - | `masterpieces_reimagined` | 1 | items | 1,440 |
 | `bench_2` | Five Off the Bench | late | medium | `bench` | `bench_1` | `masterpieces_reimagined` | 5 | resources, items | 82,540 |
 | `bench_3` | Nothing Cheap Goes In | late | large | `bench` | `bench_2` | `masterpieces_reimagined` | 15 | resources | 189,900 |
@@ -1488,14 +1489,14 @@ Every feat, its ladder, and what finishing it pays. A step with something in **A
 | `seats_2` | Five Seats Filled | mid | medium | `seats` | `seats_1` | `faction_seats` | 5 | resources | 17,700 |
 | `faction_1` | Under One Badge | mid | medium | `faction` | - | `faction_infamy` | 500 | resources | 17,700 |
 | `faction_2` | A Faction Worth the Name | late | medium | `faction` | `faction_1` | `faction_infamy` | 5,000 | resources | 103,200 |
-| `faction_3` | A Name Spoken Carefully | late | large | `faction` | `faction_2` | `faction_infamy` | 50,000 | infamy | 200,000 |
-| `faction_4` | The Badge Travels | late | large | `faction` | `faction_3` | `faction_infamy` | 130,000 | units | 466,296 |
-| `faction_5` | A Table Nobody Sits At Twice | late | large | `faction` | `faction_4` | `faction_infamy` | 340,000 | units | 571,410 |
-| `faction_6` | Everybody Has Lost Somebody | late | large | `faction` | `faction_5` | `faction_infamy` | 900,000 | resources, units | 678,445 |
-| `faction_7` | A Condition of the City | late | large | `faction` | `faction_6` | `faction_infamy` | 2,400,000 | resources, units | 826,145 |
-| `faction_8` | What the Colours Mean | late | large | `faction` | `faction_7` | `faction_infamy` | 6,000,000 | resources, units | 994,945 |
-| `faction_9` | The Other Government | late | large | `faction` | `faction_8` | `faction_infamy` | 16,000,000 | resources, units | 1,184,845 |
-| `faction_10` | One Badge, One City | late | large | `faction` | `faction_9` | `faction_infamy` | 40,000,000 | resources, units | 1,416,945 |
+| `faction_3` | A Name Spoken Carefully | late | large | `faction` | `faction_2` | `faction_infamy` | 50,000 | resources, units | 189,420 |
+| `faction_4` | The Badge Travels | late | large | `faction` | `faction_3` | `faction_infamy` | 130,000 | resources, units | 464,539 |
+| `faction_5` | A Table Nobody Sits At Twice | late | large | `faction` | `faction_4` | `faction_infamy` | 165,000 | resources, units | 569,792 |
+| `faction_6` | Everybody Has Lost Somebody | late | large | `faction` | `faction_5` | `faction_infamy` | 200,000 | resources, units | 676,321 |
+| `faction_7` | A Condition of the City | late | large | `faction` | `faction_6` | `faction_infamy` | 235,000 | resources, units | 824,021 |
+| `faction_8` | What the Colours Mean | late | large | `faction` | `faction_7` | `faction_infamy` | 270,000 | resources, units | 992,821 |
+| `faction_9` | The Other Government | late | large | `faction` | `faction_8` | `faction_infamy` | 300,000 | resources, units | 1,182,721 |
+| `faction_10` | One Badge, One City | late | large | `faction` | `faction_9` | `faction_infamy` | 330,000 | resources, units | 1,414,821 |
 | `letters_1` | Say Something | early | small | `letters` | - | `messages_sent` | 1 | resources | 468 |
 | `letters_2` | Correspondence | mid | small | `letters` | `letters_1` | `messages_sent` | 25 | resources | 2,500 |
 | `letters_3` | Everybody Knows Somebody | late | small | `letters` | `letters_2` | `messages_sent` | 150 | xp | 12,600 |
@@ -1863,17 +1864,17 @@ Pay premium is 9 percentage points per point of difficulty above 1. The misc boa
 | Id | Name | Nickname | Formal name | Kind | Allegiance | Difficulty | Pay premium | Locations | Blurb |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | `neon-docks` | Neon Docks | the Docks | - | contested | government | 1 | +0% | 7 | Container stacks and a waterfront the Combine stopped patrolling years ago. Cheap ground,… |
-| `ashen-terraces` | Player District | - | - | residential | independent | 4 | +27% | 0 | Stepped tenements up the northern slope, burnt once and rebuilt out of what was left. Who… |
-| `kettle-row` | Player District | - | - | residential | independent | 2 | +9% | 0 | A long terrace along the southern cut, boilers venting into the street. Warm, loud, and n… |
-| `steelbelt` | Steelbelt | the Belt | - | contested | government | 2 | +9% | 7 | Rolling mills, press houses and a furnace row that has not gone cold in thirty years. Nob… |
+| `ashen-terraces` | Player District | - | - | residential | independent | - | - | 0 | Stepped tenements up the northern slope, burnt once and rebuilt out of what was left. Who… |
+| `kettle-row` | Player District | - | - | residential | independent | - | - | 0 | A long terrace along the southern cut, boilers venting into the street. Warm, loud, and n… |
+| `steelbelt` | Steelbelt | the Belt | - | contested | government | 2 | +9% | 7 | Rolling mills, press houses and a furnace row that has not gone cold in thirty years. The… |
 | `chrome-row` | Chrome Row | the Old City Center | - | contested | independent | 4 | +27% | 8 | What is left of downtown: bank halls turned into markets, a picture house that never clos… |
 | `undergrid` | The Undergrid | the Power Spine | - | contested | independent | 5 | +36% | 7 | The Combine meters the whole undercity from down here. Bundled conduit running the walls… |
 | `annexes` | The Annexes | the Tech District | - | contested | government | 6 | +45% | 7 | Faculty buildings the Combine never closed, because it was easier to move in. Everything… |
 | `glasshouse-fields` | Glasshouse Fields | the Green Belt | - | contested | government | 3 | +18% | 8 | State hydroponics behind a fence. Everything the undercity eats is grown here, and none o… |
 | `blacksite` | Blacksite | the Military District | - | contested | government | 8 | +63% | 8 | Hardened ferrocrete, layered berms, and a Combine rifle company that has never had to lea… |
 | `ccs` | CCS | the Spire | Civic Command Sector | contested | government | 10 | +81% | 8 | The surface spire the government rules from, and the household guard that has never been… |
-| `upper-roofs` | Player District | - | - | residential | independent | 2 | +9% | 0 | Roofs stacked on roofs above the wall, reached by ladders somebody bolted on in the dark.… |
-| `south-quay` | Player District | - | - | residential | independent | 1 | +0% | 0 | The tail of the market where the stalls give out and the cut comes back up to meet the st… |
+| `upper-roofs` | Player District | - | - | residential | independent | - | - | 0 | Roofs stacked on roofs above the wall, reached by ladders somebody bolted on in the dark.… |
+| `south-quay` | Player District | - | - | residential | independent | - | - | 0 | The tail of the market where the stalls give out and the cut comes back up to meet the st… |
 | `misc` | Miscellaneous board | - | - | board | - | 1 | +0% | 0 | Work with no address: scrap runs, expeditions, the board that is always open. |
 
 ## Locations
@@ -1902,7 +1903,7 @@ Source: `packages/shared/src/city/locations.ts`, `packages/shared/src/city/distr
 | `revolutionist_statue` | Statue of the Revolutionist | 5 | -15% black-market infamy, +6 intimidation | Open III, Elevated II | 26 Caps, 52 Oil, 39 Scrap, 130 Planks, 13 HQ metal | Nine metres of bronze with one arm raised, and a plinth the Combine has repeatedly failed… | Standing under it costs you less with the people who deal i… |
 | `high_ground` | High Ground | 4 | +12% defence | Open III, Elevated III, Windy I | 42 Caps, 84 Oil, 63 Scrap, 210 Planks, 21 HQ metal | A roofline, a water tower, a spoil heap. Whatever counts as looking down around here. | Everything you hold in this city is harder to take off you. |
 | `barricade` | Barricade | 5 | +8% defence, Holds the Line for one unit | Crammed II, Open I | 52 Caps, 104 Oil, 78 Scrap, 260 Planks, 26 HQ metal | Sea containers, rubble and rebar, arranged by somebody who had thought about it. | A harder approach to everything behind it, held by people w… |
-| `watchtower` | Watchtower | 5 | +20% intel, sees 1 district, +1 scouting party out at once | Elevated IV, Open II, Windy II, Crammed I | 48 Caps, 96 Oil, 72 Scrap, 240 Planks, 24 HQ metal | A lattice mast with a cabin on top, a working pair of glasses, and a line of sight over f… | Everything your scouts do, they do better: everywhere in th… |
+| `watchtower` | Watchtower | 5 | +38 spy points | Elevated IV, Open II, Windy II, Crammed I | 48 Caps, 96 Oil, 72 Scrap, 240 Planks, 24 HQ metal | A lattice mast with a cabin on top, a working pair of glasses, and a line of sight over f… | Everything your spies do, they do better: everywhere in the… |
 | `sewer_junction` | Sewer Junction | 2 | +15% unit stealth | Crammed IV, Dark III, Wet II, Toxic I | 26 Caps, 52 Oil, 39 Scrap, 130 Planks, 13 HQ metal | A brick chamber where six storm drains meet. It goes everywhere. | Your people can get places without being seen getting there. |
 | `smugglers_tunnel` | Smuggler's Tunnel | 4 | -11% mission time | Crammed IV, Dark IV, Eerie I | 50 Caps, 100 Oil, 75 Scrap, 250 Planks, 25 HQ metal | Cut by hand under the old customs line, shored with railway sleepers, and in continuous u… | Every crew you send anywhere is back sooner. There is a sho… |
 | `armory` | Armory | 6 | -12% training cost, -20% unit modification cost | Crammed III, Dark II | 54 Caps, 108 Oil, 81 Scrap, 270 Planks, 27 HQ metal | Racks, a workbench, and a door that took three people to open the first time. | Cheaper units, and a bench that will fit anything you can f… |
@@ -1914,11 +1915,11 @@ Source: `packages/shared/src/city/locations.ts`, `packages/shared/src/city/distr
 | `rail_yard` | Rail Yard | 4 | -20% vehicle cost, -10% off the road | Open III, Noisy II, Windy I | 54 Caps, 108 Oil, 81 Scrap, 270 Planks, 27 HQ metal | Sidings, a turntable, and rolling stock that will move if pushed hard enough. | Bogies, axles and drive parts by the wagonload: everything… |
 | `tram_depot` | Tram Depot | 3 | -18% off the road, -4 min off every road | Crammed II, Noisy II, Dark I | 46 Caps, 92 Oil, 69 Scrap, 230 Planks, 23 HQ metal | Eight roads under one roof, half the fleet still on them, and overhead line that is live… | The city gets smaller. Everything you send anywhere leaves… |
 | `university` | University | 3 | -11% research time | Crammed II, Dark I | 32 Caps, 64 Oil, 48 Scrap, 160 Planks, 16 HQ metal | Lecture halls turned workshops, and a library nobody got round to burning. | Every research project finishes sooner. |
-| `planetarium` | Planetarium | 3 | -15% research time, +6% intel | Dark IV, Crammed I, Eerie I | 38 Caps, 76 Oil, 57 Scrap, 190 Planks, 19 HQ metal | A dome, a projector the size of a car, and a hundred and eighty seats nobody has sat in f… | A room built for thinking in, and an optical bench worth mo… |
-| `satellite_uplink` | Satellite Uplink | 5 | sees 2 districts | Open II, Elevated III, Windy II | 36 Caps, 72 Oil, 54 Scrap, 180 Planks, 18 HQ metal | A dish on a mast, aligned by hand, talking to something still in orbit. | You can see into districts without walking into them first. |
+| `planetarium` | Planetarium | 3 | -15% research time, +6 spy points | Dark IV, Crammed I, Eerie I | 38 Caps, 76 Oil, 57 Scrap, 190 Planks, 19 HQ metal | A dome, a projector the size of a car, and a hundred and eighty seats nobody has sat in f… | A room built for thinking in, and an optical bench worth mo… |
+| `satellite_uplink` | Satellite Uplink | 5 | +18 spy points | Open II, Elevated III, Windy II | 36 Caps, 72 Oil, 54 Scrap, 180 Planks, 18 HQ metal | A dish on a mast, aligned by hand, talking to something still in orbit. | What goes over the air in this city, your spies have alread… |
 | `broadcast_tower` | Broadcast Tower | 5 | +10 intimidation | Elevated III, Open II, Windy II | 30 Caps, 60 Oil, 45 Scrap, 150 Planks, 15 HQ metal | A mast with a working transmitter, and whoever holds it decides what the city hears. | Your name arrives before your people do. |
 | `broadcast_station` | Broadcast Station | 4 | +5 to officer social skills | Crammed II, Dark I | 26 Caps, 52 Oil, 39 Scrap, 130 Planks, 13 HQ metal | Two studios, a records library, and a switchboard that still connects to places nobody ca… | Everyone on your books gets better at the half of the job t… |
-| `pirate_radio` | Pirate Radio | 2 | +12% intel, +3 intimidation | Crammed III, Elevated I, Dark II | 20 Caps, 40 Oil, 30 Scrap, 100 Planks, 10 HQ metal | A transmitter in a loft, a wire aerial over four roofs, and an operator who moves it ever… | You hear what the city is saying, and some of what it would… |
+| `pirate_radio` | Pirate Radio | 2 | +12 spy points, +3 intimidation | Crammed III, Elevated I, Dark II | 20 Caps, 40 Oil, 30 Scrap, 100 Planks, 10 HQ metal | A transmitter in a loft, a wire aerial over four roofs, and an operator who moves it ever… | You hear what the city is saying, and some of what it would… |
 | `gene_clinic` | Gene Clinic | 6 | +8% unit vitality | Crammed III, Cold I, Eerie I | 40 Caps, 80 Oil, 60 Scrap, 200 Planks, 20 HQ metal | Sealed theatres, cold storage, and a waiting room nobody waits in. | Work can be done on people here that cannot be done anywher… |
 | `hospital` | Hospital | 3 | +12% unit vitality | Crammed II, Noisy I | 34 Caps, 68 Oil, 51 Scrap, 170 Planks, 17 HQ metal | Four working theatres, a generator, and staff who stayed when the funding did not. | What comes back from a fight comes back in better shape. |
 | `black_clinic` | Black Clinic | 4 | +2 battle stims | Crammed III, Dark II, Toxic I | 30 Caps, 60 Oil, 45 Scrap, 150 Planks, 15 HQ metal | A basement with good lighting, a locked cabinet, and a doctor who lost their licence for… | Syringes. Handed out before a fight, they bring somebody ba… |
@@ -2051,21 +2052,21 @@ Four of the eleven sheet numbers are printed here. The rest (penetration, range,
 | Id | Name | Unique | Fights | Unit slots | Damage | Vitality | Armour | Speed | Damage type | Answers / dreads | Cost | Train | Requires | Rules | Modifiers | Blurb |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | `razors` | Razors | no | yes | 1 | 160 | 75 | 5 | 45 | blade | energy +15, explosive -35 | 40 Caps, 10 Supplies | 45s | The Gauntlet at level 1 | - | Urban Bonus, Close Quarters | Light blade-wielding urban fighters. Cheap, willing, and not expected back. |
-| `anodics` | Anodics | no | yes | 2 | 190 | 140 | 15 | 40 | blunt | chemical +30, ballistic -30 | 55 Caps, 15 Supplies, 10 Scrap | 1m | The Scrapyard at level 2 | Loud | Close Quarters, Last Stand | Overqualified, over-medicated and unaccountably hard to put down. Somebody who read every… |
+| `anodics` | Anodics | no | yes | 2 | 190 | 140 | 15 | 40 | blunt | chemical +30, ballistic -30 | 90 Caps, 20 Supplies, 15 Scrap | 1m | The Scrapyard at level 2 | Loud | Close Quarters, Last Stand | Overqualified, over-medicated and unaccountably hard to put down. Somebody who read every… |
 | `sparks` | Sparks | no | yes | 1 | 280 | 55 | 3 | 40 | blunt | energy +15, explosive -40, blunt -25 | 45 Caps, 5 Supplies, 20 Scrap | 50s | The Generator at level 2 | Collective | Urban Bonus | Young recruits with jury-rigged weapons. Hit hard once, then hope. |
 | `scrapers` | Scrapers | no | yes | 1 | 165 | 78 | 6 | 50 | blade | chemical +15, blade -30 | 50 Caps, 10 Supplies, 25 Scrap | 55s | The Gauntlet at level 2 | - | Urban Bonus, Ambush | Scavengers turned fighters. Light armour, quick hands, gone before the answer comes. |
-| `ash_walkers` | Ash Walkers | no | yes | 2 | 275 | 170 | 42 | 35 | chemical | chemical +90, ballistic -20, blade -25, explosive -25 | 190 Caps, 30 Supplies, 40 Oil, 70 Scrap | 4m | The Gauntlet at level 6; The Greenhouse at level 5 | - | Tunnel Rat, Urban Bonus | Chem-suited troops who go where the air is wrong and come back out of it. |
-| `the_condemned` | The Condemned | no | yes | 3 | 255 | 120 | 12 | 40 | blade | energy +20, ballistic -25 | 300 Caps, 120 Supplies | 10m | The Quarters at level 12; Hold The Fight Pit | - | Last Stand, Close Quarters | Death row, handed one last chance and a blade. Nothing left to threaten them with. |
+| `ash_walkers` | Ash Walkers | no | yes | 2 | 275 | 170 | 42 | 35 | chemical | chemical +90, ballistic -20, blade -25, explosive -25 | 190 Caps, 30 Supplies, 10 Oil, 20 Scrap | 4m | The Gauntlet at level 6; The Greenhouse at level 5 | - | Tunnel Rat, Urban Bonus | Chem-suited troops who go where the air is wrong and come back out of it. |
+| `the_condemned` | The Condemned | no | yes | 3 | 255 | 120 | 12 | 40 | blade | energy +20, ballistic -25 | 190 Caps, 120 Supplies | 10m | The Quarters at level 12; Hold The Fight Pit | - | Last Stand, Close Quarters | Death row, handed one last chance and a blade. Nothing left to threaten them with. |
 
 #### Specialists (6)
 
 | Id | Name | Unique | Fights | Unit slots | Damage | Vitality | Armour | Speed | Damage type | Answers / dreads | Cost | Train | Requires | Rules | Modifiers | Blurb |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `ghosts` | Ghosts | no | yes | 2 | 310 | 115 | 15 | 50 | blade | energy +20, ballistic -25, blunt -20 | 160 Caps, 25 Supplies, 20 Oil | 3m | The Gauntlet at level 6 | - | Night Operations, Ambush | Lightly armed and hard to pin down. Fighting them is easy. Finding them is the job. |
+| `ghosts` | Ghosts | no | yes | 2 | 310 | 115 | 15 | 50 | blade | energy +20, ballistic -25, blunt -20 | 230 Caps, 25 Supplies, 20 Oil | 3m | The Gauntlet at level 6 | - | Night Operations, Ambush | Lightly armed and hard to pin down. Fighting them is easy. Finding them is the job. |
 | `snipers` | Snipers | no | yes | 2 | 350 | 85 | 8 | 30 | ballistic | explosive +15, chemical -35 | 260 Caps, 40 Supplies, 60 Scrap, 12 HQ metal | 5m | The Sniper Blueprint; The Gate at level 7; Live-Fire Range | Opening Volley | Rooftop, Open Field | Long range, one shot, one kill. Everything else is spent waiting for it. |
 | `stitchers` | Stitchers | no | yes | 1 | 60 | 120 | 20 | 35 | blade | chemical +50, blade -30, blunt -30 | 220 Caps, 60 Supplies | 5m | The Gauntlet at level 7; The Infirmary at level 5 | Field Medic | Dug In | Field medics. Contribute nothing to a fight and decide how many walk out of it. |
-| `demolishers` | Demolishers | no | yes | 3 | 420 | 180 | 32 | 28 | explosive | explosive +45, energy -25 | 280 Caps, 40 Supplies, 80 Oil, 120 Scrap, 15 HQ metal | 6m | The Demolisher Blueprint; The Scrapyard at level 6; The Generator at level 8 | - | Breaching, Armour Piercing | Explosive ordnance experts. Uninterested in your people; very interested in your walls. |
-| `netrunners` | Netrunners | no | yes | 3 | 20 | 150 | 20 | 40 | energy | energy +40, explosive -20 | 360 Caps, 55 Supplies, 30 HQ metal | 6m | The Gauntlet at level 9; The Lab at level 8; Quantum Modeling | Jamming | Night Operations | Combat hackers who hijack enemy augmentations mid-fight. Nobody enjoys meeting them. |
+| `demolishers` | Demolishers | no | yes | 3 | 420 | 180 | 32 | 28 | explosive | explosive +45, energy -25 | 280 Caps, 40 Supplies, 80 Oil, 120 Scrap, 5 HQ metal | 6m | The Demolisher Blueprint; The Scrapyard at level 6; The Generator at level 8 | - | Breaching, Armour Piercing | Explosive ordnance experts. Uninterested in your people; very interested in your walls. |
+| `netrunners` | Netrunners | no | yes | 3 | 60 | 150 | 20 | 40 | energy | energy +40, explosive -20 | 300 Caps, 50 Supplies, 12 HQ metal | 6m | The Gauntlet at level 9; The Lab at level 8; Quantum Modeling | Jamming | Night Operations | Combat hackers who hijack enemy augmentations mid-fight. Nobody enjoys meeting them. |
 | `sleepers` | Sleepers | no | yes | 2 | 360 | 125 | 14 | 40 | blade | energy +15, explosive -30 | 340 Caps, 50 Supplies, 30 Oil | 6m | The Nexus at level 9; Encrypted Core | Goes to Ground | Ambush, Urban Bonus | Planted long ago, and useful exactly once. They are already inside. |
 
 #### Wonders of Engineering (5)
@@ -2075,8 +2076,8 @@ Four of the eleven sheet numbers are printed here. The rest (penetration, range,
 | `road_reavers` | Road Reavers | no | yes | 2 | 250 | 115 | 18 | 65 | ballistic | blade +35, explosive -25 | 180 Caps, 25 Supplies, 60 Oil, 90 Scrap | 3m | The Scrappy Blueprint; The Gauntlet at level 7; The Garage at level 4; A Scrappy buildable in the Garage | - | Open Field, Urban Bonus | Motorcycle raiders. Fast, loud, aggressive, and halfway home with your fuel. |
 | `kite_crews` | Kite Crews | no | yes | 2 | 290 | 135 | 16 | 85 | energy | blade +25, energy -40 | 280 Caps, 40 Supplies, 40 Scrap, 18 HQ metal | 5m | The Kite Crew Blueprint; The Lab at level 5; The Generator at level 8 | - | Rooftop, Open Field, Tracking | Drone operators working off rooftops. They see the fight before anybody is in it. |
 | `cyber_dogs` | Cyberhounds | no | yes | 2 | 290 | 90 | 8 | 90 | energy | explosive +15, chemical -45 | 190 Caps, 90 Supplies, 15 HQ metal | 7m | The Cyberhound Blueprint; The Infirmary at level 6; Hold The Doghouse | Collective | Ambush, Night Operations | Augmented working dogs off the kennels under the flyover. They find what is hiding and th… |
-| `hollow_men` | Hollow Men | no | yes | 5 | 345 | 225 | 45 | 45 | blunt | chemical +35, energy -45 | 650 Caps, 200 Supplies, 70 HQ metal | 14m | The Hollow Man Blueprint; The Infirmary at level 10; The Lab at level 13; Hold The Gene Clinic | - | Close Quarters, Terror | Shock troops with the fear surgically removed. It took the rest of it with it. |
-| `the_twins` | Twins | no | yes | 4 | 170 | 190 | 38 | 30 | chemical | ballistic +25, blade +20, energy -25 | 460 Caps, 75 Supplies, 90 Oil, 190 Scrap, 70 HQ metal | 9m | The Twins Blueprint; The Lab at level 12; Hold The Mad Scientist's Lair; Hold The Gene Clinic | - | Last Stand, Night Operations | One body, two minds, and neither of them sleeps. Nothing has ever got behind it. |
+| `hollow_men` | Hollow Men | no | yes | 5 | 345 | 225 | 45 | 45 | blunt | chemical +35, energy -45 | 650 Caps, 200 Supplies, 25 HQ metal | 14m | The Hollow Man Blueprint; The Infirmary at level 10; The Lab at level 13; Hold The Gene Clinic | - | Close Quarters, Terror | Shock troops with the fear surgically removed. It took the rest of it with it. |
+| `the_twins` | Twins | no | yes | 4 | 300 | 190 | 38 | 30 | chemical | ballistic +25, blade +20, energy -25 | 460 Caps, 75 Supplies, 90 Oil, 60 Scrap, 15 HQ metal | 9m | The Twins Blueprint; The Lab at level 12; Hold The Mad Scientist's Lair; Hold The Gene Clinic | - | Last Stand, Night Operations | One body, two minds, and neither of them sleeps. Nothing has ever got behind it. |
 
 #### Heavy (5)
 
@@ -2085,8 +2086,8 @@ Four of the eleven sheet numbers are printed here. The rest (penetration, range,
 | `breakers` | Breakers | no | yes | 2 | 225 | 122 | 24 | 40 | blade | explosive +35, energy -25 | 120 Caps, 20 Supplies, 15 Oil, 60 Scrap | 3m | The Gauntlet at level 4 | - | Close Quarters, Breaching | Door-kicking close-quarters specialists. Whatever is behind it, they go through it. |
 | `wardens` | Wardens | no | yes | 2 | 172 | 168 | 40 | 28 | blunt | blade +25, explosive -20 | 130 Caps, 20 Supplies, 80 Scrap | 3m | The Gauntlet at level 5 | Holds the Line | Dug In, Last Stand | Defensive specialists. Considerably better at holding a location than at taking one. |
 | `ironsides` | Ironsides | no | yes | 3 | 45 | 470 | 64 | 22 | blunt | ballistic +35, blade +35, blunt +35, explosive -30 | 200 Caps, 30 Supplies, 140 Scrap, 10 HQ metal | 4m | The Ironside Blueprint; The Scrapyard at level 5; The Gate at level 6 | Shield Line | Bulwark, Dug In | A shield wall of salvaged plate. It will not beat you. It will not move, either. |
-| `juggernauts` | Juggernauts | no | yes | 6 | 355 | 365 | 68 | 25 | explosive | ballistic +40, blade +50, blunt +25, energy -35 | 700 Caps, 105 Supplies, 200 Oil, 300 Scrap, 90 HQ metal | 15m | The Juggernaut Blueprint; The Generator at level 10; The Infirmary at level 9; Hold The Gene Clinic | - | Armour Piercing, Last Stand | Fully augmented heavy assault units. Barely human any more, and no longer bothered by it. |
-| `sluggers` | Sluggers | no | yes | 2 | 180 | 135 | 30 | 30 | ballistic | ballistic +35, explosive -25 | 210 Caps, 30 Supplies, 110 Scrap, 8 HQ metal | 4m | The Gauntlet at level 6; The Scrapyard at level 4 | - | Dug In, Armour Piercing | Scrap plate and a short slug gun. Stands where it is put and makes the room expensive. |
+| `juggernauts` | Juggernauts | no | yes | 6 | 355 | 365 | 68 | 25 | explosive | ballistic +40, blade +50, blunt +25, energy -35 | 700 Caps, 105 Supplies, 200 Oil, 50 Scrap, 20 HQ metal | 15m | The Juggernaut Blueprint; The Generator at level 10; The Infirmary at level 9; Hold The Gene Clinic | - | Armour Piercing, Last Stand | Fully augmented heavy assault units. Barely human any more, and no longer bothered by it. |
+| `sluggers` | Sluggers | no | yes | 2 | 180 | 135 | 30 | 30 | ballistic | ballistic +35, explosive -25 | 210 Caps, 30 Supplies, 60 Scrap, 8 HQ metal | 4m | The Gauntlet at level 6; The Scrapyard at level 4 | - | Dug In, Armour Piercing | Scrap plate and a short slug gun. Stands where it is put and makes the room expensive. |
 
 #### Legendary (7)
 
@@ -2134,14 +2135,14 @@ Met, never held. No price, no clock and no gate: see `UnitSpec.faction`.
 
 | Flag | Label | Tone | Description |
 | --- | --- | --- | --- |
-| `taunts` | Shield Line | positive | Draws the enemy's fire. Most of their shots land on this stack before anything behind it. |
+| `taunts` | Shield Line | positive | Draws the enemy's fire by its share of the line. A wall half the line takes three quarter… |
 | `mends` | Field Medic | positive | Patches up the rest of the line every round, undoing part of the damage it takes. Cannot… |
 | `no_ride` | Too big to ride | negative | Fits in no vehicle. It walks, and everyone sent with it walks at its pace. |
 | `strikes_first` | Opening Volley | positive | Fires one volley before either line is in position, attacking or defending. |
 | `stalwart` | Holds the Line | positive | Never breaks while more than half of them are still standing. |
 | `wall_breaker` | Wall Breaker | positive | Enemy gates and traps are rendered useless for the fight. Traps are consumed while the ga… |
 | `pack` | Collective | positive | This unit fights harder and carries more loot when there is more of them. |
-| `jammer` | Jamming | positive | Weakens enemy modifications by the jam percent. Against Wonders of Engineering, once your… |
+| `jammer` | Jamming | positive | Weakens every figure the enemy's modifications add by the jam percent. Against Wonders of… |
 | `loud` | Loud | positive | Makes the fight Noisy II for whoever it is trading fire with, Noisy IV with the Stereo Ri… |
 | `sleeper` | Goes to Ground | positive | Can be planted unseen on ground you do not hold, and is already standing there when you c… |
 | `unspyable` | Undetectable | positive | Cannot be spied, you only find out about it from battle reports. |
@@ -2158,7 +2159,7 @@ Met, never held. No price, no clock and no gate: see `UnitSpec.faction`.
 | `breaching` | Breaching | vs_structure | +100% | gate | Carries what it takes to make a door out of a wall. The enemy gate does nothing against i… |
 | `armor_piercing` | Armour Piercing | vs_armor | +30% | offense | Hits armoured targets harder. Built for the plate it will meet. |
 | `tracking` | Tracking | vs_evasive | +50% | evasion | Reads the movement, not the target. Enemies dodge half as much of its fire. |
-| `terror` | Terror | vs_low_morale | +35% | offense | Hits harder against a shaken enemy, and finishes what fear started. |
+| `terror` | Terror | vs_low_morale | +35% | offense | Hits a shaken enemy (morale under 60) 14% harder, and a wavering one (under 35) 35% harde… |
 | `last_stand` | Last Stand | outnumbered | +25% | offense | Hits harder when outnumbered. Nothing left to lose. |
 | `dug_in` | Dug In | defending | +30% | offense | Hits harder when defending. Better behind cover than in front of it. |
 | `bulwark` | Bulwark | defending | +70% | toughness | Far harder to kill when defending. Getting through them takes time nobody has. |
@@ -2275,9 +2276,9 @@ An advanced modification is one worth 12 points or more: it costs high quality m
 | Id | Name | Effect | Points | Price | Advanced | Yard level | Description |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | `nexus_encrypted_core` | Encrypted Core | `defense_percent` | +14 | 3500 Scrap, 168 HQ metal | yes | 4 | Encrypts all allegiance data. Anyone casing this district works blind. |
-| `nexus_automated_protocols` | Automated Protocols | `build_time_reduction` | +10 | 2500 Scrap | no | 1 | Some functions run without staff assigned, so the work starts the moment it is ordered. |
-| `nexus_requisition_ledger` | Requisition Ledger | `build_cost_reduction` | +10 | 2500 Scrap | no | 1 | Every job costed before it is called in. Nothing is ordered twice. |
-| `nexus_standing_orders` | Standing Orders | `payroll_percent` | +26 | 6500 Scrap, 312 HQ metal | yes | 4 | Every job has a written rate and nobody argues about it. The book stretches further for i… |
+| `nexus_automated_protocols` | Automated Protocols | `build_time_reduction` | +10 | 2500 Scrap | no | 3 | Some functions run without staff assigned, so the work starts the moment it is ordered. |
+| `nexus_requisition_ledger` | Requisition Ledger | `build_cost_reduction` | +10 | 2500 Scrap | no | 3 | Every job costed before it is called in. Nothing is ordered twice. |
+| `nexus_standing_orders` | Standing Orders | `payroll_percent` | +26 | 6500 Scrap, 312 HQ metal | yes | 7 | Every job has a written rate and nobody argues about it. The book stretches further for i… |
 | `nexus_priority_bus` | Priority Bus | `build_time_reduction` | +8 | 2000 Scrap | no | 1 | The Nexus decides which job goes first, and it is never the one that can wait. |
 | `nexus_filed_drawings` | Filed Drawings | `research_time_reduction` | +8 | 2000 Scrap | no | 1 | Every drawing the district has ever paid for, filed where the Lab can find it again. |
 | `nexus_stores_register` | Stores Register | `storage_percent` | +16 | 4000 Scrap, 192 HQ metal | yes | 4 | One register for every store in the district, so nothing is counted twice or lost behind… |
@@ -2287,7 +2288,7 @@ An advanced modification is one worth 12 points or more: it costs high quality m
 
 | Id | Name | Effect | Points | Price | Advanced | Yard level | Description |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| `quarters_hot_bunking` | Hot Bunking | `housing_percent` | +24 | 6000 Scrap, 288 HQ metal | yes | 4 | Two shifts, one bed, and nobody in it at the same time. |
+| `quarters_hot_bunking` | Hot Bunking | `housing_percent` | +24 | 6000 Scrap, 288 HQ metal | yes | 7 | Two shifts, one bed, and nobody in it at the same time. |
 | `quarters_debriefing_room` | Debriefing Room | `faction_xp_percent` | +4 | 1000 Scrap | no | 1 | Salvaged foam on every bulkhead, and a table in the middle of it. Crews come back and say… |
 | `quarters_filtered_air_handlers` | Filtered Air Handlers | `payroll_percent` | +17 | 4250 Scrap, 204 HQ metal | yes | 4 | Clean air on the bunk deck. People sign for less when they can breathe where they sleep. |
 | `quarters_prefab_stacks` | Prefab Stacks | `housing_percent` | +14 | 3500 Scrap, 168 HQ metal | yes | 4 | The crew assembles its own housing off a pattern, and the pattern is a storey taller each… |
@@ -2300,12 +2301,12 @@ An advanced modification is one worth 12 points or more: it costs high quality m
 
 | Id | Name | Effect | Points | Price | Advanced | Yard level | Description |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| `greenhouse_insect_farm` | Insect Farm | `production_percent` | +28 | 7000 Scrap, 336 HQ metal | yes | 4 | Protein alternative. Efficient, low resource cost, and nobody asks twice what is in it. |
+| `greenhouse_insect_farm` | Insect Farm | `production_percent` | +28 | 7000 Scrap, 336 HQ metal | yes | 7 | Protein alternative. Efficient, low resource cost, and nobody asks twice what is in it. |
 | `greenhouse_spectrum_lamps` | Spectrum Lamps | `production_percent` | +18 | 4500 Scrap, 216 HQ metal | yes | 4 | Tuned to what each tray actually wants instead of to what was in the crate. |
 | `greenhouse_sealed_growrooms` | Sealed Growrooms | `training_supplies_reduction` | +14 | 3500 Scrap, 168 HQ metal | yes | 4 | Heat stays in and the trays run year round, so a ration goes further than it did. |
 | `greenhouse_canteen_line` | Canteen Line | `faction_xp_percent` | +5 | 1250 Scrap | no | 1 | Fresh food served where it is grown. What gets talked about over it is what went wrong la… |
-| `greenhouse_seed_vault` | Seed Vault | `payroll_percent` | +24 | 6000 Scrap, 288 HQ metal | yes | 4 | A cold locker of everything that grows here. Nobody has to be paid in advance against a b… |
-| `greenhouse_root_cellars` | Root Cellars | `storage_percent` | +9 | 2250 Scrap | no | 1 | Cold stores under the benches, so a good month keeps until a bad one. |
+| `greenhouse_seed_vault` | Seed Vault | `payroll_percent` | +24 | 6000 Scrap, 288 HQ metal | yes | 7 | A cold locker of everything that grows here. Nobody has to be paid in advance against a b… |
+| `greenhouse_root_cellars` | Root Cellars | `storage_percent` | +9 | 2250 Scrap | no | 3 | Cold stores under the benches, so a good month keeps until a bad one. |
 | `greenhouse_hydroponic_racks` | Hydroponic Racks | `production_percent` | +15 | 3750 Scrap, 180 HQ metal | yes | 4 | Trays stacked four high on a pump loop. The floor grows what an acre used to. |
 | `greenhouse_grey_water_loop` | Grey Water Loop | `training_supplies_reduction` | +7 | 1750 Scrap | no | 1 | Nothing leaves the building that could be used again first. |
 
@@ -2314,9 +2315,9 @@ An advanced modification is one worth 12 points or more: it costs high quality m
 | Id | Name | Effect | Points | Price | Advanced | Yard level | Description |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | `generator_cascade_turbines` | Cascade Turbines | `build_time_reduction` | +16 | 4000 Scrap, 192 HQ metal | yes | 4 | Exhaust off the first stage spins the second. Twice the noise, and every crane in the dis… |
-| `generator_heat_recapture` | Heat Recapture | `build_cost_reduction` | +10 | 2500 Scrap | no | 1 | The waste heat goes back into the boiler instead of into the ceiling. |
+| `generator_heat_recapture` | Heat Recapture | `build_cost_reduction` | +10 | 2500 Scrap | no | 3 | The waste heat goes back into the boiler instead of into the ceiling. |
 | `generator_fuel_polishing` | Fuel Polishing | `build_cost_reduction` | +14 | 3500 Scrap, 168 HQ metal | yes | 4 | Water and sludge out before the burn. The same oil goes appreciably further. |
-| `generator_load_balancers` | Load Balancers | `build_time_reduction` | +10 | 2500 Scrap | no | 1 | Work is smoothed across the day, so nothing spikes and no crew stands idle waiting for on… |
+| `generator_load_balancers` | Load Balancers | `build_time_reduction` | +10 | 2500 Scrap | no | 3 | Work is smoothed across the day, so nothing spikes and no crew stands idle waiting for on… |
 | `generator_instrument_bench` | Instrument Bench | `faction_xp_percent` | +3 | 750 Scrap | no | 1 | The turbine gets a bench and a log book beside it. Everything that breaks is written down… |
 | `generator_clean_feed` | Clean Feed | `research_time_reduction` | +7 | 1750 Scrap | no | 1 | The Lab bench gets its power off the top of the load, so no run dies in a brownout. |
 | `generator_fuel_cracking_column` | Fuel Cracking Column | `production_percent` | +18 | 4500 Scrap, 216 HQ metal | yes | 4 | Heavy ends into something an engine will actually take. |
@@ -2326,12 +2327,12 @@ An advanced modification is one worth 12 points or more: it costs high quality m
 
 | Id | Name | Effect | Points | Price | Advanced | Yard level | Description |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| `scrapyard_precision_fabricators` | Precision Fabricators | `production_percent` | +24 | 6000 Scrap, 288 HQ metal | yes | 4 | Improves the quality of crafted weapons and devices, and wastes far less getting there. |
-| `scrapyard_salvage_drones` | Salvage Drones | `raid_loot_percent` | +26 | 6500 Scrap, 312 HQ metal | yes | 4 | Automated units that collect scrap after raids, while everyone else is still leaving. |
+| `scrapyard_precision_fabricators` | Precision Fabricators | `production_percent` | +24 | 6000 Scrap, 288 HQ metal | yes | 7 | Improves the quality of crafted weapons and devices, and wastes far less getting there. |
+| `scrapyard_salvage_drones` | Salvage Drones | `raid_loot_percent` | +26 | 6500 Scrap, 312 HQ metal | yes | 7 | Automated units that collect scrap after raids, while everyone else is still leaving. |
 | `scrapyard_magnetic_sorting_line` | Magnetic Sorting Line | `production_percent` | +16 | 4000 Scrap, 192 HQ metal | yes | 4 | Ferrous off the belt before a hand touches it. The sorting floor triples its throughput. |
 | `scrapyard_press_automation` | Press Automation | `build_cost_reduction` | +8 | 2000 Scrap | no | 1 | Stock cut to pattern here rather than on site, so every build order lands lighter. |
-| `scrapyard_cutting_bay_extraction` | Cutting Bay Extraction | `production_percent` | +10 | 2500 Scrap | no | 1 | Fume hoods and local extraction, so the floor runs a full shift instead of clearing the a… |
-| `scrapyard_parts_cage` | Parts Cage | `storage_percent` | +9 | 2250 Scrap | no | 1 | Everything worth keeping behind mesh, tagged, with one key and one list. |
+| `scrapyard_cutting_bay_extraction` | Cutting Bay Extraction | `production_percent` | +10 | 2500 Scrap | no | 3 | Fume hoods and local extraction, so the floor runs a full shift instead of clearing the a… |
+| `scrapyard_parts_cage` | Parts Cage | `storage_percent` | +9 | 2250 Scrap | no | 3 | Everything worth keeping behind mesh, tagged, with one key and one list. |
 | `scrapyard_alloy_furnace` | Alloy Furnace | `production_percent` | +17 | 4250 Scrap, 204 HQ metal | yes | 4 | Mixed metal in, one grade out. The yard stops selling good stock at scrap prices. |
 | `scrapyard_overhead_rail` | Overhead Rail | `build_cost_reduction` | +6 | 1500 Scrap | no | 1 | A gantry the length of the shop. Nobody carries anything heavy twice. |
 | `scrapyard_load_balancer` | Load Balancer | `production_percent` | +8 | 2000 Scrap | no | 1 | Decides what goes dark first, so the thing that pays never does. |
@@ -2340,37 +2341,37 @@ An advanced modification is one worth 12 points or more: it costs high quality m
 
 | Id | Name | Effect | Points | Price | Advanced | Yard level | Description |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| `apothecary_deep_racking` | Deep Racking | `storage_percent` | +26 | 6500 Scrap, 312 HQ metal | yes | 4 | The stack goes up to the roof and back into the rock. Nothing is on the floor any more. |
+| `apothecary_deep_racking` | Deep Racking | `storage_percent` | +26 | 6500 Scrap, 312 HQ metal | yes | 7 | The stack goes up to the roof and back into the rock. Nothing is on the floor any more. |
 | `apothecary_climate_cells` | Climate Cells | `storage_percent` | +17 | 4250 Scrap, 204 HQ metal | yes | 4 | Sealed, cooled and logged. Things keep here that used to spoil in a fortnight. |
-| `apothecary_false_bulkheads` | False Bulkheads | `defense_percent` | +10 | 2500 Scrap | no | 1 | The real stock is not where the ledger says. Raiders take the decoy and leave satisfied. |
+| `apothecary_false_bulkheads` | False Bulkheads | `defense_percent` | +10 | 2500 Scrap | no | 3 | The real stock is not where the ledger says. Raiders take the decoy and leave satisfied. |
 | `apothecary_field_kits` | Field Kits | `payroll_percent` | +17 | 4250 Scrap, 204 HQ metal | yes | 4 | Every crew goes out carrying what it needs, so nobody is owed danger money for going with… |
 | `apothecary_bulk_requisition` | Bulk Requisition | `build_cost_reduction` | +8 | 2000 Scrap | no | 1 | Buy for the year, not for the job. What the district builds gets cheaper across the board. |
 | `apothecary_stimulant_line` | Stimulant Line | `training_time_reduction` | +8 | 2000 Scrap | no | 1 | Measured doses for the drill yard, and a recruit is through the course a week sooner. |
 | `apothecary_dispensary_apprenticeships` | Dispensary Apprenticeships | `training_supplies_reduction` | +14 | 3500 Scrap, 168 HQ metal | yes | 4 | Apprentices grinding and weighing under somebody who has seen a wrong dose. Nothing is sp… |
-| `apothecary_cold_store` | Cold Store | `storage_percent` | +9 | 2250 Scrap | no | 1 | A room that stays cold whatever the district is doing. Nothing spoils. |
+| `apothecary_cold_store` | Cold Store | `storage_percent` | +9 | 2250 Scrap | no | 3 | A room that stays cold whatever the district is doing. Nothing spoils. |
 
 #### The Gate (8)
 
 | Id | Name | Effect | Points | Price | Advanced | Yard level | Description |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| `gate_interlocking_bulwarks` | Interlocking Bulwarks | `defense_percent` | +26 | 6500 Scrap, 312 HQ metal | yes | 4 | Ferrocrete teeth staggered so nothing has a straight run at the opening. |
+| `gate_interlocking_bulwarks` | Interlocking Bulwarks | `defense_percent` | +26 | 6500 Scrap, 312 HQ metal | yes | 7 | Ferrocrete teeth staggered so nothing has a straight run at the opening. |
 | `gate_automated_turret_nests` | Automated Turret Nests | `defense_percent` | +18 | 4500 Scrap, 216 HQ metal | yes | 4 | Salvaged servos and a firing solution that does not need anyone awake. |
-| `gate_sally_port` | Sally Port | `raid_loot_percent` | +10 | 2500 Scrap | no | 1 | A way out that raiders do not know about, which is also a way back in carrying things. |
+| `gate_sally_port` | Sally Port | `raid_loot_percent` | +10 | 2500 Scrap | no | 3 | A way out that raiders do not know about, which is also a way back in carrying things. |
 | `gate_watch_rota` | Watch Rota | `raid_loot_percent` | +8 | 2000 Scrap | no | 1 | Everyone stands a turn on the step, so everyone learns which doors out there are worth op… |
 | `gate_ferrocrete_recycling` | Ferrocrete Recycling | `build_cost_reduction` | +7 | 1750 Scrap | no | 1 | Rubble goes back into the mixer. Every wall in the district costs less to raise. |
 | `gate_toll_house` | Toll House | `payroll_percent` | +8 | 2000 Scrap | no | 1 | Everything coming in pays at the step, and the book covers another name for it. |
 | `gate_kill_funnel` | Kill Funnel | `defense_percent` | +16 | 4000 Scrap, 192 HQ metal | yes | 4 | The approach narrowed to one lane that nothing wide can turn around in. |
-| `gate_blast_shutters` | Blast Shutters | `defense_percent` | +9 | 2250 Scrap | no | 1 | Steel that comes down faster than anybody can get under it. |
+| `gate_blast_shutters` | Blast Shutters | `defense_percent` | +9 | 2250 Scrap | no | 3 | Steel that comes down faster than anybody can get under it. |
 
 #### The Lab (8)
 
 | Id | Name | Effect | Points | Price | Advanced | Yard level | Description |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| `lab_quantum_modeling` | Quantum Modeling | `research_time_reduction` | +24 | 6000 Scrap, 288 HQ metal | yes | 4 | Research ideas faster using predictive algorithms, and stop running the dead ends at all. |
+| `lab_quantum_modeling` | Quantum Modeling | `research_time_reduction` | +24 | 6000 Scrap, 288 HQ metal | yes | 7 | Research ideas faster using predictive algorithms, and stop running the dead ends at all. |
 | `lab_neural_drafting_table` | Neural Drafting Table | `research_time_reduction` | +14 | 3500 Scrap, 168 HQ metal | yes | 4 | Researchers design directly in their mind. A revision that took a fortnight takes an hour. |
 | `lab_redundant_testing_chambers` | Redundant Testing Chambers | `research_time_reduction` | +16 | 4000 Scrap, 192 HQ metal | yes | 4 | Run multiple experiments simultaneously instead of queuing behind the slowest one. |
-| `lab_process_cell` | Process Cell | `build_time_reduction` | +10 | 2500 Scrap | no | 1 | Efficient work streams, written down, followed. The whole district builds faster for it. |
-| `lab_shielded_datacore` | Shielded Datacore | `defense_percent` | +10 | 2500 Scrap | no | 1 | Faraday mesh and an air gap. What the district knows cannot be taken off it. |
+| `lab_process_cell` | Process Cell | `build_time_reduction` | +10 | 2500 Scrap | no | 3 | Efficient work streams, written down, followed. The whole district builds faster for it. |
+| `lab_shielded_datacore` | Shielded Datacore | `defense_percent` | +10 | 2500 Scrap | no | 3 | Faraday mesh and an air gap. What the district knows cannot be taken off it. |
 | `lab_written_drill` | Written Drill | `training_time_reduction` | +7 | 1750 Scrap | no | 1 | Drill set down properly, so the Gauntlet stops teaching the same hour twice. |
 | `lab_materials_bench` | Materials Bench | `build_cost_reduction` | +14 | 3500 Scrap, 168 HQ metal | yes | 4 | Substitutes tested before they are ordered, so the district buys the cheap one that holds. |
 | `lab_sensor_mesh` | Sensor Mesh | `defense_percent` | +7 | 1750 Scrap | no | 1 | Cheap sensors everywhere rather than good ones somewhere. Nothing crosses unseen. |
@@ -2379,12 +2380,12 @@ An advanced modification is one worth 12 points or more: it costs high quality m
 
 | Id | Name | Effect | Points | Price | Advanced | Yard level | Description |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| `gauntlet_live_fire_range` | Live-Fire Range | `defense_percent` | +24 | 6000 Scrap, 288 HQ metal | yes | 4 | Real rounds, real noise. Nobody who has drilled here panics at the door. |
+| `gauntlet_live_fire_range` | Live-Fire Range | `defense_percent` | +24 | 6000 Scrap, 288 HQ metal | yes | 7 | Real rounds, real noise. Nobody who has drilled here panics at the door. |
 | `gauntlet_instructor_cadre` | Instructor Cadre | `training_supplies_reduction` | +16 | 4000 Scrap, 192 HQ metal | yes | 4 | People whose whole job is making other people better at theirs. Less is ruined. |
 | `gauntlet_conditioning_programme` | Conditioning Programme | `payroll_percent` | +17 | 4250 Scrap, 204 HQ metal | yes | 4 | A crew that is fit costs less to keep. Half of what an officer charges is for the risk. |
-| `gauntlet_drill_yard_extension` | Drill Yard Extension | `housing_percent` | +10 | 2500 Scrap | no | 1 | The yard doubles as muster ground and overflow billet when the district is full. |
+| `gauntlet_drill_yard_extension` | Drill Yard Extension | `housing_percent` | +10 | 2500 Scrap | no | 3 | The yard doubles as muster ground and overflow billet when the district is full. |
 | `gauntlet_salvaged_simulators` | Salvaged Simulators | `training_time_reduction` | +14 | 3500 Scrap, 168 HQ metal | yes | 4 | Combine training rigs, repurposed. A recruit walks the course before they walk it. |
-| `gauntlet_kit_store` | Kit Store | `training_supplies_reduction` | +9 | 2250 Scrap | no | 1 | Kit issued, signed for and handed back, so a course stops eating a new set every intake. |
+| `gauntlet_kit_store` | Kit Store | `training_supplies_reduction` | +9 | 2250 Scrap | no | 3 | Kit issued, signed for and handed back, so a course stops eating a new set every intake. |
 | `gauntlet_night_course` | Night Course | `training_time_reduction` | +16 | 4000 Scrap, 192 HQ metal | yes | 4 | The same run made in the dark until dark stops being a reason to slow down. |
 | `gauntlet_mess_hall` | Mess Hall | `training_time_reduction` | +7 | 1750 Scrap | no | 1 | Hot food at the end of a shift. It is not complicated and it works. |
 | `gauntlet_range_optics` | Range Optics | `training_time_reduction` | +6 | 1500 Scrap | no | 1 | Glass on the targets and a screen in the shed. Arguments about hits end. |
@@ -2393,11 +2394,11 @@ An advanced modification is one worth 12 points or more: it costs high quality m
 
 | Id | Name | Effect | Points | Price | Advanced | Yard level | Description |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| `infirmary_autoclave_suite` | Autoclave Suite | `payroll_percent` | +28 | 7000 Scrap, 336 HQ metal | yes | 4 | Sterile instruments, every time. An officer who expects to survive the year asks for less… |
+| `infirmary_autoclave_suite` | Autoclave Suite | `payroll_percent` | +28 | 7000 Scrap, 336 HQ metal | yes | 7 | Sterile instruments, every time. An officer who expects to survive the year asks for less… |
 | `infirmary_compounding_printer` | Compounding Printer | `payroll_percent` | +18 | 4500 Scrap, 216 HQ metal | yes | 4 | Prints the drugs the Combine will not sell down here. What that saves goes straight on th… |
 | `infirmary_trauma_bay` | Trauma Bay | `faction_xp_percent` | +6 | 1500 Scrap | no | 1 | People come back from jobs they would not have come back from, and the crew learns from e… |
-| `infirmary_nutrition_programme` | Nutrition Programme | `housing_percent` | +10 | 2500 Scrap | no | 1 | Somebody finally works out what the crew is short of. People mend faster and the beds fre… |
-| `infirmary_cold_storage` | Cold Storage | `storage_percent` | +10 | 2500 Scrap | no | 1 | A cold chain that runs the length of the district, for far more than medicine. |
+| `infirmary_nutrition_programme` | Nutrition Programme | `housing_percent` | +10 | 2500 Scrap | no | 3 | Somebody finally works out what the crew is short of. People mend faster and the beds fre… |
+| `infirmary_cold_storage` | Cold Storage | `storage_percent` | +10 | 2500 Scrap | no | 3 | A cold chain that runs the length of the district, for far more than medicine. |
 | `infirmary_convalescent_beds` | Convalescent Beds | `housing_percent` | +8 | 2000 Scrap | no | 1 | Beds that stand empty most weeks and billet the overflow the rest of the time. |
 | `infirmary_prosthetics_bench` | Prosthetics Bench | `training_time_reduction` | +14 | 3500 Scrap, 168 HQ metal | yes | 4 | Limbs fitted and tuned here, so somebody is back on the course in days rather than months. |
 | `infirmary_quiet_wing` | Quiet Wing | `payroll_percent` | +8 | 2000 Scrap | no | 1 | Thick walls and no through traffic. People come out of it faster than they went in. |
@@ -2406,11 +2407,11 @@ An advanced modification is one worth 12 points or more: it costs high quality m
 
 | Id | Name | Effect | Points | Price | Advanced | Yard level | Description |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| `garage_rotor_bay` | Rotor Bay | `raid_loot_percent` | +26 | 6500 Scrap, 312 HQ metal | yes | 4 | High enough for a mast, wide enough for blades. The thing nobody will discuss gets finish… |
-| `garage_haulage_rigs` | Haulage Rigs | `raid_loot_percent` | +28 | 7000 Scrap, 336 HQ metal | yes | 4 | Flatbeds and a crane. A raid stops being limited by what people can carry. |
+| `garage_rotor_bay` | Rotor Bay | `raid_loot_percent` | +26 | 6500 Scrap, 312 HQ metal | yes | 7 | High enough for a mast, wide enough for blades. The thing nobody will discuss gets finish… |
+| `garage_haulage_rigs` | Haulage Rigs | `raid_loot_percent` | +28 | 7000 Scrap, 336 HQ metal | yes | 7 | Flatbeds and a crane. A raid stops being limited by what people can carry. |
 | `garage_machine_shop` | Machine Shop | `build_time_reduction` | +14 | 3500 Scrap, 168 HQ metal | yes | 4 | Parts made here instead of waited for. Every build in the district stops queuing behind a… |
-| `garage_mobile_rigs` | Mobile Rigs | `build_time_reduction` | +10 | 2500 Scrap | no | 1 | Vehicle powerplants dragged out to whichever site needs one, when nothing is on the ramp. |
-| `garage_tyre_bank` | Tyre Bank | `raid_loot_percent` | +9 | 2250 Scrap | no | 1 | Rims and treads sorted by size, so nothing comes home on a bare hub. |
+| `garage_mobile_rigs` | Mobile Rigs | `build_time_reduction` | +10 | 2500 Scrap | no | 3 | Vehicle powerplants dragged out to whichever site needs one, when nothing is on the ramp. |
+| `garage_tyre_bank` | Tyre Bank | `raid_loot_percent` | +9 | 2250 Scrap | no | 3 | Rims and treads sorted by size, so nothing comes home on a bare hub. |
 | `garage_fuel_bowsers` | Fuel Bowsers | `storage_percent` | +16 | 4000 Scrap, 192 HQ metal | yes | 4 | Tankage on wheels. What the district cannot hold standing still, it holds parked. |
 | `garage_parts_carousel` | Parts Carousel | `training_supplies_reduction` | +6 | 1500 Scrap | no | 1 | The part you want arrives in front of you instead of being looked for. |
 
@@ -2426,16 +2427,16 @@ What you find out, and what it costs to.
 
 | Step | Id | Name | Payout | Cost | Minutes | Mark | Head mark | Description |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 1 | `tech_scouting` | Scouting | Opens scout parties, sent from the chair without anybody of yours wal… | 600 Caps, 400 Scrap | 45 | F- | - | Somebody who knows somebody in every district, and a runner to ask them. |
-| 2 | `tech_paid_informants` | Paid Informants | +6% intel | 1550 Caps, 950 Scrap | 70 | F | - | A few caps a week to people who see things, and a few more when they see something. |
-| 3 | `tech_traffic_analysis` | Traffic Analysis | +8% intel | 2650 Caps, 1600 Scrap | 95 | F+ | - | You do not need to read it. You need to know who is talking to whom. |
-| 4 | `tech_second_source` | Second Source | Opens the accuracy figure on a spy report, and +9% intel | 3900 Caps, 2250 Scrap, 30 HQ metal | 120 | E- | E | Nothing is written down until two people who have never met agree on it. |
-| 5 | `tech_two_sets_of_eyes` | Two Sets of Eyes | +1 scouting party out at once | 5250 Caps, 3000 Scrap, 70 HQ metal | 145 | E+ | E | Never one watcher on anything, so nothing waits on one person coming home. |
-| 6 | `tech_counting_the_empty_beds` | Counting the Empty Beds | Opens an estimate of how much a spy report missed, and +10% intel | 6750 Caps, 3750 Scrap, 130 HQ metal | 170 | D | D+ | How many bunks, how many bowls, how many boots by the door. The rest is arithmetic. |
-| 7 | `tech_sleeper_lists` | Sleeper Lists | Opens Sleepers in a spy report, at their own stealth, and +12% intel | 8300 Caps, 4550 Scrap, 180 HQ metal | 195 | C | D+ | The ones who arrived years ago and never left. Somebody remembers them arriving. |
-| 8 | `tech_turned_runners` | Turned Runners | sees 1 district | 9950 Caps, 5400 Scrap, 240 HQ metal | 220 | B | B+ | Their courier still runs their route. He stops here first. |
-| 9 | `tech_compartmentation` | Compartmentation | +2 to officer mental skills | 11650 Caps, 6250 Scrap, 310 HQ metal | 245 | A | B+ | Nobody knows more than the next name up. Not even you. |
-| 10 | `tech_the_whole_wire` | The Whole Wire | +14% intel | 13450 Caps, 7100 Scrap, 380 HQ metal | 270 | S | B+ | There is no message in this city you do not get a copy of, eventually. |
+| 1 | `tech_written_reports` | Written Reports | Opens the units themselves on a spy report, where before it counted o… | 600 Caps, 200 Planks | 45 | F- | - | Making the spies try to remember what they saw did not make a lot of sense, so we gave th… |
+| 2 | `tech_paid_informants` | Paid Informants | Opens Paid Whisper and Bought Eyes | 2000 Caps | 70 | F | - | A few caps a week to people who see things, and a few more when they see something. |
+| 3 | `tech_traffic_analysis` | Traffic Analysis | Opens spying without the target knowing, likelier the better your Mas… | 2650 Caps, 500 Supplies, 1000 Scrap | 130 | F+ | - | Just because you figured it out doesn't mean you should shout it on the way back. |
+| 4 | `tech_second_source` | Second Source | Opens the accuracy figure on a spy report | 3900 Caps, 2000 Supplies, 30 HQ metal | 200 | E- | E | Nothing is written down until two people who have never met agree on it. |
+| 5 | `tech_two_sets_of_eyes` | Two Sets of Eyes | +1 spying party out at once | 5250 Caps, 2500 Supplies, 70 HQ metal | 280 | E+ | E | Pay twice the caps, get twice the spying groups! |
+| 6 | `tech_counting_the_empty_beds` | Counting the Empty Beds | Opens an estimate of how much a spy report missed | 6750 Caps, 1500 Supplies, 130 HQ metal | 350 | D | D+ | How many bunks, how many bowls, how many boots by the door. You don't always need to see… |
+| 7 | `tech_sleeper_lists` | Sleeper Lists | Opens Sleepers in a spy report, at their own stealth, and Network Com… | 7000 Caps, 3000 Scrap, 180 HQ metal | 450 | C | C- | Even if they are invisible now, someone remembers them arriving and can give a good estim… |
+| 8 | `tech_shared_knowledge` | Shared Knowledge | +5 Stealth, +3 Deception and +3 Cryptography on every other officer s… | 10000 Caps, 2000 Supplies, 5400 Scrap | 600 | B | B | Everyone would benefit from a lesson or two, especially from someone that has "Master" in… |
+| 9 | `tech_turned_runners` | Turned Runners | Opens a full report every day on a rival player's location, picked at… | 12000 Caps, 2200 Scrap | 800 | A | B+ | Their courier still runs their route. He stops here first. |
+| 10 | `tech_the_whole_wire` | The Whole Wire | Opens Total Intelligence, and the exact unit slots on every spy repor… | 15000 Caps, 3000 Scrap, 500 HQ metal | 1000 | S | A | There is no message in this city you do not get a copy of, eventually. The trick is speed… |
 
 #### Lead Engineer (10)
 
@@ -2478,7 +2479,7 @@ More of everything, off the same ground.
 | Step | Id | Name | Payout | Cost | Minutes | Mark | Head mark | Description |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | 1 | `tech_shift_rotation` | Shift Rotation | +5% production | 600 Caps, 400 Scrap | 45 | F- | - | Three watches instead of two. Nothing stands idle between them. |
-| 2 | `tech_word_of_mouth` | Word of Mouth | +8% recruits at the Bar | 1550 Caps, 950 Scrap | 70 | F | - | People come because somebody they trust told them to. |
+| 2 | `tech_word_of_mouth` | Word of Mouth | -7% training time | 1550 Caps, 950 Scrap | 70 | F | - | The new ones come on a friend's word, and the friend shows them the drill. |
 | 3 | `tech_yield_records` | Yield Records | supplies goes 8% further | 2650 Caps, 1600 Scrap | 95 | F+ | - | What each line made, every day, on a board where everyone sees it. |
 | 4 | `tech_open_intake` | Open Intake | +20 unit slots | 3900 Caps, 2250 Scrap, 30 HQ metal | 120 | E- | E | The door is open two nights a week and the room is warm. |
 | 5 | `tech_line_balancing` | Line Balancing | +8% production | 5250 Caps, 3000 Scrap, 70 HQ metal | 145 | E+ | E | Somebody finally timed every station and moved the slow one. |
@@ -2516,7 +2517,7 @@ Everything the Lab does, done sooner.
 | 3 | `tech_bench_notebooks` | Bench Notebooks | +5% experience | 2650 Caps, 1600 Scrap | 95 | F+ | - | Written down as it happens, not remembered afterwards. |
 | 4 | `tech_peer_review` | Peer Review | -7% research time | 3900 Caps, 2250 Scrap, 30 HQ metal | 120 | E- | E | Somebody who was not there reads it before anybody believes it. |
 | 5 | `tech_instrument_calibration` | Instrument Calibration | +2 to officer technical skills | 5250 Caps, 3000 Scrap, 70 HQ metal | 145 | E+ | E | Every gauge checked against one gauge, monthly. |
-| 6 | `tech_field_debriefs` | Field Debriefs | +8% intel | 6750 Caps, 3750 Scrap, 130 HQ metal | 170 | D | D+ | The people who used it tell you what actually happened to it. |
+| 6 | `tech_field_debriefs` | Field Debriefs | +8 spy points | 6750 Caps, 3750 Scrap, 130 HQ metal | 170 | D | D+ | The people who used it tell you what actually happened to it. |
 | 7 | `tech_long_programmes` | Long Programmes | -11% research time | 8300 Caps, 4550 Scrap, 180 HQ metal | 195 | C | D+ | Three projects that nobody is allowed to interrupt for anything. |
 | 8 | `tech_the_archive` | The Archive | +3 to officer mental skills | 9950 Caps, 5400 Scrap, 240 HQ metal | 220 | B | B+ | Twenty years of somebody else failing, catalogued and cross-referenced. |
 | 9 | `tech_shared_bench` | Shared Bench | -7% build time | 11650 Caps, 6250 Scrap, 310 HQ metal | 245 | A | B+ | The chemist and the engineer at the same table, on purpose. |
@@ -2528,9 +2529,9 @@ Meat improved, at a price.
 
 | Step | Id | Name | Payout | Cost | Minutes | Mark | Head mark | Description |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 1 | `tech_clean_room` | Clean Room | +5% wounded recovered | 600 Caps, 400 Scrap | 45 | F- | - | Half of what kills an implant is dust. |
+| 1 | `tech_clean_room` | Clean Room | +5 medic points | 600 Caps, 400 Scrap | 45 | F- | - | Half of what kills an implant is dust. |
 | 2 | `tech_nerve_mapping` | Nerve Mapping | +5% unit speed | 1550 Caps, 950 Scrap | 70 | F | - | Which wire goes where in this body, not in the manual. |
-| 3 | `tech_rejection_protocols` | Rejection Protocols | +7% wounded recovered | 2650 Caps, 1600 Scrap | 95 | F+ | - | The body says no. There is a way to argue with it. |
+| 3 | `tech_rejection_protocols` | Rejection Protocols | +7 medic points | 2650 Caps, 1600 Scrap | 95 | F+ | - | The body says no. There is a way to argue with it. |
 | 4 | `tech_reflex_shunts` | Reflex Shunts | +8% Specialists damage | 3900 Caps, 2250 Scrap, 30 HQ metal | 120 | E- | E | A shortcut past the brain for the things the brain is slow at. |
 | 5 | `tech_load_bearing_frames` | Load-Bearing Frames | +8% Heavy vitality | 5250 Caps, 3000 Scrap, 70 HQ metal | 145 | E+ | E | Bone is not the strongest thing that can be in there. |
 | 6 | `tech_pain_gating` | Pain Gating | +5 unit morale | 6750 Caps, 3750 Scrap, 130 HQ metal | 170 | D | D+ | Not switched off. Turned down, and only on the day. |
@@ -2600,7 +2601,7 @@ How long it takes to get anywhere.
 | 2 | `tech_route_cards` | Route Cards | -6% mission time | 1550 Caps, 950 Scrap | 70 | F | - | One card per run, with the turns on it and nothing else. |
 | 3 | `tech_curfew_tables` | Curfew Tables | -2 min off every road | 2650 Caps, 1600 Scrap | 95 | F+ | - | When the bridge is open, and when the patrol is on it. |
 | 4 | `tech_bearing_marks` | Bearing Marks | +6% unit speed | 3900 Caps, 2250 Scrap, 30 HQ metal | 120 | E- | E | Painted on walls, meaningless to anybody who has not been told. |
-| 5 | `tech_underground_routes` | Underground Routes | sees 1 district | 5250 Caps, 3000 Scrap, 70 HQ metal | 145 | E+ | E | The tunnels are on the map now. Most of them. |
+| 5 | `tech_underground_routes` | Underground Routes | +9 spy points | 5250 Caps, 3000 Scrap, 70 HQ metal | 145 | E+ | E | The tunnels are on the map now, and so is everybody who uses them. |
 | 6 | `tech_cache_points` | Cache Points | +8% loot capacity | 6750 Caps, 3750 Scrap, 130 HQ metal | 170 | D | D+ | Water and fuel where the map says, so nobody carries either. |
 | 7 | `tech_night_navigation` | Night Navigation | +8% unit stealth | 8300 Caps, 4550 Scrap, 180 HQ metal | 195 | C | D+ | Getting there in the dark without a light. |
 | 8 | `tech_alternate_approaches` | Alternate Approaches | -11% mission time | 9950 Caps, 5400 Scrap, 240 HQ metal | 220 | B | B+ | Three ways in, so one of them being watched is not a problem. |
@@ -2613,7 +2614,7 @@ What you can get for what you have.
 
 | Step | Id | Name | Payout | Cost | Minutes | Mark | Head mark | Description |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 1 | `tech_getting_on_the_board` | Getting On The Board | Opens The district offers board: post what you will trade, and take w… | 600 Caps, 400 Scrap | 45 | F- | - | A pitch, a name people recognise, and the right to nail paper to the wall. |
+| 1 | `tech_getting_on_the_board` | Getting On The Board | Opens the district offers board, to post what you will trade and take… | 600 Caps, 400 Scrap | 45 | F- | - | A pitch, a name people recognise, and the right to nail paper to the wall. |
 | 2 | `tech_standing_buyers` | Standing Buyers | +6% mission pay | 1550 Caps, 950 Scrap | 70 | F | - | Three people who will always take it, at a price you know. |
 | 3 | `tech_credit_lines` | Credit Lines | -5% wages | 2650 Caps, 1600 Scrap | 95 | F+ | - | Paid at the end of the month, which is worth a discount. |
 | 4 | `tech_warehouse_rotation` | Warehouse Rotation | +10% storage | 3900 Caps, 2250 Scrap, 30 HQ metal | 120 | E- | E | Oldest out first, so nothing rots at the back. |
@@ -2631,15 +2632,15 @@ Getting in should cost them.
 | Step | Id | Name | Payout | Cost | Minutes | Mark | Head mark | Description |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | 1 | `tech_pressure_plates` | Pressure Plates | Opens the Pressure Plates trap, and +5% defence | 600 Caps, 400 Scrap | 45 | F- | - | Two boards, a hinge, and a rule about which stairwell nobody uses. |
-| 2 | `tech_watch_schedules` | Watch Schedules | Opens the Razor Wire trap, and +6% counter-intel | 1550 Caps, 950 Scrap | 70 | F | - | Somebody awake, always, and never the same somebody. |
+| 2 | `tech_watch_schedules` | Watch Schedules | Opens the Razor Wire trap, and +6 spy points against enemy spies | 1550 Caps, 950 Scrap | 70 | F | - | Somebody awake, always, and never the same somebody. |
 | 3 | `tech_sally_ports` | Sally Ports | Opens the Fuel Fougasse trap, and +6% Rabble armour | 2650 Caps, 1600 Scrap | 95 | F+ | - | A door you can come out of, which is not the same as a door. |
 | 4 | `tech_shaped_charges` | Shaped Charges | Opens the Buried Shell trap and the Shaped For This boost, and +10% G… | 3900 Caps, 2250 Scrap, 30 HQ metal | 120 | E- | E | The same explosive, pointed. It is entirely a question of what shape the hole is. |
-| 5 | `tech_vetting` | Vetting | +9% counter-intel | 5250 Caps, 3000 Scrap, 70 HQ metal | 145 | E+ | E | Who they were before they walked in here. |
+| 5 | `tech_vetting` | Vetting | +9 spy points against enemy spies | 5250 Caps, 3000 Scrap, 70 HQ metal | 145 | E+ | E | Who they were before they walked in here. |
 | 6 | `tech_standing_orders_under_fire` | Standing Orders Under Fire | a stack that breaks shakes nobody | 6750 Caps, 3750 Scrap, 130 HQ metal | 170 | D | D+ | Every position knows what it does when the one beside it goes quiet. |
 | 7 | `tech_demolition_doctrine` | Demolition Doctrine | Opens the Prepared Collapse trap and The Colossus Walks boost, and +1… | 8300 Caps, 4550 Scrap, 180 HQ metal | 195 | C | D+ | Every approach surveyed, cut and re-cut, on the assumption it will be needed. |
 | 8 | `tech_layered_defence` | Layered Defence | Opens the Flooded Cellar trap, and +18% Gate defense | 9950 Caps, 5400 Scrap, 240 HQ metal | 220 | B | B+ | The wall is the third thing they hit, not the first. |
-| 9 | `tech_counter_surveillance` | Counter-Surveillance | +14% counter-intel | 11650 Caps, 6250 Scrap, 310 HQ metal | 245 | A | B+ | Watching the people who are watching. |
-| 10 | `tech_the_hard_district` | The Hard District | +20% defense holding the whole district | 13450 Caps, 7100 Scrap, 380 HQ metal | 270 | S | B+ | They go and hit somebody else instead, which is the point. |
+| 9 | `tech_counter_surveillance` | Counter-Surveillance | +14 spy points against enemy spies | 11650 Caps, 6250 Scrap, 310 HQ metal | 245 | A | B+ | Watching the people who are watching. |
+| 10 | `tech_the_hard_district` | The Hard District | +20% defense while you hold a district whole | 13450 Caps, 7100 Scrap, 380 HQ metal | 270 | S | B+ | They go and hit somebody else instead, which is the point. |
 
 #### Chief Medic (10)
 
@@ -2647,16 +2648,16 @@ How many of them come back.
 
 | Step | Id | Name | Payout | Cost | Minutes | Mark | Head mark | Description |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 1 | `tech_field_triage` | Field Triage | +6% wounded recovered | 600 Caps, 400 Scrap | 45 | F- | - | Deciding fast who can wait is most of the job. |
+| 1 | `tech_field_triage` | Field Triage | +6 medic points | 600 Caps, 400 Scrap | 45 | F- | - | Deciding fast who can wait is most of the job. |
 | 2 | `tech_clean_water` | Clean Water | +4% unit vitality | 1550 Caps, 950 Scrap | 70 | F | - | It is not glamorous and it halves the sick list. |
-| 3 | `tech_stretcher_drill` | Stretcher Drill | +8% wounded recovered | 2650 Caps, 1600 Scrap | 95 | F+ | - | Off the ground and moving in ninety seconds. |
+| 3 | `tech_stretcher_drill` | Stretcher Drill | +8 medic points | 2650 Caps, 1600 Scrap | 95 | F+ | - | Off the ground and moving in ninety seconds. |
 | 4 | `tech_blood_bank` | Blood Bank | +1 battle stim | 3900 Caps, 2250 Scrap, 30 HQ metal | 120 | E- | E | Cold storage, cross-matched, and everybody on the books is typed. |
 | 5 | `tech_antiseptics` | Antiseptics | +6% unit vitality | 5250 Caps, 3000 Scrap, 70 HQ metal | 145 | E+ | E | Boiled instruments, and the surgeon washes first. |
 | 6 | `tech_carry_both` | Carry Both | the ones the medics get back carry their share of the haul home | 6750 Caps, 3750 Scrap, 130 HQ metal | 170 | D | D+ | The party that brings a body back brings the pack with it. |
 | 7 | `tech_trauma_theatre` | Trauma Theatre | -25% The Infirmary cost | 8300 Caps, 4550 Scrap, 180 HQ metal | 195 | C | D+ | A room in the Infirmary that nobody is allowed to use for anything else. |
 | 8 | `tech_convalescence` | Convalescence | +5 unit morale | 9950 Caps, 5400 Scrap, 240 HQ metal | 220 | B | B+ | Back on the line when they are ready, not when they are needed. |
 | 9 | `tech_prosthetics_bench` | Prosthetics Bench | +2 to officer physical skills | 11650 Caps, 6250 Scrap, 310 HQ metal | 245 | A | B+ | A hand that works is a person who stays. |
-| 10 | `tech_nobody_left` | Nobody Left | +20% wounded recovered | 13450 Caps, 7100 Scrap, 380 HQ metal | 270 | S | B+ | Everybody who can be brought back is brought back. |
+| 10 | `tech_nobody_left` | Nobody Left | +20 medic points | 13450 Caps, 7100 Scrap, 380 HQ metal | 270 | S | B+ | Everybody who can be brought back is brought back. |
 
 #### Instructor of the Young (10)
 
@@ -2699,13 +2700,13 @@ What they never find out.
 | Step | Id | Name | Payout | Cost | Minutes | Mark | Head mark | Description |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | 1 | `tech_the_quiet_word` | The Quiet Word | -4% wages | 600 Caps, 400 Scrap | 45 | F- | - | Before it is a problem, rather than after. |
-| 2 | `tech_deniability` | Deniability | +5% counter-intel | 1550 Caps, 950 Scrap | 70 | F | - | Arranged so that it was never said. |
-| 3 | `tech_reading_the_room` | Reading the Room | Opens word when a place you hold has been spied, and +6% counter-intel | 2650 Caps, 1600 Scrap | 95 | F+ | - | Who is uncomfortable, and about what. |
-| 4 | `tech_favours_owed` | Favours Owed | +8% recruits at the Bar | 3900 Caps, 2250 Scrap, 30 HQ metal | 120 | E- | E | A ledger nobody writes down. |
-| 5 | `tech_names_and_faces` | Names and Faces | Opens who spied on you, and what they learnt, and +8% counter-intel | 5250 Caps, 3000 Scrap, 70 HQ metal | 145 | E+ | E | The stranger at the bar had a name, and the name had a crew. |
-| 6 | `tech_false_traffic` | False Traffic | +10% counter-intel | 6750 Caps, 3750 Scrap, 130 HQ metal | 170 | D | D+ | A whole second district that does not exist, chattering away all night. |
+| 2 | `tech_deniability` | Deniability | +5 spy points against enemy spies | 1550 Caps, 950 Scrap | 70 | F | - | Arranged so that it was never said. |
+| 3 | `tech_reading_the_room` | Reading the Room | Opens word when a place you hold has been spied, and +6 spy points ag… | 2650 Caps, 1600 Scrap | 95 | F+ | - | Who is uncomfortable, and about what. |
+| 4 | `tech_favours_owed` | Favours Owed | -8% wages | 3900 Caps, 2250 Scrap, 30 HQ metal | 120 | E- | E | A ledger nobody writes down. |
+| 5 | `tech_names_and_faces` | Names and Faces | Opens who spied on you, and what they learnt, and +8 spy points again… | 5250 Caps, 3000 Scrap, 70 HQ metal | 145 | E+ | E | The stranger at the bar had a name, and the name had a crew. |
+| 6 | `tech_false_traffic` | False Traffic | +10 spy points against enemy spies | 6750 Caps, 3750 Scrap, 130 HQ metal | 170 | D | D+ | A whole second district that does not exist, chattering away all night. |
 | 7 | `tech_terms_in_advance` | Terms in Advance | -6% market prices | 8300 Caps, 4550 Scrap, 180 HQ metal | 195 | C | D+ | Agreed before anybody is in a position to want more. |
-| 8 | `tech_insulation` | Insulation | +12% counter-intel | 9950 Caps, 5400 Scrap, 240 HQ metal | 220 | B | B+ | Nothing that happens downstairs reaches this floor. |
+| 8 | `tech_insulation` | Insulation | +12 spy points against enemy spies | 9950 Caps, 5400 Scrap, 240 HQ metal | 220 | B | B+ | Nothing that happens downstairs reaches this floor. |
 | 9 | `tech_the_long_view` | The Long View | +3 to officer social skills | 11650 Caps, 6250 Scrap, 310 HQ metal | 245 | A | B+ | This year's enemy is next year's supplier. |
 | 10 | `tech_nothing_in_writing` | Nothing in Writing | +1 chair at the Bar | 13450 Caps, 7100 Scrap, 380 HQ metal | 270 | S | B+ | There is no document anywhere with your name on it. |
 
@@ -2720,10 +2721,10 @@ Somebody has to sit with the files.
 | 3 | `tech_marginalia` | Marginalia | +6% experience | 2650 Caps, 1600 Scrap | 95 | F+ | - | The notes in the margin are worth more than the book they are in. |
 | 4 | `tech_second_chair` | Second Chair | +1 person drilling at the same time | 3900 Caps, 2250 Scrap, 30 HQ metal | 120 | E- | E | Two at the bench, one hour. The Professor takes them in turns and nobody waits. |
 | 5 | `tech_seminar` | Seminar | +2 to officer mental skills | 5250 Caps, 3000 Scrap, 70 HQ metal | 145 | E+ | E | Six people arguing about one page. |
-| 6 | `tech_citation_index` | Citation Index | +8% intel | 6750 Caps, 3750 Scrap, 130 HQ metal | 170 | D | D+ | Who read what, and what it changed. |
+| 6 | `tech_citation_index` | Citation Index | +8 spy points | 6750 Caps, 3750 Scrap, 130 HQ metal | 170 | D | D+ | Who read what, and what it changed. |
 | 7 | `tech_applied_sections` | Applied Sections | -7% build time | 8300 Caps, 4550 Scrap, 180 HQ metal | 195 | C | D+ | The theory goes down to the workshop the same week. |
 | 8 | `tech_retrospectives` | Retrospectives | +12% experience | 9950 Caps, 5400 Scrap, 240 HQ metal | 220 | B | B+ | Every project, afterwards, honestly. |
-| 9 | `tech_the_reading_year` | The Reading Year | +5 Encyclopedia to every other officer | 11650 Caps, 6250 Scrap, 310 HQ metal | 245 | A | B+ | One long project nobody is allowed to hurry. |
+| 9 | `tech_the_reading_year` | The Reading Year | +5 Encyclopedia to every officer | 11650 Caps, 6250 Scrap, 310 HQ metal | 245 | A | B+ | One long project nobody is allowed to hurry. |
 | 10 | `tech_first_principles` | First Principles | -13% research time | 13450 Caps, 7100 Scrap, 380 HQ metal | 270 | S | B+ | Beginning from nothing and arriving somewhere nobody expected. |
 
 ## Officer perks
@@ -2771,7 +2772,7 @@ Source: `packages/shared/src/crew/perks.ts`
 | `sig_contractor` | Contractor | -15% build cost | Builds it for what the parts cost. |
 | `sig_smelter` | Smelter | HQ metal goes 25% further | Gets good metal out of what everyone else buried. |
 | `sig_broker` | Broker | -15% market prices | Never pays a list price for anything. |
-| `sig_landlord` | Landlord | +25% defense holding the whole district | Every roof in the district is theirs by Friday. |
+| `sig_landlord` | Landlord | +25% defense while you hold a district whole | Every roof in the district is theirs by Friday. |
 
 #### Military (62)
 
@@ -2795,8 +2796,8 @@ Source: `packages/shared/src/crew/perks.ts`
 | `stim_chemist` | Stim Chemist | +1 battle stim | Cooks the good stuff, and knows the dose. |
 | `wall_builder` | Wall Builder | +6% defence | Builds it thick, low and where the road bends. |
 | `siege_reader` | Siege Reader | +9% defence | Has been on the wrong side of one. Learned. |
-| `stretcher_run` | Stretcher Run | +8% wounded recovered | The wounded come back. Most of them. |
-| `battlefield_surgeon` | Battlefield Surgeon | +12% wounded recovered | Operates where they fell, in the dark. |
+| `stretcher_run` | Stretcher Run | +8 medic points | The wounded come back. Most of them. |
+| `battlefield_surgeon` | Battlefield Surgeon | +12 medic points | Operates where they fell, in the dark. |
 | `signal_discipline` | Signal Discipline | +6% cohesion | Everybody hears the same order at once. |
 | `line_officer` | Line Officer | +9% cohesion | Gets more of a big crew into the fight at all. |
 | `pack_mule` | Pack Mule | +8% loot capacity | Straps on one more bag than the last person did. |
@@ -2883,8 +2884,8 @@ Source: `packages/shared/src/crew/perks.ts`
 | `union_rep` | Union Rep | -7% wages | Everybody signs, and everybody signs for less. |
 | `ledger_hand` | Ledger Hand | -5% to widen payroll | Widening the book costs less with them holding the pen. |
 | `bank_contact` | Bank Contact | -8% to widen payroll | Knows somebody who lends at a laughable rate. |
-| `bar_regular` | Bar Regular | +8% recruits at the Bar | Everybody worth hiring drinks with them eventually. |
-| `talent_scout` | Talent Scout | +12% recruits at the Bar | Spots the one worth hiring across a full room. |
+| `bar_regular` | Bar Regular | -8% training cost | Everybody worth hiring drinks with them eventually, and signs for less. |
+| `talent_scout` | Talent Scout | -11% training time | Spots the quick learner across a full room. |
 | `bunk_builder` | Bunk Builder | +3 unit slots | Fits four where the plans allowed two. |
 | `block_landlord` | Block Landlord | +5 unit slots | Holds paper on the tenement next door. |
 | `hard_trainer` | Hard Trainer | +3 to officer physical skills | Everybody on the books is stronger for knowing them. |
@@ -2895,8 +2896,8 @@ Source: `packages/shared/src/crew/perks.ts`
 | `war_college` | War College | +5 to officer mental skills | Studied it properly, and will not shut up about it. |
 | `the_connector` | The Connector | +5 to officer social skills | Knows everyone, introduces everyone. |
 | `master_wright` | Master Wright | +5 to officer technical skills | Served an apprenticeship somewhere that still means something. |
-| `ward_boss` | Ward Boss | +14% defense holding the whole district | Owns every street on the map, and the map. |
-| `block_captain` | Block Captain | +8% defense holding the whole district | Knows every door between here and the wire. |
+| `ward_boss` | Ward Boss | +14% defense while you hold a district whole | Owns every street on the map, and the map. |
+| `block_captain` | Block Captain | +8% defense while you hold a district whole | Knows every door between here and the wire. |
 | `war_story` | War Story | +10% experience | Tells it after every job, and everybody learns. |
 | `debrief_habit` | Debrief Habit | +14% experience | The run is written up before anyone eats. |
 | `grip_coach` | Grip Coach | +5 Strength to every other officer | Fixes how everybody else lifts, one wrist at a time. |
@@ -2908,9 +2909,9 @@ Source: `packages/shared/src/crew/perks.ts`
 | `reading_room` | Reading Room | +8 Encyclopedia to officers already at 50 | Will not waste an evening on a beginner. |
 | `closed_ward` | Closed Ward | +8 Medicine to officers already at 50 | Teaches the ones who already know how to cut. |
 | `sig_drillmaster` | Drillmaster | +5 to officer social skills | Every officer here was taught by them. |
-| `sig_headhunter` | Headhunter | +40% recruits at the Bar | Knows who is unhappy before their chief does. |
+| `sig_headhunter` | Headhunter | -28% training cost | Knows who is unhappy before their chief does. |
 | `sig_paymaster` | Paymaster | -18% wages | Nobody has ever queried one of their envelopes. |
-| `sig_field_surgeon` | Field Surgeon | +14% wounded recovered | Argues with the dead until they get up. |
+| `sig_field_surgeon` | Field Surgeon | +14 medic points | Argues with the dead until they get up. |
 | `sig_quartermaster` | Quartermaster | -20% to widen payroll | The books balance and the shelves are full. |
 | `sig_organiser` | Organiser | +22% cohesion | Turns a mob into a shift rota in an afternoon. |
 
@@ -2918,19 +2919,19 @@ Source: `packages/shared/src/crew/perks.ts`
 
 | Id | Name | Bonus | Description |
 | --- | --- | --- | --- |
-| `second_glass` | Second Glass | +1 scouting party out at once | Trains their own watchers, so the crew is never waiting on one pair of eyes. |
-| `street_ears` | Street Ears | +8% intel | Pays six children a pittance and knows everything. |
-| `wire_tap` | Wire Tap | +12% intel | Has been listening to the Combine for a year. |
-| `counter_signals` | Counter Signals | +10% counter-intel | Feeds the watchers something plausible and wrong. |
-| `paper_shredder` | Paper Shredder | +15% counter-intel | Nothing written down survives the week. |
-| `rooftop_map` | Rooftop Map | sees 1 district | Has walked the skyline end to end. |
+| `second_glass` | Second Glass | +9 spy points | Trains their own watchers, so the crew is never waiting on one pair of eyes. |
+| `street_ears` | Street Ears | +8 spy points | Pays six children a pittance and knows everything. |
+| `wire_tap` | Wire Tap | +12 spy points | Has been listening to the Combine for a year. |
+| `counter_signals` | Counter Signals | +10 spy points against enemy spies | Feeds the watchers something plausible and wrong. |
+| `paper_shredder` | Paper Shredder | +15 spy points against enemy spies | Nothing written down survives the week. |
+| `rooftop_map` | Rooftop Map | +9 spy points | Has walked the skyline end to end. |
 | `lab_discipline` | Lab Discipline | -6% research time | Runs the bench like a shift, not a hobby. |
 | `archive_key` | Archive Key | -8% research time | Still has the pass to a library that burned. |
-| `cipher_desk` | Cipher Desk | +15% intel | Reads the traffic faster than it is sent. |
-| `survey_hand` | Survey Hand | sees 2 districts | Maps a district in a night and gets it right. |
-| `sig_spymaster` | Spymaster | +30% intel | Has a file on everybody, including you. |
-| `sig_ghost` | Ghost | +30% counter-intel | There is no photograph of them anywhere. |
-| `sig_cartographer` | Cartographer | sees 2 districts | Has walked every street in the city twice. |
+| `cipher_desk` | Cipher Desk | +15 spy points | Reads the traffic faster than it is sent. |
+| `survey_hand` | Survey Hand | +18 spy points | Maps a district in a night and gets it right. |
+| `sig_spymaster` | Spymaster | +30 spy points | Has a file on everybody, including you. |
+| `sig_ghost` | Ghost | +30 spy points against enemy spies | There is no photograph of them anywhere. |
+| `sig_cartographer` | Cartographer | +18 spy points | Has walked every street in the city twice. |
 | `sig_infiltrator` | Infiltrator | +22% unit stealth | Gets in before anybody decides to stop them. |
 | `sig_terror` | Terror | +12 intimidation | The street clears before they reach the end of it. |
 | `sig_name_maker` | Name Maker | +25% infamy earned | Makes sure the right people hear about it. |
@@ -3014,11 +3015,11 @@ The shelf also carries every blueprint page as a good (258 of them), generated o
 
 | Id | Name | Infamy | Effect | Grants | Description |
 | --- | --- | --- | --- | --- | --- |
-| `adrenaline_syringes` | Adrenaline Syringes | 120 | Any fight you take it into: +18% offense, +10% morale. Everybody is f… | - | A case of autoinjectors with the dosage label scraped off. |
+| `adrenaline_syringes` | Adrenaline Syringes | 120 | Any fight you take it into: +18% offense, +5% morale. Everybody is fa… | - | A case of autoinjectors with the dosage label scraped off. |
 | `biochemical_infusers` | Biochemical Infusers | 180 | Any fight you take it into: +12% offense, +14% defence. It is not cle… | - | Pump packs that thread into the vest and feed something into the neck. |
-| `banned_explosives` | Banned Explosives | 260 | Any fight you take it into: +30% offense. Doors, walls and the people… | - | Pre-Collapse breaching charges. The kind the Combine put a bounty on. |
-| `combat_stims` | Combat Stims | 140 | Any fight you take it into: +16% morale, +8% defence. Nobody breaks a… | - | Blister packs, chalky, bitter, and they work. |
-| `nerve_gas_canisters` | Nerve Gas Canisters | 320 | Any fight you take it into: +26% offense, -8% morale. Your own people… | - | Four squat cylinders in a foam case, seals intact, stencils in a dead language. |
+| `banned_explosives` | Banned Explosives | 260 | Any fight you take it into: +30% offense, -4% defence. Doors, walls a… | - | Pre-Collapse breaching charges. The kind the Combine put a bounty on. |
+| `combat_stims` | Combat Stims | 140 | Any fight you take it into: +8% defence, +8% morale. Nobody breaks an… | - | Blister packs, chalky, bitter, and they work. |
+| `nerve_gas_canisters` | Nerve Gas Canisters | 320 | Any fight you take it into: +26% offense, -4% morale. Your own people… | - | Four squat cylinders in a foam case, seals intact, stencils in a dead language. |
 
 ## Factions
 
@@ -3032,7 +3033,7 @@ Source: `packages/shared/src/factions/cards.ts`, `packages/shared/src/factions/f
 | `king_diamonds` | King of diamonds | Defences | Toughness, Organization, Resolve | Holding your ground | The one who holds the door. Everything the table holds is harder to take off it. |
 | `queen_hearts` | Queen of hearts | Planning | Logic, Analysis, Logistics | Off every run's clock | The one with the map. Every run the table sends out comes home sooner. |
 | `jack_clubs` | Jack of clubs | Infamy | Intimidation, Charisma, Deception | Infamy off everything that earns it | The one whose name gets around. Everything the table does is talked about more. |
-| `joker` | The Joker | Luck | Improvisation, Intuition, Stealth | The ones the medics get back | The one who walks away from things. More of the table walks away with them. |
+| `joker` | The Joker | Luck | Improvisation, Intuition, Stealth | Medic points | The one who walks away from things. More of the table walks away with them. |
 
 #### Ranks (3)
 
@@ -3171,16 +3172,15 @@ Source: `packages/shared/src/progression/unlocks.ts`
 
 Source: `packages/shared/src/social/notifications.ts`
 
-#### Fighting (4)
+#### Fighting (3)
 
 | Kind | Label | Always on | Blurb |
 | --- | --- | --- | --- |
 | `battle_report` | Battle reports | yes | How a fight you were in actually went. |
-| `battle_incoming` | Fights you have called | no | A mark you set is about to come up. |
-| `reinforcement_arrived` | Reinforcements | no | An ally has put units into a fight of yours, or you into one of theirs. |
+| `reinforcement_arrived` | Reinforcements | no | An ally is sending units to a fight of yours. |
 | `mission_home` | Crews coming home | no | A job is finished and the crew is back. |
 
-#### The district (11)
+#### The district (10)
 
 | Kind | Label | Always on | Blurb |
 | --- | --- | --- | --- |
@@ -3192,16 +3192,15 @@ Source: `packages/shared/src/social/notifications.ts`
 | `market_outbid` | Lots at the barrow | no | A lot you were bidding on has gone to somebody else, or gone unsold. |
 | `market_claim` | Goods to claim | no | A listing of yours was taken, ran out, or the one you countered closed. 24 hours to claim. |
 | `page_found` | Pages found | no | A blueprint page came into the inventory. |
-| `spy_report` | Spy reports | no | A job you paid for has come back, with a report or without one. |
-| `spied_on` | Spies on your ground | no | Somebody has been looking at a place you hold. Your Consigliere noticed. |
-| `scout_home` | Scouts returning | no | Somebody you sent out has walked a district and come back with it. |
+| `spy_report` | Spy reports | no | A job you paid for has come back, with a report or without one, or the courier's daily re… |
+| `spied_on` | Spies on your ground | no | Somebody has been looking at a place you hold: their runners were seen, or your Consiglie… |
 
 #### The crew (3)
 
 | Kind | Label | Always on | Blurb |
 | --- | --- | --- | --- |
 | `training_done` | Training | no | Somebody has finished an hour on the floor. |
-| `officer_hired` | Hiring | no | Somebody has signed, or walked. |
+| `officer_hired` | Hiring | no | Somebody has signed with you at the Bar. |
 | `bar_outbid` | Auctions at the Bar | no | A table you were bidding at has closed, and somebody else took them. |
 
 #### People (4)
@@ -3210,7 +3209,7 @@ Source: `packages/shared/src/social/notifications.ts`
 | --- | --- | --- | --- |
 | `message_received` | Messages | no | Somebody has written to you. |
 | `faction_invite` | Faction invitations | no | A faction has asked you to join them. |
-| `faction_joined` | People joining | no | Somebody new has come to your faction. |
+| `faction_joined` | People joining | no | Somebody new has come to your faction, or your own rank at it has changed. |
 | `faction_left` | People leaving | no | Somebody has left your faction, or been shown the door. |
 
 ## Blueprint motifs

@@ -6,7 +6,6 @@ import {
   fleetCapacity,
   ridingUnitSlots,
   upgradedStats,
-  unitSlotsUsed,
   deploymentIsOpen,
   emptyDeployment,
   movementForce,
@@ -26,7 +25,6 @@ import {
 } from '@frontline/shared';
 import type { Repositories } from '../db/repos/index.js';
 import { forceSize, isFightingForce, mergeArmies, removeForce } from './forces.js';
-import { tallyDeployed } from '../feats/tally.js';
 import { defendingBaseOf } from './ground.js';
 import { sideForce } from './side.js';
 import { columnMinutesTo, railColumnOffer, sendColumn } from './movement.js';
@@ -89,6 +87,8 @@ export interface DeployInput {
    */
   byRail?: boolean;
   now: Date;
+  /** Testing mode: a column sent here arrives in five seconds (`sendColumn`). */
+  admin?: boolean;
 }
 
 /**
@@ -423,6 +423,7 @@ export function adjustDeployment(repos: Repositories, input: DeployInput): Deplo
           // The railway, if this crew asked for it and holds a pair of platforms that serves the
           // journey. Ignored when there is no ride: a stale screen gets the march, not a refusal.
           byRail: input.byRail === true,
+          admin: input.admin === true,
         })
       : null;
 
@@ -446,18 +447,8 @@ export function adjustDeployment(repos: Repositories, input: DeployInput): Deplo
   const next: Base = { ...base, army };
   repos.bases.updateArmy(next.id, next.army, next.trainingQueue);
   if (place.kind !== 'district') walkHome(repos, next, place, pulledHome, {}, now);
-  /*
-   * Feats: what this crew has ever put on the ground (maintainer request, 2026-09-13).
-   *
-   * `sending` is the positive half of both change sets, so pulling people back counts for nothing
-   * and adding to a muster twice counts twice. Both are right: the ladder asks how much has ever
-   * been committed, and a crew that withdrew and re-committed did commit twice.
-   *
-   * Counted here, at the muster, rather than when the fight resolves. That is when the decision
-   * was made, and a fight later called off still cost the crew the days its people spent standing
-   * on somebody else's street.
-   */
-  tallyDeployed(repos, base.id, { units: forceSize(sending), unitSlots: unitSlotsUsed(sending) });
+  // `bodies_deployed` and `supply_deployed` are counted when the column lands, not here: see
+  // `tallyColumnLanded` in `battle/movement.ts`.
   return { kind: 'ok', base: next, deployment, lostOnTheWayOut, departed: walking };
 }
 

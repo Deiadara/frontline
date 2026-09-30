@@ -37,6 +37,7 @@ const NOW = new Date('2026-09-13T12:00:00.000Z');
 
 const offer: MissionOffer = {
   templateId: 'scrap-run',
+  boardKey: '2026-09-13',
   name: 'Long Haul',
   brief: 'A long way out and a long way back.',
   kind: 'standard',

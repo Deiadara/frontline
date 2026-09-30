@@ -212,7 +212,9 @@ test.describe("a crew's file", () => {
     for (const hold of rivalProfile.holdings) {
       await expect(page.getByTestId(`profile-holding-${hold.locationId}`)).toBeVisible();
     }
-    await expect(page.getByTestId('profile-hidden-holdings')).toContainText('2 more');
+    // The whole city is visible (2026-09-29): nothing they hold is left off, so nothing is counted
+    // as hidden.
+    await expect(page.getByTestId('profile-hidden-holdings')).toHaveCount(0);
     await expect(page.getByTestId('profile-whole-districts')).toContainText('Chrome Row');
     await expect(page.getByTestId('profile-buildings').getByRole('listitem')).toHaveCount(
       rivalProfile.home.buildings.length,

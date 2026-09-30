@@ -2,6 +2,7 @@
  * The mission board: jobs at several grades, every one led, one called back, each paid once.
  */
 import {
+  GRADES,
   RESOURCE_KEYS,
   VEHICLES,
   canRecall,
@@ -67,7 +68,14 @@ export async function launch(
       as: crew,
       method: 'POST',
       route: '/api/missions',
-      body: { templateId: job.offer.templateId, areaId: job.area.id, force, leaderId },
+      body: {
+        templateId: job.offer.templateId,
+        areaId: job.area.id,
+        boardKey: job.offer.boardKey,
+        grade: job.offer.grade,
+        force,
+        leaderId,
+      },
     }),
   );
   const mission = sent?.mission;
@@ -270,7 +278,26 @@ async function freeLeaderRefusals(h: Harness, crew: Player): Promise<void> {
   const overseer = read?.leaders.find((leader) => leader.kind === 'overseer');
   const job = read ? openJobs(read)[0] : undefined;
   if (!read || !overseer || !job) return;
-  const body = { templateId: job.offer.templateId, areaId: job.area.id, leaderId: overseer.id };
+  const body = {
+    templateId: job.offer.templateId,
+    areaId: job.area.id,
+    boardKey: job.offer.boardKey,
+    grade: job.offer.grade,
+    leaderId: overseer.id,
+  };
+  // A card the board never showed: the right job at a grade it was not dealt at. The launch takes
+  // exactly the card that was read (maintainer, 2026-09-29).
+  const hiddenGrade = GRADES.find((grade) => grade !== job.offer.grade);
+  if (hiddenGrade) {
+    await h.refuse({
+      as: crew,
+      method: 'POST',
+      route: '/api/missions',
+      body: { ...body, grade: hiddenGrade, force: { scavengers: 1 } },
+      expect: 404,
+      code: 'NOT_FOUND',
+    });
+  }
   await h.refuse({
     as: crew,
     method: 'POST',
@@ -298,11 +325,17 @@ async function freeLeaderRefusals(h: Harness, crew: Player): Promise<void> {
       code: 'FORBIDDEN',
     });
   }
-  // Ground nobody of this crew has had eyes on, with a card that district really is dealing today.
+  // Ground this crew holds nothing in, with a card that district really is dealing today: the
+  // board is not open to it (maintainer, 2026-09-29).
   const base = await baseOf(h, crew);
-  const seen = new Set(h.repos.city.scouted(base.id));
+  const controls = h.repos.city.controls();
   const blind = districtsOfCity(cityOfDistrict(base.districtId)).find(
-    (district) => district.kind === 'contested' && !seen.has(district.id),
+    (district) =>
+      district.kind === 'contested' &&
+      !district.locations.some((location) => {
+        const holder = controls.get(location.id)?.holder;
+        return holder?.kind === 'crew' && holder.baseId === base.id;
+      }),
   );
   if (blind) {
     const key = launchableBoardKeys(blind.id, h.now())[0];
@@ -315,11 +348,13 @@ async function freeLeaderRefusals(h: Harness, crew: Player): Promise<void> {
         body: {
           templateId: dealt.template.id,
           areaId: blind.id,
+          boardKey: key,
+          grade: dealt.grade,
           leaderId: overseer.id,
           force: { scavengers: 1 },
         },
         expect: 409,
-        code: 'DISTRICT_UNSCOUTED',
+        code: 'MISSION_REFUSED',
       });
     }
   }
@@ -342,6 +377,8 @@ async function launchRefusals(
   const body = {
     templateId: job.offer.templateId,
     areaId: job.area.id,
+    boardKey: job.offer.boardKey,
+    grade: job.offer.grade,
     force: { scavengers: 1 },
     leaderId: overseer.id,
   };
@@ -388,7 +425,13 @@ async function launchRefusals(
       as: crew,
       method: 'POST',
       route: '/api/missions',
-      body: { ...body, areaId: busyArea.id, templateId: busyOffer.templateId },
+      body: {
+        ...body,
+        areaId: busyArea.id,
+        templateId: busyOffer.templateId,
+        boardKey: busyOffer.boardKey,
+        grade: busyOffer.grade,
+      },
       expect: 409,
       code: 'MISSION_REFUSED',
     });

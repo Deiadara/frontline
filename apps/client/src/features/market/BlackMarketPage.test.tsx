@@ -3,6 +3,7 @@ import {
   blackLotId,
   blackMarketBoard,
   blackMarketPrice,
+  discountedInfamy,
   findBlackMarketGood,
   nextLotBid,
   type BlackMarketOffer,
@@ -49,6 +50,7 @@ function offerFor(
     affordable: true,
     price: reserve,
     minNotoriety: spec?.minNotoriety ?? 0,
+    alreadyKnown: false,
     effect: spec?.effect ?? 'It does something.',
     lot: {
       lotId: blackLotId(DAY, index),
@@ -83,6 +85,7 @@ const shelf: BlackMarketResponse = {
   ],
   infamy: 1_000_000,
   takenToday: 0,
+  discountPercent: 0,
   takesPerDay: 1,
   cityLevel: CITY_LEVEL,
   cityId: DEFAULT_CITY_ID,
@@ -184,6 +187,24 @@ describe('the shelf as five lots', () => {
     expect(screen.queryByText(shelf.infamy.toLocaleString())).toBeNull();
   });
 
+  it('tells a crew that already holds the plans why the lot is shut to it', async () => {
+    serve({
+      ...roomy,
+      offers: roomy.offers.map((offer, index) =>
+        index === 0 ? { ...offer, affordable: false, alreadyKnown: true } : offer,
+      ),
+    });
+    renderShelf();
+    expect(await screen.findByTestId('black-lot-tag-0')).toHaveAttribute(
+      'data-tip',
+      'You already have these plans',
+    );
+    fireEvent.click(screen.getByTestId('black-bid-0'));
+    expect(await screen.findByTestId('black-lot-window')).toHaveTextContent(
+      'He does not sell the same set twice.',
+    );
+  });
+
   it('says how many the crew may walk out with, rather than how many it may take', async () => {
     renderShelf();
     expect(await screen.findByTestId('black-allowance')).toHaveTextContent('1 to win tonight');
@@ -236,6 +257,18 @@ describe('the shelf as five lots', () => {
     const window = await screen.findByTestId('black-lot-window');
     expect(within(window).getByTestId('lot-place')).toBeEnabled();
     expect(within(window).queryByTestId('lot-refusal')).toBeNull();
+  });
+
+  /* Maintainer, 2026-09-29: "bid / you pay" at the fence, after the crew's standing. */
+  it('prints what the crew would pay beside the bid', async () => {
+    const opening = shelf.offers[0]!.lot!.nextBid;
+    serve({ ...roomy, discountPercent: 20 });
+    renderShelf();
+    fireEvent.click(await screen.findByTestId('black-bid-0'));
+    const window = await screen.findByTestId('black-lot-window');
+    expect(within(window).getByTestId('lot-you-pay')).toHaveTextContent(
+      `/ ${discountedInfamy(opening, 20).toLocaleString()}`,
+    );
   });
 
   it('offers the four quick raises, the big two included', async () => {

@@ -1,5 +1,6 @@
 import { bareBattlefield, type Battlefield } from './battlefield.js';
-import { simulate, type SideSetup } from './engine.js';
+import { simulate, type SideSetup, type Simulation } from './engine.js';
+import { escapeChance, routContextOf } from './rout.js';
 
 /**
  * What a fight is likely to cost, before committing to it (GDD §A5).
@@ -9,16 +10,16 @@ import { simulate, type SideSetup } from './engine.js';
  * implementation drifts from the real one the first time either is tuned, and then it is worse than
  * having none, because the player is planning against a lie.
  *
- * What it deliberately cannot do is see through fog. It is given the garrison *the player knows
- * about*, which on unscouted ground is nothing, so the forecast is only ever as good as the
- * scouting behind it, and a confident number on bad intelligence is the player's own risk.
+ * What it deliberately cannot do is see what nobody has counted. It is given the garrison *the
+ * player knows about*, which without a spy report is nothing, so the forecast is only ever as good
+ * as the spying behind it, and a confident number on bad intelligence is the player's own risk.
  */
 
 /**
  * The unit a forecast assumes when all it knows is a head count.
  *
- * Fog of war (§A4) hides an enemy garrison's *composition* and shows only its size: deliberately,
- * and the forecast may not quietly undo that. So an estimate against unscouted composition stands
+ * An enemy garrison's *composition* is hidden without a spy report that lists it: deliberately,
+ * and the forecast may not quietly undo that. So an estimate against an uncounted composition stands
  * a middling defensive regular in for every unit and the screen says out loud that it is doing so.
  *
  * A Warden rather than a Razor or a Juggernaut: it is the roster's ordinary answer to "somebody is
@@ -37,7 +38,11 @@ export const FORECAST_RUNS = 60;
 export interface Forecast {
   /** Share of runs the attacker took the ground, 0..1. */
   winChance: number;
-  /** Mean share of the attacking force still standing at the end, 0..1. */
+  /**
+   * Mean share of the attacking force that comes home, 0..1: the winner's standing, and of a
+   * beaten side the share the rout is expected to let go. A defender's ring is not in it, because
+   * nobody planning an attack has seen one.
+   */
   attackerSurvival: number;
   /** ...and of the defence. */
   defenderSurvival: number;
@@ -56,11 +61,27 @@ export interface ForecastInput {
   runs?: number;
 }
 
-const survival = (side: { stacks: { started: number; alive: number }[] }): number => {
-  const started = side.stacks.reduce((total, stack) => total + stack.started, 0);
-  if (started === 0) return 1;
-  return side.stacks.reduce((total, stack) => total + stack.alive, 0) / started;
-};
+/**
+ * The share of one side that walks off the ground, which is the figure the screens print it as.
+ *
+ * It was the share still standing when the fight ended, and on a lost fight most of those are
+ * routing bodies the rout then rolls for (bug pass, 2026-09-29): 40 Razors against 60 read "54%
+ * walk out" and brought home 32%. Counted as the report counts a side: the officer is not one of
+ * the force and always comes home, and an attacker's turncoats marched out and do not come back.
+ */
+function homeShare(simulation: Simulation, which: 'attacker' | 'defender'): number {
+  const won = simulation.winner === which;
+  const context = routContextOf(simulation);
+  let marched =
+    which === 'attacker' ? Object.values(simulation.turned).reduce((sum, n) => sum + n, 0) : 0;
+  let home = 0;
+  for (const stack of simulation[which].stacks) {
+    if (stack.officer !== undefined || stack.turncoat === true) continue;
+    marched += stack.started;
+    home += won ? stack.alive : stack.alive * escapeChance(stack, context);
+  }
+  return marched === 0 ? 1 : home / marched;
+}
 
 /**
  * Runs the fight `runs` times and averages it.
@@ -87,8 +108,8 @@ export function forecast(input: ForecastInput): Forecast {
       defender: input.defender,
     });
     if (simulation.winner === 'attacker') wins += 1;
-    attackerLeft += survival(simulation.attacker);
-    defenderLeft += survival(simulation.defender);
+    attackerLeft += homeShare(simulation, 'attacker');
+    defenderLeft += homeShare(simulation, 'defender');
     rounds += simulation.rounds.length;
   }
 

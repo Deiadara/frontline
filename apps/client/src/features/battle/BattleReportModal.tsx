@@ -2,6 +2,7 @@ import {
   NO_REPORT_LINE,
   type BattleAnalysis,
   type BattleSide,
+  type LocationHolderKind,
   type SideAnalysis,
   type SkirmishOutcome,
   type UnitPerformance,
@@ -13,6 +14,7 @@ import type { ReactNode } from 'react';
 import { RewardLine } from '../../components/Resources';
 import { DrawnButton } from '../../components/ui/DrawnButton';
 import { DrawnGlyph } from '../../components/ui/DrawnMarks';
+import { Insignia } from '../../components/ui/Insignia';
 import type { IconName } from '../../components/ui/Icon';
 import { LabelRow } from '../../components/ui/LabelChip';
 import { Modal } from '../../components/ui/Modal';
@@ -47,10 +49,10 @@ import { UnitTrigger } from '../units/UnitWindow';
  * What the Combine's two legendaries took off the attacker (`city/combine.ts`, 2026-09-19).
  *
  * `turned` is the attacker's units that changed sides under Directive Xero's Change of Heart, by
- * unit id: lost for good, and fighting for him now. `executed` is the count the Executioner
- * finished where they stood. Both are on `SkirmishOutcome`; the report reads them off the
- * analysis it is handed, and draws nothing while they are zero, which is every fight the Combine
- * is not in.
+ * unit id: they fought this one fight for him and are dead after it, whichever way it went.
+ * `executed` is the count the Executioner finished where they stood. Both are on
+ * `SkirmishOutcome`; the report reads them off the analysis it is handed, and draws nothing while
+ * they are zero, which is every fight the Combine is not in.
  */
 type CombineToll = Pick<SkirmishOutcome, 'turned' | 'executed'>;
 
@@ -58,6 +60,11 @@ interface BattleReportModalProps {
   analysis: (BattleAnalysis & Partial<CombineToll>) | null;
   /** Which side the reader was on, so their own force leads. */
   side: BattleSide;
+  /**
+   * Who stood on the ground (`BattleReportView.defenderKind`), so the Combine's and the looters'
+   * side carries their mark. The attacker is always a crew.
+   */
+  defenderKind?: LocationHolderKind;
   onClose: () => void;
 }
 
@@ -68,7 +75,7 @@ const MEANING: Readonly<Record<string, string>> = {
     'Infamy: the name this side earned from the fight. A name is burned to boost a fight and opens contracts.',
   spoils: 'Spoils: what the winner carried home, after anything the stores could not take.',
   rounds: 'Rounds: how many exchanges it took to settle.',
-  trap: 'The trap: what went off on the approach, and how many it took before the lines met.',
+  trap: 'The trap: what went off on the approach, and how many it took or how it slowed the attack before the lines met.',
   officer:
     'The officer who led this side, what they put out, and whether they walked off the field.',
   sent: 'Sent: everybody this side committed to the line.',
@@ -80,7 +87,12 @@ const MEANING: Readonly<Record<string, string>> = {
   ring: 'The ring: the perimeter set to catch a withdrawal, and what it caught and cost.',
 };
 
-export function BattleReportModal({ analysis, side, onClose }: BattleReportModalProps) {
+export function BattleReportModal({
+  analysis,
+  side,
+  defenderKind = 'crew',
+  onClose,
+}: BattleReportModalProps) {
   if (!analysis) {
     return (
       <Modal onClose={onClose} labelledBy="report-title" className="border-oxblood-500/30">
@@ -178,7 +190,7 @@ export function BattleReportModal({ analysis, side, onClose }: BattleReportModal
                 icon="alert"
                 meaning="trap"
                 label={analysis.trap.name}
-                value={`took ${analysis.trap.killed}`}
+                value={analysis.trap.slowed ? 'slowed them' : `took ${analysis.trap.killed}`}
                 tone="bad"
               />
             )}
@@ -211,8 +223,20 @@ export function BattleReportModal({ analysis, side, onClose }: BattleReportModal
         )}
 
         <div className="grid gap-3 sm:grid-cols-2 sm:items-stretch">
-          <SideSheet side={mine} heading="Yours" tone="mine" rows={rows} />
-          <SideSheet side={theirs} heading="Theirs" tone="theirs" rows={rows} />
+          <SideSheet
+            side={mine}
+            heading="Yours"
+            tone="mine"
+            rows={rows}
+            holder={side === 'defender' ? defenderKind : 'crew'}
+          />
+          <SideSheet
+            side={theirs}
+            heading="Theirs"
+            tone="theirs"
+            rows={rows}
+            holder={side === 'attacker' ? defenderKind : 'crew'}
+          />
         </div>
       </div>
 
@@ -290,8 +314,9 @@ interface Note {
 
 /**
  * The lines that belong to one side only, drawn only when there is a number or a name behind
- * them. A turned unit is not in "Died" either, which is the reason the line exists: a player
- * counting what came home would otherwise find units missing that the report never accounted for.
+ * them. A turned unit is counted in "Died" (maintainer, 2026-09-29: "Count them as dead"), and the
+ * turned line says so, because a player reading the unit table would otherwise put every one of
+ * those deaths down to the fire.
  */
 function noteLines(analysis: BattleAnalysis & Partial<CombineToll>): Note[] {
   const notes: Note[] = [];
@@ -305,7 +330,7 @@ function noteLines(analysis: BattleAnalysis & Partial<CombineToll>): Note[] {
   if (turned > 0) {
     notes.push({
       testId: 'report-turned',
-      text: `${turned === 1 ? '1 unit changed sides and is his now' : `${turned} units changed sides and are his now`}: ${turnedLine(analysis.turned ?? {})}.`,
+      text: `${turned} turned by Directive Xero (included in Died): ${turnedLine(analysis.turned ?? {})}.`,
     });
   }
   const executed = analysis.executed ?? 0;
@@ -449,11 +474,14 @@ function SideSheet({
   heading,
   tone,
   rows,
+  holder,
 }: {
   side: SideAnalysis;
   heading: string;
   tone: 'mine' | 'theirs';
   rows: LedgerRow[];
+  /** Whose side this was, for the Combine's or the looters' mark beside the name. */
+  holder: LocationHolderKind;
 }) {
   return (
     <section
@@ -465,8 +493,11 @@ function SideSheet({
     >
       <header className="relative flex items-baseline justify-between gap-2 px-3 pb-2 pt-2.5">
         {/* Wrapped, not truncated. A crew name is the thing this line is for. */}
-        <h3 className="min-w-0 break-words font-stamp text-[15px] leading-none text-brass-300">
-          {heading} · {side.name}
+        <h3 className="flex min-w-0 items-center gap-1.5 break-words font-stamp text-[15px] leading-none text-brass-300">
+          <span className="min-w-0">
+            {heading} · {side.name}
+          </span>
+          <Insignia holder={holder} className="-my-1 h-[18px] w-[18px]" />
         </h3>
         <span aria-hidden className="ink-rule absolute inset-x-3 -bottom-[1px]" />
       </header>

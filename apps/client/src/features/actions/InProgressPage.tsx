@@ -94,7 +94,7 @@ export function InProgressPage() {
   const hurt = (crew.data?.officers ?? []).filter(
     (one) => one.injuredUntil !== null && Date.parse(one.injuredUntil) > now.getTime(),
   );
-  const heldDistricts = (city.data?.districts ?? []).filter((one) => (one.held?.mine ?? 0) > 0);
+  const heldDistricts = (city.data?.districts ?? []).filter((one) => one.held.mine > 0);
   const nothing =
     base.buildQueue.length === 0 &&
     active === null &&

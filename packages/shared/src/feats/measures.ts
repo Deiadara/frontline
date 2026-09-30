@@ -71,7 +71,6 @@ export const FEAT_MEASURES = [
   'overseer_best_skill',
   'districts_held_whole',
   'locations_held',
-  'districts_scouted',
   // The second city (maintainer, 2026-09-24): what a crew has done somewhere it does not live.
   'locations_held_abroad',
   'districts_held_whole_abroad',
@@ -143,10 +142,12 @@ export const FEAT_MEASURES = [
   'market_sales',
   'market_buys',
   'contraband_taken',
-  'scouting_runs',
   'spy_reports',
+  'spy_jobs_returned',
+  'spy_jobs_unnoticed',
+  'courier_reports',
   'locations_captured',
-  'gates_captured',
+  'gates_breached',
   'traps_built',
   'addons_built',
   'messages_sent',
@@ -205,7 +206,6 @@ export const FEAT_MEASURE_SPECS: Readonly<Record<FeatMeasure, FeatMeasureSpec>> 
   overseer_best_skill: { source: 'crew', scoped: false, unit: 'points' },
   districts_held_whole: { source: 'crew', scoped: false, unit: 'districts' },
   locations_held: { source: 'crew', scoped: false, unit: 'holdings' },
-  districts_scouted: { source: 'crew', scoped: false, unit: 'districts' },
   /**
    * The frontier measures (maintainer, 2026-09-24): "feats for doing stuff in another city".
    *
@@ -286,7 +286,7 @@ export const FEAT_MEASURE_SPECS: Readonly<Record<FeatMeasure, FeatMeasureSpec>> 
   battles_won_abroad: { source: 'tally', scoped: false, unit: 'wins' },
   /**
    * Journeys put on Terminus's railway: a unit move or a battle column that chose the train
-   * (`city/rails.ts`). Missions and scouting runs never ride, and neither do vehicles or the
+   * (`city/rails.ts`). Missions and spy jobs never ride, and neither do vehicles or the
    * Colossus, so this counts only the moves the offer was actually taken on.
    */
   rail_journeys: { source: 'tally', scoped: false, unit: 'journeys' },
@@ -408,10 +408,24 @@ export const FEAT_MEASURE_SPECS: Readonly<Record<FeatMeasure, FeatMeasureSpec>> 
   market_sales: { source: 'tally', scoped: false, unit: 'deals' },
   market_buys: { source: 'tally', scoped: false, unit: 'deals' },
   contraband_taken: { source: 'tally', scoped: false, unit: 'takes' },
-  scouting_runs: { source: 'tally', scoped: false, unit: 'runs' },
+  /** A spy report that stood and named somebody: see `settleSpying`. */
   spy_reports: { source: 'tally', scoped: false, unit: 'reports' },
+  /**
+   * Every spy job that came home with a report, stood or failed; a job turned round in its first
+   * tenth writes none and is not counted. The ladder that replaced the scouting runs (maintainer,
+   * 2026-09-29: "repoint to spying"). Distinct from `spy_reports`, which counts only what was learnt.
+   */
+  spy_jobs_returned: { source: 'tally', scoped: false, unit: 'jobs' },
+  /**
+   * Jobs home on somebody's ground without them knowing who came (maintainer, 2026-09-28): the
+   * thing Traffic Analysis and a better chair buy. Only a crew-held target counts, since looter and
+   * Combine ground has nobody to find anybody out.
+   */
+  spy_jobs_unnoticed: { source: 'tally', scoped: false, unit: 'jobs' },
+  /** The reports Turned Runners brings in, one a day at most (`spying/courier.ts`). */
+  courier_reports: { source: 'tally', scoped: false, unit: 'reports' },
   locations_captured: { source: 'tally', scoped: false, unit: 'holdings' },
-  gates_captured: { source: 'tally', scoped: false, unit: 'gates' },
+  gates_breached: { source: 'tally', scoped: false, unit: 'gates' },
   traps_built: { source: 'tally', scoped: false, unit: 'traps' },
   addons_built: { source: 'tally', scoped: false, unit: 'fittings' },
   messages_sent: { source: 'tally', scoped: false, unit: 'letters' },

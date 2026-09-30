@@ -163,7 +163,7 @@ export function canClaimFeat(progress: FeatProgress | undefined): boolean {
  * The rewards of a set of feats, added together.
  *
  * Used by the claim-everything path and by the test that prices a whole chain. Written as a fold
- * over the same six channels `FeatReward` has, so a seventh channel added there and forgotten here
+ * over the same five channels `FeatReward` has, so a sixth channel added there and forgotten here
  * is a type error rather than a reward that silently never arrives.
  */
 export function mergeFeatRewards(rewards: readonly FeatReward[]): FeatReward {
@@ -172,9 +172,8 @@ export function mergeFeatRewards(rewards: readonly FeatReward[]): FeatReward {
     items: Record<string, number>;
     units: Record<string, number>;
     xp: number;
-    infamy: number;
     boosts: string[];
-  } = { resources: {}, items: {}, units: {}, xp: 0, infamy: 0, boosts: [] };
+  } = { resources: {}, items: {}, units: {}, xp: 0, boosts: [] };
 
   for (const reward of rewards) {
     for (const [key, amount] of Object.entries(reward.resources ?? {})) {
@@ -187,7 +186,6 @@ export function mergeFeatRewards(rewards: readonly FeatReward[]): FeatReward {
       merged.units[key] = (merged.units[key] ?? 0) + (amount ?? 0);
     }
     merged.xp += reward.xp ?? 0;
-    merged.infamy += reward.infamy ?? 0;
     merged.boosts.push(...(reward.boosts ?? []));
   }
 
@@ -196,7 +194,6 @@ export function mergeFeatRewards(rewards: readonly FeatReward[]): FeatReward {
     ...(Object.keys(merged.items).length > 0 ? { items: merged.items } : {}),
     ...(Object.keys(merged.units).length > 0 ? { units: merged.units } : {}),
     ...(merged.xp > 0 ? { xp: merged.xp } : {}),
-    ...(merged.infamy > 0 ? { infamy: merged.infamy } : {}),
     ...(merged.boosts.length > 0 ? { boosts: merged.boosts } : {}),
   };
 }

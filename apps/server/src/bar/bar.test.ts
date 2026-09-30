@@ -1,5 +1,6 @@
 import {
   MAX_WAGE_DISCOUNT,
+  committedWage,
   DISMISSAL_WEEKS,
   MAX_OPEN_AUCTIONS,
   PAYROLL_BASE,
@@ -39,6 +40,7 @@ import {
   startingTraining,
   OFFICER_ROLES,
   flatRoom,
+  NO_FREE_BED_TEXT,
 } from '@frontline/shared';
 import { fileURLToPath } from 'node:url';
 import type { FastifyInstance } from 'fastify';
@@ -48,10 +50,10 @@ import { loadConfig } from '../config.js';
 import { openDatabase, runMigrations, type AppDatabase } from '../db/index.js';
 import { createRepositories, type Repositories } from '../db/repos/index.js';
 import { crewEffectsFor } from '../crew/standing.js';
+import { districtUnitSlots } from '../district/unit-slots.js';
 import { projectRecruit } from './project.js';
 import {
   bidCeilingFor,
-  committedWage,
   recruitSlotsFor,
   releaseOfficer,
   signRecruit,
@@ -67,9 +69,11 @@ import {
   barRoster,
   findBarRecruit,
   recruitId,
+  type BarCharacter,
 } from './roster.js';
 import { chooseOverseer, pinOverseer } from '../testing/overseer.js';
 import { openDoors } from '../testing/doors.js';
+import { tickWorld } from '../live/clock.js';
 
 /*
  * The clock, pinned.
@@ -106,8 +110,12 @@ afterEach(async () => {
   vi.setSystemTime(NOW);
 });
 
-async function makeApp(): Promise<{ app: FastifyInstance; db: AppDatabase }> {
-  const config = loadConfig({ DATABASE_PATH: ':memory:', JWT_SECRET: 'test-secret' });
+async function makeApp({ admin = false } = {}): Promise<{ app: FastifyInstance; db: AppDatabase }> {
+  const config = loadConfig({
+    DATABASE_PATH: ':memory:',
+    JWT_SECRET: 'test-secret',
+    ...(admin ? { ADMIN: 'true' } : {}),
+  });
   const db = openDatabase(config.databasePath);
   runMigrations(db);
   const app = await buildApp({ config, db, logger: false });
@@ -126,6 +134,18 @@ function fillEveryChair(app: FastifyInstance, baseId: string, prefix: string): v
     OFFICER_ROLES.slice(0, chairs).map((role, index) =>
       createCommander(`${prefix}-${String(index)}`, `Sitter ${String(index)}`, role),
     ),
+  );
+}
+
+/** Razors into every bed the district has left, so an officer has nowhere to sleep. */
+function fillEveryBed(app: FastifyInstance, baseId: string): void {
+  const base = app.repos.bases.findById(baseId);
+  if (!base) throw new Error('no base');
+  const spare = districtUnitSlots(app.repos, base).spare;
+  app.repos.bases.updateArmy(
+    base.id,
+    { ...base.army, razors: (base.army.razors ?? 0) + spare },
+    base.trainingQueue,
   );
 }
 
@@ -298,15 +318,21 @@ function fakeRepos(
    * Station), so a double that omits the city repo is a double the code under test cannot run
    * against: an empty map is what "this crew holds nothing" actually looks like.
    */
-  const city = { controls: () => new Map(), control: () => undefined, scouted: () => new Set() };
+  const city = { controls: () => new Map(), control: () => undefined };
   const users = { findById: () => undefined };
   const overseers = { findById: () => undefined };
   const sieges = {
     deploymentsFor: () => [],
+    gate: () => undefined,
     leadingElsewhere: (officerId: string) =>
       officerId === out.fightLedBy ? [{ battleId: 'battle-1' }] : [],
   };
   const movements = { forBase: () => [] };
+  // Signing counts the beds (2026-09-29), and the bed count reads everybody the crew has out: a
+  // crew with nobody planted, walking or posted anywhere.
+  const sleepers = { forBase: () => [] };
+  const moves = { activeFor: () => [] };
+  const alliedGarrisons = { forBase: () => [] };
   const missions = {
     listActiveByBaseId: () =>
       out.runLedBy === undefined
@@ -343,6 +369,9 @@ function fakeRepos(
       movements,
       missions,
       factions,
+      sleepers,
+      moves,
+      alliedGarrisons,
     } as unknown as Parameters<typeof signRecruit>[0],
     written,
   };
@@ -423,7 +452,7 @@ describe('§H2/§H2a: one global roster, generated from the game date', () => {
     for (let day = 0; day < 400; day++) {
       const key = barDay(new Date(Date.UTC(2026, 0, 1) + day * 86_400_000));
       for (const cityLevel of [0, 8, 30]) {
-        const roster = barRoster(key, BAR_ROSTER_SIZE, cityLevel);
+        const roster = barRoster(key, cityLevel);
         const willing = roster.filter(
           (r) =>
             assessJoin(r.requirement, {
@@ -450,7 +479,7 @@ describe('§H2/§H2a: one global roster, generated from the game date', () => {
       let count = 0;
       for (let day = 0; day < 60; day++) {
         const key = barDay(new Date(Date.UTC(2026, 0, 1) + day * 86_400_000));
-        for (const recruit of barRoster(key, BAR_ROSTER_SIZE, cityLevel)) {
+        for (const recruit of barRoster(key, cityLevel)) {
           for (const name of ATTRIBUTE_NAMES) {
             total += recruit.attributes[name];
             count += 1;
@@ -470,7 +499,7 @@ describe('§H2/§H2a: one global roster, generated from the game date', () => {
     let highest = 0;
     for (let day = 0; day < 30; day++) {
       const key = barDay(new Date(Date.UTC(2026, 0, 1) + day * 86_400_000));
-      for (const recruit of barRoster(key, BAR_ROSTER_SIZE, 110)) {
+      for (const recruit of barRoster(key, 110)) {
         for (const name of ATTRIBUTE_NAMES) {
           expect(recruit.attributes[name]).toBeLessThanOrEqual(recruitmentCeiling(MAX_CALIBRE));
           highest = Math.max(highest, recruit.attributes[name]);
@@ -489,7 +518,7 @@ describe('§H2/§H2a: one global roster, generated from the game date', () => {
     const perksSeen = new Set<string>();
     for (let day = 0; day < 200; day++) {
       const key = barDay(new Date(Date.UTC(2026, 0, 1) + day * 86_400_000));
-      barRoster(key, BAR_ROSTER_SIZE, flatRoom(20, 3)).forEach((recruit, index) => {
+      barRoster(key, flatRoom(20, 3)).forEach((recruit, index) => {
         if (recruit.requirement.minNotoriety > 0) gated.add(index);
         for (const id of recruit.perks) perksSeen.add(id);
       });
@@ -635,22 +664,25 @@ describe('§H7/§H8: putting a won recruit on the books', () => {
   });
 
   /**
-   * §A1, as the maintainer rewrote it: an officer needs no bed, so a packed district still signs.
+   * "Need a free bed" (maintainer, 2026-09-29): an officer sleeps in one, so a packed district
+   * cannot sign anybody.
    *
-   * This test asserted the opposite until the rule changed. It is kept, pointed the other way,
-   * because "a full district can still sign somebody" is exactly the property that would quietly
-   * regress if the housing gate were ever put back for a reason that felt good at the time.
+   * This test has been pointed both ways. It said a full district still signs while officers were
+   * outside the pool; they have drawn a bed each since 2026-09-15 and the Bar was the one door
+   * that never asked, so a crew could hire itself over its own ceiling.
    */
-  it('signs somebody into a district with no beds left at all', () => {
+  it('refuses to sign into a district with no bed left, and signs with one', () => {
     const bare = makeBase();
-    expect(sign(fakeRepos().repos, bare, reserveFor(recruit())).kind).toBe('signed');
+    const capacity = districtUnitSlotCapacity(bare.buildings, noTerritoryEffects());
+    // Razors are one unit each, so the first roster leaves exactly one bed and the second none.
+    const oneLeft = makeBase({ army: { razors: capacity - 1 } });
+    expect(sign(fakeRepos().repos, oneLeft, reserveFor(recruit())).kind).toBe('signed');
 
-    // Razors are one unit each, so this roster fills the pool to the brim. The crew is who you
-    // are and the army is what you can field: filling one has nothing to say about the other.
-    const packed = makeBase({
-      army: { razors: districtUnitSlotCapacity(bare.buildings, noTerritoryEffects()) },
+    const packed = makeBase({ army: { razors: capacity } });
+    expect(sign(fakeRepos().repos, packed, reserveFor(recruit()))).toEqual({
+      kind: 'refused',
+      reason: 'no_unit_slots',
     });
-    expect(sign(fakeRepos().repos, packed, reserveFor(recruit())).kind).toBe('signed');
   });
 
   /**
@@ -717,6 +749,76 @@ describe('§H7/§H8: putting a won recruit on the books', () => {
       kind: 'refused',
       reason: 'already_hired',
     });
+  });
+
+  /**
+   * Maintainer, 2026-09-29: admin mode waives at the close what it waived at the table. The table
+   * lets an admin crew bid past a full set of chairs, a full district, a spent book and a shut
+   * door; a close that then checked all four for real passed the only bidder over and signed
+   * nobody. Each gate is proved twice, so a waiver that leaked into the ordinary mode fails here.
+   */
+  it('signs through the chair, the bed, the book and the door in admin mode, and only there', () => {
+    const hire = recruit();
+    const bare = makeBase();
+    const beds = districtUnitSlotCapacity(bare.buildings, noTerritoryEffects());
+    const gates: [string, Base, BarCharacter, HireRefusal][] = [
+      [
+        'chair',
+        makeBase({
+          commanders: [
+            createCommander('a', 'A', 'cartographer', {}),
+            createCommander('b', 'B', 'trader', {}),
+          ],
+        }),
+        hire,
+        'no_slots',
+      ],
+      ['bed', makeBase({ army: { razors: beds } }), hire, 'no_unit_slots'],
+      [
+        'book',
+        {
+          ...bare,
+          economy: {
+            ...bare.economy,
+            payroll: { ...bare.economy.payroll, commitments: { 'someone-else': PAYROLL_BASE - 1 } },
+          },
+        },
+        hire,
+        'no_payroll',
+      ],
+      [
+        'door',
+        bare,
+        { ...hire, requirement: { ...hire.requirement, minNotoriety: 4 } },
+        'requirement',
+      ],
+    ];
+    for (const [label, base, person, reason] of gates) {
+      const input = { base, userId: 'user-1', recruit: person, price: reserveFor(hire), now: NOW };
+      expect(signRecruit(fakeRepos().repos, input), `${label}, ordinary mode`).toEqual({
+        kind: 'refused',
+        reason,
+      });
+      expect(
+        signRecruit(fakeRepos().repos, { ...input, admin: true }).kind,
+        `${label}, admin`,
+      ).toBe('signed');
+    }
+
+    // A fact is not a gate: admin mode still will not put one person on the books twice.
+    const already = makeBase({
+      commanders: [createCommander(hire.id, hire.name, 'cartographer', {})],
+    });
+    expect(
+      signRecruit(fakeRepos().repos, {
+        base: already,
+        userId: 'user-1',
+        recruit: hire,
+        price: reserveFor(hire),
+        now: NOW,
+        admin: true,
+      }),
+    ).toEqual({ kind: 'refused', reason: 'already_hired' });
   });
 
   /**
@@ -1068,6 +1170,21 @@ describe('§H7a: bidding at the Bar', () => {
     expect((await bid(app, player, yesterday, 50)).statusCode).toBe(404);
   });
 
+  it('refuses a bid with every bed taken, and says so on the read first', async () => {
+    const { app } = await makeApp();
+    const player = await makePlayer(app, 'bedless');
+    const { auction } = openTable(await readBar(app, player));
+
+    fillEveryBed(app, player.baseId);
+    expect((await readBar(app, player)).bedsFree).toBe(0);
+    const refused = await bid(app, player, auction.recruitId, auction.reserve);
+    expect(refused.statusCode).toBe(409);
+    expect(errorOf(refused.body)).toMatchObject({
+      code: 'NO_UNIT_SLOTS',
+      message: NO_FREE_BED_TEXT,
+    });
+  });
+
   it('needs a base: bidding from nowhere is a 409, not a crash', async () => {
     const { app } = await makeApp();
     const register = await app.inject({
@@ -1273,6 +1390,157 @@ describe('§H7a: the close', () => {
     expect(took.results[0]).toMatchObject({ outcome: 'won' });
   });
 
+  it('passes a winner with no bed down to the next final', async () => {
+    const { app } = await makeApp();
+    const one = await makePlayer(app, 'bedless_leader');
+    const two = await makePlayer(app, 'housed_runner');
+
+    const { auction, name } = openTable(await readBar(app, one));
+    expect((await bid(app, two, auction.recruitId, auction.reserve)).statusCode).toBe(200);
+    const top = (await readBar(app, one)).auctions.find(
+      (entry) => entry.recruitId === auction.recruitId,
+    );
+    expect((await bid(app, one, auction.recruitId, top?.nextBid ?? 0)).statusCode).toBe(200);
+
+    // The highest bidder trains into every bed after bidding. The close has to notice.
+    fillEveryBed(app, one.baseId);
+
+    vi.setSystemTime(AFTER);
+    const passed = await readBar(app, one);
+    const took = await readBar(app, two);
+
+    expect(passed.officers.map((entry) => entry.commander.name)).not.toContain(name);
+    expect(took.officers.map((entry) => entry.commander.name)).toContain(name);
+    expect(passed.results[0]).toMatchObject({ outcome: 'passed', winner: two.username });
+  });
+
+  /**
+   * The close reads the crew as it stands at midnight, not as it stood at its last request (bug
+   * pass, 2026-09-29). A build finishes on the next settle, and the world clock runs the close
+   * without settling anybody, so a Quarters rung done at eleven still had not housed anyone: the
+   * winner was judged bedless and passed over for a bed they had. The barrow's close settled its
+   * winner since 2026-09-28; the Bar's did not.
+   */
+  it('settles the winner before it judges them: a Quarters rung done before midnight is a bed', async () => {
+    const { app } = await makeApp();
+    const one = await makePlayer(app, 'late_builder');
+
+    const { auction, name } = openTable(await readBar(app, one));
+    expect((await bid(app, one, auction.recruitId, auction.reserve)).statusCode).toBe(200);
+
+    // Every bed taken after the bid, and one more Quarters rung ordered that lands at 23:00 Athens.
+    fillEveryBed(app, one.baseId);
+    const base = app.repos.bases.findById(one.baseId);
+    if (!base) throw new Error('no base');
+    const quarters = base.buildings.find((building) => building.kind === 'quarters')?.level ?? 0;
+    app.repos.bases.updateDistrict(base.id, base.buildings, [
+      {
+        id: 'quarters-order',
+        kind: 'quarters',
+        level: quarters + 1,
+        startedAt: NOW.toISOString(),
+        durationSeconds: 11 * 3600,
+        paid: {},
+        parts: {},
+      },
+    ]);
+
+    // The world clock gets there first, as it does on a live server: nobody has read this crew.
+    vi.setSystemTime(AFTER);
+    settleBarAuctions(app.repos, AFTER);
+
+    const signed = app.repos.bases.findById(one.baseId);
+    expect(signed?.commanders.map((officer) => officer.name)).toContain(name);
+  });
+
+  /**
+   * Maintainer, 2026-09-29: an admin bid the table accepted wins at the close. Measured before the
+   * fix: a crew with every chair filled bid in admin mode, was accepted, and read "Passed" in the
+   * morning with nobody signed. Both doors into the close are driven, the Bar's own read and the
+   * world clock, because whichever reaches the table first after midnight is the one that closes it.
+   */
+  describe('in admin mode, the close waives what the table waived', () => {
+    async function aloneAtAFullTable(admin: boolean) {
+      const { app } = await makeApp({ admin });
+      const player = await makePlayer(app, admin ? 'admin_full_house' : 'plain_full_house');
+      const { auction, name } = openTable(await readBar(app, player));
+      if (admin) {
+        // Full before the bid: the table waives the chair in admin mode, so it takes the bid.
+        fillEveryChair(app, player.baseId, 'sitter');
+        expect((await bid(app, player, auction.recruitId, auction.reserve)).statusCode).toBe(200);
+      } else {
+        // The ordinary table refuses a full crew, so the chairs fill after the bid.
+        expect((await bid(app, player, auction.recruitId, auction.reserve)).statusCode).toBe(200);
+        fillEveryChair(app, player.baseId, 'sitter');
+      }
+      vi.setSystemTime(AFTER);
+      return { app, player, name };
+    }
+
+    it('signs the lone bidder when the Bar is read after midnight', async () => {
+      const { app, player, name } = await aloneAtAFullTable(true);
+      const bar = await readBar(app, player);
+      expect(bar.officers.map((entry) => entry.commander.name)).toContain(name);
+      expect(bar.results[0]).toMatchObject({ outcome: 'won' });
+    });
+
+    it('signs the lone bidder when the world clock gets there first', async () => {
+      const { app, player, name } = await aloneAtAFullTable(true);
+      tickWorld(app.repos, app.skirmishEngine, AFTER, true);
+      const signed = app.repos.bases.findById(player.baseId);
+      expect(signed?.commanders.map((officer) => officer.name)).toContain(name);
+    });
+
+    it('still passes over a full crew when admin mode is off', async () => {
+      const { app, player, name } = await aloneAtAFullTable(false);
+      const bar = await readBar(app, player);
+      expect(bar.officers.map((entry) => entry.commander.name)).not.toContain(name);
+      expect(bar.results[0]).toMatchObject({ outcome: 'passed' });
+    });
+  });
+
+  /**
+   * Two crews outbid the winner and neither could take the person. The second of them used to read
+   * "lost", with a winning price under their own final on the same line. Passed is anybody the
+   * ranking walked past on the way to the crew that signed.
+   */
+  it('tells every crew the ranking walked past that it passed, not only the top one', async () => {
+    const { app } = await makeApp();
+    const first = await makePlayer(app, 'walked_past_first');
+    const second = await makePlayer(app, 'walked_past_second');
+    const third = await makePlayer(app, 'signs_at_the_floor');
+
+    const { auction } = openTable(await readBar(app, first));
+    let next = auction.reserve;
+    for (const player of [third, second, first]) {
+      const placed = await bid(app, player, auction.recruitId, next);
+      expect(placed.statusCode).toBe(200);
+      next = placed.json<BidResponse>().auction.nextBid;
+    }
+    fillEveryChair(app, first.baseId, 'first');
+    fillEveryChair(app, second.baseId, 'second');
+
+    vi.setSystemTime(AFTER);
+    const top = (await readBar(app, first)).results[0];
+    const behind = (await readBar(app, second)).results[0];
+    const took = (await readBar(app, third)).results[0];
+
+    expect(took).toMatchObject({ outcome: 'won', winner: third.username });
+    expect(top).toMatchObject({ outcome: 'passed', winner: third.username });
+    expect(behind).toMatchObject({ outcome: 'passed', winner: third.username });
+    expect(behind?.yourFinal).toBeGreaterThan(behind?.price ?? Infinity);
+
+    /*
+     * The bell tells them the same (bug pass, 2026-09-29). It read "went to them for 300" beside
+     * a bid of 500, which is a broken auction rather than a door the crew had shut.
+     */
+    const passedOver = `You could not take ${top?.name} at the close, so ${third.username} did at ${took?.price}`;
+    for (const player of [first, second]) {
+      const [told] = bell(app, player).filter((entry) => entry.kind === 'bar_outbid');
+      expect(told?.title).toBe(passedOver);
+    }
+  });
+
   it('leaves a table nobody can take unsold, and does not re-roll the seat', async () => {
     const { app } = await makeApp();
     const one = await makePlayer(app, 'broke_one');
@@ -1298,7 +1566,11 @@ describe('§H7a: the close', () => {
     // The crew that led it hears that it went nowhere; the one behind them hears it went unsold.
     expect(first.results[0]).toMatchObject({ outcome: 'passed', price: null, winner: null });
     expect(second.results[0]).toMatchObject({ outcome: 'unsold', price: null, winner: null });
-    expect(bell(app, one)[0]?.title).toBe(`${name} went unsigned`);
+    // ...and the bells say the same two things (bug pass, 2026-09-29).
+    expect(bell(app, one)[0]?.title).toBe(
+      `You could not take ${name} at the close, and nobody else could either`,
+    );
+    expect(bell(app, two)[0]?.title).toBe(`${name} went unsigned`);
     // The room is whole: nobody was replaced, the day simply ended.
     expect(second.recruits).toHaveLength(BAR_ROSTER_SIZE);
     expect(second.recruits.map((entry) => entry.id)).not.toContain(auction.recruitId);
@@ -1574,7 +1846,7 @@ describe('§H2a: the Bar gets better as the city does', () => {
     growTheCity(app, 30);
     vi.setSystemTime(AFTER);
     const after = await readBar(app, player);
-    const unmoved = barRoster(after.day, after.recruits.length, yesterday, after.cityId);
+    const unmoved = barRoster(after.day, yesterday, after.cityId);
 
     const mean = (recruits: readonly { attributes: Record<string, number> }[]) =>
       recruits.reduce(

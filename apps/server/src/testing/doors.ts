@@ -1,4 +1,4 @@
-import { AREA_REQUIREMENTS, type GatedArea } from '@frontline/shared';
+import { AREA_REQUIREMENTS, createCommander, type GatedArea } from '@frontline/shared';
 import type { FastifyInstance } from 'fastify';
 
 /**
@@ -8,6 +8,9 @@ import type { FastifyInstance } from 'fastify';
  * or the Market with a fresh level-one crew is refused before it reaches what it is about. This
  * meets each door the way a player would, on the smallest fact that opens it: the level for a
  * level door (never lowered), the rung for a research door, the rank for the back room.
+ *
+ * District Offers takes a Trader in the chair as well as the rung (2026-09-29): the board's write
+ * routes refuse without one, so opening that door seats one if the crew has none.
  */
 export function openDoors(app: FastifyInstance, token: string, ...areas: GatedArea[]): void {
   const { sub } = app.jwt.decode<{ sub: string }>(token) ?? { sub: '' };
@@ -29,5 +32,11 @@ export function openDoors(app: FastifyInstance, token: string, ...areas: GatedAr
   }
   if (notoriety !== base.economy.notoriety) {
     app.repos.bases.updateEconomy(base.id, { ...base.economy, notoriety });
+  }
+  if (areas.includes('offers') && !base.commanders.some((one) => one.role === 'trader')) {
+    app.repos.bases.updateCommanders(base.id, [
+      ...base.commanders,
+      createCommander(`${base.id}-trader`, 'The Trader', 'trader'),
+    ]);
   }
 }

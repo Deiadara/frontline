@@ -780,6 +780,19 @@ const BONDED_PLATE_DELIVERY = {
   aspect: '21:10',
 } as const satisfies Partial<AssetSpec>;
 
+/**
+ * Telemetry Hill, the Viaduct, the Last Platform and the Blockhouse, the four Combine districts
+ * of Terminus, delivered together at 3780x1800 (maintainer, 2026-09-29) and measured rather than
+ * read off the file names. One entry for the four, because they are one delivery at one shape;
+ * the reason it exists is the one written above: thirty-one signs and three gates stand on these
+ * exact images (`features/city/marks.ts`).
+ */
+const TERMINUS_UPPER_PLATE_DELIVERY = {
+  width: 3780,
+  height: 1800,
+  aspect: '21:10',
+} as const satisfies Partial<AssetSpec>;
+
 const SIZE_EXCEPTIONS: Readonly<
   Partial<Record<AssetKey, Pick<AssetSpec, 'width' | 'height' | 'aspect'>>>
 > = {
@@ -806,6 +819,10 @@ const SIZE_EXCEPTIONS: Readonly<
   'plate-district-ironmouth': IRONMOUTH_PLATE_DELIVERY,
   'plate-district-marshalling-yards': MARSHALLING_PLATE_DELIVERY,
   'plate-district-bonded-row': BONDED_PLATE_DELIVERY,
+  'plate-district-telemetry-hill': TERMINUS_UPPER_PLATE_DELIVERY,
+  'plate-district-viaduct': TERMINUS_UPPER_PLATE_DELIVERY,
+  'plate-district-last-platform': TERMINUS_UPPER_PLATE_DELIVERY,
+  'plate-district-blockhouse': TERMINUS_UPPER_PLATE_DELIVERY,
 };
 
 /**
@@ -872,6 +889,12 @@ const plateDrafts = (
     // after it.
     ['plate-district-marshalling-yards', 'plate'],
     ['plate-district-bonded-row', 'plate'],
+    // The four Combine districts of Terminus (2026-09-29). Appended, for the sixth time: the
+    // seed is the index.
+    ['plate-district-telemetry-hill', 'plate'],
+    ['plate-district-viaduct', 'plate'],
+    ['plate-district-last-platform', 'plate'],
+    ['plate-district-blockhouse', 'plate'],
   ] as const
 ).map(([key, assetClass], index) =>
   draft({
@@ -903,6 +926,10 @@ const plateDrafts = (
     ...(key === 'plate-district-ironmouth' ? IRONMOUTH_PLATE_DELIVERY : {}),
     ...(key === 'plate-district-marshalling-yards' ? MARSHALLING_PLATE_DELIVERY : {}),
     ...(key === 'plate-district-bonded-row' ? BONDED_PLATE_DELIVERY : {}),
+    ...(key === 'plate-district-telemetry-hill' ? TERMINUS_UPPER_PLATE_DELIVERY : {}),
+    ...(key === 'plate-district-viaduct' ? TERMINUS_UPPER_PLATE_DELIVERY : {}),
+    ...(key === 'plate-district-last-platform' ? TERMINUS_UPPER_PLATE_DELIVERY : {}),
+    ...(key === 'plate-district-blockhouse' ? TERMINUS_UPPER_PLATE_DELIVERY : {}),
   }),
 );
 

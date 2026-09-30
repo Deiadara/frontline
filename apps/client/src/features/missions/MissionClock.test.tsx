@@ -61,6 +61,7 @@ function areaOf(id: string, name: string): MissionArea {
     payPercent: 0,
     offers: missionOffers(id, '', 12).map(({ template, grade }): MissionOffer => ({
       templateId: template.id,
+      boardKey: 'board-key',
       name: template.name,
       brief: template.brief,
       kind: template.kind,

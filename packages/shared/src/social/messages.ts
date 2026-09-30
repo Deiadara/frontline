@@ -50,10 +50,20 @@ export const MESSAGE_RECIPIENTS_MAX = 5;
 
 /**
  * Letters a crew may send in any rolling day (hardening pass, 2026-09-27). Every letter is a row per
- * recipient, a sent copy and a notification, kept for ever, so without a ceiling one account at the
- * write limit adds megabytes an hour. A hundred is far past anybody writing to people.
+ * recipient, a sent copy and a notification, so without a ceiling one account at the write limit
+ * adds megabytes an hour and pushes everything else out of a stranger's mailbox (`MAILBOX_LIMIT`).
+ * A hundred is far past anybody writing to people.
  */
 export const MESSAGES_PER_DAY = 100;
+
+/**
+ * How many letters a mailbox keeps, and how many a sent folder keeps (maintainer, 2026-09-29).
+ * Hard: the oldest goes when the hundred-and-first arrives, read or not, so the inbox shows every
+ * letter there is and the unread badge counts nothing the player cannot open. Never below
+ * `MESSAGES_PER_DAY`, because the day's limit is counted off the sent folder and a trim under it
+ * would hand a sender back letters they had already spent.
+ */
+export const MAILBOX_LIMIT = 100;
 
 /**
  * How much of the body a quoted original may take.
@@ -66,6 +76,23 @@ export const QUOTE_MAX = Math.floor(MESSAGE_BODY_MAX * 0.75);
 
 export const MessageSubjectSchema = z.string().trim().min(1).max(MESSAGE_SUBJECT_MAX);
 export const MessageBodySchema = z.string().trim().min(1).max(MESSAGE_BODY_MAX);
+
+/**
+ * What draws nothing: whitespace, separators, and the control and format characters (`\p{C}`),
+ * which is where the zero-width space, joiners and the byte-order mark live.
+ */
+const INVISIBLE = /[\s\p{Z}\p{C}]/gu;
+
+/**
+ * Whether a subject or body would show anything on the page (maintainer, 2026-09-29).
+ *
+ * `trim` removes whitespace and nothing else, so a letter of one zero-width space passed
+ * `min(1)` and arrived as an empty line, which reads as a broken mailbox. The schemas above stay
+ * as they are because they also parse letters already stored; the send is where this is asked.
+ */
+export function hasVisibleText(text: string): boolean {
+  return text.replace(INVISIBLE, '').length > 0;
+}
 
 /**
  * Who a message was addressed to, as the sender chose it.
@@ -100,7 +127,18 @@ export const MessageSchema = z.object({
   /** Groups the copies made by one send, so a sent-folder row can count its recipients. */
   threadId: IdSchema,
   senderUserId: IdSchema,
+  /** The name the letter was signed with, as it was sent. A snapshot, like `senderFaction`. */
   senderName: z.string().min(1),
+  /**
+   * The name a reply is addressed to: the sending account's username **now**, or null where there
+   * is nobody else to answer (a letter the game wrote with the reader as its sender).
+   *
+   * Not `senderName`. That is the signature, and two kinds of letter sign with something that is
+   * not the account's current name: one whose sender has since renamed, where a reply by the old
+   * name reached whoever registered it next, and the seeded faction's invitation, signed with the
+   * faction's name, where a reply was refused as `no_such_player`.
+   */
+  replyTo: z.string().min(1).nullable(),
   /** The faction the sender belonged to as they wrote it, drawn under their name. Null if none. */
   senderFaction: z.string().nullable(),
   audience: MessageAudienceSchema,
@@ -135,6 +173,7 @@ export const MESSAGE_REFUSALS = [
   'cannot_write_to_yourself',
   'nobody_to_write_to',
   'too_many_today',
+  'blank_letter',
 ] as const;
 export const MessageRefusalSchema = z.enum(MESSAGE_REFUSALS);
 export type MessageRefusal = z.infer<typeof MessageRefusalSchema>;
@@ -145,6 +184,7 @@ export const MESSAGE_REFUSAL_TEXT: Record<MessageRefusal, string> = {
   cannot_write_to_yourself: 'You already know.',
   nobody_to_write_to: 'There is nobody at the other end of that.',
   too_many_today: 'You have sent enough for one day. The wires open again tomorrow.',
+  blank_letter: 'Nothing in that would show on the page. Write something they can read.',
 };
 
 export function unreadMessages(messages: readonly Message[]): number {

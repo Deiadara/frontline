@@ -35,7 +35,15 @@ export interface NotifyInput {
   link: string;
   /** The id of the thing this is about, so opening it can show it. */
   subjectId?: string | null;
-  now: Date;
+  /**
+   * When the thing happened, which is what the row is dated (maintainer, 2026-09-29).
+   *
+   * Not when the server noticed. Every clock here settles lazily, so a crew home at 03:00 is
+   * written at the player's next read, and dated then it said "just now" to exactly the player who
+   * had been away. Each emitter passes the instant its own event landed: a build's completion, a
+   * mission's return, a fight's mark, a lot's close.
+   */
+  at: Date;
 }
 
 /**
@@ -55,7 +63,7 @@ export function notify(repos: Repositories, input: NotifyInput): boolean {
       body: input.body ?? '',
       link: input.link,
       subjectId: input.subjectId ?? null,
-      createdAt: input.now.toISOString(),
+      createdAt: input.at.toISOString(),
     });
     // Trimmed on write rather than on a schedule: there is no scheduler in this server, and the
     // only moment a list is known to have grown is the moment something was added to it.
@@ -63,9 +71,9 @@ export function notify(repos: Repositories, input: NotifyInput): boolean {
     // The live nudge rides the same funnel as the receipt, which is why it is one line and not a
     // publisher wired into every emitter: anything worth writing down is worth telling an open tab
     // about, and the two can never disagree about whether it happened.
-    liveHub.publish(input.userId, 'notification', input.now);
+    liveHub.publish(input.userId, 'notification', input.at);
     const extra = NOTIFICATION_LIVE_KINDS[input.kind];
-    if (extra) liveHub.publish(input.userId, extra, input.now);
+    if (extra) liveHub.publish(input.userId, extra, input.at);
     return true;
   } catch {
     return false;

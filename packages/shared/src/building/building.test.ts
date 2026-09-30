@@ -1,7 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { RESEARCH_ITEMS } from '../research/tracks.js';
 import { infirmaryRecoveryPercent } from './standing.js';
-import { recoverCasualties } from '../crew/effects.js';
+import {
+  CASUALTY_RECOVERY_CEILING,
+  casualtyRecoveryShare,
+  recoverCasualties,
+} from '../crew/effects.js';
 import {
   RESOURCE_KEYS,
   STARTING_RESOURCES,
@@ -24,7 +28,7 @@ import {
 } from './kinds.js';
 import { blueprintForModification, modificationGateMet } from '../blueprints/index.js';
 import type { Inventory } from '../items/inventory.js';
-import { isAdvancedModification, modificationBuildRefusal } from './addons.js';
+import { isAdvancedModification, modificationBuildRefusal, modificationSlots } from './addons.js';
 import { scrapyardLevelForModification } from './scrapyard.js';
 import {
   MAX_MODIFICATION_SLOTS,
@@ -33,6 +37,7 @@ import {
   fitsIn,
   MODIFICATION_SLOT_LEVELS,
   findModification,
+  modificationSlotLevelsFor,
   modificationSlotsAt,
   modificationsFor,
   nextModificationSlotLevel,
@@ -46,6 +51,7 @@ import {
   nextStructureLevel,
   nexusShortfall,
   structureLevelCap,
+  atLevelCeiling,
   type Building,
 } from './state.js';
 import { MAX_EFFECT_REDUCTION, districtEffects, localProductionPercent } from './effects.js';
@@ -89,6 +95,7 @@ import {
   accrueProduction,
   buildingProduction,
   districtProduction,
+  productionRates,
   unitSlotCapacity,
   storageCapacity,
   storageCapacityFor,
@@ -691,6 +698,85 @@ describe('what the district makes (§A1)', () => {
     );
   });
 
+  /*
+   * Thirty oil an hour for three hours is ninety, not eighty-nine with a carry of 0.9999999. The
+   * walk's hours are milliseconds over an hour, and the sum of the pieces fell a hair under the
+   * whole, so the stockpile read one short of the arithmetic at exact boundaries.
+   */
+  it('banks every whole unit the arithmetic owes, however the window was cut', () => {
+    const district = [build('generator', 5), build('apothecary', BUILDING_MAX_LEVEL)];
+    const stock: Resources = { ...STARTING_RESOURCES, oil: 0 };
+    for (let pieces = 2; pieces <= 60; pieces++) {
+      let held = stock;
+      let carry: ProductionCarry = {};
+      for (let piece = 0; piece < pieces; piece++) {
+        const accrual = accrueProduction(held, district, 3 / pieces, undefined, carry);
+        held = accrual.resources;
+        carry = accrual.carry;
+      }
+      expect({ pieces, oil: held.oil, carry: carry.oil }).toEqual({ pieces, oil: 90 });
+    }
+  });
+
+  /*
+   * The rate the Production panel prints is the rate the accrual pays: the structures and the
+   * ground, the crew's line speed on both, and a resource's own yield on top of that.
+   */
+  it('quotes the hourly rate the accrual then pays, crew and ground included', () => {
+    const district = [build('generator', 5), build('scrapyard', 4), build('apothecary', 20)];
+    const crew = {
+      productionPercent: 20,
+      storageCapacityPercent: 0,
+      resourceYieldPercent: { oil: 50 },
+    };
+    const ground = { caps: 7, scrap: 3 };
+    const rates = productionRates(district, crew, ground);
+    expect(rates.oil).toBeCloseTo(30 * 1.2 * 1.5, 9);
+    expect(rates.caps).toBeCloseTo(7 * 1.2, 9);
+    expect(rates.scrap).toBeCloseTo((40 + 3) * 1.2, 9);
+
+    const empty: Resources = { ...STARTING_RESOURCES, oil: 0, scrap: 0, caps: 0 };
+    const banked = accrueProduction(empty, district, 10, crew, {}, ground);
+    for (const key of ['oil', 'caps', 'scrap'] as const) {
+      expect(banked.resources[key] + (banked.carry[key] ?? 0), key).toBeCloseTo(
+        (rates[key] ?? 0) * 10,
+        6,
+      );
+    }
+  });
+
+  /*
+   * §A4, maintainer ruling 2026-09-29: a raid cuts "all production by buildings". The held ground
+   * is not a building and runs whole, so a crew living partly off its ground loses only the
+   * structures' share. Scrap is made by both here, which is what separates the two readings.
+   */
+  it("takes a raid's cut off the structures and leaves the ground whole", () => {
+    const district = [build('generator', 5), build('scrapyard', 4)];
+    const crew = { productionPercent: 20, storageCapacityPercent: 0 };
+    const ground = { caps: 7, scrap: 3 };
+    const raided = productionRates(district, { ...crew, raidCutPercent: 30 }, ground);
+    expect(raided.oil).toBeCloseTo(30 * 0.7 * 1.2, 9);
+    expect(raided.caps).toBeCloseTo(7 * 1.2, 9);
+    expect(raided.scrap).toBeCloseTo((40 * 0.7 + 3) * 1.2, 9);
+    // No cut is no change, and the accrual pays the cut rate.
+    expect(productionRates(district, { ...crew, raidCutPercent: 0 }, ground)).toEqual(
+      productionRates(district, crew, ground),
+    );
+    const empty: Resources = { ...STARTING_RESOURCES, oil: 0, scrap: 0, caps: 0 };
+    const banked = accrueProduction(
+      empty,
+      district,
+      10,
+      { ...crew, raidCutPercent: 30 },
+      {},
+      ground,
+    );
+    expect(banked.resources.scrap + (banked.carry.scrap ?? 0)).toBeCloseTo(
+      (raided.scrap ?? 0) * 10,
+      6,
+    );
+  });
+
   it('does not bank a whole unit for a fraction of one made', () => {
     // A level-1 Scrapyard makes a little over one high-quality metal an hour, so a settle covering
     // half a minute makes about a hundredth of one. Rounding that up is a printing press and
@@ -1014,14 +1100,53 @@ describe('modifications (§A1)', () => {
     }
   });
 
-  it('opens slots at 5, 10 and 20, and never more than three', () => {
+  it('opens slots at 5, 10 and 20 on a twenty-rung structure, and never more than three', () => {
     expect(MODIFICATION_SLOT_LEVELS).toEqual([5, 10, 20]);
-    expect(modificationSlotsAt(4)).toBe(0);
-    expect(modificationSlotsAt(5)).toBe(1);
-    expect(modificationSlotsAt(10)).toBe(2);
-    expect(modificationSlotsAt(BUILDING_MAX_LEVEL)).toBe(MAX_MODIFICATION_SLOTS);
-    expect(nextModificationSlotLevel(1)).toBe(5);
-    expect(nextModificationSlotLevel(BUILDING_MAX_LEVEL)).toBeNull();
+    expect(modificationSlotLevelsFor('lab')).toEqual(MODIFICATION_SLOT_LEVELS);
+    expect(modificationSlotsAt(4, 'lab')).toBe(0);
+    expect(modificationSlotsAt(5, 'lab')).toBe(1);
+    expect(modificationSlotsAt(10, 'lab')).toBe(2);
+    expect(modificationSlotsAt(19, 'lab')).toBe(2);
+    expect(modificationSlotsAt(BUILDING_MAX_LEVEL, 'lab')).toBe(MAX_MODIFICATION_SLOTS);
+    expect(nextModificationSlotLevel(1, 'lab')).toBe(5);
+    expect(nextModificationSlotLevel(10, 'lab')).toBe(20);
+    expect(nextModificationSlotLevel(BUILDING_MAX_LEVEL, 'lab')).toBeNull();
+  });
+
+  /*
+   * Maintainer, 2026-09-29: a structure that stops at ten opens its first slot at 5 and both of the
+   * others at 10. With the third at 20 the Garage and the Infirmary drew a bracket that never
+   * opened, and a set (three cards of one family) could never be completed on either.
+   */
+  it('opens both later slots at 10 on a ten-rung structure', () => {
+    for (const kind of ['garage', 'infirmary'] as const) {
+      expect(levelCeilingFor(kind)).toBe(10);
+      expect(modificationSlotLevelsFor(kind)).toEqual([5, 10, 10]);
+      expect(modificationSlotsAt(9, kind)).toBe(1);
+      expect(modificationSlotsAt(10, kind)).toBe(MAX_MODIFICATION_SLOTS);
+      expect(nextModificationSlotLevel(7, kind)).toBe(10);
+      expect(nextModificationSlotLevel(10, kind)).toBeNull();
+      const standing = { ...build(kind, 10), modifications: ['a', 'b'] };
+      expect(
+        modificationSlots(kind, standing).map((slot) => [slot.opensAtLevel, slot.open]),
+      ).toEqual([
+        [5, true],
+        [10, true],
+        [10, true],
+      ]);
+      expect(modificationCapacity(standing)).toEqual({ slots: 3, used: 2, free: 1 });
+    }
+  });
+
+  it('opens every slot on every structure somewhere on its own ladder', () => {
+    for (const kind of BUILDING_KINDS) {
+      const ceiling = levelCeilingFor(kind);
+      for (const level of modificationSlotLevelsFor(kind)) {
+        expect(level, `${kind} opens a slot past its last rung`).toBeLessThanOrEqual(ceiling);
+      }
+      expect(modificationSlotsAt(ceiling, kind), kind).toBe(MAX_MODIFICATION_SLOTS);
+      expect(nextModificationSlotLevel(ceiling, kind), kind).toBeNull();
+    }
   });
 
   it('reports free slots against what is already fitted', () => {
@@ -1301,13 +1426,62 @@ describe('the Infirmary, at the boardrate', () => {
     expect(infirmaryRecoveryPercent([])).toBe(0);
   });
 
-  /** The ceiling is on the recovery itself, so two sources cannot add past it. */
-  it('never returns more than four in ten, however deep it goes', () => {
+  /**
+   * The curve is on the recovery itself, so two sources add their points before it (maintainer
+   * ruling, 2026-09-29: diminishing, no cap). A level 10 Infirmary's 40 points are 27.5%.
+   */
+  it('puts a deep Infirmary through the curve, well short of half', () => {
     const deep = recoverCasualties(
-      { razors: 100 },
+      { razors: 1000 },
       infirmaryRecoveryPercent(gate(levelCeilingFor('infirmary'))),
     );
-    expect(100 - (deep.razors ?? 0)).toBeLessThanOrEqual(40);
+    expect(1000 - (deep.razors ?? 0)).toBe(Math.floor(10 * casualtyRecoveryShare(40)));
+    expect(casualtyRecoveryShare(40)).toBeCloseTo(27.5, 1);
+  });
+});
+
+/**
+ * The medics' curve (maintainer ruling, 2026-09-29): "diminishing, no cap". The old 40% ceiling was
+ * reached by a level 10 Infirmary alone, so for a crew that had built one the medics' ten rungs
+ * (46 points) paid nothing. Pinned by hand at the calibration points the ruling asked for: a
+ * typical crew that has finished both tracks lands near the old ceiling.
+ */
+describe('the medics, on a curve rather than a ceiling', () => {
+  const MEDIC_RUNGS = RESEARCH_ITEMS.flatMap((spec) =>
+    spec.payout.bonus?.kind === 'casualty_recovery' ? [spec.payout.bonus.percent] : [],
+  );
+
+  it('lands a crew with both tracks near the old ceiling', () => {
+    expect(MEDIC_RUNGS.reduce((sum, points) => sum + points, 0)).toBe(46);
+    // Both tracks with a level 5, a level 10, and a level 10 plus a medic of Medicine 40.
+    expect(casualtyRecoveryShare(46 + 20)).toBeCloseTo(36.6, 1);
+    expect(casualtyRecoveryShare(46 + 40)).toBeCloseTo(41.0, 1);
+    expect(casualtyRecoveryShare(46 + 40 + 10)).toBeCloseTo(42.7, 1);
+    expect(casualtyRecoveryShare(0)).toBe(0);
+    expect(casualtyRecoveryShare(-20)).toBe(0);
+  });
+
+  it('pays every rung something, on top of a level 10 Infirmary', () => {
+    let points = 40;
+    for (const rung of MEDIC_RUNGS) {
+      const before = casualtyRecoveryShare(points);
+      points += rung;
+      const gain = casualtyRecoveryShare(points) - before;
+      // A whole point of share at least: the smallest rung is 5 points, and on top of 81 points
+      // the curve still pays a fifth of one for one.
+      expect(gain, `a ${rung}-point rung at ${points - rung} points`).toBeGreaterThan(0.9);
+      // And less than it would alone: the curve diminishes.
+      expect(gain).toBeLessThan(rung);
+    }
+  });
+
+  it('never reaches its ceiling, however many points', () => {
+    // A thousand points is twenty times the scale; far past that the float rounds to the ceiling,
+    // which is arithmetic and not a cap.
+    for (const points of [100, 500, 1_000]) {
+      expect(casualtyRecoveryShare(points)).toBeLessThan(CASUALTY_RECOVERY_CEILING);
+    }
+    expect(casualtyRecoveryShare(500)).toBeGreaterThan(casualtyRecoveryShare(100));
   });
 });
 
@@ -1444,6 +1618,19 @@ describe('the ceiling a structure has of its own', () => {
     const nearly = BUILDING_KINDS.map((kind) => build(kind, levelCeilingFor(kind) - 1));
     expect(nextStructureLevel('garage', nearly)).toBe(10);
     expect(nextStructureLevel('lab', nearly)).toBe(BUILDING_MAX_LEVEL);
+  });
+
+  /*
+   * Off the level, not the Nexus cap. The two only part in a district admin mode raised past its
+   * Nexus, and there the cap said "held by the Nexus" of a Garage at its last rung, a refusal admin
+   * mode waives: the queue took an eleventh.
+   */
+  it('reads a structure at its last rung as finished whatever the Nexus authorises', () => {
+    const underASmallNexus = [build(CENTRAL_BUILDING, 12), build('garage', 10), build('lab', 19)];
+    expect(structureLevelCap('garage', underASmallNexus)).toBeLessThan(10);
+    expect(atLevelCeiling('garage', underASmallNexus)).toBe(true);
+    expect(atLevelCeiling('lab', underASmallNexus)).toBe(false);
+    expect(atLevelCeiling('quarters', underASmallNexus)).toBe(false);
   });
 
   /** And the Nexus, which is not what is stopping them, is not blamed for it either. */

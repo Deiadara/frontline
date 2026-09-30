@@ -161,8 +161,11 @@ describe('combat width', () => {
     // Four times the units, all of them past the width. The defender must come out of both in
     // roughly the same shape. Not *exactly*: since 2026-09-21 a queued body fires
     // `SECOND_RANK_FIRE` of its share scaled by its range, and a Razor's range of 5 lets a sliver
-    // through, so the bar sits a little above the noise it was measured against.
-    expect(Math.abs(survived(48) - survived(12))).toBeLessThan(0.15);
+    // through, so the bar sits a little above the noise it was measured against. And since
+    // 2026-09-29 the Wardens' fear reaches a share of the line in proportion to their numbers
+    // (`intimidationReach`), so 48 Razors break later than 12 and the gap is 0.16 rather than 0.09.
+    // With the frontage lifted to 48 it is 0.62, so the bar still separates the two.
+    expect(Math.abs(survived(48) - survived(12))).toBeLessThan(0.2);
   });
 
   /**

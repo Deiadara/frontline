@@ -3,6 +3,7 @@ import {
   DAMAGE_TYPES,
   findUnit,
   UNIT_CATALOG,
+  UNIT_MODIFIERS,
   type UnitSpec,
   type UnitStats,
 } from '../units/index.js';
@@ -22,9 +23,12 @@ import {
   MAX_RESISTANCE,
   MIN_RESISTANCE,
   missChance,
+  BREAKING_MORALE,
   SHAKEN_MORALE,
+  SHAKEN_TERROR_SHARE,
   threatWeight,
 } from './matchup.js';
+import { MORALE_THRESHOLDS, moraleState } from './morale.js';
 
 /**
  * The interaction rules, one test per promise the design makes to the player.
@@ -277,7 +281,7 @@ describe('special units are almost immune to certain damage', () => {
    * The defender meets the mix that actually turns up (maintainer, 2026-09-18).
    *
    * The Travian idea the maintainer asked about: a defending force should answer the *composition*
-   * of what attacks it rather than being flatly good, so scouting is worth something and there is a
+   * of what attacks it rather than being flatly good, so spying is worth something and there is a
    * counter-build to make. This engine gets it for free, because every exchange is resolved stack
    * against stack: a column that is 70% blade delivers 70% of its damage into the defender's blade
    * sheet. Free is exactly why it is worth pinning.
@@ -424,8 +428,46 @@ describe('intimidation works on low morale', () => {
     const target = bare('razors');
 
     const steady = exchange(terror, modifiers, target, 80).perBody;
-    const shaken = exchange(terror, modifiers, target, SHAKEN_MORALE - 10).perBody;
-    expect(shaken).toBeGreaterThan(steady * 1.3);
+    const breaking = exchange(terror, modifiers, target, BREAKING_MORALE - 10).perBody;
+    expect(breaking).toBeGreaterThan(steady * 1.3);
+  });
+
+  /**
+   * Two tiers (maintainer, 2026-09-29), on the report's own words: some below 60, where it says
+   * shaken, and all of it below 35, where it says wavering. There was one line, at 40, so a target
+   * the report's standing list called shaken at 45 took nothing from a Terror unit.
+   */
+  it('pays terror in two tiers: some below 60, all of it below 35', () => {
+    const terror = bare('hollow_men');
+    const modifiers = unit('hollow_men').modifiers;
+    const target = bare('razors');
+    const at = (morale: number) => exchange(terror, modifiers, target, morale).perBody;
+    const card = UNIT_MODIFIERS.terror.percent;
+
+    expect(SHAKEN_MORALE).toBe(MORALE_THRESHOLDS.steady);
+    expect(BREAKING_MORALE).toBe(MORALE_THRESHOLDS.shaken);
+    expect(moraleState(BREAKING_MORALE - 1)).toBe('wavering');
+    expect(moraleState(BREAKING_MORALE)).toBe('shaken');
+    expect(at(SHAKEN_MORALE)).toBeCloseTo(at(90), 9);
+    // The shaken tier: the whole band from 59 down to 35 pays the same share.
+    for (const morale of [SHAKEN_MORALE - 1, 45, BREAKING_MORALE]) {
+      expect(at(morale) / at(90), `at ${morale}`).toBeCloseTo(
+        (100 + card * SHAKEN_TERROR_SHARE) / 100,
+        6,
+      );
+    }
+    // The wavering tier, and the broken below it: the full card, from 34 down.
+    for (const morale of [34, 30, BREAKING_MORALE - 1, 10, 0]) {
+      expect(at(morale) / at(90), `at ${morale}`).toBeCloseTo((100 + card) / 100, 6);
+    }
+  });
+
+  it('says on the card what each tier pays', () => {
+    const card = UNIT_MODIFIERS.terror;
+    expect(card.description).toContain(
+      `under ${SHAKEN_MORALE}) ${Math.round(card.percent * SHAKEN_TERROR_SHARE)}% harder`,
+    );
+    expect(card.description).toContain(`under ${BREAKING_MORALE}) ${card.percent}% harder`);
   });
 
   it('pays a unit without the sheet for it nothing either way', () => {

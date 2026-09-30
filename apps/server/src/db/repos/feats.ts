@@ -48,6 +48,12 @@ export interface FeatsRepo {
    */
   claim(baseId: string, featId: string, at: string): boolean;
   /**
+   * Records that this crew's `tally` has counted a deal with `counterparty` on `day`, and says
+   * whether this call was the first to (`0129`). The crew's rows from earlier days go in the same
+   * call: only today's are ever asked about.
+   */
+  firstDealOfDay(baseId: string, tally: string, counterparty: string, day: string): boolean;
+  /**
    * Every counter and every claim this crew has, gone.
    *
    * For the Console's Clean slate and nothing else. The two tables cascade off a deleted base, and
@@ -74,6 +80,15 @@ export function createFeatsRepo(db: AppDatabase): FeatsRepo {
   );
   const forgetTalliesStmt = db.prepare('DELETE FROM crew_tallies WHERE base_id = ?');
   const forgetClaimsStmt = db.prepare('DELETE FROM crew_feats WHERE base_id = ?');
+  // Prepared on first use: the table arrives in 0129, and some tests migrate only part way.
+  const prepareDeals = () => ({
+    prune: db.prepare('DELETE FROM crew_market_deals WHERE base_id = ? AND day < ?'),
+    insert: db.prepare(
+      `INSERT OR IGNORE INTO crew_market_deals (base_id, tally, counterparty, day)
+       VALUES (?, ?, ?, ?)`,
+    ),
+  });
+  let dealStmts: ReturnType<typeof prepareDeals> | undefined;
 
   function bumpOne(baseId: string, tally: string, amount: number): void {
     if (amount < 0) {
@@ -109,6 +124,12 @@ export function createFeatsRepo(db: AppDatabase): FeatsRepo {
 
     claim(baseId, featId, at) {
       return claimStmt.run(baseId, featId, at).changes === 1;
+    },
+
+    firstDealOfDay(baseId, tally, counterparty, day) {
+      const { prune, insert } = (dealStmts ??= prepareDeals());
+      prune.run(baseId, day);
+      return insert.run(baseId, tally, counterparty, day).changes === 1;
     },
 
     forget(baseId) {

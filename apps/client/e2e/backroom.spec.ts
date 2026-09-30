@@ -1,4 +1,4 @@
-import { BUILDING_KINDS, CITY_DISTRICTS, findBlackMarketGood } from '@frontline/shared';
+import { BUILDING_KINDS, findBlackMarketGood } from '@frontline/shared';
 import { expect, test, type Page } from '@playwright/test';
 import { adminGame, blackMarket, lateGame } from './fixtures';
 import {
@@ -60,9 +60,9 @@ async function open(page: Page, path: string, width: number, height: number): Pr
  * wants turns "is this clipped" back into a question about the layout.
  *
  * It has to be raised when the page grows, and it was: adding one row to the notification
- * preferences (§A4's scouting receipts) pushed the last control on the settings sheet past 2200 and
- * this went red. Measured before raising it, a real player at 1280x800 can still scroll to that
- * control and see all of it, so the page was fine and the ruler was short.
+ * preferences (a receipt kind since retired) pushed the last control on the settings sheet past
+ * 2200 and this went red. Measured before raising it, a real player at 1280x800 can still scroll to
+ * that control and see all of it, so the page was fine and the ruler was short.
  */
 const LAYOUT_PROBE_HEIGHT = 2600;
 
@@ -287,27 +287,8 @@ test.describe('the console', () => {
       // rendering would otherwise leave the row looking merely tidier.
       await expect(page.getByTestId('admin-presets').locator('> div')).toHaveCount(4);
       await expect(page.getByTestId('admin-reset')).toBeVisible();
-      // The fog of war: one tick per district, home ticked and fixed, the rest ticked by default.
-      const fog = page.getByTestId('admin-fog');
-      await expect(fog).toBeVisible();
-      await expect(fog.locator('input[type="checkbox"]')).toHaveCount(CITY_DISTRICTS.length);
-      await expect(fog.locator('input[type="checkbox"]:checked')).toHaveCount(
-        CITY_DISTRICTS.length,
-      );
-      await expect(fog.locator('input[type="checkbox"]:disabled')).toHaveCount(1);
-      /*
-       * Every row in the list names a different district.
-       *
-       * The unclaimed plots are all stored as `Player District`, so the snapshot's own names put
-       * four identical rows here and a reviewer un-ticking one had no way to know which ground
-       * they had just put back under fog. The rows carry the numbers the map uses.
-       */
-      const fogNames = await fog.locator('li').allInnerTexts();
-      expect(fogNames.length).toBe(CITY_DISTRICTS.length);
-      expect(
-        new Set(fogNames).size,
-        `two districts in the console read the same: ${fogNames.join(' | ')}`,
-      ).toBe(fogNames.length);
+      // The fog panel is gone with scouting (2026-09-29): the whole city is visible to everybody.
+      await expect(page.getByTestId('admin-fog')).toHaveCount(0);
       /*
        * One row per structure, whatever the catalogue holds.
        *

@@ -18,7 +18,6 @@ import {
   completedSet,
   contributionOf,
   crewSheetSources,
-  disruptionPercentAt,
   districtHolder,
   fittedIn,
   fittedMagnitude,
@@ -56,13 +55,6 @@ import { cardsAtTable } from '../factions/cards.js';
  * agree with the first, which is exactly the failure this repo has been bitten by, so it is held by
  * a test rather than by care: `breakdown.test.ts` sums each list and refuses a sum that is not the
  * figure the roster ships. A contributor added to the fold and not to this file fails there.
- *
- * ## The one thing that is not a source
- *
- * §A4's raid disruption is a *cut*, not a payer: it takes a quarter off every positive percentage
- * the crew holds while it lasts. It is one line at the bottom rather than a quarter shaved off each
- * line above, because the page is answering "where is this coming from" and a raid is the answer to
- * a different question the player also has ("why did it just drop").
  */
 export function trainingBreakdownFor(
   repos: Repositories,
@@ -70,15 +62,9 @@ export function trainingBreakdownFor(
   now: Date = new Date(),
 ): TrainingBreakdown {
   return {
-    cost: withDisruption(crewAndGroundLines(repos, base, now, 'cost'), base, now),
-    /*
-     * Only the crew-and-ground half of the speed figure is disrupted, and that asymmetry is the
-     * game's rather than this file's: `trainingRatesFor` adds `trainingTimeReduction(buildings)` to
-     * an already-disrupted `trainingSpeedPercent`, so the Gauntlet and its cards keep working
-     * through a raid while the drillmaster's contribution does not.
-     */
+    cost: crewAndGroundLines(repos, base, now, 'cost'),
     speed: [
-      ...withDisruption(crewAndGroundLines(repos, base, now, 'speed'), base, now),
+      ...crewAndGroundLines(repos, base, now, 'speed'),
       ...structureLines(base.buildings, 'speed'),
     ],
     // §B5 is structures and nothing else: no officer, no block of ground and no rung pays supplies.
@@ -152,7 +138,7 @@ function crewAndGroundLines(
 
   for (const id of base.research.technologies) {
     const item = findResearchItem(id);
-    if (item?.payout.bonus.kind !== HOLD_KIND[channel]) continue;
+    if (item?.payout.bonus?.kind !== HOLD_KIND[channel]) continue;
     lines.push({ source: item.name, note: 'The Lab', percent: item.payout.bonus.percent });
   }
 
@@ -281,19 +267,4 @@ function structureLines(
   }
 
   return lines;
-}
-
-/** §A4: what a raid is currently taking off the crew's own half of the figure. */
-function withDisruption(lines: readonly BonusLine[], base: Base, now: Date): BonusLine[] {
-  const off = disruptionPercentAt(base.economy.disruption, now);
-  const total = lines.reduce((sum, line) => sum + line.percent, 0);
-  if (off <= 0 || total <= 0) return [...lines];
-  return [
-    ...lines,
-    {
-      source: 'Raided',
-      note: `${Math.round(off)}% off everything your crew holds`,
-      percent: -(total * (Math.min(100, off) / 100)),
-    },
-  ];
 }

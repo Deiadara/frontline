@@ -28,7 +28,7 @@ import { useSession } from '../store/session';
  * `LoadFailure` and a Playwright sweep were the answer, and the sweep is a hand-written list of
  * eight routes, so the ten screens added afterwards each shipped the same bug again. Two of them
  * were worse than a spinner: the Bar drew "Nobody in tonight" over a dead stool and a payroll of 0,
- * and the mission board drew "Nowhere is hiring. Scout something." Both are sentences about the
+ * and the mission board drew "Nowhere is hiring." Both are sentences about the
  * game world, in the game's own voice, in answer to a broken request.
  *
  * This is the unit-level version of that sweep, and it is a *table*: adding a screen here is one
@@ -86,5 +86,63 @@ describe('a screen that cannot load says so', () => {
     await waitFor(() => expect(screen.getByTestId('load-failure')).toBeInTheDocument());
     // ...and offers the one remedy that fits, rather than telling the player to reload the game.
     expect(screen.getByTestId('load-retry')).toBeInTheDocument();
+  });
+});
+
+/** Mounts a screen on a fresh client, the same way the table above does. */
+function mount(Screen: ComponentType) {
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+  });
+  render(
+    <QueryClientProvider client={client}>
+      <MemoryRouter initialEntries={['/game']}>
+        <Screen />
+      </MemoryRouter>
+    </QueryClientProvider>,
+  );
+}
+
+/**
+ * Before a read lands, and after one fails, a screen states nothing about the game (bug pass,
+ * 2026-09-29).
+ *
+ * Saying "would not load" is half of it. The other half is not saying anything false beside it:
+ * the mission board's side panels read "Every crew is home" and "0 crews out" next to its own
+ * failure, and while it was still reading the Bar showed "Nobody in tonight" over a payroll of 0
+ * on a crew of 0 / 0. Each of those is a real state, which is what makes it a lie rather than a
+ * placeholder. The research tabs read `0/0` the same way.
+ */
+describe('a screen without its data states no game facts', () => {
+  it('the mission board, when its read failed', async () => {
+    mount(MissionsPage);
+    await waitFor(() => expect(screen.getByTestId('load-failure')).toBeInTheDocument());
+    expect(screen.queryByText('Every crew is home')).toBeNull();
+    expect(screen.queryByText('No crew has come back yet')).toBeNull();
+    expect(screen.queryByText(/crews out/i)).toBeNull();
+  });
+
+  it('the mission board, while it is still reading', async () => {
+    fetchMock.mockReturnValue(new Promise(() => {}));
+    mount(MissionsPage);
+    expect(await screen.findAllByText('Reading the board…')).not.toHaveLength(0);
+    expect(screen.queryByText('No crew has come back yet')).toBeNull();
+    expect(screen.queryByText(/crews out/i)).toBeNull();
+  });
+
+  it('the Bar, while it is still reading', async () => {
+    fetchMock.mockReturnValue(new Promise(() => {}));
+    mount(BarPage);
+    expect(await screen.findByText('Reading the room…')).toBeInTheDocument();
+    expect(screen.queryByText('Nobody in tonight')).toBeNull();
+    expect(screen.queryByText('Payroll left')).toBeNull();
+    expect(screen.queryByText('Your crew')).toBeNull();
+  });
+
+  it('the archive, while it is still reading', async () => {
+    fetchMock.mockReturnValue(new Promise(() => {}));
+    mount(ResearchPage);
+    expect(await screen.findByText('Programmes')).toBeInTheDocument();
+    expect(screen.queryByText('0/0')).toBeNull();
   });
 });

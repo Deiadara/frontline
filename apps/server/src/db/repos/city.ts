@@ -1,9 +1,7 @@
 import {
-  ALL_DISTRICTS,
   withoutRetiredUnits,
   EVERY_LOCATION,
   LocationControlSchema,
-  districtsOfCity,
   findDistrict,
   findLocation,
   startingControl,
@@ -15,11 +13,11 @@ import { readJson } from '../json.js';
 import type { AppDatabase } from '../index.js';
 
 /**
- * Who holds the city, and who has seen it (GDD §A4).
+ * Who holds the city (GDD §A4).
  *
- * Control is world state, one row per location, shared by every crew, and intel is per-crew
- * knowledge. Keeping them in separate tables is the whole fog-of-war design: the truth exists
- * whether or not you have looked at it.
+ * Control is world state, one row per location, shared by every crew and visible to every crew
+ * (maintainer, 2026-09-29: "whole city visible"). What is *standing* on a location is the part a
+ * crew has to pay to learn, and that lives with the spy reports (`repos/spying.ts`), not here.
  */
 
 interface ControlRow {
@@ -63,34 +61,9 @@ export interface CityRepo {
   put(control: LocationControl): void;
   /** Just the garrison: the common write, and the one that must not disturb an upgrade clock. */
   setGarrison(locationId: string, garrison: Army): void;
-  /** Districts this crew has seen inside. */
-  scouted(baseId: string): Set<string>;
-  markScouted(baseId: string, districtId: string, at: string): void;
-  /**
-   * Every district this crew has seen inside, forgotten. The Console's Clean slate: a crew at its
-   * first second has walked nowhere, and `district_intel` does not cascade because the base row
-   * is rewritten rather than deleted.
-   */
-  forgetScouted(baseId: string): void;
-  /**
-   * What this crew can see into right now: the districts its scouts have visited, or in admin
-   * mode every district except the ones the Console has hidden. This is the read the city, the
-   * board and the battles go through; `scouted` is the raw intel and stays that.
-   *
-   * `cityId` says which map the admin answer is drawn from, and a caller that knows where the crew
-   * is standing should pass it: the city screen asks for its own city's districts, so a crew in
-   * Terminus on a testing build sees Terminus rather than a list of Ashfall ids it has no ground
-   * near. Left off, the answer is every district in the world, which is what a caller with no city
-   * in hand means by "everything".
-   */
-  visibleDistricts(baseId: string, cityId?: string): Set<string>;
-  /** The Console's exceptions: districts an admin has chosen not to see (migration 0079). */
-  hiddenByAdmin(baseId: string): Set<string>;
-  setAdminFog(baseId: string, districtId: string, hidden: boolean): void;
 }
 
-/** `admin` is the testing build's flag: it is what makes `visibleDistricts` mean everything. */
-export function createCityRepo(db: AppDatabase, admin = false): CityRepo {
+export function createCityRepo(db: AppDatabase): CityRepo {
   const allStmt = db.prepare('SELECT * FROM location_control');
   const oneStmt = db.prepare('SELECT * FROM location_control WHERE location_id = ?');
   const insertStmt = db.prepare(
@@ -110,17 +83,6 @@ export function createCityRepo(db: AppDatabase, admin = false): CityRepo {
   const garrisonStmt = db.prepare(
     'UPDATE location_control SET garrison_json = ? WHERE location_id = ?',
   );
-  const scoutedStmt = db.prepare('SELECT district_id FROM district_intel WHERE base_id = ?');
-  const markStmt = db.prepare(
-    `INSERT INTO district_intel (base_id, district_id, scouted_at) VALUES (?, ?, ?)
-     ON CONFLICT (base_id, district_id) DO NOTHING`,
-  );
-  const forgetScoutedStmt = db.prepare('DELETE FROM district_intel WHERE base_id = ?');
-  const fogStmt = db.prepare('SELECT district_id FROM admin_fog WHERE base_id = ?');
-  const hideStmt = db.prepare(
-    'INSERT INTO admin_fog (base_id, district_id) VALUES (?, ?) ON CONFLICT DO NOTHING',
-  );
-  const showStmt = db.prepare('DELETE FROM admin_fog WHERE base_id = ? AND district_id = ?');
 
   const write = (control: LocationControl): void => {
     insertStmt.run(
@@ -163,48 +125,6 @@ export function createCityRepo(db: AppDatabase, admin = false): CityRepo {
     put: write,
     setGarrison(locationId, garrison) {
       garrisonStmt.run(JSON.stringify(garrison), locationId);
-    },
-    scouted(baseId) {
-      const rows = scoutedStmt.all(baseId) as { district_id: string }[];
-      return new Set(rows.map((row) => row.district_id));
-    },
-    markScouted(baseId, districtId, at) {
-      markStmt.run(baseId, districtId, at);
-    },
-    forgetScouted(baseId) {
-      forgetScoutedStmt.run(baseId);
-    },
-    visibleDistricts(baseId, cityId) {
-      if (!admin) return this.scouted(baseId);
-      /*
-       * The Console **adds** to what a crew has really scouted; it does not stand in for it.
-       *
-       * It replaced the crew's own marks with one city's districts, and `cityId` defaults to the
-       * city being looked at. So on an admin build a crew that had genuinely scouted ground in a
-       * second city became unable to declare a fight on it or move units to it: `declare.ts` and
-       * `sendMove` both gate on this set, and the real mark had been thrown away. The first
-       * foothold abroad could not be taken at all on the one build the Console exists in.
-       *
-       * It also quietly voided the Console's own workaround. `mockBattleOn` marks the attacker as
-       * having scouted the target precisely because a declaration refuses unscouted ground, and
-       * that mark was the thing being discarded.
-       *
-       * The fog knob still hides a district, genuinely scouted or not, which is what it is for:
-       * the subtraction happens after the union rather than instead of it.
-       */
-      const hidden = this.hiddenByAdmin(baseId);
-      const map = cityId === undefined ? ALL_DISTRICTS : districtsOfCity(cityId);
-      const seen = new Set([...this.scouted(baseId), ...map.map((district) => district.id)]);
-      for (const districtId of hidden) seen.delete(districtId);
-      return seen;
-    },
-    hiddenByAdmin(baseId) {
-      const rows = fogStmt.all(baseId) as { district_id: string }[];
-      return new Set(rows.map((row) => row.district_id));
-    },
-    setAdminFog(baseId, districtId, hidden) {
-      if (hidden) hideStmt.run(baseId, districtId);
-      else showStmt.run(baseId, districtId);
     },
   };
 }

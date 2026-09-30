@@ -1,10 +1,12 @@
 import {
   CLAIM_WINDOW_HOURS,
   MAX_OPEN_OFFERS,
+  NO_TRADER_TEXT,
   OFFER_LIFETIME_HOURS,
   RESOURCE_LABELS,
   RESOURCE_ORDER,
   bundleIsEmpty,
+  findCity,
   offerExpiresAt,
   ITEM_CATALOG,
   ITEM_IDS,
@@ -103,6 +105,9 @@ export function OffersPage() {
   }
 
   const pending = accept.isPending || withdraw.isPending || claim.isPending;
+  // A new deal needs this crew's Trader at work (2026-09-29). Withdraw and Claim stay live: what
+  // is already up is still this crew's to take back or collect.
+  const shut = data.traderAtWork === false;
 
   return (
     <PageShell
@@ -118,13 +123,23 @@ export function OffersPage() {
         active="offers"
         action={
           <InfoNote label="How District Offers Work">
-            What you offer leaves your store when posted. Up to {MAX_OPEN_OFFERS} at once, counters
-            included. When somebody takes it, or nobody has after {OFFER_LIFETIME_HOURS} hours, the
-            goods wait here for you to claim. After {CLAIM_WINDOW_HOURS} hours they go into your
-            stores anyway, and whatever does not fit is lost.
+            Each city has its own board, and only crews with ground in that city see it. What you
+            offer leaves your store when posted. Up to {MAX_OPEN_OFFERS} at once across every city,
+            counters included. When somebody takes it, or nobody has after {OFFER_LIFETIME_HOURS}{' '}
+            hours, the goods wait here for you to claim. After {CLAIM_WINDOW_HOURS} hours they go
+            into your stores anyway, and whatever does not fit is lost.
           </InfoNote>
         }
       />
+
+      {shut && (
+        <p
+          className="font-body text-[12px] leading-relaxed text-oxblood-300"
+          data-testid="offers-shut"
+        >
+          {NO_TRADER_TEXT}. Your listings stand, and you can still take them back.
+        </p>
+      )}
 
       <div className="grid items-start gap-5 xl:grid-cols-2">
         <Panel
@@ -142,7 +157,7 @@ export function OffersPage() {
                 <OfferCard key={offer.id} offer={offer} mine={false} now={now}>
                   <DrawnButton
                     size="sm"
-                    disabled={pending}
+                    disabled={pending || shut}
                     onClick={() => setCounter({ id: offer.id, sellerName: offer.sellerName })}
                     // Opens the composer, commits nothing: the press that spends is its Post.
                     data-sound="click"
@@ -151,7 +166,7 @@ export function OffersPage() {
                   </DrawnButton>
                   <DrawnButton
                     size="sm"
-                    disabled={pending}
+                    disabled={pending || shut}
                     onClick={() => accept.mutate({ offerId: offer.id })}
                   >
                     Accept
@@ -206,7 +221,15 @@ export function OffersPage() {
             ) : (
               <ul className="flex flex-col gap-3" data-testid="my-offers">
                 {data.mine.map((offer) => (
-                  <OfferCard key={offer.id} offer={offer} mine now={now}>
+                  <OfferCard
+                    key={offer.id}
+                    offer={offer}
+                    mine
+                    now={now}
+                    // Your listings in every city are listed here, so Withdraw can reach one
+                    // pinned to another city's board; that one says which board it is on.
+                    elsewhere={offer.cityId === data.cityId ? null : offer.cityId}
+                  >
                     <DrawnButton
                       size="sm"
                       disabled={pending}
@@ -263,11 +286,14 @@ function OfferCard({
   offer,
   mine,
   now,
+  elsewhere = null,
   children,
 }: {
   offer: MarketOffer;
   mine: boolean;
   now: Date;
+  /** The city this listing is pinned in, when that is not the board on screen. */
+  elsewhere?: string | null;
   children: ReactNode;
 }) {
   const standsFor = offerExpiresAt(offer).getTime() - now.getTime();
@@ -288,6 +314,14 @@ function OfferCard({
         <span className="font-display text-[12px] font-bold uppercase tracking-[0.14em] text-brass-300">
           {whose}
         </span>
+        {elsewhere !== null && (
+          <span
+            className="font-display text-[11px] uppercase tracking-[0.12em] text-ink-300"
+            data-testid={`offer-city-${offer.id}`}
+          >
+            On the {findCity(elsewhere)?.name ?? elsewhere} board
+          </span>
+        )}
         <span
           className="ml-auto font-display text-[11px] uppercase tracking-[0.12em] text-ink-300"
           data-tip="How long this listing stands before it lapses"
@@ -327,8 +361,8 @@ function OfferCard({
  * Goods the board is holding for this crew (maintainer, 2026-09-28).
  *
  * A listing somebody took stays on this half with Claim where Withdraw was, and says who took it
- * and what the crew handed over for it. Goods coming back from a listing nobody took, or a counter
- * whose listing closed, say so instead. The clock is the one that matters: when it runs out the
+ * and what the crew handed over for it. Goods coming back from a listing nobody took, a counter
+ * whose listing closed, or a listing closed by a deal on a counter to it, say so instead. The clock is the one that matters: when it runs out the
  * goods go in whatever the stores can hold.
  */
 function ClaimCard({
@@ -346,7 +380,10 @@ function ClaimCard({
       ? `Taken by ${claim.takenBy ?? 'another crew'}`
       : claim.reason === 'expired'
         ? 'Nobody took it'
-        : 'The listing you countered closed';
+        : // A listing, not a counter, closes this way only when a counter further down was taken.
+          claim.offer.counterTo === null
+          ? 'A deal on a counter closed it'
+          : 'The listing you countered closed';
 
   return (
     <li
@@ -533,14 +570,20 @@ function OfferComposer({
       <div className="flex flex-wrap items-center gap-3">
         <DrawnButton
           size="sm"
-          disabled={post.isPending || empty}
+          disabled={post.isPending || empty || market.traderAtWork === false}
           onClick={() =>
-            post.mutate(counter === null ? { give, want } : { give, want, counterTo: counter.id }, {
-              onSuccess: () => {
-                clear();
-                onDone();
+            // A listing goes up on the board on screen; a counter on its listing's, whatever tab.
+            post.mutate(
+              counter === null
+                ? { give, want, cityId: market.cityId }
+                : { give, want, counterTo: counter.id },
+              {
+                onSuccess: () => {
+                  clear();
+                  onDone();
+                },
               },
-            })
+            )
           }
         >
           {counter === null ? 'Post it' : 'Send the counter'}

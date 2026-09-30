@@ -122,7 +122,7 @@ export async function buildApp({
 
   app.decorate('config', config);
   app.decorate('db', db);
-  app.decorate('repos', createRepositories(db, { admin: config.admin }));
+  app.decorate('repos', createRepositories(db));
   configurePagePrizeSalt(config.jwtSecret);
   app.decorate('skirmishEngine', skirmishEngine);
 

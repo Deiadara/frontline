@@ -69,7 +69,7 @@ describe('faces across the city', () => {
     const shown = bar.recruits[0]!;
     expect(shown.portraitId).toBeTruthy();
 
-    const roster = barRoster(barDay(new Date()), bar.recruits.length, 1);
+    const roster = barRoster(barDay(new Date()), 1);
     const recruit = roster.find((entry) => entry.id === shown.id)!;
     const face = rosterFaces(
       app.repos,

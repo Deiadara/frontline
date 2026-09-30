@@ -402,3 +402,37 @@ test('hovering a unit shows its card, and the door underneath still opens', asyn
   await settleFonts(page);
   await page.screenshot({ path: 'screenshots/scrapyard-unit-hover.png' });
 });
+
+/**
+ * The yard's plate never sits on the benches, on any tab (bug pass, 2026-09-29).
+ *
+ * At 1024 the head is too narrow for the tabs and the plate on one line, so the plate wraps to its
+ * own. On the three building tabs Ready to build rides with it and forced the wrap; on Components,
+ * where it is not drawn, the wrapper measured the plate at its wrapped width, stayed on the tabs'
+ * line and hung the plate out of its left edge across the Components tab. Measured as the overlap
+ * of the two boxes, on every tab, at the narrowest frame and one where they do share a line.
+ */
+for (const width of [1024, 1280]) {
+  test(`the yard's plate stays off the benches on every tab at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 800 });
+    await installApi(page, lateGame);
+    for (const view of ['modifications', 'refits', 'traps', 'components']) {
+      await page.goto(`/game/scrapyard?view=${view}`);
+      await expect(page.getByTestId(`scrapyard-view-${view}`)).toHaveAttribute(
+        'aria-selected',
+        'true',
+      );
+      await settleFonts(page);
+      const overlap = await page.evaluate(() => {
+        const tabs = document.querySelector('[role="tablist"]')!.getBoundingClientRect();
+        const boxes = document
+          .querySelector('[data-testid="scrapyard-head-boxes"]')!
+          .getBoundingClientRect();
+        const x = Math.min(tabs.right, boxes.right) - Math.max(tabs.left, boxes.left);
+        const y = Math.min(tabs.bottom, boxes.bottom) - Math.max(tabs.top, boxes.top);
+        return x > 0 && y > 0 ? Math.round(x * y) : 0;
+      });
+      expect(overlap, `the plate covers ${overlap}px² of the tabs on ${view}`).toBe(0);
+    }
+  });
+}

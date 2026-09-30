@@ -1,5 +1,4 @@
 import {
-  CITY_DISTRICTS,
   MAX_ATTRIBUTE,
   MISC_AREA_ID,
   areasOffering,
@@ -35,7 +34,9 @@ import { launchMission } from './launch.js';
 import { resolveDueMissions } from './resolve.js';
 import { fightMissionBattle } from './battle.js';
 import { chooseOverseer, pinOverseer } from '../testing/overseer.js';
+import { holdEveryBoard } from '../testing/footholds.js';
 import { sureLeader } from '../testing/leader.js';
+import { cardFor } from '../testing/card.js';
 
 /**
  * Who leads a run, and what a battle job does to the crew that goes (maintainer, 2026-09-10).
@@ -102,9 +103,8 @@ async function makeStack(username = 'leader'): Promise<Stack> {
   const minted = repos.bases.findByOwnerId(user.id);
   if (!minted) throw new Error('no base');
   repos.bases.updateArmy(minted.id, { razors: 80, wardens: 20, haulers: 20 }, minted.trainingQueue);
-  for (const district of CITY_DISTRICTS) {
-    repos.city.markScouted(minted.id, district.id, new Date().toISOString());
-  }
+  // A place in every district, so every board is open to the launches below.
+  holdEveryBoard(repos, minted.id);
   const base = repos.bases.findByOwnerId(user.id);
   if (!base) throw new Error('no base');
   return { app, repos, base, token, overseer, userId: user.id };
@@ -173,7 +173,13 @@ async function launch(stack: Stack, extra: Record<string, unknown> = {}) {
     method: 'POST',
     url: '/api/missions',
     headers: auth(stack.token),
-    payload: { templateId: template.id, areaId, force: { razors: 1 }, ...extra },
+    payload: {
+      templateId: template.id,
+      areaId,
+      ...cardFor(areaId, template.id, stack.base.level),
+      force: { razors: 1 },
+      ...extra,
+    },
   });
 }
 
@@ -342,6 +348,8 @@ describe('what a card carries about the odds', () => {
       payload: {
         templateId: offer.templateId,
         areaId: area.id,
+        boardKey: offer.boardKey,
+        grade: offer.grade,
         force: { haulers: 1 },
         leaderId: stack.overseer.id,
       },
@@ -378,6 +386,7 @@ describe('the launch', () => {
       payload: {
         templateId: offer.id,
         areaId: other,
+        ...cardFor(other, offer.id, stack.base.level, at),
         force: { razors: 1 },
         leaderId: stack.overseer.id,
       },
@@ -433,6 +442,7 @@ describe('the launch', () => {
       payload: {
         templateId: elsewhere.offer.id,
         areaId: elsewhere.areaId,
+        ...cardFor(elsewhere.areaId, elsewhere.offer.id, stack.base.level, now),
         force: { razors: 1 },
         leaderId: stack.overseer.id,
       },
@@ -621,7 +631,8 @@ describe('a battle job is a fight', () => {
   });
 
   /*
-   * One officer on the books, leading a fight job on a fixed seed, and what the run lost.
+   * One officer on the books, leading the same fight job on a sweep of seeds, and what each run
+   * lost.
    *
    * The officer rather than the Overseer on purpose: the Overseer's sheet feeds the crew's fold as
    * well, so two worlds with two Overseers fight two different fights whether or not the leader
@@ -629,8 +640,16 @@ describe('a battle job is a fight', () => {
    * Overseer at the ceiling in every rating is paid in full, so the crew's best-of reads 100 in
    * every world whatever the officer brings. (The officer used to sit on the bench for this, which
    * kept them off the fold; the bench leads nothing since 2026-09-28.)
+   *
+   * A sweep rather than one seed: nine Razors lose this fight under anybody, and the leader moves
+   * how many of them get out. On one seed that can come out level, and seed 4 did from 2026-09-29,
+   * when intimidation started reaching only 1.5 enemy slots per slot (`INTIMIDATION_REACH`) and a
+   * leader's menace stopped carrying a party of nine. Measured then over seeds 1 to 16: the two
+   * sheets lose a different number of Razors on 9 of them.
    */
-  async function lostUnder(username: string, sheet: Attributes) {
+  const LEADER_SEEDS = Array.from({ length: 16 }, (_, at) => at + 1);
+
+  async function lostUnder(username: string, sheet: Attributes): Promise<Army[]> {
     const stack = await makeStack(username);
     stack.repos.overseers.updateAttributes(stack.overseer.id, makeAttributes(MAX_ATTRIBUTE));
     const officer = {
@@ -638,33 +657,49 @@ describe('a battle job is a fight', () => {
       attributes: sheet,
     };
     stack.repos.bases.updateCommanders(stack.base.id, [officer]);
-    planted(
-      stack,
-      skirmish,
-      { razors: 9 },
-      4,
-      {},
-      { kind: 'officer', id: officer.id, attributes: sheet },
-      T0,
-      skirmish.grades.at(-1),
+    // Nine Razors for each run.
+    const held = stack.repos.bases.findById(stack.base.id)!;
+    stack.repos.bases.updateArmy(
+      held.id,
+      { ...held.army, razors: 9 * LEADER_SEEDS.length },
+      held.trainingQueue,
     );
-    const home = resolveDueMissions(
+    const runs = LEADER_SEEDS.map((seed) =>
+      planted(
+        stack,
+        skirmish,
+        { razors: 9 },
+        seed,
+        {},
+        { kind: 'officer', id: officer.id, attributes: sheet },
+        T0,
+        skirmish.grades.at(-1),
+      ),
+    );
+    const settled = resolveDueMissions(
       stack.repos,
       stack.repos.bases.findById(stack.base.id)!,
       after(skirmish),
-    ).resolved[0];
-    if (!home) throw new Error('nothing settled');
-    return home.lost;
+    ).resolved;
+    return runs.map((run) => {
+      const home = settled.find((one) => one.id === run.id);
+      if (!home) throw new Error(`${run.id} did not settle`);
+      return home.lost;
+    });
   }
 
   it('sends whoever led the run into the fight with them', async () => {
-    // The same job, the same seed, the same nine units: the only difference is the person at the
-    // front, and the row's casualty list is where that shows up. Which way it moves is pinned in
+    // The same job, the same seeds, the same nine units: the only difference is the person at the
+    // front, and the rows' casualty lists are where that shows up. Which way it moves is pinned in
     // `enemy.test.ts` on a fight balanced for it; what this file is about is that the row's leader
     // reaches the engine at all, which is `leaderOf`'s whole job.
     const weak = await lostUnder('weak_lead', makeAttributes(0));
     const sharp = await lostUnder('sharp_lead', makeAttributes(MAX_ATTRIBUTE));
-    expect(sharp).not.toEqual(weak);
+    const moved = LEADER_SEEDS.filter((_, at) => total(sharp[at]!) !== total(weak[at]!));
+    expect(
+      moved.length,
+      `seeds where the leader moved the dead: ${moved.join(', ')}`,
+    ).toBeGreaterThanOrEqual(4);
   });
 
   /**

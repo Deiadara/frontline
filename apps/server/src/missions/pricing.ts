@@ -64,9 +64,18 @@ export function pricedTimings(
    * Smuggler's Tunnel does not shorten a run that is already down to two minutes.
    */
   ramp: EarlyRampBand | null = null,
+  /**
+   * The walk to a job in another city, added to the band (`missionWalkMinutes`). A fact about
+   * where the crew lives and where the job is, so the card knows it and prices on it.
+   */
+  walkMinutes = 0,
 ): MissionTimings {
   const timings = missionTimings({
-    travelMinutes: hastenedRoadMinutes(TRAVEL_BAND_MINUTES[template.travelBand], 0, speedPercent),
+    travelMinutes: hastenedRoadMinutes(
+      TRAVEL_BAND_MINUTES[template.travelBand] + walkMinutes,
+      0,
+      speedPercent,
+    ),
     durationMinutes: hastenedMinutes(
       templateTimings(template, grade).durationMinutes,
       speedPercent,

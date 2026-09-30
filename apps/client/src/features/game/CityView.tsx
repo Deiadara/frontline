@@ -7,9 +7,9 @@ import {
   plateAspect,
   type CapturedGateView,
   type District,
+  type LocationHolderKind,
 } from '@frontline/shared';
-import { useEffect, useState } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { CostLine } from '../../components/Resources';
 import { Button } from '../../components/ui/Button';
 import { CancelMark } from '../../components/ui/CancelMark';
@@ -17,10 +17,10 @@ import { useCancelGateRaise, useCity, useMe, useRaiseGate } from '../../lib/quer
 import { formatRemaining } from '../base/format';
 import { useServerClock } from '../missions/useServerClock';
 import { Icon } from '../../components/ui/Icon';
+import { Insignia } from '../../components/ui/Insignia';
 import { cn } from '../../lib/cn';
 import { OnPlate, PlateRoom, type OnPlateAt } from './PlateRoom';
 import { Tutorial } from '../tutorial/Tutorial';
-import { ScoutMenu } from '../city/ScoutMenu';
 import { useViewedCity } from '../../store/viewedCity';
 import { ErrorNote } from '../../components/ui/ErrorNote';
 
@@ -41,7 +41,7 @@ import { ErrorNote } from '../../components/ui/ErrorNote';
  * Which city is being drawn is the one the player is looking at (`useViewedCity`), falling back to
  * the crew's own. The read is asked for that city and answers with a `cityId` of its own, so the
  * screen no longer has to put the crew's district back through the atlas to work out what it is
- * holding: what the fog and the holdings on this screen are about is a thing the server says.
+ * holding: what the holdings on this screen are about is a thing the server says.
  */
 /**
  * Which painting each playable city opens on.
@@ -209,12 +209,18 @@ export function districtsWithoutAMark(cityId: string): readonly string[] {
 function DistrictTag({
   district,
   label,
+  holder,
   mine,
   onOpen,
 }: {
   district: District;
   /** What to print: a crew's name on residential ground, the district's own name otherwise. */
   label: string;
+  /**
+   * Who holds the whole district, when one party does. The Combine and the looters wear their mark
+   * on the tag (maintainer, 2026-09-30); anybody else, or a split district, draws the name alone.
+   */
+  holder: LocationHolderKind | null;
   /** This crew's own ground, which is the one tag that leads somewhere different. */
   mine: boolean;
   onOpen: () => void;
@@ -279,6 +285,11 @@ function DistrictTag({
             : 'border-surface-600 bg-surface-950/90 text-ink-200 group-hover:border-brass-300/70 group-hover:text-brass-100',
         )}
       >
+        {holder !== null && (
+          // Out of the flow's height: 14px of mark on an 11px line would grow every tag it is on
+          // by a pixel, and the tags are placed by their bottom edge (`OnPlate anchor="bottom"`).
+          <Insignia holder={holder} className="-my-1 mr-1.5 h-3.5 w-3.5" />
+        )}
         {label}
       </span>
     </button>
@@ -319,19 +330,10 @@ export function CityView() {
    * The map of the city on the screen, not of the crew's own.
    *
    * The read used to answer for the crew's city whatever was being painted, so every district of
-   * an away city arrived with no summary: no fog, no holdings, no crew names, and, worse, no
-   * answer for the tag to act on. Asked bare for the crew's own city, which is what keeps a player
-   * who has never left home sending no `?city=` on anything.
+   * an away city arrived with no summary: no holdings and no crew names. Asked bare for the crew's
+   * own city, which is what keeps a player who has never left home sending no `?city=` on anything.
    */
   const city = useCity(cityId === homeCity ? undefined : cityId);
-  /*
-   * The districts of the city being painted, or null while there is no answer for it.
-   *
-   * Checked against the city the *server* says it answered for rather than taken on trust. The two
-   * agree by construction, since the read is keyed per city, and a tag deciding what to open off
-   * another city's fog is the mistake worth one comparison to rule out.
-   */
-  const summaries = city.data?.cityId === cityId ? city.data.districts : null;
   /*
    * The gates on districts this crew holds outright, in the city being looked at.
    *
@@ -343,31 +345,16 @@ export function CityView() {
   const gates = (city.data?.capturedGates ?? []).filter(
     (gate) => cityOf(gate.districtId) === cityId,
   );
+  /** Who holds each district outright, off the same read, for the marks on the tags. */
+  const holders = new Map(
+    (city.data?.districts ?? []).flatMap((summary) =>
+      summary.holder === null ? [] : [[summary.district.id, summary.holder.kind] as const],
+    ),
+  );
   const raise = useRaiseGate();
   const cancel = useCancelGateRaise();
   // The city read's clock, for the gate panel's countdown and its first-tenth window.
   const now = useServerClock(city.data?.serverNow, city.dataUpdatedAt);
-
-  /*
-   * The scout sheet over the map (maintainer, 2026-09-23): which unscouted district it is open
-   * for, or null. Unscouted ground does not open as a page; its tag opens this instead.
-   *
-   * `DistrictView` used to bounce here with `?scout=<id>` for a link that arrived at unscouted
-   * ground, and that bounce is gone (2026-09-25): it draws the sheet at its own route instead, so
-   * nothing flashes past. The parameter is still read once and stripped, the way the mailbox reads
-   * `?to=`, because an old link or a notification may still carry it and a refresh or a back button
-   * must not re-open a sheet the player has closed.
-   */
-  const [scouting, setScouting] = useState<string | null>(null);
-  const [params, setParams] = useSearchParams();
-  const asked = params.get('scout');
-  useEffect(() => {
-    if (asked === null || asked === '') return;
-    setScouting(asked);
-    const next = new URLSearchParams(params);
-    next.delete('scout');
-    setParams(next, { replace: true });
-  }, [asked, params, setParams]);
 
   if (!myBase) return null;
 
@@ -376,18 +363,6 @@ export function CityView() {
       {/* The opening three land here: this is the game's index route, so it is where a player
           arrives straight off the character screen. */}
       <Tutorial screen="city" />
-      {scouting !== null && (
-        <ScoutMenu
-          districtId={scouting}
-          onClose={() => setScouting(null)}
-          // The sheet was opened because the map did not know. If its own read says the crew has
-          // been here, the district is what they asked for, so hand them on.
-          onScouted={() => {
-            setScouting(null);
-            void navigate(`/game/city/${scouting}`);
-          }}
-        />
-      )}
       <PlateRoom plate={plate} aspect={plateAspect(plate)} fit="width" testId="city-room">
         {districtsOfCity(cityId).map((district) => {
           const at = marks[district.id];
@@ -407,6 +382,7 @@ export function CityView() {
                   ownDistrictId: myBase.districtId,
                   ownName: myBase.name,
                 })}
+                holder={holders.get(district.id) ?? null}
                 mine={mine}
                 /*
                  * Your own ground is the one tag that does not lead to the district screen. That
@@ -418,28 +394,7 @@ export function CityView() {
                     void navigate('/game/base');
                     return;
                   }
-                  /*
-                   * A page is opened only for ground this crew has **positively been to**.
-                   *
-                   * Anything else opens the sheet over the map, including "the read has not landed
-                   * yet". That is the maintainer's rule in as many words (2026-09-25): "just have a
-                   * window pop up there without changing page, you only change if its scouted cause
-                   * you go into the location."
-                   *
-                   * The default used to point the other way: unknown fell through to the page, the
-                   * page read the district, found it unscouted and bounced back here with the sheet
-                   * open. Fixing the away map removed most of the unknowns and not the last of
-                   * them, because the read still has to land once per city and a tag is clickable
-                   * before it does. So the fall-through is gone rather than narrowed: an unknown is
-                   * now a sheet, which is recoverable in a way a page flashing past is not, and
-                   * `ScoutMenu` reads the district itself and says what it finds. `DistrictView`
-                   * keeps its bounce for a pasted URL; no click reaches it any more.
-                   */
-                  const summary = summaries?.find((entry) => entry.district.id === district.id);
-                  if (summary?.scouted !== true) {
-                    setScouting(district.id);
-                    return;
-                  }
+                  // Every district opens: the whole city is visible (maintainer, 2026-09-29).
                   void navigate(`/game/city/${district.id}`);
                 }}
               />
@@ -507,7 +462,7 @@ export function CityView() {
  * Drawn as a plate over the map rather than as a page of its own, because it is a fact about a
  * district on the screen already showing the districts, and a wall with one button does not earn a
  * route. What it prints is what it is worth right now, in the two units the player cares about:
- * how much harder the ground is to take, and how much less a scout comes away with.
+ * how much harder the ground is to take, and how much less a spy comes away with.
  */
 function CapturedGatePanel({
   gate,

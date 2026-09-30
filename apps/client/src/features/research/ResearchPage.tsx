@@ -641,8 +641,10 @@ export function ResearchPage() {
   const technologies = data?.technologies ?? [];
   const finished = technologies.filter((tech) => tech.known).length;
 
+  // No count until the archive is read: `0/0` is a tally of nothing, drawn on every slow or failed
+  // read of this screen and on the Blueprints tab, which does not wait for this one.
   const countOf = (id: SectionId): string | null =>
-    id === 'programmes' ? `${finished}/${technologies.length}` : null;
+    id === 'programmes' && data !== undefined ? `${finished}/${technologies.length}` : null;
 
   return (
     <PageShell

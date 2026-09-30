@@ -1,13 +1,19 @@
 import {
   CITY_DISTRICTS,
   ATTRIBUTE_LABELS,
+  HOLDER_LABELS,
   MISSION_LEANING_LABELS,
   MISSION_LEANING_REASONS,
   garrisonOf,
+  isContested,
   isSeatOfGovernmentPower,
+  startingHolder,
+  type ContestedDistrict,
+  type DistrictDetailResponse,
+  type LocationHolder,
 } from '@frontline/shared';
 import { expect, test, type Page } from '@playwright/test';
-import { lateGame, me, missionsResponse } from './fixtures';
+import { RIVAL_HOLD, districtDetailFor, lateGame, me, missionsResponse } from './fixtures';
 import { installApi, settleFonts, walkBoards } from './harness';
 
 /**
@@ -216,15 +222,21 @@ test.describe('the mission board badges the Combine (§A3, §D8)', () => {
 });
 
 test.describe('the intel panel names who holds a district (§A3)', () => {
-  const seat = CITY_DISTRICTS.find(isSeatOfGovernmentPower);
-  const outpost = CITY_DISTRICTS.find(
+  const contested = CITY_DISTRICTS.filter(isContested);
+  const seat = contested.find(isSeatOfGovernmentPower);
+  const outpost = contested.find(
     (d) => d.allegiance === 'government' && !isSeatOfGovernmentPower(d),
   );
-  const street = CITY_DISTRICTS.find(
-    (d) => d.kind === 'contested' && d.allegiance !== 'government' && d.id !== 'chrome-row',
-  );
+  const street = contested.find((d) => d.allegiance !== 'government' && d.id !== 'chrome-row');
   if (!seat || !outpost || !street)
     throw new Error('fixture error: city map is missing an allegiance case');
+
+  /** The Combine's authored garrison sentence, which only its own ground has. */
+  function combineLine(district: ContestedDistrict): RegExp {
+    const line = garrisonOf(district);
+    if (line === null) throw new Error(`fixture error: ${district.id} is not the Combine's`);
+    return new RegExp(line);
+  }
 
   /**
    * Walks into a district the way a player does: one click on its tag on the city painting.
@@ -238,10 +250,51 @@ test.describe('the intel panel names who holds a district (§A3)', () => {
     await page.getByTestId(`district-tag-${id}`).click();
   }
 
+  /**
+   * Answers for a district with every location handed to `holderOf`.
+   *
+   * The shared fixture puts two crews on every contested district, and the Garrison row only
+   * promises the authored garrison while nothing has changed hands (maintainer, 2026-09-29).
+   */
+  async function standing(
+    page: Page,
+    id: string,
+    holderOf: (view: DistrictDetailResponse['locations'][number]) => LocationHolder,
+  ): Promise<void> {
+    const detail = districtDetailFor(id);
+    const locations = detail.locations.map((view) => {
+      const holder = holderOf(view);
+      const crew = holder.kind === 'crew';
+      return {
+        ...view,
+        holder,
+        holderName: crew ? RIVAL_HOLD.crewName : HOLDER_LABELS[holder.kind],
+        holderPlayer: crew ? RIVAL_HOLD.player : null,
+        garrison: null,
+        garrisonSize: null,
+      };
+    });
+    await page.route(`**/api/city/${id}`, (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ ...detail, locations }),
+      }),
+    );
+  }
+
+  /** Nobody has taken anything: every location with the holder the catalogue gave it. */
+  async function untouched(page: Page, id: string): Promise<void> {
+    const district = CITY_DISTRICTS.find((one) => one.id === id);
+    if (!district) throw new Error(`fixture error: no district ${id}`);
+    await standing(page, id, (view) => startingHolder(view.location, district));
+  }
+
   for (const { name, width, height } of WIDTHS) {
     test(`fits the Combine badge and holding line at ${name}`, async ({ page }) => {
       await page.setViewportSize({ width, height });
       await installApi(page, me);
+      await untouched(page, seat.id);
       await page.goto('/game');
       await select(page, seat.id);
 
@@ -251,7 +304,7 @@ test.describe('the intel panel names who holds a district (§A3)', () => {
       // same toggle the outpost test opens.
       await expect(page.getByText('Seat of power')).toBeInViewport();
       await showGarrison(page);
-      await expect(page.getByText(new RegExp(garrisonOf(seat)))).toBeInViewport();
+      await expect(page.getByText(combineLine(seat))).toBeInViewport();
 
       await settleFonts(page);
 
@@ -266,11 +319,16 @@ test.describe('the intel panel names who holds a district (§A3)', () => {
   }) => {
     await page.setViewportSize({ width: 1280, height: 800 });
     await installApi(page, me);
+    await untouched(page, outpost.id);
+    await untouched(page, street.id);
     await page.goto('/game');
 
     await select(page, outpost.id);
     await showGarrison(page);
-    await expect(page.getByText(new RegExp(garrisonOf(outpost)))).toBeInViewport();
+    await expect(page.getByText(combineLine(outpost))).toBeInViewport();
+    await expect(
+      page.getByTestId('hold-insignia').getByTestId('insignia-government'),
+    ).toBeVisible();
     // An outpost is Combine ground but not a seat of its power: the two must read apart.
     await expect(page.getByText('Seat of power')).toHaveCount(0);
 
@@ -278,7 +336,44 @@ test.describe('the intel panel names who holds a district (§A3)', () => {
     await select(page, street.id);
     await showGarrison(page);
     await expect(page.getByRole('heading', { name: street.name, exact: true })).toBeVisible();
-    await expect(page.getByText(new RegExp(garrisonOf(street)))).toBeInViewport();
+    // Open ground has no authored garrison any more (maintainer, 2026-09-30): the row counts the
+    // squatters, under their mark, instead of promising "whoever holds the ground".
+    const squatted = street.locations.filter(
+      (location) => startingHolder(location, street).kind === 'looters',
+    ).length;
+    await expect(page.getByTestId('district-holders')).toContainText(
+      `The looters hold ${squatted} of ${street.locations.length} locations.`,
+    );
+    await expect(page.getByText(/whoever holds the ground/)).toHaveCount(0);
+    await expect(page.getByTestId('hold-insignia').getByTestId('insignia-looters')).toBeVisible();
     await expect(page.getByText('Seat of power')).toHaveCount(0);
   });
+
+  /*
+   * The Docks held end to end by a crew used to read "Expect a thin line of Civic Levy". The row
+   * says who is standing there now (maintainer, 2026-09-29), and the sentence has to fit the box.
+   */
+  for (const { name, width, height } of WIDTHS.filter((one) => one.name !== '1920')) {
+    test(`says who holds a district a crew has taken at ${name}`, async ({ page }) => {
+      await page.setViewportSize({ width, height });
+      await installApi(page, me);
+      await standing(page, 'neon-docks', () => ({ kind: 'crew', baseId: RIVAL_HOLD.baseId }));
+      await page.goto('/game');
+      await select(page, 'neon-docks');
+      await showGarrison(page);
+
+      const row = page.getByTestId('district-holders');
+      await expect(row).toHaveText(`Held by ${RIVAL_HOLD.crewName}.`);
+      await expect(row).toBeInViewport();
+      const docks = districtDetailFor('neon-docks').district;
+      if (!isContested(docks)) throw new Error('fixture error: the Docks are contested ground');
+      await expect(page.getByText(combineLine(docks))).toHaveCount(0);
+
+      await settleFonts(page);
+      expect(await overflowing(page), `the ground box is cut off at ${name}`).toEqual([]);
+      expect(await escaping(page, '[data-testid="district-standing"]')).toEqual([]);
+
+      await page.screenshot({ path: `screenshots/ground-held-by-crew-${name}.png` });
+    });
+  }
 });

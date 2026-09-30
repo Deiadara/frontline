@@ -12,6 +12,7 @@ import {
   type ItemId,
   type Mission,
   type MissionLeader,
+  type LineRules,
   type PartialResources,
   type ResourceKey,
   type UnitLoadouts,
@@ -49,6 +50,8 @@ export function MissionReportWindow({
   overseerName,
   onClose,
   loadouts = {},
+  bagPercent = 0,
+  rules,
 }: {
   mission: Mission;
   leaders: readonly MissionLeader[];
@@ -56,6 +59,13 @@ export function MissionReportWindow({
   onClose: () => void;
   /** The crew's brackets, for the bag the crew could lift. Defaults to none for old rows. */
   loadouts?: UnitLoadouts;
+  /**
+   * The crew's own bag on top of the sheets (`lootCapacityPercent`) and its line rules (granted
+   * `picker` marks), both of which the settle carries with. Without them a crew holding the Pawn
+   * Shop read "they carried all 300 of it, out of the 200 they could lift".
+   */
+  bagPercent?: number;
+  rules?: LineRules;
 }) {
   const template = findMissionTemplate(mission.templateId);
   const failed = mission.outcome === 'failure';
@@ -104,7 +114,7 @@ export function MissionReportWindow({
           </dl>
         </FileSection>
 
-        <Haul mission={mission} loadouts={loadouts} />
+        <Haul mission={mission} loadouts={loadouts} bagPercent={bagPercent} rules={rules} />
         <Drops mission={mission} />
       </div>
 
@@ -196,7 +206,17 @@ function Losses({ mission }: { mission: Mission }) {
  * support, so with no `spoils` the section says what came home and says outright that the total is
  * not known.
  */
-function Haul({ mission, loadouts }: { mission: Mission; loadouts: UnitLoadouts }) {
+function Haul({
+  mission,
+  loadouts,
+  bagPercent,
+  rules,
+}: {
+  mission: Mission;
+  loadouts: UnitLoadouts;
+  bagPercent: number;
+  rules: LineRules | undefined;
+}) {
   const knownSpoils = Object.keys(mission.spoils).length > 0;
   const earned: PartialResources = knownSpoils ? mission.spoils : mission.rewards;
   const kinds = RESOURCE_ORDER.filter(
@@ -250,7 +270,8 @@ function Haul({ mission, loadouts }: { mission: Mission; loadouts: UnitLoadouts 
                 <span className="tabular-nums text-ink-200">{earnedKg.toLocaleString()}</span> loot
                 of it home, out of the{' '}
                 <span className="tabular-nums text-ink-200">
-                  {missionCarry(mission.force, loadouts).toLocaleString()}
+                  {/* Whoever walked back, not whoever set out: the dead carry nothing. */}
+                  {missionCarry(cameHome(mission), loadouts, bagPercent, rules).toLocaleString()}
                 </span>{' '}
                 loot they could lift between them.
               </>
@@ -303,9 +324,9 @@ function HaulRow({
 /**
  * §F1f: the sheets and the salvage, by name.
  *
- * The card that offered the run said only "a unit blueprint's page"; this is where the player finds
- * out which sheet they actually came home with, which is the half of the mechanic that pays off the
- * anticipation. Everything else the run turned up is beside it, because a player who has to count
+ * Nothing on the card that offered the run says it might find a page, and each launch rolls its own
+ * chance (2026-09-29); this is where the player finds out whether it did and which sheet it was,
+ * which is the half of the mechanic that pays off the anticipation. Everything else the run turned up is beside it, because a player who has to count
  * the inventory to work out what a job produced has not been told what the job produced.
  */
 function Drops({ mission }: { mission: Mission }) {

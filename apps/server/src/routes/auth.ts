@@ -13,6 +13,7 @@ import type { FastifyInstance } from 'fastify';
 import { AppError, parseBody } from '../errors.js';
 import type { UserRecord } from '../types.js';
 import { SESSION_HEADER, signSession } from '../auth/session.js';
+import { worldHasRoom } from '../city/homes.js';
 
 const BCRYPT_COST = 10;
 
@@ -24,22 +25,34 @@ function authResponse(app: FastifyInstance, record: UserRecord): AuthResponse {
   return { token: signSession(app, user.id, app.repos.users.sessionVersion(user.id) ?? 0), user };
 }
 
+/**
+ * The two refusals a sign-up can meet after its body has parsed. Run before the hash, so a refused
+ * sign-up costs no bcrypt, and again after it with no `await` between the check and the insert: on
+ * Node's single-threaded loop that keeps them atomic, so two concurrent registrations of the same
+ * username can't both pass the check and collide on the DB constraint (which would 500).
+ *
+ * The world first (bug pass, 2026-09-29): with no free plot anywhere the account could never play,
+ * and the player should hear that before being told their name is taken.
+ */
+function refuseSignUp(app: FastifyInstance, username: string): void {
+  if (!worldHasRoom(app.repos)) {
+    throw new AppError(
+      'WORLD_FULL',
+      'The world is full. Every plot in every open city has a crew on it, so there is nowhere to move in yet. Try again when one frees up.',
+    );
+  }
+  if (app.repos.users.findByUsername(username)) {
+    throw new AppError('USERNAME_TAKEN', 'That username is already taken');
+  }
+}
+
 export function registerAuthRoutes(app: FastifyInstance): void {
   app.post('/auth/register', async (request, reply) => {
     const body = parseBody(RegisterRequestSchema, request.body);
 
-    // Refused before the hash when the name is plainly taken, so a taken name costs no bcrypt.
-    if (app.repos.users.findByUsername(body.username)) {
-      throw new AppError('USERNAME_TAKEN', 'That username is already taken');
-    }
-    // Then checked again after it, with no `await` between the check and the insert: on Node's
-    // single-threaded loop that keeps them atomic, so two concurrent registrations of the same
-    // username can't both pass the check and collide on the DB constraint (which would 500).
+    refuseSignUp(app, body.username);
     const passwordHash = await bcrypt.hash(body.password, BCRYPT_COST);
-
-    if (app.repos.users.findByUsername(body.username)) {
-      throw new AppError('USERNAME_TAKEN', 'That username is already taken');
-    }
+    refuseSignUp(app, body.username);
 
     const record: UserRecord = {
       id: randomUUID(),

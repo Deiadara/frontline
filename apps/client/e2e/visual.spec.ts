@@ -13,6 +13,7 @@ import {
   BUILDING_KINDS,
   CITY_DISTRICTS,
   DISTRICT_NAME_MAX,
+  FACTION_NAME_MAX,
   MISSIONS_PER_AREA,
   RESOURCE_LABELS,
   RESOURCE_ORDER,
@@ -22,7 +23,9 @@ import {
 import {
   activeResearch,
   districtWithAddons,
+  factionScreen,
   hudExtremes,
+  hudExtremesAdmin,
   factionNone,
   lateGame,
   market,
@@ -266,7 +269,14 @@ for (const size of VIEWPORTS) {
           const picture = images[images.length - 1]?.getBoundingClientRect();
           const frame = room?.firstElementChild?.getBoundingClientRect();
           if (!picture || !frame) throw new Error('the city has no painting in a frame');
-          return { pw: picture.width, ph: picture.height, fw: frame.width, fh: frame.height };
+          return {
+            pw: picture.width,
+            ph: picture.height,
+            py: picture.top,
+            fw: frame.width,
+            fh: frame.height,
+            fy: frame.top,
+          };
         });
 
       /*
@@ -289,8 +299,15 @@ for (const size of VIEWPORTS) {
               // The band's full width, to the pixel, and never narrower: a side bar is exactly the
               // thing this screen is not allowed to grow again.
               fillsWidth: Math.abs(at.pw - at.fw) <= 1,
-              // ...and tall enough to cover it, which is the other half of leaving no margin.
-              coversHeight: at.ph >= at.fh - 1,
+              // ...and tall enough to cover it, which is the other half of leaving no margin. A
+              // band taller than the plate is the exception the fit was written for (`PlateFit`,
+              // `width`): the width is kept and the picture stands centred, letterboxed above and
+              // below. 1024x768 is that band since the bottom bar stopped taking a second row
+              // there (maintainer, 2026-09-29), so there the check is that it is centred.
+              coversHeight:
+                at.fw / at.fh < TRUE_ASPECT
+                  ? Math.abs(at.py - at.fy - (at.fh - at.ph) / 2) <= 1
+                  : at.ph >= at.fh - 1,
             };
           },
           { message: `the city's painting is distorted or leaving a margin at ${tag}` },
@@ -2093,6 +2110,33 @@ for (const size of VIEWPORTS) {
     });
 
     /*
+     * The table's own name, at the ceiling the schema allows (bug pass, 2026-09-29).
+     *
+     * The crest is 18rem, and its heading was `truncate`: a name at `FACTION_NAME_MAX` read "The
+     * Ninth Circle …" on the one screen that is that faction's room. It wraps to two lines now, so
+     * what is measured is that the whole name is drawn: nothing ellipsised, nothing clamped away.
+     */
+    test(`the faction's own name reads whole at its longest at ${tag}`, async ({ page }) => {
+      const faction = factionScreen.faction!;
+      const name = 'The Ninth Circle of the Pier'.padEnd(FACTION_NAME_MAX, 's');
+      await installApi(page, lateGame);
+      await page.route('**/api/factions', (route) =>
+        route.fulfill({ json: { ...factionScreen, faction: { ...faction, name } } }),
+      );
+      await page.goto('/game/faction');
+      const heading = page.getByTestId('faction-identity').getByRole('heading');
+      await expect(heading).toHaveText(name);
+      await settleFonts(page);
+
+      const cut = await heading.evaluate(
+        (el) => el.scrollWidth > el.clientWidth + 1 || el.scrollHeight > el.clientHeight + 1,
+      );
+      expect(cut, 'the faction name is cut short on its own room').toBe(false);
+      await expectNothingOverflowsTheScreen(page);
+      await page.screenshot({ path: `screenshots/visual/faction-long-name-${tag}.png` });
+    });
+
+    /*
      * What the crew is buying: twenty-two channel cards on one screen.
      *
      * The paleness check follows the cards here because that is where they live now, but it is a
@@ -2390,50 +2434,86 @@ test.describe('the standing bar does not resize itself', () => {
     1024, 1280, 1440, 1500, 1549, 1550, 1600, 1700, 1719, 1720, 1800, 1920, 1959, 1960, 2560,
   ];
 
-  for (const width of BAR_WIDTHS) {
-    test(`nothing in the bar sits on anything else at ${width}px`, async ({ page }) => {
-      await page.setViewportSize({ width, height: 900 });
-      await installApi(page, hudExtremes);
-      await page.goto('/game');
-      await expect(page.getByTestId('infamy-chip')).toBeVisible();
-      await settleFonts(page);
-
-      /*
-       * Every labelled box in the bar against every other, not a hand-listed few.
-       *
-       * The narrower check below names four selectors and misses the doors, which is exactly what
-       * the plaque was overlapping in the maintainer's screenshot: the test was looking at the two
-       * things that did not collide. Containment is skipped, because a chip inside a chip is not
-       * an overlap.
-       */
-      const hits = await page.evaluate(() => {
-        const bar = document.querySelector('header');
-        if (!bar) throw new Error('no standing bar on the page');
-        const boxes = [...bar.querySelectorAll<HTMLElement>('[data-testid]')].filter(
-          (el) => el.offsetParent !== null,
-        );
-        const found: string[] = [];
-        for (let i = 0; i < boxes.length; i += 1) {
-          for (let j = i + 1; j < boxes.length; j += 1) {
-            const a = boxes[i]!;
-            const b = boxes[j]!;
-            if (a.contains(b) || b.contains(a)) continue;
-            const x = a.getBoundingClientRect();
-            const y = b.getBoundingClientRect();
-            if (
-              x.left < y.right - 1 &&
-              y.left < x.right - 1 &&
-              x.top < y.bottom - 1 &&
-              y.top < x.bottom - 1
-            )
-              found.push(`${a.dataset.testid} over ${b.dataset.testid}`);
+  /*
+   * Swept twice: an admin build carries one more plate at the end of the stockpile (maintainer
+   * ruling, 2026-09-29), and its break sits later by that plate's width.
+   */
+  for (const [build, fixture] of [
+    ['', hudExtremes],
+    [' in an admin build', hudExtremesAdmin],
+  ] as const)
+    for (const width of BAR_WIDTHS) {
+      test(`nothing in the bar sits on anything else at ${width}px${build}`, async ({ page }) => {
+        await page.setViewportSize({ width, height: 900 });
+        await installApi(page, fixture);
+        await page.goto('/game');
+        await expect(page.getByTestId('infamy-chip')).toBeVisible();
+        await settleFonts(page);
+        if (fixture.admin) {
+          await expect(page.getByTestId('hud-admin')).toBeVisible();
+          if (width === 1024 || width === 1280) {
+            await page.screenshot({ path: `screenshots/visual/hud-admin-${width}.png` });
           }
         }
-        return [...new Set(found)];
-      });
 
-      expect(hits, `standing bar overlaps at ${width}px`).toEqual([]);
+        /*
+         * Every labelled box in the bar against every other, not a hand-listed few.
+         *
+         * The narrower check below names four selectors and misses the doors, which is exactly what
+         * the plaque was overlapping in the maintainer's screenshot: the test was looking at the two
+         * things that did not collide. Containment is skipped, because a chip inside a chip is not
+         * an overlap.
+         */
+        const hits = await page.evaluate(() => {
+          const bar = document.querySelector('header');
+          if (!bar) throw new Error('no standing bar on the page');
+          const boxes = [...bar.querySelectorAll<HTMLElement>('[data-testid]')].filter(
+            (el) => el.offsetParent !== null,
+          );
+          const found: string[] = [];
+          for (let i = 0; i < boxes.length; i += 1) {
+            for (let j = i + 1; j < boxes.length; j += 1) {
+              const a = boxes[i]!;
+              const b = boxes[j]!;
+              if (a.contains(b) || b.contains(a)) continue;
+              const x = a.getBoundingClientRect();
+              const y = b.getBoundingClientRect();
+              if (
+                x.left < y.right - 1 &&
+                y.left < x.right - 1 &&
+                x.top < y.bottom - 1 &&
+                y.top < x.bottom - 1
+              )
+                found.push(`${a.dataset.testid} over ${b.dataset.testid}`);
+            }
+          }
+          return [...new Set(found)];
+        });
+
+        expect(hits, `standing bar overlaps at ${width}px`).toEqual([]);
+        await expectNothingClippedHorizontally(page);
+      });
+    }
+
+  /*
+   * The Console with every knob on it (maintainer ruling, 2026-09-29: rank, officers, rested
+   * orders and the rest of the grants were API-only). The two narrow frames, where the rows wrap.
+   */
+  for (const width of [1024, 1280]) {
+    test(`the Console holds every control inside its frame at ${width}px`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await installApi(page, hudExtremesAdmin);
+      await page.goto('/game/admin');
+      await expect(page.getByTestId('admin-grant-footholds')).toBeVisible();
+      await expect(page.getByTestId('admin-officers-go')).toBeVisible();
+      await settleFonts(page);
+      await expectNothingOverflowsTheScreen(page);
       await expectNothingClippedHorizontally(page);
+      // The page scrolls inside its own frame, so each new row is brought into view to be looked at.
+      await page.getByTestId('admin-officers-go').scrollIntoViewIfNeeded();
+      await page.screenshot({ path: `screenshots/visual/console-standing-${width}.png` });
+      await page.getByTestId('admin-grant-footholds').scrollIntoViewIfNeeded();
+      await page.screenshot({ path: `screenshots/visual/console-grants-${width}.png` });
     });
   }
 

@@ -19,8 +19,6 @@ import {
   modificationSlots,
   MAX_SCRAPYARD_DISCOUNT,
   SCRAPYARD_DISCOUNT_PER_LEVEL,
-  SCRAPYARD_LEVEL_FOR_ADVANCED_MODIFICATION,
-  SCRAPYARD_LEVEL_FOR_BASIC,
   SCRAPYARD_LEVEL_FOR_RARITY,
   nextScrapyardUnlock,
   scrapyardUnlockLadder,
@@ -554,7 +552,15 @@ export function ScrapyardPage() {
         */}
         <div className="flex flex-1 items-stretch justify-end gap-2">
           <span aria-hidden className="ink-rule my-auto block min-w-0 flex-1" />
-          <div className="flex shrink-0 items-stretch gap-2" data-testid="scrapyard-head-boxes">
+          {/* `w-max`, so the wrapper's floor is the boxes as drawn. The yard's plate can wrap its
+              last line, which made its min-content narrower than the plate as drawn: on
+              the Components tab, where Ready to build is not there to widen the floor, the
+              wrapper stayed on the benches' line at that narrower width and the plate hung out
+              of its left edge across the Components tab at 1024 (bug pass, 2026-09-29). */}
+          <div
+            className="flex w-max shrink-0 items-stretch gap-2"
+            data-testid="scrapyard-head-boxes"
+          >
             {BUILDS.has(view) && (
               <button
                 type="button"
@@ -676,14 +682,21 @@ export function ScrapyardPage() {
  */
 function YardInfoBox({ data }: { data: ScrapyardResponse }) {
   const next = nextScrapyardUnlock(data.scrapyardLevel, LADDER);
-  const opens = next
-    ? [
-        next.modifications > 0 && `${next.modifications} modifications`,
+  const traps = next && next.traps > 0 && `${next.traps} ${next.traps === 1 ? 'trap' : 'traps'}`;
+  /*
+   * The plate counts both benches' cards as one number and the tip splits them. Since the ladder
+   * was evened (2026-09-29) nearly every rung opens cards on both benches, and "13 modifications,
+   * 9 unit modifications" widened the plate by 103px: past the room beside the benches at
+   * 1280, so the head wrapped to two lines and the structures rail lost the height of one.
+   */
+  const cards = next ? next.modifications + next.upgrades : 0;
+  const opens = next ? listed([cards > 0 && `${cards} modifications`, traps]) : null;
+  const opensInFull = next
+    ? listed([
+        next.modifications > 0 && `${next.modifications} building modifications`,
         next.upgrades > 0 && `${next.upgrades} unit modifications`,
-        next.traps > 0 && `${next.traps} ${next.traps === 1 ? 'trap' : 'traps'}`,
-      ]
-        .filter((part): part is string => typeof part === 'string')
-        .join(', ')
+        traps,
+      ])
     : null;
 
   return (
@@ -707,12 +720,9 @@ function YardInfoBox({ data }: { data: ScrapyardResponse }) {
       <dl className="grid min-w-0 grid-cols-[auto_auto] gap-x-4 gap-y-0 font-display">
         <dt
           className="cursor-help text-[9px] uppercase tracking-[0.18em] text-ink-400"
-          // Two ladders, not one. A unit card opens at its grade's rung; a building card opens
-          // with the yard or, once it is engineering (`ADVANCED_MODIFICATION_MAGNITUDE`), at the
-          // rung the advanced bracket shares with the ADVANCED unit cards. This used to say the
-          // grades opened "for building and unit cards alike", which put INTRICATE brackets at
-          // level 3 in the tip while a level-1 yard was cutting them.
-          data-tip={`The Scrapyard's level opens the catalogue a grade at a time. Unit cards: BASIC at ${SCRAPYARD_LEVEL_FOR_RARITY.basic}, INTRICATE at ${SCRAPYARD_LEVEL_FOR_RARITY.intricate}, ADVANCED at ${SCRAPYARD_LEVEL_FOR_RARITY.advanced}, MASTERPIECE at ${SCRAPYARD_LEVEL_FOR_RARITY.masterpiece}. Building cards: BASIC and INTRICATE at ${SCRAPYARD_LEVEL_FOR_BASIC}, ADVANCED and MASTERPIECE at ${SCRAPYARD_LEVEL_FOR_ADVANCED_MODIFICATION}. Each trap opens at a level of its own.`}
+          // One ladder for both benches since the maintainer evened it (2026-09-29): a building
+          // card opens at its grade's rung, as a unit card does (`scrapyardLevelForModification`).
+          data-tip={`The Scrapyard's level opens the catalogue a grade at a time, building and unit cards alike: BASIC at ${SCRAPYARD_LEVEL_FOR_RARITY.basic}, INTRICATE at ${SCRAPYARD_LEVEL_FOR_RARITY.intricate}, ADVANCED at ${SCRAPYARD_LEVEL_FOR_RARITY.advanced}, MASTERPIECE at ${SCRAPYARD_LEVEL_FOR_RARITY.masterpiece}. Each trap opens at a level of its own.`}
           data-testid="scrapyard-level-tip"
         >
           Scrapyard
@@ -742,7 +752,7 @@ function YardInfoBox({ data }: { data: ScrapyardResponse }) {
         {next && opens && (
           <dd
             className="col-span-2 cursor-help break-words text-[10px] uppercase tracking-[0.12em] text-ink-300"
-            data-tip={`Raising the Scrapyard to ${next.level} puts ${opens} on the benches. A row is drawn only once its blueprint is assembled, so the count is what the level opens rather than what you can build today.`}
+            data-tip={`Raising the Scrapyard to ${next.level} puts ${opensInFull} on the benches. A row is drawn only once its blueprint is assembled, so the count is what the level opens rather than what you can build today.`}
             data-testid="scrapyard-next"
           >
             Level {next.level} opens {opens}
@@ -751,6 +761,11 @@ function YardInfoBox({ data }: { data: ScrapyardResponse }) {
       </dl>
     </div>
   );
+}
+
+/** The parts of a rung worth naming, comma-joined; a `false` part is a count of zero. */
+function listed(parts: readonly (string | false | null)[]): string {
+  return parts.filter((part): part is string => typeof part === 'string').join(', ');
 }
 
 // --- Modifications ------------------------------------------------------------------------------
@@ -895,7 +910,7 @@ function StructureDoor({
   onSelect: () => void;
 }) {
   const standing = base ? findBuilding(base.buildings, kind) : undefined;
-  const slots = modificationSlots(standing);
+  const slots = modificationSlots(kind, standing);
   const fitted = slots.filter((slot) => slot.modificationId !== null).length;
   return (
     <button
@@ -973,7 +988,7 @@ function StructureDoor({
 function BracketRack({ kind, base }: { kind: BuildingKind; base: Base | null }) {
   const spec = BUILDING_CATALOG[kind];
   const standing = base ? findBuilding(base.buildings, kind) : undefined;
-  const slots = modificationSlots(standing);
+  const slots = modificationSlots(kind, standing);
 
   return (
     <header className="flex flex-col gap-3 border-b border-surface-600/70 pb-3">
@@ -1310,15 +1325,12 @@ function UnitDoor({
 /**
  * The yard level a group's cards open at, read off the rows rather than off the grade.
  *
- * The two benches climb the yard's ladder differently. A unit card opens at its grade's rung
- * (`SCRAPYARD_LEVEL_FOR_RARITY`: 1, 3, 4, 7). A building card opens with the yard until it is
- * engineering, then at the advanced rung (`scrapyardLevelForModification`: 1 or 4), so an
- * INTRICATE bracket is open on day one and a MASTERPIECE one at level 4. This heading read the
- * unit ladder for both benches and printed "opens at yard level 3" over Nexus brackets a level-1
- * yard was cutting, with no "Yard 3" stamp on any card under it. `requiresLevel` is the level the
- * server gated each row with, so it is the number the heading says. Every row in a group shares
- * one level on both benches today; the minimum is what the heading would have to say if that
- * ever stopped being true, since it is the level at which the first of them opens.
+ * Both benches climb one ladder today (`SCRAPYARD_LEVEL_FOR_RARITY`: 1, 3, 4, 7), but the two
+ * used to differ, building cards opening at 1 or 4 by magnitude, and a heading that read the unit
+ * ladder over both printed "opens at yard level 3" over Nexus brackets a level-1 yard was cutting.
+ * `requiresLevel` is the level the server gated each row with, so it is the number the heading
+ * says. The minimum is what the heading would have to say if a group's rows ever stopped sharing
+ * one level, since it is the level at which the first of them opens.
  */
 function opensAt(entries: readonly ScrapyardEntry[]): number {
   return Math.min(...entries.map((entry) => entry.requiresLevel));

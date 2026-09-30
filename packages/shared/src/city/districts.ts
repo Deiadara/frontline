@@ -30,7 +30,11 @@ export const PositionSchema = z.object({
 });
 export type Position = z.infer<typeof PositionSchema>;
 
-export const DistrictSchema = z.object({
+/**
+ * What every district carries, whichever kind it is. The kind and anything that belongs to one kind
+ * only are added by the two schemas below.
+ */
+const DistrictFields = {
   id: IdSchema,
   /**
    * Which city this ground is in.
@@ -61,20 +65,56 @@ export const DistrictSchema = z.object({
    * opposite of that: it is what the Combine calls it on the paperwork.
    */
   formalName: z.string().min(1).nullable().default(null),
-  kind: DistrictKindSchema,
   /** Whose ground this nominally is (§A3), before anybody starts taking it off them. */
   allegiance: AllegianceSchema,
   /** A seat of the Combine's power rather than one of its holdings: see §D8's `Revolutionary`. */
   seatOfPower: z.boolean(),
   position: PositionSchema,
-  difficulty: z.number().int().min(1).max(10),
   blurb: z.string().min(1),
   // The one location schema rather than a copy of its fields: `z.object` strips what it was not
   // told about, so a copy that lagged behind `LocationSchema` by one field would have dropped that
   // field from every district the client parses, and nothing would have said so.
   locations: z.array(LocationSchema),
+};
+
+/**
+ * A plot a crew lives on. No difficulty (maintainer, 2026-09-30): nothing is fought for on a plot
+ * but the crew's own gate, and what stands behind that gate is whatever the crew built, so a
+ * number authored against the plot promised a fight the plot could never deliver.
+ */
+export const ResidentialDistrictSchema = z.object({
+  ...DistrictFields,
+  kind: z.literal('residential'),
 });
+export type ResidentialDistrict = z.infer<typeof ResidentialDistrictSchema>;
+
+/**
+ * Ground with locations on it. `difficulty` sizes the Combine's and the looters' garrisons, their
+ * musters and spy counters, and the premium the district's mission board pays. The server reads it
+ * and no screen prints it (maintainer, 2026-09-30): a player learns how hard ground is by spying
+ * on it or by fighting on it.
+ */
+export const ContestedDistrictSchema = z.object({
+  ...DistrictFields,
+  kind: z.literal('contested'),
+  difficulty: z.number().int().min(1).max(10),
+});
+export type ContestedDistrict = z.infer<typeof ContestedDistrictSchema>;
+
+/**
+ * Split on `kind` so a residential difficulty cannot be written or read: every caller that wants
+ * the number has to have narrowed to contested ground first, and the compiler holds that.
+ */
+export const DistrictSchema = z.discriminatedUnion('kind', [
+  ResidentialDistrictSchema,
+  ContestedDistrictSchema,
+]);
 export type District = z.infer<typeof DistrictSchema>;
+
+/** Contested ground, as a type guard for the `filter` calls that walk a mixed list. */
+export function isContested(district: District): district is ContestedDistrict {
+  return district.kind === 'contested';
+}
 
 /**
  * What a residential district is called when nobody lives there.
@@ -314,7 +354,8 @@ export const UNIFIED_BONUSES: Readonly<Record<string, UnifiedBonus>> = {
   ccs: {
     title: 'The Spire Is Taken',
     // The last district in the game, and the bonus is the Combine's own machinery rather than a
-    // pile of anything: every price in this city was set from these offices, and now you set it.
+    // pile of anything: every price in this city was set from these offices, and now your crew pays
+    // less at every market in every city.
     // Not infamy, tempting as that is: the Martyrs' Ground inside these walls already pays in
     // exactly that, and a unified bonus has to be worth *finishing* the district for.
     bonus: { kind: 'market_discount', percent: 20 },
@@ -329,34 +370,35 @@ export const UNIFIED_BONUSES: Readonly<Record<string, UnifiedBonus>> = {
  * left exactly as they were: they are the map everybody has learned, and rewriting them through a
  * helper would be a large diff for no change in behaviour.
  */
-export function districtFrom(spec: {
-  id: string;
-  cityId: string;
-  name?: string | undefined;
-  nickname: string | null;
-  kind: District['kind'];
-  allegiance: District['allegiance'];
-  seatOfPower?: boolean;
-  position: District['position'];
-  difficulty: number;
-  blurb: string;
-  locations: readonly LocationRow[];
-}): District {
-  return {
+export function districtFrom(
+  spec: {
+    id: string;
+    cityId: string;
+    name?: string | undefined;
+    nickname: string | null;
+    allegiance: District['allegiance'];
+    seatOfPower?: boolean;
+    position: District['position'];
+    blurb: string;
+    locations: readonly LocationRow[];
+  } & ({ kind: 'residential' } | { kind: 'contested'; difficulty: number }),
+): District {
+  const common = {
     id: spec.id,
     cityId: spec.cityId,
     // A plot has no authored name: it is ground a crew moves into and takes the name of.
     name: spec.name ?? UNCLAIMED_DISTRICT_NAME,
     nickname: spec.nickname,
     formalName: null,
-    kind: spec.kind,
     allegiance: spec.allegiance,
     seatOfPower: spec.seatOfPower ?? false,
     position: spec.position,
-    difficulty: spec.difficulty,
     blurb: spec.blurb,
     locations: locationsIn(spec.id, spec.locations),
   };
+  return spec.kind === 'contested'
+    ? { ...common, kind: 'contested', difficulty: spec.difficulty }
+    : { ...common, kind: 'residential' };
 }
 
 /**
@@ -402,7 +444,10 @@ function locationsIn(districtId: string, rows: readonly LocationRow[]): Location
  * twelve copies of one fact. The stamp is where the second city arrives from: `city/atlas.ts`
  * authors its districts with their own id and this array keeps the default.
  */
-const ASHFALL: readonly Omit<District, 'cityId'>[] = [
+/** `Omit` over each member of the union rather than over the keys they share. */
+type WithoutCity<T> = T extends District ? Omit<T, 'cityId'> : never;
+
+const ASHFALL: readonly WithoutCity<District>[] = [
   /*
    * **Order is the art seed.** `art/manifest.ts` seeds `district-*` off each entry's index here, so
    * moving one renumbers the seed of every district after it and silently re-rolls art that may
@@ -456,7 +501,6 @@ const ASHFALL: readonly Omit<District, 'cityId'>[] = [
     allegiance: 'independent',
     seatOfPower: false,
     position: { x: 0.84, y: 0.62 },
-    difficulty: 4,
     blurb:
       'Stepped tenements up the northern slope, burnt once and rebuilt out of what was left. Whoever holds it can see the whole city coming.',
     locations: [],
@@ -470,7 +514,6 @@ const ASHFALL: readonly Omit<District, 'cityId'>[] = [
     allegiance: 'independent',
     seatOfPower: false,
     position: { x: 0.38, y: 0.82 },
-    difficulty: 2,
     blurb:
       'A long terrace along the southern cut, boilers venting into the street. Warm, loud, and nobody asks where anybody came from.',
     locations: [],
@@ -497,7 +540,7 @@ const ASHFALL: readonly Omit<District, 'cityId'>[] = [
     position: { x: 0.63, y: 0.83 },
     difficulty: 2,
     blurb:
-      'Rolling mills, press houses and a furnace row that has not gone cold in thirty years. Nobody owns the Belt outright: the crews that work it hold their own gates, and none of them holds enough of it to stop anybody else walking in.',
+      'Rolling mills, press houses and a furnace row that has not gone cold in thirty years. The Combine holds every works on the Belt and keeps the gate shut behind them, and the crews who work it clock in under Greycoat guns.',
     locations: locationsIn('steelbelt', [
       ['press', 'No. 4 Press House', 'scrap_press'],
       ['bonefield', "The Breaker's Yard", 'war_machine_graveyard'],
@@ -716,7 +759,6 @@ const ASHFALL: readonly Omit<District, 'cityId'>[] = [
     allegiance: 'independent',
     seatOfPower: false,
     position: { x: 0.91, y: 0.79 },
-    difficulty: 2,
     blurb:
       'Roofs stacked on roofs above the wall, reached by ladders somebody bolted on in the dark. Nothing official has been up here in years and the view is the whole northern approach.',
     locations: [],
@@ -731,7 +773,6 @@ const ASHFALL: readonly Omit<District, 'cityId'>[] = [
     allegiance: 'independent',
     seatOfPower: false,
     position: { x: 0.78, y: 0.93 },
-    difficulty: 1,
     blurb:
       'The tail of the market where the stalls give out and the cut comes back up to meet the street. Damp, cheap, and out of everybody else\u2019s way.',
     locations: [],
@@ -773,9 +814,7 @@ export const RESIDENTIAL_DISTRICTS: readonly District[] = CITY_DISTRICTS.filter(
 );
 
 /** Districts with something in them to take. */
-export const CONTESTED_DISTRICTS: readonly District[] = CITY_DISTRICTS.filter(
-  (district) => district.kind === 'contested',
-);
+export const CONTESTED_DISTRICTS: readonly ContestedDistrict[] = CITY_DISTRICTS.filter(isContested);
 
 /**
  * A seat of the government's power rather than one of its holdings (§A3): what you have to take
@@ -786,11 +825,17 @@ export function isSeatOfGovernmentPower(district: District): boolean {
   return district.allegiance === 'government' && district.seatOfPower;
 }
 
-/** The garrison standing on a district when the strike team arrives (§A3). */
-export function garrisonOf(district: District): string {
-  return district.allegiance === 'government'
-    ? governmentGarrisonFor(district.difficulty)
-    : 'whoever holds the ground and has decided to keep it';
+/**
+ * The garrison the Combine stands on its own ground when the strike team arrives (§A3), or null
+ * anywhere else.
+ *
+ * Only the Combine's ground has an authored answer. Open ground used to answer "whoever holds the
+ * ground and has decided to keep it", which told a player nothing the holder plates did not, and
+ * the maintainer took it out on 2026-09-30: the Garrison row counts who holds what instead
+ * (`districtHoldLine` on the client).
+ */
+export function garrisonOf(district: ContestedDistrict): string | null {
+  return district.allegiance === 'government' ? governmentGarrisonFor(district.difficulty) : null;
 }
 
 /**

@@ -129,7 +129,6 @@ describe('reinforcing an ally who is being broken into', () => {
     expect(answered.statusCode, answered.body).toBe(200);
 
     // The way in is already open: breaking the gate is its own fight with its own tests.
-    app.repos.city.markScouted(raider.baseId, HOME, new Date().toISOString());
     app.repos.sieges.breakGate(HOME, new Date(Date.now() + 24 * 3_600_000).toISOString());
 
     const target: BattleTarget = { kind: 'district', districtId: HOME };
@@ -311,7 +310,6 @@ describe('reinforcing an ally who is being broken into', () => {
       payload: { inviteId, accept: true },
     });
 
-    app.repos.city.markScouted(raider.baseId, HOME, new Date().toISOString());
     app.repos.sieges.breakGate(HOME, new Date(Date.now() + 24 * 3_600_000).toISOString());
     const target: BattleTarget = { kind: 'district', districtId: HOME };
     const declared = await app.inject({

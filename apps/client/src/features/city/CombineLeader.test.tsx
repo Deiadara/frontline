@@ -13,15 +13,13 @@ import * as F from '../../../e2e/fixtures';
 import { useSession } from '../../store/session';
 import { leaderGroundLine, leaderOption, leaderTagLine, spokenName } from './CombineLeader';
 import { DistrictView } from './DistrictView';
-import { ScoutMenu } from './ScoutMenu';
 
 /**
  * The Combine legendary on the district screen (`city/combine.ts`, 2026-09-19).
  *
- * Rendered through `DistrictView` rather than the tag alone, because the screen has two readings
- * (the fog column and the painted band) and the tag has to stand in the header of both. The
- * fixtures already carry the leaders: Directive Xero in the CCS, which the fixture keeps in the
- * fog, and the Syndic on the Annexes, which it paints.
+ * Rendered through `DistrictView` rather than the tag alone, because the tag has to stand in the
+ * header of the painted district screen. The fixtures already carry the leaders: Directive Xero in
+ * the CCS and the Syndic on the Annexes.
  */
 const fetchMock = vi.fn();
 
@@ -51,25 +49,6 @@ function open(detail: DistrictDetailResponse) {
         <Routes>
           <Route path="/game/city/:districtId" element={<DistrictView />} />
         </Routes>
-      </MemoryRouter>
-    </QueryClientProvider>,
-  );
-}
-
-/** The scout sheet, for the one reading a district gets before anybody has been there. */
-function openSheet(detail: DistrictDetailResponse) {
-  const id = detail.district.id;
-  fetchMock.mockImplementation((path: string) => {
-    const url = String(path);
-    if (url.endsWith(`/city/${id}`)) return reply(detail);
-    throw new Error(`unstubbed request: ${url}`);
-  });
-  render(
-    <QueryClientProvider
-      client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
-    >
-      <MemoryRouter initialEntries={['/game/city']}>
-        <ScoutMenu districtId={id} onClose={() => {}} />
       </MemoryRouter>
     </QueryClientProvider>,
   );
@@ -130,11 +109,9 @@ describe('the leader on the district screen', () => {
    * His power moved with it. The sentence is on the chip's own hover now, so what the card face
    * carries is its **name**, which is what every other thing a unit brings to a fight carries.
    */
-  it('marks the scout sheet over unscouted ground, and the hover draws his card', async () => {
-    // The CCS is the fixture's unscouted district. Unscouted ground opens no page any more
-    // (maintainer, 2026-09-23): the tag on the map opens the scout sheet, and his mark is on it.
+  it('marks the district header, and the hover draws his card', async () => {
     const detail = F.districtDetailFor('ccs');
-    openSheet(detail);
+    open(detail);
     const tag = await screen.findByTestId('combine-leader');
     expect(tag).toHaveTextContent('Under Directive Xero');
     fireEvent.focus(tag);
@@ -163,7 +140,7 @@ describe('the leader on the district screen', () => {
    */
   it('opens his file on a click, with the marks on his sheet live', async () => {
     const detail = F.districtDetailFor('ccs');
-    openSheet(detail);
+    open(detail);
     const tag = await screen.findByTestId('combine-leader');
     expect(screen.queryByTestId('combine-leader-window')).toBeNull();
 
@@ -199,7 +176,7 @@ describe('the leader on the district screen', () => {
    */
   it('takes the ownership claims off his card and leaves the sheet alone', async () => {
     const detail = F.districtDetailFor('ccs');
-    openSheet(detail);
+    open(detail);
     fireEvent.click(await screen.findByTestId('combine-leader'));
     const window_ = screen.getByTestId('combine-leader-window');
     const id = detail.combineLeader!.unitId;
@@ -212,7 +189,7 @@ describe('the leader on the district screen', () => {
   });
 
   it('shuts his file again', async () => {
-    openSheet(F.districtDetailFor('ccs'));
+    open(F.districtDetailFor('ccs'));
     fireEvent.click(await screen.findByTestId('combine-leader'));
     expect(screen.getByTestId('combine-leader-window')).toBeInTheDocument();
     fireEvent.keyDown(window, { key: 'Escape' });

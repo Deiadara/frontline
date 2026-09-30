@@ -122,8 +122,18 @@ export const BattleAnalysisSchema = z.object({
   /** The narrative from `report.ts`. */
   log: z.array(z.string()),
   findings: z.array(BattleFindingSchema),
-  /** What a trap took before anybody was in contact, if one was laid. */
-  trap: z.object({ name: z.string(), killed: z.number().int().nonnegative() }).nullable(),
+  /**
+   * What a trap took before anybody was in contact, if one was laid. `slowed` is Razor Wire, which
+   * takes nobody and slows the attack's opening rounds instead; defaulted so a report filed before
+   * the wire slowed anybody still reads.
+   */
+  trap: z
+    .object({
+      name: z.string(),
+      killed: z.number().int().nonnegative(),
+      slowed: z.boolean().default(false),
+    })
+    .nullable(),
   /** One line per legendary unit that was there, whatever happened to it. */
   legends: z.array(z.string()),
   /**
@@ -165,8 +175,9 @@ export const BattleAnalysisSchema = z.object({
    * `turned` is the attacker's units that changed sides under Directive Xero, by unit id, and is
    * empty in every fight he was not over. `executed` is how many the Executioner finished after
    * an exchange. On the analysis rather than only on the `SkirmishOutcome` because the report is
-   * what a player reads afterwards, and both of these are things that need explaining: units that
-   * are neither home nor in the casualty list, and deaths the damage numbers do not account for.
+   * what a player reads afterwards, and both of these are things that need explaining: deaths the
+   * damage numbers do not account for. The turned are counted in the attacker's `lost` as well
+   * (maintainer, 2026-09-29: "Count them as dead"), on the rows they marched in with.
    */
   turned: z.record(z.string(), z.number().int().nonnegative()).default({}),
   executed: z.number().int().nonnegative().default(0),
@@ -230,7 +241,7 @@ export interface AnalysisInput {
    * because there is one narrative and two readers of it.
    */
   log?: readonly string[];
-  trap: { name: string; killed: number } | null;
+  trap: { name: string; killed: number; slowed: boolean } | null;
   infamy: Record<BattleSide, number>;
 }
 
@@ -243,6 +254,7 @@ function performanceFor(
   fled: Army,
   winnerLosses: Army,
   caught: Army,
+  turned: Army,
 ): UnitPerformance[] {
   /*
    * Clamped at zero per stack, not only in the total.
@@ -273,13 +285,22 @@ function performanceFor(
        * Nor is a turncoat (bug pass, 2026-09-23). Directive Xero's `changeOfHeart` pushes the
        * units it turns onto the **defender's** stacks, so they were becoming unit rows on the
        * defender's own report and counting towards its `committed`, `lost` and `survived`. The
-       * attacker's side already adds `total(turned)` back deliberately, so the same bodies were
-       * counted on both reports; measured at 147 disagreements in 3,000 seeded fights. They are
-       * reported through `turned` / `turnedAlive`, which the schema already carries, and
-       * `outcomeFrom` has always stripped them for the rout and the casualties.
+       * attacker's side already counts them, so the same bodies were counted on both reports;
+       * measured at 147 disagreements in 3,000 seeded fights. `outcomeFrom` has always stripped
+       * them for the rout and the casualties.
+       *
+       * On the attacker's side they come back onto the row they left, as dead (maintainer, 2026-09-29: "Count them as
+       * dead"). The engine took them off `stack.started` so that `started - alive` stays the
+       * engine's own casualty count; the report's row puts them back into `started`, so the side's
+       * `committed` is what marched (it once told a crew that sent twenty Razors into the CCS that
+       * it had committed five), and into `lost`, which is the side's "Died". A stack Xero emptied
+       * still gets its row.
        */
       .filter(
-        (stack) => stack.started > 0 && stack.officer === undefined && stack.turncoat !== true,
+        (stack) =>
+          stack.started + (turned[stack.unit.id] ?? 0) > 0 &&
+          stack.officer === undefined &&
+          stack.turncoat !== true,
       )
       .map((stack): UnitPerformance => {
         // Two entirely different accountings, because the two sides end a fight in different states.
@@ -288,14 +309,15 @@ function performanceFor(
         const ranHome = winning ? 0 : (fled[stack.unit.id] ?? 0);
         const stopped = winning ? 0 : (caught[stack.unit.id] ?? 0);
         const survived = winning ? stack.started - (winnerLosses[stack.unit.id] ?? 0) : ranHome;
+        const started = stack.started + (turned[stack.unit.id] ?? 0);
 
         return {
           unitId: stack.unit.id,
           name: stack.unit.name,
           tier: stack.unit.tier,
           unique: stack.unit.unique,
-          started: stack.started,
-          lost: Math.max(0, stack.started - survived),
+          started,
+          lost: Math.max(0, started - survived),
           fled: ranHome,
           caught: stopped,
           survived: Math.max(0, survived),
@@ -316,17 +338,6 @@ interface SideAnalysisInput {
   perimeterCaught: number;
   perimeterLost: number;
   intimidated: number;
-  /**
-   * Units of this side's that changed sides under Directive Xero (`changeOfHeart`), by unit id.
-   *
-   * Added back into `committed` below and nowhere else. The engine takes the turncoats off their
-   * stack's `started` on purpose, because `started - alive` is how `routSurvivors` and
-   * `winnerCasualties` count the dead and a man who walked away is not a casualty. But `committed`
-   * means "what I sent", and what a player sent includes the ones who did not come back because
-   * they are his now. Without this the report told a crew that marched twenty Razors into the CCS
-   * that it had committed five.
-   */
-  turned: Army;
   infamy: number;
   officer: SideAnalysis['officer'];
 }
@@ -335,7 +346,7 @@ function sideAnalysis(input: SideAnalysisInput): SideAnalysis {
   const { units } = input;
   return {
     name: input.name,
-    committed: units.reduce((sum, unit) => sum + unit.started, 0) + total(input.turned),
+    committed: units.reduce((sum, unit) => sum + unit.started, 0),
     lost: units.reduce((sum, unit) => sum + unit.lost, 0),
     survived: units.reduce((sum, unit) => sum + unit.survived, 0),
     fled: units.reduce((sum, unit) => sum + unit.fled, 0),
@@ -403,15 +414,25 @@ function legendLines(sides: readonly { units: readonly UnitPerformance[]; name: 
 }
 
 function headlineFor(simulation: Simulation, attacker: SideAnalysis, defender: SideAnalysis) {
-  const won = simulation.winner === 'attacker' ? attacker : defender;
-  const lost = simulation.winner === 'attacker' ? defender : attacker;
+  const attackerWon = simulation.winner === 'attacker';
+  const won = attackerWon ? attacker : defender;
+  const lost = attackerWon ? defender : attacker;
+  const where = simulation.battlefield.locationName;
+  /*
+   * A defence that holds did not take anything and walked onto nowhere (bug pass, 2026-09-29).
+   * Both lines were written for the attacker, so a crew that turned back a push without losing a
+   * body read "took", and one whose attackers never reached the line (a trap left nothing
+   * standing) read that it had walked onto its own ground and found it empty.
+   */
   if (lost.committed === 0) {
-    return `${won.name} walked onto ${simulation.battlefield.locationName}. Nobody was there.`;
+    return attackerWon
+      ? `${won.name} walked onto ${where}. Nobody was there.`
+      : `Nobody reached ${where}. ${won.name} still holds it.`;
   }
   if (won.lost === 0) {
-    return `${won.name} took ${simulation.battlefield.locationName} and did not lose a soul doing it.`;
+    return `${won.name} ${attackerWon ? 'took' : 'held'} ${where} and did not lose a soul doing it.`;
   }
-  return `${won.name} holds ${simulation.battlefield.locationName}. It cost ${won.lost}, and ${lost.name} lost ${lost.lost}.`;
+  return `${won.name} holds ${where}. It cost ${won.lost}, and ${lost.name} lost ${lost.lost}.`;
 }
 
 /** The whole ledger, from a finished simulation and what the resolver did with it. */
@@ -425,6 +446,8 @@ export function analyseBattle(input: AnalysisInput): BattleAnalysis {
     input.fled,
     input.winnerLosses,
     input.perimeterCaught,
+    // Only the attacker can lose units to Change of Heart: the Combine never attacks.
+    simulation.turned,
   );
   const defenderUnits = performanceFor(
     simulation.defender,
@@ -432,6 +455,7 @@ export function analyseBattle(input: AnalysisInput): BattleAnalysis {
     input.fled,
     input.winnerLosses,
     input.perimeterCaught,
+    {},
   );
 
   const stopped = total(input.perimeterCaught);
@@ -444,8 +468,6 @@ export function analyseBattle(input: AnalysisInput): BattleAnalysis {
     perimeterCaught: attackerWon ? stopped : 0,
     perimeterLost: attackerWon ? ringPaid : 0,
     intimidated: simulation.intimidated.attacker,
-    // Only the attacker can lose units to Change of Heart: the Combine never attacks.
-    turned: simulation.turned,
     infamy: input.infamy.attacker,
     officer: officerReportFor(simulation.attacker),
   });
@@ -456,7 +478,6 @@ export function analyseBattle(input: AnalysisInput): BattleAnalysis {
     perimeterCaught: attackerWon ? 0 : stopped,
     perimeterLost: attackerWon ? 0 : ringPaid,
     intimidated: simulation.intimidated.defender,
-    turned: {},
     infamy: input.infamy.defender,
     officer: officerReportFor(simulation.defender),
   });

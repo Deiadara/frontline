@@ -115,7 +115,6 @@ export async function register(world: World, username: string, army: Army = {}):
     infamy: DECLARE_INFAMY_COST * 8,
   });
   world.app.repos.bases.updateArmy(baseId, army, []);
-  world.app.repos.city.markScouted(baseId, 'steelbelt', new Date().toISOString());
   return { token: body.token, userId: body.user.id, baseId };
 }
 

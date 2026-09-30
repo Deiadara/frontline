@@ -45,6 +45,19 @@ export function PartsPicker({
 }) {
   const [open, setOpen] = useState(false);
   const box = useRef<HTMLDivElement>(null);
+  const menu = useRef<HTMLDivElement>(null);
+
+  /*
+   * Brought into view when it opens (bug pass, 2026-09-29).
+   *
+   * It opens downward, and the composer's door is often the last thing on the sheet: at 1024x768
+   * the counter form's door sat on the fold and the menu opened into the scroller's overflow,
+   * under the bottom bar, with only its heading showing. `nearest` scrolls only as far as the menu
+   * needs. Optional call for the reason `Fights` gives: jsdom has no `scrollIntoView`.
+   */
+  useEffect(() => {
+    if (open) menu.current?.scrollIntoView?.({ block: 'nearest' });
+  }, [open]);
   const id = useId().replace(/:/g, '');
 
   /*
@@ -113,6 +126,7 @@ export function PartsPicker({
 
       {open && (
         <div
+          ref={menu}
           role="dialog"
           aria-label={`Parts into ${label}`}
           data-testid={`${testId}-menu`}

@@ -185,7 +185,13 @@ async function plainJob(w: World, player: Player, onTheRoad = false) {
     );
     const leader = read.leaders[0];
     if (offer && leader)
-      return { areaId: area.id, templateId: offer.templateId, leaderId: leader.id };
+      return {
+        areaId: area.id,
+        templateId: offer.templateId,
+        boardKey: offer.boardKey,
+        grade: offer.grade,
+        leaderId: leader.id,
+      };
   }
   return null;
 }
@@ -293,7 +299,12 @@ describe('crews pressing the same button at the same moment', () => {
       area.offers
         .filter((offer) => offer.kind === 'standard')
         .slice(0, 1)
-        .map((offer) => ({ areaId: area.id, templateId: offer.templateId })),
+        .map((offer) => ({
+          areaId: area.id,
+          templateId: offer.templateId,
+          boardKey: offer.boardKey,
+          grade: offer.grade,
+        })),
     );
     const leaderId = read.leaders[0]!.id;
     const answers = await Promise.all(
@@ -380,8 +391,6 @@ describe('crews pressing the same button at the same moment', () => {
   it('keeps every crew whole when several call a fight on the same ground at once', async () => {
     const w = await world(4);
     const target = { kind: 'location', districtId: 'steelbelt', locationId: '' };
-    for (const p of w.players)
-      w.app.repos.city.markScouted(p.baseId, 'steelbelt', new Date(clock).toISOString());
     const place = w.app.repos.city.controls();
     const location = [...place.values()].find((one) => one.locationId.startsWith('steelbelt'));
     target.locationId = location?.locationId ?? 'steelbelt-0';

@@ -64,8 +64,8 @@ export interface FeatRewardSplit {
 /**
  * Splits a reward into what fits and what does not.
  *
- * XP, infamy, items and boosts are never split: none of them has a ceiling, so all four are paid
- * whole whatever the stores are doing. A feat that pays only those can never be wasted, which is
+ * XP, items and boosts are never split: none of them has a ceiling, so all three are paid whole
+ * whatever the stores are doing. A feat that pays only those can never be wasted, which is
  * most of the catalogue.
  *
  * Units are taken **whole**, in the order the reward lists them, until the beds run out. Splitting
@@ -104,7 +104,6 @@ export function splitFeatReward(reward: FeatReward, room: FeatClaimRoom): FeatRe
     ...(reward.items ? { items: reward.items } : {}),
     ...(Object.keys(paidUnits).length > 0 ? { units: paidUnits } : {}),
     ...(reward.xp !== undefined ? { xp: reward.xp } : {}),
-    ...(reward.infamy !== undefined ? { infamy: reward.infamy } : {}),
     ...(reward.boosts ? { boosts: reward.boosts } : {}),
   };
 

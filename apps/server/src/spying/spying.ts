@@ -6,13 +6,16 @@ import {
   SPY_ESTIMATE_RESEARCH_ID,
   SPY_GATE_PLACE,
   SPY_NOTICE_RESEARCH_ID,
+  SPY_QUIET_RESEARCH_ID,
   SPY_SLEEPERS_RESEARCH_ID,
   SPY_TIER_SPECS,
   SPY_TRACE_RESEARCH_ID,
-  armySize,
+  SPY_WHOLE_WIRE_RESEARCH_ID,
+  SPY_WRITTEN_RESEARCH_ID,
   buildingLevel,
   canAfford,
   capRating,
+  cityIsOpen,
   counterScore,
   displayNameOf,
   districtHolder,
@@ -21,16 +24,27 @@ import {
   findLocation,
   findUnit,
   fittedFor,
+  officerBattleStats,
   spendResources,
+  spyJobMinutes,
   spyRecallable,
   spyRecalledReturnsAt,
   spyReportStands,
+  spyFoundOut,
+  spyPartiesAllowed,
+  spyReportSummary,
   spyScore,
+  spyTierOpen,
+  spyUnnoticedChance,
+  travelMinutesBetween,
+  unitSlotsUsed,
   upgradedStats,
   type Army,
   type Base,
+  type Commander,
   type CounterStrength,
   type District,
+  type Exposure,
   type LocationHolder,
   type SpyRefusal,
   type SpyReport,
@@ -41,15 +55,15 @@ import {
   type SpyTarget,
   type SpyTier,
 } from '@frontline/shared';
+import { adminCaps, adminWaives } from '../admin/mode.js';
 import { mergeArmies } from '../battle/forces.js';
 import { livingIn, residentOf } from '../battle/ground.js';
 import { sidesReader } from '../battle/alignment.js';
+import { withoutTheLeader } from '../battle/resolve.js';
 import { gateFor } from '../city/gates.js';
-import { visibleDistricts } from '../city/view.js';
 import { crewEffectsFor, officerFitReader, standingEffectsFor } from '../crew/standing.js';
 import type { Repositories } from '../db/repos/index.js';
-import { tallySpyReport } from '../feats/tally.js';
-import { planScout, scoutParty } from '../scouting/scouting.js';
+import { tallySpyJobReturned, tallySpyJobUnnoticed, tallySpyReport } from '../feats/tally.js';
 import { notifyBase } from '../social/notify.js';
 import { workingOfficer } from '../crew/roster.js';
 import { settleEach } from '../world/guard.js';
@@ -57,23 +71,23 @@ import { settleEach } from '../world/guard.js';
 /**
  * Spying (maintainer ruling, 2026-09-22): a paid look at somebody else's ground.
  *
- * The shape is a scout party's. The Master of Whispers sends it from the chair, nobody of yours
- * walks, it is priced off their sheet and the road, it can be turned round in the first tenth of
- * the way out, and it is settled by the world clock. Three things are different: it costs caps,
- * taken at the send and never given back; it points at one place rather than a district; and it
- * comes home with a **report** rather than opening the ground.
+ * The Master of Whispers sends it from the chair, nobody of yours walks, it is priced off their
+ * sheet and the road, it can be turned round in the first tenth of the job, and it is settled by
+ * the world clock. It costs caps, taken at the send and never given back; it points at one place;
+ * and it comes home with a **report**.
  *
  * The arithmetic is `@frontline/shared`'s `spying/spying.ts`: this module's job is to gather the
  * two sides of it from the save. For the spying side it reads the chair's `roleFit` and the
- * crew's `intelYieldPercent` (people and ground together, the fold the Watchtower pays into).
+ * crew's `intelYieldPercent` (people and ground together, the fold the Watchtower pays into; the
+ * chair's own track pays none since 2026-09-28).
  * For the other side it reads the holder's Consigliere, their `intelResistancePercent` (people
  * only: the gate is its own term) and the gate over the place.
  *
  * ## What can be looked at
  *
- * - A **location** in a contested district, held by anybody but this crew, while the district is
- *   open. Once one party holds the district whole its gate is armed, and the only thing a spy can
- *   read from outside is the gate: `not_the_gate`.
+ * - A **location** in a contested district, held by anybody but this crew, anywhere on the map
+ *   (the whole city is visible since 2026-09-29). Once one party holds the district whole its gate
+ *   is armed, and the only thing a spy can read from outside is the gate: `not_the_gate`.
  * - A **gate**: a player's district, or a contested district held whole. Behind a player's gate
  *   stands their gate garrison (`Base.gateArmy`); behind a captured gate, every garrison in the
  *   district.
@@ -83,14 +97,20 @@ import { settleEach } from '../world/guard.js';
  */
 
 /**
- * The one thing a job needs: somebody in the chair (maintainer, 2026-09-22).
- *
- * A scout party also needs the Scouting rung, because the party *is* what that rung buys. A spy
- * job is not: the caps are the price, and the maintainer's call is that a crew can pay it the
- * moment the chair is filled.
+ * Who sends the runners: the Master of Whispers, fit to work and not merely seated. An injured one
+ * runs nothing while they are out (maintainer, 2026-09-23). The job is priced off their sheet, but
+ * they never leave the chair and nothing holds them.
+ */
+export function whispersAtWork(base: Base, now: Date = new Date()): Commander | undefined {
+  return workingOfficer(base.commanders, 'master_of_whispers', now);
+}
+
+/**
+ * The one thing a job needs: somebody in the chair (maintainer, 2026-09-22). No rung: the caps are
+ * the price, and a crew can pay it the moment the chair is filled.
  */
 export function spyBlocker(base: Base): 'no_whispers' | null {
-  return scoutParty(base) === undefined ? 'no_whispers' : null;
+  return whispersAtWork(base) === undefined ? 'no_whispers' : null;
 }
 
 export interface SpyGround {
@@ -184,7 +204,7 @@ function plantedOn(
 }
 
 /**
- * The ground behind a target, from this crew's side of the fog.
+ * The ground behind a target, from this crew's side.
  *
  * Refusals are in the order a player would want to hear them: your own ground before an empty
  * one, an empty one before a gate you should have pointed at instead.
@@ -196,15 +216,15 @@ export function groundBehind(
 ): SpyGroundResult {
   const refused = (reason: SpyRefusal): SpyGroundResult => ({ kind: 'refused', reason });
   const controls = repos.city.controls();
-  const visible = visibleDistricts(repos, reader, controls, standingEffectsFor(repos, reader));
   const sleeperRung = reader.research.technologies.includes(SPY_SLEEPERS_RESEARCH_ID);
 
   if (target.kind === 'location') {
     const location = findLocation(target.locationId);
     const district = location ? findDistrict(location.districtId) : undefined;
     const control = location ? controls.get(location.id) : undefined;
-    if (!location || !district || !control) return refused('nothing_there');
-    if (!visible.has(district.id)) return refused('unscouted');
+    // A location stands only on contested ground, which is also the only ground with a difficulty
+    // to read the counter off: a plot's gate is the residential branch below.
+    if (!location || district?.kind !== 'contested' || !control) return refused('nothing_there');
     if (control.holder.kind === 'crew' && control.holder.baseId === reader.id) {
       return refused('own_ground');
     }
@@ -260,7 +280,6 @@ export function groundBehind(
 
   const district = findDistrict(target.districtId);
   if (!district) return refused('nothing_there');
-  if (!visible.has(district.id)) return refused('unscouted');
 
   if (district.kind === 'residential') {
     const resident = residentOf(repos, district.id);
@@ -314,8 +333,11 @@ export function groundBehind(
       },
     };
   }
+  // Every plot's garrison but the district's legendary, who fights only on his own plot and so is
+  // not behind the gate (`withoutTheLeader`).
   const army = district.locations.reduce<Army>(
-    (all, location) => mergeArmies(all, controls.get(location.id)?.garrison ?? {}),
+    (all, location) =>
+      mergeArmies(all, withoutTheLeader(location.id, controls.get(location.id)?.garrison ?? {})),
     {},
   );
   return {
@@ -341,7 +363,7 @@ export function groundBehind(
 
 /** This crew's side of the contest, as the shared arithmetic wants it. */
 export function spyStrengthFor(repos: Repositories, base: Base, tier: SpyTier): SpyStrength {
-  const whispers = scoutParty(base);
+  const whispers = whispersAtWork(base);
   return {
     chairPoints: whispers
       ? officerFitReader(repos, base).pointsFor(whispers, 'master_of_whispers')
@@ -350,6 +372,8 @@ export function spyStrengthFor(repos: Repositories, base: Base, tier: SpyTier): 
     tier,
   };
 }
+
+const MINUTE_MS = 60_000;
 
 export interface SpyPlan {
   minutes: number;
@@ -366,17 +390,46 @@ export function planSpy(
   tier: SpyTier,
   now: Date,
 ): SpyPlan | null {
-  const whispers = scoutParty(base);
+  const whispers = whispersAtWork(base);
   if (!whispers) return null;
-  // The same clock as a scout party: the road twice and the looking, off the same sheet.
-  const walk = planScout(repos, base, districtId, whispers, now);
-  if (!walk) return null;
+  const travelMinutes = walkMinutes(repos, base, districtId, whispers);
+  if (travelMinutes === null) return null;
+  const minutes = spyJobMinutes(travelMinutes, whispers.attributes);
   return {
-    minutes: walk.minutes,
-    travelMinutes: walk.travelMinutes,
-    returnsAt: walk.returnsAt,
+    minutes,
+    travelMinutes,
+    returnsAt: new Date(now.getTime() + minutes * MINUTE_MS),
     caps: SPY_TIER_SPECS[tier].caps,
   };
+}
+
+/**
+ * The walk out, or null when the map has no road between the two ends.
+ *
+ * The same arithmetic a column reads, so a Rail Yard shortens a job exactly as much as it shortens
+ * a march. The pace is the Master of Whispers' own speed off their sheet, and the ground's
+ * reductions stack on top of that the way they do for a march.
+ */
+function walkMinutes(
+  repos: Repositories,
+  base: Base,
+  districtId: string,
+  whispers: Commander,
+): number | null {
+  const from = findDistrict(base.districtId);
+  const to = findDistrict(districtId);
+  if (!from || !to) return null;
+  const effects = standingEffectsFor(repos, base);
+  return travelMinutesBetween(from, to, {
+    speed: officerBattleStats(whispers.attributes).speed,
+    reductionPercent: effects.travelSpeedPercent,
+    flatMinutesOff: effects.roadMinutesOff,
+  });
+}
+
+/** How many jobs this crew may have out at once: one, and another with Two Sets of Eyes. */
+export function spyPartiesFor(repos: Repositories, base: Base): number {
+  return spyPartiesAllowed(standingEffectsFor(repos, base).spyPartiesFlat);
 }
 
 export type SendSpyResult =
@@ -388,24 +441,42 @@ export type SendSpyResult =
  */
 export function sendSpy(
   repos: Repositories,
-  input: { base: Base; target: SpyTarget; tier: SpyTier; now: Date },
+  input: {
+    base: Base;
+    target: SpyTarget;
+    tier: SpyTier;
+    now: Date;
+    /** Testing mode: the caps are quoted and not taken (`admin/mode.ts`). */
+    admin?: boolean;
+  },
 ): SendSpyResult {
-  const { base, target, tier, now } = input;
+  const { base, target, tier, now, admin = false } = input;
   const blocked = spyBlocker(base);
   if (blocked !== null) return { kind: 'refused', reason: blocked };
-  if (repos.spying.activeFor(base.id).length > 0) return { kind: 'refused', reason: 'already_out' };
+  if (!spyTierOpen(tier, base.research.technologies)) {
+    return { kind: 'refused', reason: 'tier_locked' };
+  }
+  if (repos.spying.activeFor(base.id).length >= spyPartiesFor(repos, base)) {
+    return { kind: 'refused', reason: 'already_out' };
+  }
 
   const looked = groundBehind(repos, base, target);
   if (looked.kind === 'refused') return looked;
+  // The Combine holds Saltmarch's seat and its Hulls, so there is always somebody to read there,
+  // and nothing a crew could do with the report (bug pass, 2026-09-29).
+  if (!cityIsOpen(looked.ground.district.cityId)) return { kind: 'refused', reason: 'city_closed' };
 
   const plan = planSpy(repos, base, looked.ground.district.id, tier, now);
-  // Inherited from `planScout`, and the same correction: a null plan is no road, not an empty
-  // chair. See the note there.
+  // The chair was checked above, so a null plan is no road, not an empty chair (`SPY_REFUSALS`).
   if (!plan) return { kind: 'refused', reason: 'no_road' };
   const cost = { caps: plan.caps };
-  if (!canAfford(base.resources, cost)) return { kind: 'refused', reason: 'cannot_afford' };
+  if (!canAfford(base.resources, cost) && !adminWaives('cannot_afford', admin)) {
+    return { kind: 'refused', reason: 'cannot_afford' };
+  }
 
-  const paid: Base = { ...base, resources: spendResources(base.resources, cost) };
+  // `capsPaid` below keeps the quoted figure: the report prints it, and the screens show real prices.
+  const charged = { caps: adminCaps(plan.caps, admin) };
+  const paid: Base = { ...base, resources: spendResources(base.resources, charged) };
   repos.bases.updateResources(paid.id, paid.resources);
 
   const run: SpyRun = {
@@ -426,8 +497,16 @@ export function sendSpy(
 export type RecallSpyResult =
   { kind: 'refused'; reason: 'nobody_out' | 'window_closed' } | { kind: 'recalled'; run: SpyRun };
 
-export function recallSpy(repos: Repositories, base: Base, now: Date): RecallSpyResult {
-  const run = repos.spying.activeFor(base.id).find((active) => active.recalledAt === null);
+/** Turn one job round: the one named, or the first still walking out when none is. */
+export function recallSpy(
+  repos: Repositories,
+  base: Base,
+  now: Date,
+  runId?: string,
+): RecallSpyResult {
+  const run = repos.spying
+    .activeFor(base.id)
+    .find((active) => active.recalledAt === null && (runId === undefined || active.id === runId));
   if (!run) return { kind: 'refused', reason: 'nobody_out' };
   if (!spyRecallable(run, now)) return { kind: 'refused', reason: 'window_closed' };
   const returnsAt = spyRecalledReturnsAt(run, now).toISOString();
@@ -465,92 +544,259 @@ function placeOf(target: SpyTarget): { district: District | undefined; placeName
 }
 
 /**
+ * Whether a refusal at writing time means the runners found nothing to look at, rather than
+ * being kept from looking.
+ *
+ * Empty ground and the reader's own ground are true answers, written up as an empty report under
+ * whoever holds it now. A district that shut behind its gate or ground that fell out of sight
+ * while they walked is neither: the garrison is still standing there and nobody saw it, so the job
+ * failed (bug pass, 2026-09-28). Written up as empty, it read as a clean report of empty ground at
+ * full accuracy, and the holder was never told anybody had come.
+ */
+const FOUND_NOTHING: ReadonlySet<SpyRefusal> = new Set(['nothing_there', 'own_ground']);
+
+/** A job that could not look at all: refused for a reason other than finding nothing there. */
+function keptOutOf(looked: SpyGroundResult): boolean {
+  return looked.kind === 'refused' && !FOUND_NOTHING.has(looked.reason);
+}
+
+/** Whoever holds the target as the runners find it, for the report's heading and the warning. */
+function holderFound(
+  repos: Repositories,
+  looked: SpyGroundResult,
+  target: SpyTarget,
+): LocationHolder {
+  if (looked.kind === 'ground') return looked.ground.holder;
+  return target.kind === 'location'
+    ? (repos.city.control(target.locationId)?.holder ?? { kind: 'unoccupied' })
+    : { kind: 'unoccupied' };
+}
+
+/** What this crew's track lets a report say, frozen onto the report the night it is written. */
+interface ReportRules {
+  /** Written Reports: the units by name, rather than their unit slots alone. */
+  unitsShown: boolean;
+  /** Second Source. */
+  accuracyShown: boolean;
+  /** Counting the Empty Beds, until The Whole Wire makes it an exact figure instead. */
+  unseenShown: boolean;
+  /** The Whole Wire: the exact unit slots standing there, whatever the job managed. */
+  totalShown: boolean;
+  /** Sleeper Lists: planted cells are in the count at all. */
+  sleepersSeen: boolean;
+}
+
+function reportRules(base: Base): ReportRules {
+  const holds = (id: string) => base.research.technologies.includes(id);
+  const wholeWire = holds(SPY_WHOLE_WIRE_RESEARCH_ID);
+  return {
+    unitsShown: holds(SPY_WRITTEN_RESEARCH_ID),
+    accuracyShown: holds(SPY_ACCURACY_RESEARCH_ID),
+    // "This level drops the estimation of what you missed" (maintainer, 2026-09-28): with the
+    // exact total on the page there is nothing left to estimate.
+    unseenShown: holds(SPY_ESTIMATE_RESEARCH_ID) && !wholeWire,
+    totalShown: wholeWire,
+    sleepersSeen: holds(SPY_SLEEPERS_RESEARCH_ID),
+  };
+}
+
+/** Whether a spy can ever count this unit: never a Specter, and a Sleeper only with the rung. */
+function countable(rules: ReportRules): (unitId: string) => boolean {
+  return (unitId) => {
+    const unit = findUnit(unitId);
+    if (!unit || unit.unspyable === true) return false;
+    return unit.sleeper !== true || rules.sleepersSeen;
+  };
+}
+
+/** The unit slots of everything a spy could have counted there, for The Whole Wire's figure. */
+function countableSlots(army: Army, visible: (unitId: string) => boolean): number {
+  return unitSlotsUsed(
+    Object.fromEntries(Object.entries(army).filter(([unitId]) => visible(unitId))),
+  );
+}
+
+/** Everything a report needs that is not the arithmetic: which job, what it cost, whether it was seen. */
+export interface ReportHeading {
+  id: string;
+  target: SpyTarget;
+  tier: SpyTier | null;
+  capsPaid: number;
+  foundOut: boolean;
+}
+
+/**
+ * A report off a read of the ground, in the words this crew's track allows.
+ *
+ * Shared by the job and by the courier, which differ only in how the read was bought and whether
+ * it can fail. `keptOut` is a job that could not look at all; `exposure` is what was read.
+ */
+export function composeSpyReport(
+  repos: Repositories,
+  base: Base,
+  heading: ReportHeading,
+  read: { looked: SpyGroundResult; exposure: Exposure; keptOut: boolean },
+  now: Date,
+): SpyReport {
+  const { looked, exposure, keptOut } = read;
+  const { district, placeName } = placeOf(heading.target);
+  const rules = reportRules(base);
+  const failed = keptOut || !spyReportStands(exposure.accuracy);
+  const seenSlots = failed ? 0 : unitSlotsUsed(exposure.exposed);
+  const total =
+    rules.totalShown && looked.kind === 'ground'
+      ? countableSlots(looked.ground.army, countable(rules))
+      : null;
+  return {
+    id: heading.id,
+    baseId: base.id,
+    target: heading.target,
+    districtId: district?.id ?? '',
+    districtName: district?.name ?? 'somewhere',
+    placeName,
+    holder: holderOf(repos, holderFound(repos, looked, heading.target)),
+    tier: heading.tier,
+    capsPaid: heading.capsPaid,
+    writtenAt: now.toISOString(),
+    failed,
+    // A failed report says nothing below its heading, and neither readout is sent with it: the
+    // two together are the count `exposed` is emptied to withhold (`SpyReportSchema`). Before
+    // Written Reports the units are withheld the same way, and the slots are the whole report.
+    exposed: failed || !rules.unitsShown ? {} : exposure.exposed,
+    exposedSlots: seenSlots,
+    unitsShown: rules.unitsShown,
+    totalSlots: total,
+    foundOut: heading.foundOut,
+    accuracy: rules.accuracyShown && !failed ? exposure.accuracy : null,
+    unseen: rules.unseenShown && !failed ? exposure.unseen : null,
+    accuracyShown: rules.accuracyShown,
+  };
+}
+
+/**
+ * Read the ground behind a target with this budget, as this crew's track lets it count.
+ *
+ * `Infinity` reads everything countable, which is the courier's report.
+ */
+export function readGround(
+  base: Base,
+  looked: SpyGroundResult,
+  budget: number,
+): { looked: SpyGroundResult; exposure: Exposure; keptOut: boolean } {
+  const exposure = expose({
+    army: looked.kind === 'ground' ? looked.ground.army : {},
+    stealthOf: looked.kind === 'ground' ? looked.ground.stealthOf : printedStealth,
+    visible: countable(reportRules(base)),
+    budget,
+  });
+  return { looked, exposure, keptOut: keptOutOf(looked) };
+}
+
+/**
+ * The crew a job on this ground could be seen by, or null.
+ *
+ * Only a crew, never the reader, and only when the runners got as far as the place: a job that
+ * found the ground empty or its own has nobody to be seen by. A job kept out by a gate that shut
+ * while they walked was at the gate, and the crew behind it is who would see them.
+ */
+function watcherOf(
+  repos: Repositories,
+  reader: Base,
+  looked: SpyGroundResult,
+  target: SpyTarget,
+): string | null {
+  const holder = holderFound(repos, looked, target);
+  if (holder.kind !== 'crew' || holder.baseId === reader.id) return null;
+  return looked.kind === 'ground' || keptOutOf(looked) ? holder.baseId : null;
+}
+
+/**
  * Write the report for a run that got there, on the ground as it stands **now**.
  *
  * Now rather than at the send, because the runners look when they arrive: a garrison that
  * marched off in the meantime is not in the report, and one that marched in is. A target that
- * can no longer be looked at (the place emptied, or is the reader's own by the time they get
- * there) is written up as empty ground under whoever holds it now, which is the true answer.
+ * emptied, or is the reader's own by the time they get there, is written up as empty ground; one
+ * that can no longer be looked at from outside is a failed report ({@link FOUND_NOTHING}).
+ *
+ * Whether the holder saw them is rolled here, once, off the run's id (maintainer, 2026-09-28):
+ * always before Traffic Analysis, then less often the better the chair's grade.
  */
 export function writeSpyReport(repos: Repositories, base: Base, run: SpyRun, now: Date): SpyReport {
   const looked = groundBehind(repos, base, run.target);
-  const { district, placeName } = placeOf(run.target);
-  const holder: LocationHolder =
-    looked.kind === 'ground'
-      ? looked.ground.holder
-      : run.target.kind === 'location'
-        ? (repos.city.control(run.target.locationId)?.holder ?? { kind: 'unoccupied' })
-        : { kind: 'unoccupied' };
-
+  const strength = spyStrengthFor(repos, base, run.tier);
   const budget =
-    looked.kind === 'ground'
-      ? spyScore(spyStrengthFor(repos, base, run.tier)) - counterScore(looked.ground.counter)
-      : 0;
-  const sleeperRung = base.research.technologies.includes(SPY_SLEEPERS_RESEARCH_ID);
-  const exposure = expose({
-    army: looked.kind === 'ground' ? looked.ground.army : {},
-    stealthOf: looked.kind === 'ground' ? looked.ground.stealthOf : printedStealth,
-    visible: (unitId) => {
-      const unit = findUnit(unitId);
-      if (!unit || unit.unspyable === true) return false;
-      return unit.sleeper !== true || sleeperRung;
-    },
-    budget,
-  });
-  const failed = !spyReportStands(exposure.accuracy);
-
-  return {
-    id: randomUUID(),
-    baseId: base.id,
-    target: run.target,
-    districtId: district?.id ?? '',
-    districtName: district?.name ?? 'somewhere',
-    placeName,
-    holder: holderOf(repos, holder),
-    tier: run.tier,
-    capsPaid: run.capsPaid,
-    writtenAt: now.toISOString(),
-    failed,
-    exposed: failed ? {} : exposure.exposed,
-    accuracy: exposure.accuracy,
-    unseen: base.research.technologies.includes(SPY_ESTIMATE_RESEARCH_ID) ? exposure.unseen : null,
-    accuracyShown: base.research.technologies.includes(SPY_ACCURACY_RESEARCH_ID),
-  };
+    looked.kind === 'ground' ? spyScore(strength) - counterScore(looked.ground.counter) : 0;
+  const quiet = base.research.technologies.includes(SPY_QUIET_RESEARCH_ID);
+  const foundOut =
+    watcherOf(repos, base, looked, run.target) !== null &&
+    spyFoundOut(run.id, spyUnnoticedChance(quiet, strength.chairPoints));
+  return composeSpyReport(
+    repos,
+    base,
+    { id: randomUUID(), target: run.target, tier: run.tier, capsPaid: run.capsPaid, foundOut },
+    readGround(base, looked, budget),
+    now,
+  );
 }
 
-/** Tell the holder, if their Consigliere has the rung for it; tell them who, with the rung after. */
-function warnHolder(
+/** "Wire (watcher)": the crew and the player behind it, the way a found-out notice names them. */
+function spyingName(repos: Repositories, reader: Base): string {
+  const user = repos.users.findById(reader.ownerId);
+  return user ? `${displayNameOf(user)} (${reader.name})` : reader.name;
+}
+
+/**
+ * Tell the holder what they are owed: who, when the runners were seen, and whatever their
+ * Consigliere adds on top (maintainer, 2026-09-22 and 2026-09-28).
+ *
+ * One notice rather than two. Seen, the holder is told the player's name whatever their track;
+ * Reading the Room is the anonymous word for a job nobody saw, and Names and Faces adds whose and
+ * what they counted either way. Unseen with neither rung, nobody hears anything.
+ */
+function tellHolder(
   repos: Repositories,
   reader: Base,
   report: SpyReport,
-  holder: LocationHolder,
-  now: Date,
+  crewId: string,
+  at: Date,
 ): void {
-  if (holder.kind !== 'crew') return;
-  const crew = repos.bases.findById(holder.baseId);
-  if (!crew || !crew.research.technologies.includes(SPY_NOTICE_RESEARCH_ID)) return;
-  const traced = crew.research.technologies.includes(SPY_TRACE_RESEARCH_ID);
+  const crew = repos.bases.findById(crewId);
+  if (!crew) return;
+  const holds = (id: string) => crew.research.technologies.includes(id);
+  const noticed = holds(SPY_NOTICE_RESEARCH_ID);
+  const traced = holds(SPY_TRACE_RESEARCH_ID);
+  if (!report.foundOut && !noticed) return;
+
   const where = `${report.placeName}, ${report.districtName}`;
-  const seen = armySize(report.exposed);
+  const counted = report.failed
+    ? 'came away with nothing'
+    : `counted ${report.exposedSlots} unit slots of yours`;
+  const named = spyingName(repos, reader);
+  const title = report.foundOut
+    ? `${named} has been spying on ${report.placeName}`
+    : `Somebody has been looking at ${report.placeName}`;
+  const body = report.foundOut
+    ? traced
+      ? `Their runners were seen at ${where}. Your Consigliere says they ${counted}.`
+      : `Their runners were seen at ${where}.`
+    : traced
+      ? `${reader.name}'s spies were at ${where} and ${counted}.`
+      : `Your Consigliere caught wind of eyes on ${where}. Whose, and what they saw, is beyond them.`;
   notifyBase(repos, crew.id, {
     kind: 'spied_on',
-    title: `Somebody has been looking at ${report.placeName}`,
-    body: traced
-      ? report.failed
-        ? `${reader.name}'s spies were at ${where} and came away with nothing.`
-        : `${reader.name}'s spies read ${where}: they saw ${seen} of yours.`
-      : `Your Consigliere caught wind of eyes on ${where}. Whose, and what they saw, is beyond them.`,
+    title,
+    body,
     link: `/game/city/${report.districtId}`,
     subjectId: report.districtId,
-    now,
+    at,
   });
 }
 
 /**
  * Bring home every job whose mark has passed, and write what it found.
  *
- * On the world clock rather than on a read path, for the reason a scout party is: a report is a
- * receipt, and a receipt is worth having when it arrives.
+ * On the world clock rather than on a read path: a report is a receipt, and a receipt is worth
+ * having when it arrives.
  */
 export function settleSpying(repos: Repositories, now: Date): number {
   const due = repos.spying.due(now.toISOString());
@@ -570,35 +816,55 @@ export function settleSpying(repos: Repositories, now: Date): number {
 
       const report = writeSpyReport(repos, base, run, now);
       repos.spying.insertReport(report);
+      // Feats: every job that came home with a report, stood or failed. The one below is stricter.
+      tallySpyJobReturned(repos, base.id);
       /*
        * The ladder counts what was **learnt**.
        *
        * A report on ground with nobody standing on it stands (there was nothing to miss, so the
        * accuracy is one) and it is worth filing: "the place was empty when they looked" is the
        * answer a player paid for. It is not a feat, though. Every crew's gate starts with nobody
-       * at it, so counting it would make `spy_reports` a hundred caps a rung.
+       * at it, so counting it would make `spy_reports` a hundred caps a rung. Slots rather than
+       * the units, which a report before Written Reports does not name.
        */
-      if (!report.failed && armySize(report.exposed) > 0) tallySpyReport(repos, base.id);
-      notifyBase(repos, base.id, {
-        kind: 'spy_report',
-        title: report.failed ? 'Your spies came back with nothing' : 'A spy report is in',
-        body: report.failed
-          ? `${report.placeName}, ${report.districtName}: nothing they would put their name to.`
-          : `${report.placeName}, ${report.districtName}: ${armySize(report.exposed)} seen.`,
-        link: `/game/battles?spy=${report.id}`,
-        subjectId: report.id,
-        now,
-      });
-      const looked = groundBehind(repos, base, run.target);
-      if (looked.kind === 'ground') warnHolder(repos, base, report, looked.ground.holder, now);
+      if (!report.failed && report.exposedSlots > 0) tallySpyReport(repos, base.id);
+      // Both bells are dated at the job's mark, when the runners came home, not at the tick.
+      const home = new Date(run.returnsAt);
+      fileReportNotice(repos, base.id, report, home);
+      const watcher = watcherOf(repos, base, groundBehind(repos, base, run.target), run.target);
+      if (watcher === null) return;
+      if (!report.foundOut) tallySpyJobUnnoticed(repos, base.id);
+      tellHolder(repos, base, report, watcher, home);
     },
   );
 }
 
-/** The run this crew has out, named for the screens, or null. */
-export function spyRunView(repos: Repositories, base: Base): SpyRunView | null {
-  const run = repos.spying.activeFor(base.id)[0];
-  if (!run) return null;
+/** Ring the reader's bell for a report, the job's or the courier's. */
+export function fileReportNotice(
+  repos: Repositories,
+  baseId: string,
+  report: SpyReport,
+  at: Date,
+): void {
+  const where = `${report.placeName}, ${report.districtName}`;
+  notifyBase(repos, baseId, {
+    kind: 'spy_report',
+    title: report.failed
+      ? 'Your spies came back with nothing'
+      : report.tier === null
+        ? "The courier's report is in"
+        : 'A spy report is in',
+    body: report.failed
+      ? `${where}: nothing they would put their name to.`
+      : `${where}: ${spyReportSummary(report)}.`,
+    link: `/game/battles?spy=${report.id}`,
+    subjectId: report.id,
+    at,
+  });
+}
+
+/** One job, named for the screens. */
+function runView(run: SpyRun): SpyRunView {
   const { district, placeName } = placeOf(run.target);
   return {
     id: run.id,
@@ -613,4 +879,9 @@ export function spyRunView(repos: Repositories, base: Base): SpyRunView | null {
     travelMinutes: run.travelMinutes,
     recalledAt: run.recalledAt,
   };
+}
+
+/** The jobs this crew has out, named for the screens, soonest home first. */
+export function spyRunViews(repos: Repositories, base: Base): SpyRunView[] {
+  return repos.spying.activeFor(base.id).map(runView);
 }

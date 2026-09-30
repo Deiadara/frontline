@@ -10,7 +10,14 @@ import { buildApp } from '../app.js';
 import { loadConfig } from '../config.js';
 import { openDatabase, runMigrations, type AppDatabase } from '../db/index.js';
 import { chooseOverseer, pinOverseer } from '../testing/overseer.js';
-import { columnMinutesTo, railColumnOffer, sendColumn } from './movement.js';
+import { settleMoves } from '../moves/moves.js';
+import {
+  columnMinutesTo,
+  railColumnOffer,
+  sendColumn,
+  settleMovements,
+  turnRound,
+} from './movement.js';
 
 /**
  * A battle column rides Terminus's line, not only a unit move (maintainer, 2026-09-24).
@@ -168,16 +175,31 @@ describe('a column on its way to a declared fight', () => {
     expect(alone.minutes - led.minutes).toBe(alone.fromPlatform - led.fromPlatform);
   });
 
-  it('counts the journey, so the feat that measures the line can move', async () => {
+  /**
+   * Counted when the column gets there (audit, 2026-09-28).
+   *
+   * It was counted at the platform, so a column put on the train and turned round in its first
+   * tenth came home in seconds with a journey banked, and a crew could press the pair for as long as
+   * it liked.
+   */
+  it('counts the journey when the column arrives, and none for one turned round', async () => {
     const { app, baseId, base } = await crewOnTheLine(
       ['coldwater-halt', 'blockhouse'],
       'coldwater-halt',
     );
-    const before = app.repos.feats.tallies(baseId)['rail_journeys'] ?? 0;
-    walked(app, base, 'blockhouse', true);
-    expect(app.repos.feats.tallies(baseId)['rail_journeys'] ?? 0).toBe(before + 1);
-    // And a march counts nothing, or the ladder would climb on foot.
-    walked(app, base, 'blockhouse', false);
-    expect(app.repos.feats.tallies(baseId)['rail_journeys'] ?? 0).toBe(before + 1);
+    const journeys = () => app.repos.feats.tallies(baseId)['rail_journeys'] ?? 0;
+    const turned = walked(app, base, 'blockhouse', true);
+    expect(journeys(), 'nothing is counted at the platform').toBe(0);
+    turnRound(app.repos, turned, new Date(Date.parse(turned.departedAt) + 30_000));
+    settleMoves(app.repos, new Date(Date.parse(turned.arrivesAt) + 3_600_000));
+    expect(journeys(), 'a column turned round on the way rode nowhere').toBe(0);
+
+    const ride = walked(app, base, 'blockhouse', true);
+    settleMovements(app.repos, new Date(ride.arrivesAt));
+    expect(journeys()).toBe(1);
+    // And a march counts nothing when it lands, or the ladder would climb on foot.
+    const march = walked(app, base, 'blockhouse', false);
+    settleMovements(app.repos, new Date(march.arrivesAt));
+    expect(journeys()).toBe(1);
   });
 });

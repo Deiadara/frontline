@@ -146,7 +146,7 @@ describe('UNLOCKED: the end-game sandbox', () => {
     expect(bulk).toBeGreaterThan(10_000);
   });
 
-  it('clears the queues, so nothing is mid-build in a state meant to be finished', () => {
+  it('drops a build order the raise has overtaken, so nothing is mid-build on a finished plot', () => {
     const repos = stack();
     seedFreshPlayer(repos);
     repos.bases.updateDistrict(
@@ -232,6 +232,62 @@ describe('UNLOCKED: the end-game sandbox', () => {
     const once = repos.bases.findById('b1');
     applyUnlockedSandbox(repos, 'Nikos');
     expect(repos.bases.findById('b1')).toEqual(once);
+  });
+
+  /*
+   * Maintainer ruling, 2026-09-29: raise only. Every boot used to set the level, replace every
+   * structure with a fresh id and nothing fitted, overwrite the stockpile and replace the army, so
+   * a restart undid whatever was played since the last one.
+   */
+  it('raises and never rolls back: fitted cards, a bigger stockpile and army, the XP bank', () => {
+    const repos = stack();
+    seedFreshPlayer(repos);
+    applyUnlockedSandbox(repos, 'Nikos');
+    const first = repos.bases.findById('b1')!;
+    const lab = first.buildings.find((one) => one.kind === 'lab')!;
+
+    // A session's play: a card fitted, a full wallet, more of a unit, a level's XP half banked.
+    repos.bases.updateDistrict(
+      'b1',
+      first.buildings.map((one) =>
+        one.id === lab.id ? { ...one, modifications: ['lab_process_cell'] } : one,
+      ),
+      [],
+    );
+    repos.bases.updateResources('b1', { ...first.resources, caps: first.resources.caps * 3 });
+    repos.bases.updateArmy('b1', { ...first.army, razors: 400 }, []);
+    repos.bases.updateProgression('b1', UNLOCKED_LEVEL, { xpIntoLevel: 1_234 });
+    const played = repos.bases.findById('b1')!;
+
+    applyUnlockedSandbox(repos, 'Nikos');
+    const booted = repos.bases.findById('b1')!;
+    expect(booted.buildings).toEqual(played.buildings);
+    expect(booted.resources).toEqual(played.resources);
+    expect(booted.army.razors).toBe(400);
+    expect(booted.progression).toEqual(played.progression);
+    expect(booted.level).toBe(UNLOCKED_LEVEL);
+  });
+
+  it('keeps a structure’s id and cards when it raises it, and tops the stockpile up', () => {
+    const repos = stack();
+    seedFreshPlayer(repos);
+    repos.bases.updateDistrict(
+      'b1',
+      [{ id: 'my-lab', kind: 'lab', level: 3, modifications: ['lab_process_cell'] }],
+      [],
+    );
+    repos.bases.updateResources('b1', { ...STARTING_RESOURCES, caps: 1 });
+
+    applyUnlockedSandbox(repos, 'Nikos');
+    const after = repos.bases.findById('b1')!;
+    const lab = after.buildings.find((one) => one.kind === 'lab');
+    expect(lab).toEqual({
+      id: 'my-lab',
+      kind: 'lab',
+      level: levelCeilingFor('lab'),
+      modifications: ['lab_process_cell'],
+    });
+    expect(after.resources.caps).toBeGreaterThan(1);
   });
 
   it('does nothing at all for an account that is not there', () => {

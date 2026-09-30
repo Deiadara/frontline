@@ -27,13 +27,21 @@ import { IdSchema, IsoDateTimeSchema } from './primitives.js';
  * when you like, and they are already standing there at the mark. It is the only way in the game
  * to have force somewhere before you have announced you want it.
  *
+ * ## Only into an open district
+ *
+ * A district held end to end by one party is shut: its gate is the only thing that can be called
+ * on, and a cell cannot be planted on a location behind it (`district_shut`, maintainer
+ * 2026-09-29). The rule holds after the send as well: when the district a cell is sitting in
+ * closes, whoever closed it, the cell turns for home the way a recalled one does
+ * (`city/sleepers.ts`, `sendCellsHomeFromShutDistrict`).
+ *
  * ## The three states
  *
  * One row per crew per location, merged on arrival, walking in both directions:
  *
  * - `outbound`: on the road. {@link SleeperCell.arrivesAt} is when they go to ground.
- * - `waiting`: in place. They do nothing at all, and nothing can reach them: no scout counts
- *   them, no fortification turns them up, no raid catches them. That is the maintainer's ruling
+ * - `waiting`: in place. They do nothing at all, and nothing can reach them: no spy counts them
+ *   without the Sleeper Lists rung, no fortification turns them up, no raid catches them. That is the maintainer's ruling
  *   and it is what "not visible by an enemy spy or anything" has to mean to be worth planting.
  * - `returning`: recalled, walking home. `arrivesAt` is when they rejoin the roster.
  *
@@ -72,8 +80,6 @@ export type SleeperCell = z.infer<typeof SleeperCellSchema>;
 
 /** Why a crew may not plant a cell here. */
 export const SLEEPER_REFUSALS = [
-  /** The ground has not been scouted, so the crew cannot point at it. */
-  'unscouted',
   /** Their own ground. A garrison is what units on ground you hold are called. */
   'already_yours',
   /** Only the Sleepers do this. Every other sheet has to be sent to a fight or a job. */
@@ -85,18 +91,28 @@ export const SLEEPER_REFUSALS = [
   'no_road',
   /** A raid on the crew's own district lands within the hour: nobody leaves home now. */
   'garrison_locked',
+  /**
+   * The district is held end to end by somebody else (maintainer, 2026-09-29). A shut district
+   * has one way in, its gate, and a cell is not a fight: it cannot be planted behind the wall.
+   * The same rule sends a cell home the moment the district it sits in closes.
+   */
+  'district_shut',
+  /** The location is in a city that is not open yet (`cityIsOpen`). */
+  'city_closed',
 ] as const;
 export const SleeperRefusalSchema = z.enum(SLEEPER_REFUSALS);
 export type SleeperRefusal = z.infer<typeof SleeperRefusalSchema>;
 
 export const SLEEPER_REFUSAL_TEXT: Record<SleeperRefusal, string> = {
-  unscouted: 'You have not had eyes on that ground. Scout it before you put anybody inside it.',
   already_yours: 'You hold that place. People you leave there are a garrison, not a cell.',
   not_sleepers: 'Only Sleepers go to ground like this. Everybody else has to be sent to a fight.',
   not_enough_units: 'You do not have that many to send.',
   nobody_sent: 'Name somebody to send.',
   no_road: 'There is no road to that.',
   garrison_locked: 'A raid lands on your district within the hour. Nobody leaves home now.',
+  district_shut:
+    'That district is held end to end. Nothing gets in past the gate: call a fight on it instead.',
+  city_closed: 'That city is not open yet. Nobody gets in.',
 };
 
 /**

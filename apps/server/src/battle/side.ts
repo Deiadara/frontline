@@ -5,7 +5,7 @@ import {
   type BattleSide,
 } from '@frontline/shared';
 import type { Repositories } from '../db/repos/index.js';
-import { mergeArmies } from './forces.js';
+import { mergeArmies, removeForce } from './forces.js';
 
 /**
  * A side of a fight, which is no longer one crew.
@@ -122,4 +122,44 @@ export function splitSurvivors<Row extends { baseId: string | null }>(
     }
   }
   return out;
+}
+
+/**
+ * A whole number split by weight, largest remainder first: {@link splitSurvivors} on one count.
+ *
+ * For a side's figures that are not units, such as the kills the feats credit crew by crew. The same
+ * rounding as the survivors, so the shares always add back up to `total` and the odd one goes to
+ * the heaviest remainder rather than always to the first row.
+ */
+export function apportion(
+  total: number,
+  weights: ReadonlyMap<string | null, number>,
+): Map<string | null, number> {
+  const rows = [...weights].map(([baseId, weight]) => ({ baseId, weight }));
+  const shares = splitSurvivors(rows, { share: total }, (row) => ({ share: row.weight }));
+  return new Map(rows.map(({ baseId }) => [baseId, shares.get(baseId)?.share ?? 0]));
+}
+
+/**
+ * What each crew put into one side's line, keyed by crew, with `null` for the regime or the looters.
+ *
+ * The principal (the crew that called the fight, or the one defending) is credited with everything
+ * on the side that no ally sent, which is the reading the defending side's survivor split takes in
+ * `battle/resolve.ts`: a home roster, a location's garrison and the Combine's plots have no row of
+ * their own. Each ally is credited with its own contributions: its deployment row and, on the
+ * defence, its posting on the ground.
+ */
+export function lineByCrew(side: {
+  principal: string | null;
+  whole: Army;
+  allies: readonly { baseId: string | null; army: Army }[];
+}): Map<string | null, Army> {
+  const lines = new Map<string | null, Army>();
+  for (const ally of side.allies) {
+    if (ally.baseId === side.principal) continue;
+    lines.set(ally.baseId, mergeArmies(lines.get(ally.baseId) ?? {}, ally.army));
+  }
+  const sent = [...lines.values()].reduce<Army>((total, army) => mergeArmies(total, army), {});
+  lines.set(side.principal, removeForce(side.whole, sent));
+  return lines;
 }

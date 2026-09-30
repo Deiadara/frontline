@@ -5,10 +5,10 @@ import { modificationRequirement, requirementRefusal } from './requirements.js';
 import { scrapyardLevelForModification } from './scrapyard.js';
 import type { PartialResources } from '../resources.js';
 import {
-  MODIFICATION_SLOT_LEVELS,
   SET_BONUSES,
   MAX_MODIFICATION_SLOTS,
   modificationFits,
+  modificationSlotLevelsFor,
   modificationSlotsAt,
   type ModificationSpec,
   type ModificationEffect,
@@ -156,13 +156,17 @@ export interface ModificationSlot {
  *
  * Always three (§E: "every building shows three clear slots"), and a locked one says which level
  * opens it rather than not being drawn. A player deciding what to upgrade next is exactly the
- * player who needs to see that level 10 buys a second slot.
+ * player who needs to see that level 10 buys a second slot. Every one of them opens somewhere on
+ * the structure's own ladder (`modificationSlotLevelsFor`), so no bracket is drawn that cannot.
  */
-export function modificationSlots(building: Building | undefined): ModificationSlot[] {
+export function modificationSlots(
+  kind: BuildingKind,
+  building: Building | undefined,
+): ModificationSlot[] {
   const level = building?.level ?? 0;
-  const open = modificationSlotsAt(level);
+  const open = modificationSlotsAt(level, kind);
   const fitted = building?.modifications ?? [];
-  return MODIFICATION_SLOT_LEVELS.map((opensAtLevel, index) => ({
+  return modificationSlotLevelsFor(kind).map((opensAtLevel, index) => ({
     index,
     opensAtLevel,
     open: index < open,
@@ -376,7 +380,7 @@ export function boltInRefusal(input: {
   if (missing !== null) return missing;
 
   if (standing.modifications.includes(spec.id)) return 'already_fitted';
-  const slots = modificationSlots(standing);
+  const slots = modificationSlots(kind, standing);
   if (!slots.some((slot) => slot.open && slot.modificationId === null)) {
     return slots.some((slot) => slot.modificationId === null) ? 'slot_locked' : 'slot_taken';
   }

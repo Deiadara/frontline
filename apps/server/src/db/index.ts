@@ -2,6 +2,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import Database from 'better-sqlite3';
+import { holdEffectsUntilCommit } from './after-commit.js';
 
 export type AppDatabase = Database.Database;
 
@@ -28,6 +29,7 @@ export function openDatabase(databasePath: string): AppDatabase {
   db.pragma('journal_size_limit = 67108864');
   db.pragma('cache_size = -16000');
   db.pragma('temp_store = MEMORY');
+  holdEffectsUntilCommit(db);
   return db;
 }
 

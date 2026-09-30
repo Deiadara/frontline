@@ -110,15 +110,18 @@ export function VehicleCard({
           // The words the chip replaced, one hover away. `3 / 1` is the roster's idiom and it is
           // terser than `2 in the yard · 1 out`, but it does make a reader do the subtraction, so
           // the sentence is still here for anybody who wants it.
+          // `out` is every machine away from the yard, not only the fights: a job and a column
+          // walking home both carry them (`vehiclesAbroad`), so the words name all three the way
+          // the unit card's do.
           data-tip={
             vehicle.out > 0
-              ? `${vehicle.owned} in the yard, ${vehicle.out} out at a fight`
+              ? `${vehicle.owned} in the yard, ${vehicle.out} out: at a fight, on a job or on the road`
               : `${vehicle.owned} in the yard`
           }
         >
           {vehicle.owned + vehicle.out}
           {vehicle.out > 0 && (
-            <span data-tip={`${vehicle.out} at a fight`}>
+            <span data-tip={`${vehicle.out} out: at a fight, on a job or on the road`}>
               <span className="text-ink-300">{' / '}</span>
               <span className="text-tangerine-300">{vehicle.out}</span>
             </span>

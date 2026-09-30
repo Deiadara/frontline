@@ -3,7 +3,6 @@ import {
   FEAT_MEASURE_SPECS,
   ITEM_CATALOG,
   createCommander,
-  earnedInfamy,
   featMeasureKey,
   findFeat,
   MAX_LOCATION_LEVEL,
@@ -556,83 +555,21 @@ describe('collecting one', () => {
     }
   });
 
-  it('pays infamy into the ledger, and does not count it on the lifetime ladder', async () => {
-    const app = await makeApp();
-    const one = await player(app, 'feats_infamy');
-    const feat = FEATS.find((spec) => spec.reward.infamy !== undefined && spec.after === null)!;
-    give(app, one.baseId, featMeasureKey(feat.measure, feat.scope), feat.target);
-
-    const before = app.repos.bases.findByOwnerId(one.userId)!.economy.infamy;
-    expect((await claim(app, one.token, feat.id)).statusCode).toBe(200);
-
-    const after = app.repos.bases.findByOwnerId(one.userId)!.economy.infamy;
-    expect(after).toBe(before + (feat.reward.infamy ?? 0));
-    // Not earned in a fight, so not on the lifetime ladder (bug pass, 2026-09-28): that ladder pays
-    // infamy, and counting its own rewards let one claim finish every rung above it.
-    expect(app.repos.feats.tallies(one.baseId)[featMeasureKey('infamy_earned')] ?? 0).toBe(0);
-  });
-
   /**
-   * §D8: a feat is a faucet, and `infamy_gain` says it pays on "everything that earns any".
+   * Feats pay no infamy (maintainer, 2026-09-29), to anybody, however much `infamy_gain` they carry.
    *
-   * Three things in the game pay infamy. A fight scales it by the channel, a job scales it by the
-   * channel, and a claimed feat paid the flat catalogue figure, so the Broadcast Tower and the two
-   * Logistics perks were worth nothing on the one reward a player collects deliberately. It read as
-   * a bug inside `payFeat` twice over: `awardPlayerXp`, a few lines away in the same function,
-   * folds `xpGainPercent` into a feat's XP at its own funnel, so the same reward already scaled one
-   * of its two currencies and not the other.
-   *
-   * `gates_1` pays 24 since the feat infamy was cut to a tenth (2026-09-28), still large enough
-   * that nine percent survives the round to a whole number: a smaller reward would round back onto
-   * the flat figure and prove nothing.
+   * `gates_1` paid 24 infamy until the ruling and pays caps and experience now. The crew is set up
+   * the way the old tests set it up to prove the channel was scaled: an officer with
+   * `legend_builder` and the Graveyard held, which are the people half and the ground half of
+   * `infamy_gain`. Both folds are read first, so a fixture that stopped raising the channel fails as
+   * a fixture rather than passing as a clean bill of health. With the channel up from both sides, a
+   * claim still moves the ledger by nothing and puts nothing on the `infamy_earned` ladder, which
+   * measures a name made in fights and nowhere else.
    */
-  it('scales a feat’s infamy by the crew’s own infamy_gain, the way a fight’s is', async () => {
+  it('pays no infamy, even to a crew whose infamy_gain is up from people and ground', async () => {
     const app = await makeApp();
-    const one = await player(app, 'feats_infamy_perk');
+    const one = await player(app, 'feats_no_infamy');
     const feat = FEATS.find((spec) => spec.id === 'gates_1')!;
-    const reward = feat.reward.infamy ?? 0;
-
-    const base = app.repos.bases.findByOwnerId(one.userId)!;
-    app.repos.bases.updateCommanders(base.id, [
-      {
-        ...createCommander('teller', 'The Teller', 'consigliere', makeAttributes(40)),
-        perks: ['legend_builder'],
-      },
-    ]);
-    give(app, one.baseId, featMeasureKey(feat.measure, feat.scope), feat.target);
-
-    const before = app.repos.bases.findByOwnerId(one.userId)!.economy.infamy;
-    expect((await claim(app, one.token, feat.id)).statusCode).toBe(200);
-    const paid = app.repos.bases.findByOwnerId(one.userId)!.economy.infamy - before;
-
-    // +9% off `legend_builder`, the same arithmetic `earnedInfamy` does for a raid.
-    expect(paid).toBe(Math.round(reward * 1.09));
-    expect(paid, 'the catalogue figure was paid flat').toBeGreaterThan(reward);
-  });
-
-  /**
-   * ...and off **held ground**, which is the half the case above cannot see.
-   *
-   * That test grants `legend_builder` to an officer, and a perk is a person, so it is paid by
-   * `crewEffectsFor` and by `standingEffectsFor` alike: it passed for a year while `payFeat` read
-   * the people-only fold. `infamy_gain` has two other sources and neither of them is a person. The
-   * Graveyard pays 15% for holding it (`city/locations.ts`) and a faction card pays more
-   * (`factions/cards.ts`), and territory and the table are exactly what the people-only fold
-   * leaves out. So a crew holding the Graveyard collected the bonus on every raid and every job
-   * and nothing on the one reward they press a button for.
-   *
-   * `missions/resolve.ts` carries a comment recording that this same bug was already found and
-   * fixed once on the job settler, in its own words: "the Graveyard and `sig_name_maker` paid on a
-   * raid and nothing on a job." This is the third faucet.
-   *
-   * The two folds are read directly first, so a change that makes the Graveyard worthless reddens
-   * this as a fixture failure rather than passing it as a clean bill of health.
-   */
-  it('scales a feat’s infamy by held ground, not only by the people', async () => {
-    const app = await makeApp();
-    const one = await player(app, 'feats_infamy_ground');
-    const feat = FEATS.find((spec) => spec.id === 'gates_1')!;
-    const reward = feat.reward.infamy ?? 0;
 
     const control = app.repos.city.control(GRAVEYARD);
     if (!control) throw new Error(`fixture: no control row for ${GRAVEYARD}`);
@@ -642,21 +579,31 @@ describe('collecting one', () => {
       level: MAX_LOCATION_LEVEL,
       garrison: {},
     });
-
     const base = app.repos.bases.findByOwnerId(one.userId)!;
-    const ground = standingEffectsFor(app.repos, base).infamyGainPercent;
-    const people = crewEffectsFor(app.repos, base).infamyGainPercent;
-    expect(people, 'nobody on the books pays infamy_gain, so the folds must differ').toBe(0);
-    expect(ground, 'the Graveyard stopped paying infamy_gain').toBeGreaterThan(0);
+    app.repos.bases.updateCommanders(base.id, [
+      {
+        ...createCommander('teller', 'The Teller', 'consigliere', makeAttributes(40)),
+        perks: ['legend_builder'],
+      },
+    ]);
+    const held = app.repos.bases.findByOwnerId(one.userId)!;
+    expect(crewEffectsFor(app.repos, held).infamyGainPercent, 'legend_builder').toBeGreaterThan(0);
+    expect(
+      standingEffectsFor(app.repos, held).infamyGainPercent,
+      'the Graveyard stopped paying infamy_gain',
+    ).toBeGreaterThan(crewEffectsFor(app.repos, held).infamyGainPercent);
 
     give(app, one.baseId, featMeasureKey(feat.measure, feat.scope), feat.target);
-    const before = app.repos.bases.findByOwnerId(one.userId)!.economy.infamy;
-    expect((await claim(app, one.token, feat.id)).statusCode).toBe(200);
-    const paid = app.repos.bases.findByOwnerId(one.userId)!.economy.infamy - before;
+    const before = held.economy.infamy;
+    const response = await claim(app, one.token, feat.id);
+    expect(response.statusCode, response.body).toBe(200);
 
-    expect(paid, 'the feat was paid the flat catalogue figure').toBeGreaterThan(reward);
-    // Rounded because the store holds whole infamy, which is what the perk case above pins too.
-    expect(paid).toBe(Math.round(earnedInfamy(reward, ground)));
+    expect(response.json<ClaimFeatResponse>().paid).not.toHaveProperty('infamy');
+    expect(app.repos.bases.findByOwnerId(one.userId)!.economy.infamy).toBe(before);
+    expect(app.repos.feats.tallies(one.baseId)[featMeasureKey('infamy_earned')] ?? 0).toBe(0);
+    // It still pays: the value moved to another channel rather than disappearing.
+    expect(feat.reward.resources?.caps ?? 0).toBeGreaterThan(0);
+    expect(feat.reward.xp ?? 0).toBeGreaterThan(0);
   });
 
   it('pays experience through the one writer of level', async () => {
@@ -1028,7 +975,7 @@ describe('collecting the whole backlog at once', () => {
       ['missions_done', 500],
       ['missions_won', 300],
       ['battles_fought', 250],
-      ['scouting_runs', 200],
+      ['spy_jobs_returned', 200],
       ['units_trained', 2_500],
     ] as const) {
       give(app, one.baseId, featMeasureKey(measure), amount);
@@ -1079,7 +1026,10 @@ describe('collecting the whole backlog at once', () => {
     const before = (await board(app, one.token)).ready;
     expect(before, 'the fixture finished no ladders').toBeGreaterThan(0);
 
-    // Every store filled to its own ceiling, so anything paying a resource has nowhere to go.
+    // Every store filled past its own ceiling, so anything paying a resource has nowhere to go.
+    // Ten times over rather than exactly to it: the claim settles first, and a build finishing in
+    // between on a loaded machine raised the ceiling under an exact fill and left room (flaky in
+    // the full suite). A store above its ceiling has no room whatever the ceiling moves to.
     const base = app.repos.bases.findByOwnerId(one.userId)!;
     const bulk = storageCapacity(base.buildings);
     // Caps are left where they are: their ceiling is Infinity, because the currency has no
@@ -1088,7 +1038,7 @@ describe('collecting the whole backlog at once', () => {
     const brimming = Object.fromEntries(
       RESOURCE_KEYS.map((key) => {
         const ceiling = storageCapacityFor(base.buildings, key, bulk);
-        return [key, Number.isFinite(ceiling) ? ceiling : base.resources[key]];
+        return [key, Number.isFinite(ceiling) ? ceiling * 10 : base.resources[key]];
       }),
     ) as Resources;
     app.repos.bases.updateHoldings(base.id, brimming, base.inventory);
@@ -1168,8 +1118,8 @@ describe('collecting the whole backlog at once', () => {
    *
    * The first version of the test above asserted the board came back with nothing waiting and
    * found eight. The rewards are the reason: a feat paying experience raises the level, one paying
-   * infamy fills the wallet, one paying units puts bodies on the roster, and `level`, `infamy_held`
-   * and `army_units` are all measures other feats are counting. So a backlog collected in one
+   * units puts bodies on the roster, and `level` and `army_units` are both measures other feats are
+   * counting. (Infamy was a third until feats stopped paying it, 2026-09-29.) So a backlog collected in one
    * press can leave a smaller one behind it.
    *
    * Nothing is paid twice for it, because each of those is a different feat with its own claim

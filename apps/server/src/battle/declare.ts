@@ -3,6 +3,7 @@ import {
   declarationRefusal,
   declareInfamyCost,
   emptyDeployment,
+  findCity,
   findDistrict,
   formatDayClock,
   isHeldBy,
@@ -19,10 +20,9 @@ import {
 } from '@frontline/shared';
 import { adminWaives } from '../admin/mode.js';
 import type { Repositories } from '../db/repos/index.js';
-import { cityContextFor } from '../city/view.js';
 import { standingEffectsFor } from '../crew/standing.js';
 import {
-  crewCalledOut,
+  crewCalledOutAmong,
   defenderOf,
   defendingBaseOf,
   districtStandingFor,
@@ -66,7 +66,10 @@ export const DECLARE_REFUSALS = [
   'gate_intact',
   'nothing_to_break',
   'gate_down',
-  'unscouted',
+  /** The target names a district the map does not have, or a location outside the one it names. */
+  'no_such_place',
+  /** The district is in a city that is authored but not open yet (`City.open`). */
+  'city_closed',
   'already_declared',
   'too_many_pending',
   'own_ground',
@@ -116,28 +119,23 @@ export function declareBattle(repos: Repositories, input: DeclareInput): Declare
   const { base, target, scheduledFor, now } = input;
 
   const district = findDistrict(target.districtId);
-  if (!district) return { kind: 'refused', reason: 'unscouted' };
+  if (!district) return { kind: 'refused', reason: 'no_such_place' };
+  // Saltmarch has ground in the atlas and no way onto it (bug pass, 2026-09-29): a call there took
+  // plots in a city no screen draws, so the closed door is checked here rather than trusted to the UI.
+  if (findCity(district.cityId)?.open !== true) return { kind: 'refused', reason: 'city_closed' };
   /*
    * The location has to be *in* the district the target names.
    *
-   * The two ids arrive separately and nothing tied them together: the visibility check, the gate
-   * rule and the infamy price all read `districtId`, while the defender, the capture and the
-   * resolver read `locationId`. A crew could therefore name a shut, unscouted district's location
-   * under an open district's id, march down the shorter road, and take the location behind a gate
-   * it was never allowed through. Refused as `unscouted`, which is what the target *is* from where
-   * the caller is standing.
+   * The two ids arrive separately and nothing tied them together: the gate rule and the infamy
+   * price read `districtId`, while the defender, the capture and the resolver read `locationId`. A
+   * crew could therefore name a shut district's location under an open district's id, march down
+   * the shorter road, and take the location behind a gate it was never allowed through.
    */
   if (
     target.kind === 'location' &&
     !district.locations.some((location) => location.id === target.locationId)
   ) {
-    return { kind: 'refused', reason: 'unscouted' };
-  }
-
-  // The same visibility the map computed, uplink range included: deriving it twice from different
-  // inputs is how a screen and a rule quietly disagree about what a crew can see.
-  if (!cityContextFor(repos, base).visible.has(district.id)) {
-    return { kind: 'refused', reason: 'unscouted' };
+    return { kind: 'refused', reason: 'no_such_place' };
   }
 
   // What may be attacked comes first: it is a fact about the world, and telling somebody their time
@@ -306,7 +304,7 @@ function tellTheDefender(
     body: `${targetName(battle.target, defending)}, at ${formatDayClock(new Date(battle.scheduledFor))}.`,
     link: '/game/battles',
     subjectId: battle.id,
-    now,
+    at: now,
   });
 }
 
@@ -318,14 +316,17 @@ function tellTheDefender(
  * behind them is `Base.isBot`, which is the one thing that tells a player's crew from the seeded
  * rival's: both hold ground under a `crew` plate, both have a user row and a name. The same
  * function prices the board (`battle/view.ts`), so the dialog quotes what the route charges.
+ *
+ * Read off the crews' summary rows, which the board passes in once for its whole list.
  */
 export function callPriceFor(
   repos: Repositories,
   target: BattleTarget,
   district: District,
+  summaries: ReturnType<Repositories['bases']['listSummaries']> = repos.bases.listSummaries(),
 ): number {
   const defender = defenderOf(repos, target, district);
-  const crew = crewCalledOut(repos, target, defender);
+  const crew = crewCalledOutAmong(summaries, target, defender);
   const party: LocationHolder = crew ? { kind: 'crew', baseId: crew.id } : defender;
   return declareInfamyCost(party, crew !== undefined && !crew.isBot);
 }

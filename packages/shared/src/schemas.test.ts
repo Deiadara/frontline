@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
-import { RegisterRequestSchema } from './api.js';
+import { LoginRequestSchema, RegisterRequestSchema } from './api.js';
 import { BUILDING_CATALOG, BUILDING_KINDS } from './building/index.js';
 import {
   BOT_DISTRICT_ID,
@@ -17,6 +17,8 @@ import {
   unifiedBonusFor,
   isSeatOfGovernmentPower,
   raidTargetOf,
+  isContested,
+  type ContestedDistrict,
   type District,
 } from './city/index.js';
 import { GOVERNMENT_GARRISONS, governmentGarrisonFor } from './allegiance.js';
@@ -27,6 +29,12 @@ const MIN_DISTRICT_SEPARATION = 0.06;
 const district = (id: string): District => {
   const found = findDistrict(id);
   if (!found) throw new Error(`fixture error: no district ${id}`);
+  return found;
+};
+
+const contestedDistrict = (id: string): ContestedDistrict => {
+  const found = district(id);
+  if (!isContested(found)) throw new Error(`fixture error: ${id} is not contested ground`);
   return found;
 };
 
@@ -127,17 +135,19 @@ describe('who holds the map (§A3)', () => {
   });
 
   it('names a Combine garrison that gets heavier as the site does (§A3)', () => {
-    expect(garrisonOf(district('glasshouse-fields'))).not.toBe(garrisonOf(district('ccs')));
-    for (const combineHeld of CITY_DISTRICTS.filter((d) => d.allegiance === 'government')) {
+    expect(garrisonOf(contestedDistrict('glasshouse-fields'))).not.toBe(
+      garrisonOf(contestedDistrict('ccs')),
+    );
+    for (const combineHeld of CITY_DISTRICTS.filter(isContested).filter(
+      (d) => d.allegiance === 'government',
+    )) {
       expect(garrisonOf(combineHeld), combineHeld.id).toMatch(
         /Combine|Levy|Greycoat|Enforcer|Suppressor/,
       );
     }
-    // Independent ground must not be narrated as the government's.
-    // Chrome Row: the Steelbelt is the Combine's now (maintainer, 2026-09-19).
-    expect(garrisonOf(district('chrome-row'))).not.toMatch(
-      /Combine|Levy|Greycoat|Enforcer|Suppressor/,
-    );
+    // Independent ground has no authored garrison at all (maintainer, 2026-09-30): the Garrison row
+    // counts its holders instead. Chrome Row: the Steelbelt is the Combine's now (2026-09-19).
+    expect(garrisonOf(contestedDistrict('chrome-row'))).toBeNull();
   });
 
   it('scales the garrison ladder monotonically over the whole difficulty range', () => {
@@ -192,5 +202,19 @@ describe('RegisterRequestSchema', () => {
     expect(
       RegisterRequestSchema.safeParse({ username: 'neo_2077', password: 'longenough' }).success,
     ).toBe(true);
+  });
+
+  /** A phone keyboard's trailing space is not part of anybody's name (bug pass, 2026-09-29). */
+  it('trims a username at sign-up and at sign-in, and still refuses a space inside one', () => {
+    const signUp = RegisterRequestSchema.safeParse({
+      username: ' neo_2077 ',
+      password: 'longenough',
+    });
+    expect(signUp.success && signUp.data.username).toBe('neo_2077');
+    const signIn = LoginRequestSchema.safeParse({ username: 'neo_2077 ', password: 'x' });
+    expect(signIn.success && signIn.data.username).toBe('neo_2077');
+    expect(
+      RegisterRequestSchema.safeParse({ username: 'neo 2077', password: 'longenough' }).success,
+    ).toBe(false);
   });
 });

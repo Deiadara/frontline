@@ -238,6 +238,7 @@ export function BarPage() {
         <OnPlate at={STOOL} anchor="bottom">
           <SitDown
             count={recruits.length}
+            reading={data === undefined}
             disabled={barQuery.isLoading || recruits.length === 0}
             onOpen={() => setOpen('stool')}
           />
@@ -313,80 +314,84 @@ export function BarPage() {
             </InfoNote>
           </OnArt>
 
-          <OnArt className="flex items-stretch divide-x divide-surface-600/70">
-            <button
-              type="button"
-              onClick={() => setOpen('payroll')}
-              data-testid="open-payroll"
-              className="group flex items-center gap-2.5 px-3.5 py-2.5 text-left transition-colors hover:bg-brass-300/10"
-            >
-              <span
-                aria-hidden
-                className="icon-plate flex h-9 w-9 shrink-0 items-center justify-center rounded-sm text-brass-300 [&_svg]:h-5 [&_svg]:w-5"
+          {/* Only once the room has been read: before that every one of these is a zero, and a
+              payroll of 0 on a crew of 0 / 0 is a real state a player can be in. */}
+          {data !== undefined && (
+            <OnArt className="flex items-stretch divide-x divide-surface-600/70">
+              <button
+                type="button"
+                onClick={() => setOpen('payroll')}
+                data-testid="open-payroll"
+                className="group flex items-center gap-2.5 px-3.5 py-2.5 text-left transition-colors hover:bg-brass-300/10"
               >
-                <Icon name="caps" />
-              </span>
-              <span className="flex flex-col leading-none">
-                <span className="font-display text-[10px] font-bold uppercase tracking-[0.16em] text-ink-300">
-                  Payroll left
-                </span>
-                <span className="mt-1 font-display text-[15px] font-bold tabular-nums text-ink-100">
-                  {(data?.payroll.available ?? 0).toLocaleString()}
-                </span>
-              </span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setOpen('crew')}
-              data-testid="open-crew"
-              className="group flex items-center gap-2.5 px-3.5 py-2.5 text-left transition-colors hover:bg-brass-300/10"
-            >
-              <span
-                aria-hidden
-                className="icon-plate flex h-9 w-9 shrink-0 items-center justify-center rounded-sm text-brass-300 [&_svg]:h-5 [&_svg]:w-5"
-              >
-                <Icon name="crew" />
-              </span>
-              <span className="flex flex-col leading-none">
-                <span className="font-display text-[10px] font-bold uppercase tracking-[0.16em] text-ink-300">
-                  Your crew
-                </span>
                 <span
-                  className={cn(
-                    'mt-1 font-display text-[15px] font-bold tabular-nums',
-                    full ? 'text-warning' : 'text-ink-100',
-                  )}
+                  aria-hidden
+                  className="icon-plate flex h-9 w-9 shrink-0 items-center justify-center rounded-sm text-brass-300 [&_svg]:h-5 [&_svg]:w-5"
                 >
-                  {data?.slotsUsed ?? 0} / {data?.slotsTotal ?? 0}
+                  <Icon name="caps" />
                 </span>
-              </span>
-            </button>
+                <span className="flex flex-col leading-none">
+                  <span className="font-display text-[10px] font-bold uppercase tracking-[0.16em] text-ink-300">
+                    Payroll left
+                  </span>
+                  <span className="mt-1 font-display text-[15px] font-bold tabular-nums text-ink-100">
+                    {(data?.payroll.available ?? 0).toLocaleString()}
+                  </span>
+                </span>
+              </button>
 
-            {/* §H7: how yesterday's tables ended. A door rather than a panel, because it is a
-                thing a player reads once a day and then stops thinking about. */}
-            <button
-              type="button"
-              onClick={() => setOpen('results')}
-              data-testid="open-results"
-              className="group flex items-center gap-2.5 px-3.5 py-2.5 text-left transition-colors hover:bg-brass-300/10"
-            >
-              <span
-                aria-hidden
-                className="icon-plate flex h-9 w-9 shrink-0 items-center justify-center rounded-sm text-brass-300 [&_svg]:h-5 [&_svg]:w-5"
+              <button
+                type="button"
+                onClick={() => setOpen('crew')}
+                data-testid="open-crew"
+                className="group flex items-center gap-2.5 px-3.5 py-2.5 text-left transition-colors hover:bg-brass-300/10"
               >
-                <Icon name="standings" />
-              </span>
-              <span className="flex flex-col leading-none">
-                <span className="font-display text-[10px] font-bold uppercase tracking-[0.16em] text-ink-300">
-                  Last night
+                <span
+                  aria-hidden
+                  className="icon-plate flex h-9 w-9 shrink-0 items-center justify-center rounded-sm text-brass-300 [&_svg]:h-5 [&_svg]:w-5"
+                >
+                  <Icon name="crew" />
                 </span>
-                <span className="mt-1 font-display text-[15px] font-bold tabular-nums text-ink-100">
-                  {results.length}
+                <span className="flex flex-col leading-none">
+                  <span className="font-display text-[10px] font-bold uppercase tracking-[0.16em] text-ink-300">
+                    Your crew
+                  </span>
+                  <span
+                    className={cn(
+                      'mt-1 font-display text-[15px] font-bold tabular-nums',
+                      full ? 'text-warning' : 'text-ink-100',
+                    )}
+                  >
+                    {data?.slotsUsed ?? 0} / {data?.slotsTotal ?? 0}
+                  </span>
                 </span>
-              </span>
-            </button>
-          </OnArt>
+              </button>
+
+              {/* §H7: how yesterday's tables ended. A door rather than a panel, because it is a
+                thing a player reads once a day and then stops thinking about. */}
+              <button
+                type="button"
+                onClick={() => setOpen('results')}
+                data-testid="open-results"
+                className="group flex items-center gap-2.5 px-3.5 py-2.5 text-left transition-colors hover:bg-brass-300/10"
+              >
+                <span
+                  aria-hidden
+                  className="icon-plate flex h-9 w-9 shrink-0 items-center justify-center rounded-sm text-brass-300 [&_svg]:h-5 [&_svg]:w-5"
+                >
+                  <Icon name="standings" />
+                </span>
+                <span className="flex flex-col leading-none">
+                  <span className="font-display text-[10px] font-bold uppercase tracking-[0.16em] text-ink-300">
+                    Last night
+                  </span>
+                  <span className="mt-1 font-display text-[15px] font-bold tabular-nums text-ink-100">
+                    {results.length}
+                  </span>
+                </span>
+              </button>
+            </OnArt>
+          )}
         </div>
       </div>
 
@@ -432,9 +437,11 @@ export function BarPage() {
           auction={biddingTable}
           now={serverNow}
           bidCeiling={data.bidCeiling}
+          wageDiscountPercent={data.wageDiscountPercent}
           auctionsUsed={data.auctionsUsed}
           auctionsAllowed={data.auctionsAllowed}
           chairsFree={Math.max(0, data.slotsTotal - data.slotsUsed)}
+          bedsFree={data.bedsFree}
           onClose={() => setBiddingOn(null)}
         />
       )}
@@ -451,10 +458,13 @@ export function BarPage() {
  */
 function SitDown({
   count,
+  reading,
   disabled,
   onOpen,
 }: {
   count: number;
+  /** Nothing has been read yet, so the count is not a count. */
+  reading: boolean;
   disabled: boolean;
   onOpen: () => void;
 }) {
@@ -491,7 +501,7 @@ function SitDown({
         </span>
       </span>
       <span className="rounded-sm bg-surface-950/70 px-2 py-0.5 font-display text-[10px] font-bold uppercase tracking-[0.16em] text-brass-300">
-        {count === 0 ? 'Nobody in tonight' : `${count} in tonight`}
+        {reading ? 'Reading the room…' : count === 0 ? 'Nobody in tonight' : `${count} in tonight`}
       </span>
     </button>
   );
@@ -764,7 +774,7 @@ const OUTCOME_WORD: Record<BarAuctionResult['outcome'], string> = {
 };
 
 /** What happened, in one sentence, with the figures a player would want to argue with. */
-function resultLine(result: BarAuctionResult): string {
+export function resultLine(result: BarAuctionResult): string {
   const price = result.price?.toLocaleString() ?? '';
   switch (result.outcome) {
     case 'won':
@@ -772,7 +782,11 @@ function resultLine(result: BarAuctionResult): string {
     case 'lost':
       return `${result.winner ?? 'Somebody'} took them at ${price}. You were at ${result.yourFinal.toLocaleString()}.`;
     case 'passed':
-      return `You were highest at ${result.yourFinal.toLocaleString()} and could not take them, so they went to ${result.winner ?? 'the next bid'} at ${price}.`;
+      // Two stories: somebody further down took them, or nobody did. The second used to print
+      // "so they went to the next bid at ." with no name and no price.
+      return result.winner === null
+        ? `You were highest at ${result.yourFinal.toLocaleString()} and could not take them. Nobody behind you could either.`
+        : `You were at ${result.yourFinal.toLocaleString()} and could not take them, so they went to ${result.winner} at ${price}.`;
     case 'unsold':
       return `Nobody could take them. You were at ${result.yourFinal.toLocaleString()}.`;
   }

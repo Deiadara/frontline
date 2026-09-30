@@ -100,13 +100,11 @@ export async function barScene(h: Harness, cast: Cast): Promise<void> {
   const bRoom = await bar(h, b);
   if (!aRoom || !bRoom) return;
   h.check(aRoom.day === bRoom.day, 'two crews in one city see different days at the Bar');
-  // A crew's Charisma and Diplomacy widen the room (more seats), so one list is the other's prefix.
+  // One room for everybody in the city: the same eight people in the same chairs.
   const aIds = aRoom.recruits.map((one) => one.id);
   const bIds = bRoom.recruits.map((one) => one.id);
-  const shorter = aIds.length <= bIds.length ? aIds : bIds;
-  const longer = aIds.length <= bIds.length ? bIds : aIds;
   h.check(
-    shorter.every((id, index) => longer[index] === id),
+    JSON.stringify(aIds) === JSON.stringify(bIds),
     `two crews in one city see different people at the Bar: ${JSON.stringify(aIds)} and ${JSON.stringify(bIds)}`,
   );
   const tables = sharedTables(aRoom, bRoom);

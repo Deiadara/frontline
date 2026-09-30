@@ -51,6 +51,11 @@ const CASES = [
     url: '/api/market/offer',
     payload: { give: { resources: { scrap: 1 } }, want: { resources: { caps: 1 } } },
   },
+  {
+    area: 'black_market',
+    url: '/api/black-market/bid',
+    payload: { slotIndex: 0, goodId: 'anything', amount: 1 },
+  },
 ] as const;
 
 describe('a door the crew has not opened', () => {
@@ -79,5 +84,16 @@ describe('a door the crew has not opened', () => {
     });
     expect(bid.statusCode).toBe(403);
     expect(bid.json<{ error: { code: string } }>().error.code).toBe('AREA_LOCKED');
+  });
+
+  // The Battle page's Inventory tab reads the stash off this for every crew, rank or no rank.
+  it('still lets a crew below the back room read its shelf', async () => {
+    const { app, token } = await freshCrew();
+    const shelf = await app.inject({
+      method: 'GET',
+      url: '/api/black-market',
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(shelf.statusCode, shelf.body.slice(0, 200)).toBe(200);
   });
 });

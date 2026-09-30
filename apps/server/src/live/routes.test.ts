@@ -204,8 +204,6 @@ describe('the live channel over the wire', () => {
     // The mover has a crew; the watcher has only an account, which is enough to hold a tab open.
     const chosen = await chooseOverseer(stack.app, stack.token);
     const moverId = chosen.json<{ base: { id: string } }>().base.id;
-    // Scouting is a journey; the fixture wants the state, so the intel is written directly.
-    stack.app.repos.city.markScouted(moverId, 'chrome-row', new Date().toISOString());
     // §D7: calling a fight costs infamy and nobody starts with any. Fixture money for the one call.
     const purse = stack.app.repos.bases.findById(moverId)!.economy;
     stack.app.repos.bases.updateEconomy(moverId, { ...purse, infamy: DECLARE_INFAMY_COST });
@@ -321,5 +319,54 @@ describe('the live channel over the wire', () => {
       timeout: 5_000,
     });
     for (const req of held) req.destroy();
+  });
+
+  /*
+   * The stream is authenticated once, when it opens, and a tab holds it for as long as it likes.
+   * "Log out everywhere" and a token past its thirty days end every request, so they end this one
+   * too, or whoever holds the old token goes on hearing each time the account is written to.
+   */
+  /** Wrapped, so the frames still being read are not awaited along with the stream opening. */
+  async function openAndHold(stack: Stack): Promise<{ frames: Promise<string[]> }> {
+    const res = await fetch(`${stack.url}/events`, {
+      headers: { authorization: `Bearer ${stack.token}` },
+    });
+    const frames = readFrames(res.body!, 2, 1_000);
+    await vi.waitFor(() => expect(liveHub.isConnected(stack.userId)).toBe(true));
+    return { frames };
+  }
+
+  it('ends a stream whose session was ended since it opened', async () => {
+    const stack = await makeStack('revoked');
+    const { frames } = await openAndHold(stack);
+
+    const out = await stack.app.inject({
+      method: 'POST',
+      url: '/api/auth/logout-all',
+      headers: { authorization: `Bearer ${stack.token}` },
+    });
+    expect(out.statusCode).toBe(200);
+    liveHub.publish(stack.userId, 'message', new Date());
+
+    expect(liveHub.isConnected(stack.userId)).toBe(false);
+    const received = await frames;
+    expect(received.filter((frame) => frame.includes('event: message'))).toEqual([]);
+  });
+
+  it('ends a stream whose token ran out while it was open', async () => {
+    const stack = await makeStack('expired');
+    const { frames } = await openAndHold(stack);
+
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      vi.setSystemTime(Date.now() + 31 * 24 * 60 * 60 * 1000);
+      liveHub.publish(stack.userId, 'message', new Date());
+    } finally {
+      vi.useRealTimers();
+    }
+
+    expect(liveHub.isConnected(stack.userId)).toBe(false);
+    const received = await frames;
+    expect(received.filter((frame) => frame.includes('event: message'))).toEqual([]);
   });
 });

@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { MILESTONE_DEEP_POCKETS, isPlayerUnlockActive } from '../progression/unlocks.js';
 import { RESOURCE_KEYS, type ResourceKey, type Resources } from '../resources.js';
+import { effectiveMarketDiscount } from './discount.js';
 import { RESOURCE_CAP_VALUE, withoutFloatNoise } from './offers.js';
 
 /**
@@ -32,6 +33,16 @@ import { RESOURCE_CAP_VALUE, withoutFloatNoise } from './offers.js';
  * The allowance is **pooled across resources**, not one quota per line. A day of buying is a budget
  * a player spends where the shortage actually is, which is a decision; five separate quotas are
  * five errands.
+ *
+ * ## Counted in worth, not in units (maintainer, 2026-09-29)
+ *
+ * It was a count of units, and a unit of high-quality metal is worth 12 caps where a unit of
+ * supplies is worth 1.5. Buying the day's ration as metal and bartering it down at the Broker
+ * fitted four or five rations of cheap goods into one day. The ration is now caps' worth of goods
+ * at {@link RESOURCE_CAP_VALUE}: sized off the store in units as before, and turned into worth at
+ * the cheapest material's value ({@link SUPPLY_RATION_UNIT_VALUE}), so a day of supplies is the day
+ * it always was and one metal spends eight supplies' worth of it. The Broker keeps a cut on every
+ * trade, so nothing bought dear and bartered down can beat buying the cheap thing directly.
  */
 
 /** What may be bought. Every resource except the one you are paying with. */
@@ -73,16 +84,34 @@ export function supplyAllowancePercent(level: number): number {
     : share;
 }
 
+/** What one unit of the day's ration is worth: the cheapest material, so a unit of it spends one. */
+export const SUPPLY_RATION_UNIT_VALUE = RESOURCE_CAP_VALUE.supplies;
+
+/** Never less than one unit of the dearest material, so any line can be bought once. */
+const SUPPLY_RATION_FLOOR = Math.ceil(
+  Math.max(...SUPPLY_RESOURCES.map((key) => RESOURCE_CAP_VALUE[key])),
+);
+
 /**
- * How many units of material this crew may buy today, in total.
+ * How many caps' worth of material this crew may buy today, in total.
  *
- * Floored, because it is a count of things and the stockpile that receives it is whole units. Never
- * below one: a crew whose warehouse has been levelled to nothing can still buy a single scrap,
- * which is the difference between a bad day and a dead account.
+ * Floored to whole caps. Never below one unit of anything: a crew whose warehouse has been
+ * levelled to nothing can still buy a single scrap, which is the difference between a bad day and
+ * a dead account.
  */
 export function supplyAllowance(level: number, storageCapacity: number): number {
   const capacity = Math.max(0, Math.floor(storageCapacity));
-  return Math.max(1, Math.floor((capacity * supplyAllowancePercent(level)) / 100));
+  const units = (capacity * supplyAllowancePercent(level)) / 100;
+  return Math.max(
+    SUPPLY_RATION_FLOOR,
+    Math.floor(withoutFloatNoise(units * SUPPLY_RATION_UNIT_VALUE)),
+  );
+}
+
+/** What `units` of `key` spend of the day's ration: their worth, rounded up to whole caps. */
+export function supplyRationCost(key: ResourceKey, units: number): number {
+  const count = Math.max(0, Math.floor(units));
+  return Math.ceil(withoutFloatNoise(count * RESOURCE_CAP_VALUE[key]));
 }
 
 /**
@@ -94,15 +123,24 @@ export function supplyAllowance(level: number, storageCapacity: number): number 
 export const SUPPLY_MARKUP = 1.5;
 
 /**
+ * What one unit of `key` costs in caps, after the crew's market discount (`market/discount.ts`).
+ * The figure the stall quotes; an order is priced by {@link supplyPrice}, not by this times a count.
+ */
+export function supplyUnitPrice(key: ResourceKey, discountPercent = 0): number {
+  const kept = 1 - effectiveMarketDiscount(discountPercent) / 100;
+  return withoutFloatNoise(RESOURCE_CAP_VALUE[key] * SUPPLY_MARKUP * kept);
+}
+
+/**
  * What `units` of `key` costs in caps. Always a whole number, always at least one.
  *
  * Priced on the whole order and rounded once. Rounding a per-unit price instead would either make a
  * hundred supplies cost a hundred roundings of error or make single units free.
  */
-export function supplyPrice(key: ResourceKey, units: number): number {
+export function supplyPrice(key: ResourceKey, units: number, discountPercent = 0): number {
   const count = Math.max(0, Math.floor(units));
   if (count === 0) return 0;
-  return Math.max(1, Math.ceil(withoutFloatNoise(count * RESOURCE_CAP_VALUE[key] * SUPPLY_MARKUP)));
+  return Math.max(1, Math.ceil(withoutFloatNoise(count * supplyUnitPrice(key, discountPercent))));
 }
 
 /**
@@ -123,11 +161,12 @@ export function supplyAffordable(
   stock: Resources,
   allowanceLeft: number,
   capacity: number,
+  discountPercent = 0,
 ): number {
   const room = Math.max(0, capacity - stock[key]);
-  const perUnit = RESOURCE_CAP_VALUE[key] * SUPPLY_MARKUP;
-  const byCaps = Math.floor(withoutFloatNoise(stock.caps / perUnit));
-  return Math.max(0, Math.min(allowanceLeft, room, byCaps));
+  const byCaps = Math.floor(withoutFloatNoise(stock.caps / supplyUnitPrice(key, discountPercent)));
+  const byRation = Math.floor(withoutFloatNoise(allowanceLeft / RESOURCE_CAP_VALUE[key]));
+  return Math.max(0, Math.min(byRation, room, byCaps));
 }
 
 export const SUPPLY_REFUSALS = [
@@ -149,8 +188,10 @@ export interface SupplyOrder {
   key: ResourceKey;
   units: number;
   stock: Resources;
-  /** Units of the day's ration still unspent. */
+  /** Caps' worth of the day's ration still unspent. */
   allowanceLeft: number;
+  /** The crew's market discount, which the price is quoted after. */
+  discountPercent?: number;
 }
 
 /**
@@ -164,8 +205,10 @@ export function supplyRefusal(order: SupplyOrder): SupplyRefusal | null {
   if (order.key === 'caps') return 'not_a_resource';
   const units = Math.floor(order.units);
   if (units <= 0) return 'nothing_ordered';
-  if (units > order.allowanceLeft) return 'over_allowance';
-  if (supplyPrice(order.key, units) > order.stock.caps) return 'cannot_afford';
+  if (supplyRationCost(order.key, units) > order.allowanceLeft) return 'over_allowance';
+  if (supplyPrice(order.key, units, order.discountPercent) > order.stock.caps) {
+    return 'cannot_afford';
+  }
   return null;
 }
 
@@ -182,7 +225,10 @@ export const SupplyResourceSchema = z.enum(SUPPLY_RESOURCES);
 
 export const SupplyLineSchema = z.object({
   key: SupplyResourceSchema,
-  /** Caps for one unit, as quoted. The order price is `supplyPrice`, not this times the count. */
+  /**
+   * Caps for one unit, as quoted, after the crew's market discount. The order price is
+   * `supplyPrice`, not this times the count.
+   */
   capsPerUnit: z.number().positive(),
   /** The most the crew could take right now, all three limits considered. */
   most: z.number().int().nonnegative(),
@@ -193,9 +239,9 @@ export type SupplyLine = z.infer<typeof SupplyLineSchema>;
 
 /** The day's supply run, as the screen reads it. */
 export const SupplyBoardSchema = z.object({
-  /** Units of material the ration allows today. */
+  /** Caps' worth of material the ration allows today (see "Counted in worth" above). */
   allowance: z.number().int().nonnegative(),
-  /** How many of them are already spent. */
+  /** How much of it is already spent, in the same caps' worth. */
   used: z.number().int().nonnegative(),
   /** The share of a full store the ration is, at this level. */
   percent: z.number().int().positive(),
@@ -212,9 +258,11 @@ export function supplyBoard(
   bulkCapacity: number,
   used: number,
   capacityFor: (key: ResourceKey) => number,
+  discountPercent = 0,
 ): SupplyBoard {
   const allowance = supplyAllowance(level, bulkCapacity);
   const left = Math.max(0, allowance - Math.max(0, Math.floor(used)));
+  const discount = effectiveMarketDiscount(discountPercent);
   return {
     allowance,
     used: Math.max(0, Math.floor(used)),
@@ -226,8 +274,8 @@ export function supplyBoard(
         // No cast: `SupplyLine['key']` is derived from this very list now, so the two agree by
         // construction. The cast that used to sit here is what let the enum drift narrow unnoticed.
         key,
-        capsPerUnit: RESOURCE_CAP_VALUE[key] * SUPPLY_MARKUP,
-        most: supplyAffordable(key, stock, left, capacity),
+        capsPerUnit: supplyUnitPrice(key, discount),
+        most: supplyAffordable(key, stock, left, capacity, discount),
         capacity,
       };
     }),

@@ -87,3 +87,26 @@ describe('the unread bell', () => {
     expect(repos.social.unreadNotifications('user-1')).toBe(NOTIFICATION_KINDS.length);
   });
 });
+
+describe('saved notification settings', () => {
+  /*
+   * `battle_incoming` was retired on 2026-09-29. A player who had muted it has it in their saved
+   * list, and a list that fails its parse falls back to the defaults, which would quietly switch
+   * back on every other kind they had turned off.
+   */
+  it('drop a retired kind and keep the rest of the mutes', () => {
+    const { repos, db } = openStack();
+    repos.users.insert({
+      id: 'user-1',
+      username: 'Keeper',
+      passwordHash: 'x',
+      createdAt: new Date().toISOString(),
+    });
+    expect(NOTIFICATION_KINDS as readonly string[]).not.toContain('battle_incoming');
+    db.prepare('INSERT INTO notification_settings (user_id, muted_json) VALUES (?, ?)').run(
+      'user-1',
+      JSON.stringify(['battle_incoming', 'market_won', 'page_found']),
+    );
+    expect(repos.social.settings('user-1').muted).toEqual(['market_won', 'page_found']);
+  });
+});

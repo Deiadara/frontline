@@ -63,8 +63,12 @@ const engine: SkirmishEngine = {
   resolve: () => skirmishOutcome({ winner: 'attacker', log: ['x'] }),
 };
 
-async function makeStack(): Promise<Stack> {
-  const config = loadConfig({ DATABASE_PATH: ':memory:', JWT_SECRET: 'test-secret' });
+async function makeStack(admin = false): Promise<Stack> {
+  const config = loadConfig({
+    DATABASE_PATH: ':memory:',
+    JWT_SECRET: 'test-secret',
+    ADMIN: admin ? 'true' : 'false',
+  });
   const db = openDatabase(config.databasePath);
   runMigrations(db);
   const app = await buildApp({ config, db, skirmishEngine: engine, logger: false });
@@ -84,10 +88,6 @@ async function makeStack(): Promise<Stack> {
   const purse = app.repos.bases.findById(baseId)!.economy;
   app.repos.bases.updateEconomy(baseId, { ...purse, infamy: DECLARE_INFAMY_COST * 8 });
 
-  // Scouting is a journey now (`scouting/scouting.ts`), so the button no longer opens
-  // ground: it sends somebody who walks back hours later. A fixture wants the *state*,
-  // not the trip, so the intel is written directly.
-  app.repos.city.markScouted(baseId, 'steelbelt', new Date().toISOString());
   const control = app.repos.city.control(MINE);
   if (control) app.repos.city.put({ ...control, holder: { kind: 'crew', baseId }, garrison: {} });
 
@@ -223,6 +223,29 @@ describe('working a location up (§A4)', () => {
     const res = await upgrade(stack);
     expect(res.statusCode).toBe(409);
     expect(stack.app.repos.city.control(MINE)?.upgradingUntil).toBeNull();
+  });
+
+  /*
+   * Bug pass, 2026-09-29: the testing build waived every bill but this one, and the cancel handed
+   * back ninety percent of a price that had never been taken.
+   */
+  it('in admin mode, takes nothing for the work and hands nothing back', async () => {
+    const stack = await makeStack(true);
+    const broke = { caps: 0, supplies: 0, oil: 0, scrap: 0, highQualityMetal: 0, planks: 0 };
+    stack.app.repos.bases.updateResources(stack.baseId, broke);
+    const res = await upgrade(stack);
+    expect(res.statusCode, res.body.slice(0, 200)).toBe(200);
+    expect(stack.app.repos.city.control(MINE)?.upgradingUntil).not.toBeNull();
+    expect(stack.app.repos.bases.findById(stack.baseId)!.resources).toEqual(broke);
+
+    const cancelled = await stack.app.inject({
+      method: 'POST',
+      url: '/api/city/cancel-upgrade',
+      headers: auth(stack.token),
+      payload: { locationId: MINE, acceptWaste: true },
+    });
+    expect(cancelled.statusCode, cancelled.body.slice(0, 200)).toBe(200);
+    expect(stack.app.repos.bases.findById(stack.baseId)!.resources).toEqual(broke);
   });
 
   it('takes longer at each step, and longer on harder ground', () => {

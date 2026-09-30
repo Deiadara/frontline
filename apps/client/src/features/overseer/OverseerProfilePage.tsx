@@ -1,9 +1,8 @@
 import { PerkTags } from '../../components/PerkTags';
 import { DrawnRule } from '../../components/ui/DrawnMarks';
 import { InkButton } from '../../components/ui/InkButton';
-import { ScreenLoad } from '../../components/ui/LoadFailure';
 import { useCrewStanding } from '../../lib/queries';
-import { PageShell } from '../game/PageShell';
+import { PageShell, ScreenLoadSheet } from '../game/PageShell';
 import { AttributeSheet } from './AttributeSheet';
 import { OverseerPortrait } from './OverseerPortrait';
 import { PictureFrame } from './PictureFrame';
@@ -38,7 +37,7 @@ export function OverseerProfilePage() {
   const data = query.data;
   if (!data) {
     return (
-      <ScreenLoad
+      <ScreenLoadSheet
         what="Your file"
         loading="Reading the file…"
         isError={query.isError}

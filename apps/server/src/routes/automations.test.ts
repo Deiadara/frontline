@@ -5,6 +5,7 @@ import {
   unitsBeyondNotoriety,
   AUTOMATION_RUNGS,
   MISC_AREA_ID,
+  NO_RIGHT_HAND_TEXT,
   type MissionsResponse,
 } from '@frontline/shared';
 import type { FastifyInstance } from 'fastify';
@@ -13,6 +14,7 @@ import { buildApp } from '../app.js';
 import { loadConfig } from '../config.js';
 import { openDatabase, runMigrations, type AppDatabase } from '../db/index.js';
 import { chooseOverseer } from '../testing/overseer.js';
+import { holdEveryBoard } from '../testing/footholds.js';
 import { settleAutomations } from '../automations/runners.js';
 
 /**
@@ -62,7 +64,12 @@ const ORDER = { slot: 0, enabled: true, order: 'missions', force: { razors: 1 },
 /**
  * Somebody on the books to lead, because a slot with nobody free stalls before it reaches any of
  * the doors the tests below are about ("No officer is free to lead").
+ *
+ * The first is always the Right Hand: the orders are that chair's work, and with it empty the
+ * route refuses to switch one on and the runner stalls every slot (2026-09-29).
  */
+const SEATS = ['right_hand', ...OFFICER_ROLES.filter((role) => role !== 'right_hand')] as const;
+
 function withOfficers(app: FastifyInstance, baseId: string, count = 2): void {
   const base = app.repos.bases.findById(baseId);
   if (!base) throw new Error('no base');
@@ -70,7 +77,7 @@ function withOfficers(app: FastifyInstance, baseId: string, count = 2): void {
     baseId,
     Array.from({ length: count }, (_, index) =>
       // One chair each: the bench leads nothing (maintainer, 2026-09-28).
-      createCommander(`auto-off-${index + 1}`, `Officer ${index + 1}`, OFFICER_ROLES[index]!),
+      createCommander(`auto-off-${index + 1}`, `Officer ${index + 1}`, SEATS[index]!),
     ),
   );
 }
@@ -138,16 +145,16 @@ describe('reading and writing a standing order', () => {
     withOfficers(app, baseId);
     const base = app.repos.bases.findById(baseId)!;
     app.repos.bases.updateCommanders(baseId, [
-      { ...base.commanders[0]!, role: null },
-      base.commanders[1]!,
+      base.commanders[0]!,
+      { ...base.commanders[1]!, role: null },
     ]);
-    const refused = await save(app, token, { ...ORDER, officerId: 'auto-off-1' });
+    const refused = await save(app, token, { ...ORDER, officerId: 'auto-off-2' });
     expect(refused.statusCode, refused.body).toBe(409);
     expect(refused.json<{ error: { message: string } }>().error.message).toBe(
-      'Officer 1 is on the bench. Give them a chair first',
+      'Officer 2 is on the bench. Give them a chair first',
     );
     expect(app.repos.automations.get(baseId, 0)).toBeUndefined();
-    const off = await save(app, token, { ...ORDER, enabled: false, officerId: 'auto-off-1' });
+    const off = await save(app, token, { ...ORDER, enabled: false, officerId: 'auto-off-2' });
     expect(off.statusCode, off.body).toBe(200);
   });
 
@@ -177,9 +184,39 @@ describe('reading and writing a standing order', () => {
     expect((await save(app, token, { ...ORDER, slot: 1 })).statusCode).toBe(403);
   });
 
+  /**
+   * "Need the officer seated" (maintainer, 2026-09-29): the runner stalls every slot while nobody
+   * fit sits in the Right Hand's chair, so the door refuses to switch one on then, with the stall's
+   * own words. Switching one off is never refused.
+   */
+  it('refuses switching an order on with no Right Hand at work, and never switching one off', async () => {
+    const { app, token, baseId } = await crew();
+    grant(app, baseId, [AUTOMATION_RUNGS.open]);
+    withOfficers(app, baseId, 2);
+    const seated = app.repos.bases.findById(baseId)!.commanders;
+    const tomorrow = new Date(Date.now() + 86_400_000).toISOString();
+    const hurt = seated.map((one) =>
+      one.role === 'right_hand' ? { ...one, injuredUntil: tomorrow } : one,
+    );
+    const empty = seated.filter((one) => one.role !== 'right_hand');
+
+    for (const commanders of [hurt, empty]) {
+      app.repos.bases.updateCommanders(baseId, commanders);
+      const refused = await save(app, token, ORDER);
+      expect(refused.statusCode, refused.body).toBe(403);
+      expect(refused.json<{ error: { message: string } }>().error.message).toBe(NO_RIGHT_HAND_TEXT);
+      expect(app.repos.automations.get(baseId, 0)?.enabled ?? false).toBe(false);
+      expect((await save(app, token, { ...ORDER, enabled: false })).statusCode).toBe(200);
+    }
+
+    app.repos.bases.updateCommanders(baseId, seated);
+    expect((await save(app, token, ORDER)).statusCode).toBe(200);
+  });
+
   it('writes a slot the crew may hold, and reads it back', async () => {
     const { app, token, baseId } = await crew();
     grant(app, baseId, [AUTOMATION_RUNGS.open]);
+    withOfficers(app, baseId, 1);
     const written = await save(app, token, ORDER);
     expect(written.statusCode, written.body).toBe(200);
     const slots = written.json<{ slots: { slot: number; enabled: boolean; force: unknown }[] }>()
@@ -224,6 +261,7 @@ describe('the rest knob', () => {
     const chosen = await chooseOverseer(app, token);
     const baseId = chosen.json<{ base: { id: string } }>().base.id;
     grant(app, baseId, [AUTOMATION_RUNGS.open]);
+    withOfficers(app, baseId, 1);
     expect((await save(app, token, ORDER)).statusCode).toBe(200);
     const held = app.repos.automations.get(baseId, 0);
     if (!held) throw new Error('no slot');
@@ -254,6 +292,7 @@ describe("the board is the Right Hand's while an order is on", () => {
   it('refuses a manual launch while any slot is on, and allows it once all are off', async () => {
     const { app, token, baseId } = await crew();
     grant(app, baseId, [AUTOMATION_RUNGS.open]);
+    withOfficers(app, baseId, 1);
 
     const board = await app.inject({ method: 'GET', url: '/api/missions', headers: auth(token) });
     const read = board.json<MissionsResponse>();
@@ -274,6 +313,8 @@ describe("the board is the Right Hand's while an order is on", () => {
         payload: {
           templateId: offer.templateId,
           areaId: misc.id,
+          boardKey: offer.boardKey,
+          grade: offer.grade,
           force: { scavengers: 1 },
           leaderId,
         },
@@ -321,6 +362,8 @@ describe('a standing order obeys the same doors a player does', () => {
       payload: {
         templateId: offer.templateId,
         areaId: misc.id,
+        boardKey: offer.boardKey,
+        grade: offer.grade,
         force: { juggernauts: 1 },
         leaderId: read.leaders[0]?.id,
       },
@@ -356,6 +399,8 @@ describe('a standing order obeys the same doors a player does', () => {
     const base = app.repos.bases.findById(baseId)!;
     app.repos.bases.updateArmy(baseId, { razors: 40 }, base.trainingQueue);
     withOfficers(app, baseId);
+    // Boards to fill by hand: a district hires only a crew that holds a place in it.
+    holdEveryBoard(app.repos, baseId);
 
     const ceiling = concurrentMissionSlots(base.level);
     expect(ceiling, 'a fixture with no ceiling proves nothing').toBeGreaterThan(0);
@@ -379,6 +424,8 @@ describe('a standing order obeys the same doors a player does', () => {
         payload: {
           templateId: offer.templateId,
           areaId: area.id,
+          boardKey: offer.boardKey,
+          grade: offer.grade,
           force: { razors: 2 },
           leaderId: leaders[sent]?.id,
         },

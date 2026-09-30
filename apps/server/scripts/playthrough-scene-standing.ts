@@ -259,6 +259,8 @@ export async function automations(h: Harness, cast: Cast): Promise<void> {
       body: {
         templateId: job.offer.templateId,
         areaId: job.area.id,
+        boardKey: job.offer.boardKey,
+        grade: job.offer.grade,
         force: { scavengers: 1 },
         leaderId: overseer.id,
       },
@@ -359,13 +361,11 @@ export async function standings(h: Harness, cast: Cast): Promise<void> {
   });
   if (seen && own) {
     h.check(seen.isYou === false, 'C reading A is told it is A');
+    // The whole city is visible (maintainer, 2026-09-29): a reader who has never been to Ashfall
+    // reads the same holdings A reads on its own file.
     h.check(
-      seen.holdings.length + seen.hiddenHoldings === own.holdings.length + own.hiddenHoldings,
-      'two readers of one crew count a different number of holdings',
-    );
-    h.check(
-      seen.holdings.length === 0,
-      `C has never been to Ashfall and can see ${seen.holdings.length} of A's holdings`,
+      seen.holdings.length === own.holdings.length,
+      'two readers of one crew list a different number of holdings',
     );
   }
   await h.call({

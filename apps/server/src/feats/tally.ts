@@ -6,6 +6,7 @@ import {
   featMeasureKey,
   isCombineUnit,
   rarityOfPage,
+  unitSlotsUsed,
   type Army,
   type BattleFeatFacts,
   type FeatMeasure,
@@ -14,11 +15,14 @@ import {
   type LocationControl,
   type PartialResources,
   LONG_ODDS_CHANCE,
+  MARKET_DEAL_FLOOR_CAPS,
   fightCategory,
+  marketDay,
   type Grade,
 } from '@frontline/shared';
 import { forceSize } from '../battle/forces.js';
 import { controlsIn } from '../battle/ground.js';
+import { apportion } from '../battle/side.js';
 import type { TallyBump } from '../db/repos/feats.js';
 import type { Repositories } from '../db/repos/index.js';
 
@@ -223,6 +227,49 @@ export function tallyBattleResolved(
 }
 
 /**
+ * One side of a declared fight, credited to every crew that stood in its line (audit, 2026-09-28).
+ *
+ * The settle used to call {@link tallyBattleResolved} for the two principals only, so a faction ally
+ * who reinforced a fight was never in it as far as the board knew, and the kills their units made
+ * went to the crew that called it. Every crew with units in the line is credited the fight and the
+ * win, and the side's kills are split by the unit slots each crew put in (`apportion`). The
+ * principal is credited even with nobody in the line: a crew whose home was raided was in that
+ * fight whatever it had standing. `null` is the regime or the looters, who take their share of the
+ * kills and are counted for nothing.
+ */
+export function tallyBattleSide(
+  repos: Repositories,
+  side: {
+    attacked: boolean;
+    won: boolean;
+    kills: number;
+    districtId: string;
+    principal: string | null;
+    /** What each crew put in, from `lineByCrew`. */
+    line: ReadonlyMap<string | null, Army>;
+  },
+): void {
+  const weights = new Map([...side.line].map(([baseId, army]) => [baseId, unitSlotsUsed(army)]));
+  // A line with nobody in it has nothing to split by, so whatever it is owed is the principal's.
+  const kills = [...weights.values()].some((slots) => slots > 0)
+    ? apportion(side.kills, weights)
+    : new Map([[side.principal, side.kills]]);
+  const crews = new Set([
+    side.principal,
+    ...[...side.line].filter(([, army]) => forceSize(army) > 0).map(([baseId]) => baseId),
+  ]);
+  for (const baseId of crews) {
+    if (baseId === null) continue;
+    tallyBattleResolved(repos, baseId, {
+      attacked: side.attacked,
+      won: side.won,
+      kills: kills.get(baseId) ?? 0,
+      districtId: side.districtId,
+    });
+  }
+}
+
+/**
  * Whether that fight was in a city this crew does not live in (2026-09-24).
  *
  * Decided here rather than at the settle, which is the rule this whole module is built on: the
@@ -251,10 +298,11 @@ function foughtAbroad(
 /**
  * A unit move or a battle column that took the train (maintainer, 2026-09-24).
  *
- * Counted when the ride is **chosen**, not when it arrives, for the same reason `tallyDeployed`
- * counts at the muster: the feat is about the decision, and a column recalled halfway still rode.
- * Missions and scouting runs never ride and so never reach here, and neither does a party carrying
- * vehicles or the Colossus, which `partyCanRide` refuses outright.
+ * Counted when the ride **arrives** where it was sent, not when it is chosen (audit, 2026-09-28).
+ * Counting the choice let a crew put a column on the train, turn it round in its first tenth and
+ * have it home in seconds, a journey banked per press with nothing ridden. Missions and spy jobs
+ * never ride and so never reach here, and neither does a party carrying vehicles or the Colossus,
+ * which `partyCanRide` refuses outright.
  */
 export function tallyRailJourney(repos: Repositories, baseId: string): void {
   record(repos, baseId, [one('rail_journeys')]);
@@ -305,10 +353,15 @@ export function tallyDistrictRaid(
   record(repos, baseId, [one(outcome === 'forced' ? 'districts_raided' : 'raids_repelled')]);
 }
 
-/** What a trap took before contact, counted for the crew that laid it rather than for the side. */
+/**
+ * What a trap took before contact, counted for the crew that laid it rather than for the side: on
+ * the trap ladder and as kills. The side's kills are split by the slots each crew put in the line,
+ * and a trap is not in the line, so an ally's trap used to pay its `kills` to the principal (bug
+ * pass, 2026-09-29). The settle takes these off the side's figure before it splits it.
+ */
 export function tallyTrapKills(repos: Repositories, baseId: string, killed: number): void {
   if (killed <= 0) return;
-  record(repos, baseId, [by('trap_kills', killed)]);
+  record(repos, baseId, [by('trap_kills', killed), by('kills', killed)]);
 }
 
 /** Gate levels a Colossus knocked down, counted for the crew that called the fight. */
@@ -326,10 +379,12 @@ export function tallyRunnersCaught(repos: Repositories, baseId: string, caught: 
 /**
  * Units and unit slots committed to a declared fight.
  *
- * Counted when the muster is **sent**, not when the fight resolves, because that is when the crew
- * made the decision the feat is about and because a fight that is later called off still cost them
- * the commitment. Deliberately gross: adding to a muster twice counts twice, which is right, since
- * the feat asks how much has ever been put on the ground.
+ * Counted when the column **lands** on the fight's ground (`battle/movement.ts`), not when it is
+ * sent and not when the fight resolves (audit, 2026-09-28). Counted at the send, a column recalled
+ * in its first tenth walks home in the seconds it had spent, and deploy-then-recall banked four
+ * thousand of each in twenty presses with no fight anywhere. Landing is still before the fight, so
+ * a fight later called off keeps what was put on its ground. Deliberately gross: a crew that
+ * withdrew and sent the same units again did put them on the ground twice.
  */
 export function tallyDeployed(
   repos: Repositories,
@@ -342,13 +397,20 @@ export function tallyDeployed(
   ]);
 }
 
-/** Ground changing hands, counted for whoever took it. */
-export function tallyCaptured(
-  repos: Repositories,
-  baseId: string,
-  what: 'location' | 'gate',
-): void {
-  record(repos, baseId, [one(what === 'gate' ? 'gates_captured' : 'locations_captured')]);
+/** A location changing hands, counted for whoever took it: in a fight, or by walking onto it. */
+export function tallyCaptured(repos: Repositories, baseId: string): void {
+  record(repos, baseId, [one('locations_captured')]);
+}
+
+/**
+ * A gate fight won, counted for the crew that called it.
+ *
+ * A breach and not a capture: winning at a gate breaks it for `GATE_BREACH_HOURS` and opens the
+ * district behind it to a raid, and nobody holds the gate afterwards. The measure was called
+ * `gates_captured` and its ladder promised a door that answered to you, which the game never did.
+ */
+export function tallyGateBreached(repos: Repositories, baseId: string): void {
+  record(repos, baseId, [one('gates_breached')]);
 }
 
 /** Units out of the drill yard, counted per unit rather than per order. */
@@ -389,27 +451,75 @@ export function tallyVehicleBuilt(repos: Repositories, baseId: string, count = 1
   record(repos, baseId, [by('vehicles_built', count)]);
 }
 
-/** A listing of this crew's taken off the board. The seller's side of a deal. */
-export function tallyMarketSale(repos: Repositories, baseId: string): void {
-  record(repos, baseId, [one('market_sales')]);
-}
+/**
+ * Who was on the other side of a deal: another crew, or one of the house's three counters, each of
+ * which is one counterparty however many times a crew goes back to it.
+ */
+export type DealCounterparty = 'broker' | 'supplier' | 'runner' | { baseId: string };
 
-/** Anything bought: a listing taken, a supply run, a barter with the Broker, a lot won. */
-export function tallyMarketBuy(repos: Repositories, baseId: string): void {
-  record(repos, baseId, [one('market_buys')]);
+/**
+ * One deal on the market, from one crew's side of it: a listing of theirs taken (`sale`), or
+ * anything bought, which is a listing taken, a supply run, a barter with the Broker or a lot won.
+ *
+ * Two rules, both decided here rather than at the four doors (audit, 2026-09-28):
+ *
+ *   * **It has to be a real deal.** Worth at least `MARKET_DEAL_FLOOR_CAPS` on its smaller side
+ *     (`dealValue`), so a ten-scrap barter or a one-scrap listing is a trade and not a rung.
+ *   * **Once per counterparty per market day.** Two accounts washing a listing back and forth, or one
+ *     crew pressing the Broker all afternoon, count once a day each. With at most
+ *     `OVERSEER_POOL_SIZE` crews in the world, that bounds a day's sales at one per other crew and
+ *     its buys at three more, which is the rate `catalog.test.ts` holds both ladders' top rungs to.
+ */
+export function tallyMarketDeal(
+  repos: Repositories,
+  baseId: string,
+  deal: {
+    side: 'buy' | 'sale';
+    counterparty: DealCounterparty;
+    /** `dealValue` of the two sides, in caps. */
+    worth: number;
+    now: Date;
+  },
+): void {
+  if (deal.worth < MARKET_DEAL_FLOOR_CAPS) return;
+  const measure = deal.side === 'buy' ? 'market_buys' : 'market_sales';
+  try {
+    const first = repos.feats.firstDealOfDay(
+      baseId,
+      measure,
+      typeof deal.counterparty === 'string' ? deal.counterparty : deal.counterparty.baseId,
+      marketDay(deal.now),
+    );
+    if (!first) return;
+  } catch {
+    // Best-effort like every counter here: a failed dedupe write costs a feat reading, not a trade.
+    return;
+  }
+  record(repos, baseId, [one(measure)]);
 }
 
 export function tallyContrabandTaken(repos: Repositories, baseId: string): void {
   record(repos, baseId, [one('contraband_taken')]);
 }
 
-export function tallyScoutingRun(repos: Repositories, baseId: string): void {
-  record(repos, baseId, [one('scouting_runs')]);
-}
-
 /** A spy report that stood: one under the floor is caps spent, not a report. */
 export function tallySpyReport(repos: Repositories, baseId: string): void {
   record(repos, baseId, [one('spy_reports')]);
+}
+
+/** A spy job home with a report, stood or failed. A job turned round writes none and is not one. */
+export function tallySpyJobReturned(repos: Repositories, baseId: string): void {
+  record(repos, baseId, [one('spy_jobs_returned')]);
+}
+
+/** A job home on a crew's ground that the crew never knew about. */
+export function tallySpyJobUnnoticed(repos: Repositories, baseId: string): void {
+  record(repos, baseId, [one('spy_jobs_unnoticed')]);
+}
+
+/** A report the Turned Runners courier brought in. */
+export function tallyCourierReport(repos: Repositories, baseId: string): void {
+  record(repos, baseId, [one('courier_reports')]);
 }
 
 /**

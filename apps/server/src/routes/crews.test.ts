@@ -53,9 +53,8 @@ async function player(app: FastifyInstance, username: string, presetId = 'enforc
   /*
    * The character is pinned after the pick rather than asked for in the payload.
    *
-   * §F6 offers an account four of thirty and nobody can name one, but this file reads an
-   * Overseer's archetype off a crew file and reads holdings through fog, and two of the thirty
-   * signatures move exactly that: +2 districts of vision decides what the fogged case can see.
+   * §F6 offers an account four of thirty and nobody can name one, and this file reads an
+   * Overseer's archetype off a crew file.
    */
   pinOverseer(app, token, presetId);
   const me = await app.inject({ method: 'GET', url: '/api/me', headers: auth(token) });
@@ -114,7 +113,7 @@ describe('GET /crews/:id', () => {
   });
 
   /**
-   * §F2: the sheet, the stockpile and the roster are what scouting exists to make hard to read.
+   * §F2: the sheet, the stockpile and the roster are what spying exists to make hard to read.
    * Asserted on the serialised body rather than on the type, because a projection that spread a
    * `Base` into the response would typecheck against a schema that merely does not *mention* the
    * extra keys.
@@ -137,89 +136,46 @@ describe('GET /crews/:id', () => {
     }
   });
 
-  it('lists what they hold only on ground the reader has walked, and counts the rest', async () => {
+  /** The whole city is visible (maintainer, 2026-09-29), so the file lists every hold there is. */
+  it('lists everything they hold, wherever it is', async () => {
     const me = await player(app, 'reader');
     const them = await player(app, 'rival');
-    const reader = app.repos.bases.findByOwnerId(me.userId);
-    if (!reader) throw new Error('fixture error: the reader has no base');
+    const far = CITY_DISTRICTS.filter((district) => district.kind === 'contested').at(-1)!;
+    const locationId = hand(app, them.baseId, far.id);
 
-    // Somewhere the reader cannot see into yet. Chosen from the fog rather than hard-coded, since
-    // which ground a new crew starts with open is decided by the map's geography.
-    const seen = app.repos.city.visibleDistricts(reader.id);
-    const dark = CITY_DISTRICTS.find(
-      (district) => district.kind === 'contested' && !seen.has(district.id),
-    );
-    if (!dark) throw new Error('fixture error: the reader can already see the whole city');
-    const locationId = hand(app, them.baseId, dark.id);
-
-    const fogged = (await file(app, me.token, them.baseId)).json<CrewProfileResponse>();
-    expect(fogged.holdings.map((hold) => hold.locationId)).not.toContain(locationId);
-    expect(fogged.hiddenHoldings).toBe(1);
-
-    app.repos.city.markScouted(reader.id, dark.id, new Date().toISOString());
-    const walked = (await file(app, me.token, them.baseId)).json<CrewProfileResponse>();
-    expect(walked.holdings.map((hold) => hold.locationId)).toContain(locationId);
-    expect(walked.hiddenHoldings).toBe(0);
-    const hold = walked.holdings.find((entry) => entry.locationId === locationId);
-    expect(hold?.districtName).toBe(dark.name);
+    const theirs = (await file(app, me.token, them.baseId)).json<CrewProfileResponse>();
+    expect(theirs.holdings.map((hold) => hold.locationId)).toContain(locationId);
+    const hold = theirs.holdings.find((entry) => entry.locationId === locationId);
+    expect(hold?.districtName).toBe(far.name);
   });
 
   /**
-   * The fog covers their street and their whole districts too, not only the location rows.
+   * Their street and their whole districts, too: a structure is a building anybody walking past
+   * can see, and who holds a district end to end is on the map.
    *
-   * Both came out unfogged at first, and the review that caught it was right about why it
-   * matters: the district screen only ever shows what is standing on a plot once it is scouted,
-   * and a Gate level is a §B7 counter-intel figure. `hiddenHoldings` says "there is more" without
-   * saying where, and a whole district named under "held end to end" said where.
+   * The seeded neighbour rather than a second registered player, because the house crew lives on
+   * its own known ground with buildings standing. Seeded *before* the reader registers, and that
+   * order is load-bearing: the house crews hold `fixer`, `enforcer` and `technocrat`
+   * (`seed/constants.ts`), §F6 makes a character one account's for the whole world, and
+   * `seedStep` reads the unique-index failure that follows from a player having taken one as
+   * "already seeded" and leaves the neighbour out of the world.
    */
-  it('keeps their street and their whole districts behind the fog as well', async () => {
-    /*
-     * The seeded neighbour rather than a second registered player: this was written when every new
-     * crew was planted on the same starter plot, so a registered rival lived on the reader's own
-     * street, which is always in sight, and a registered rival's plot is now a random draw. The
-     * house crew lives on its own known ground, and the admin fog makes that definitely dark, which
-     * is the case under test.
-     *
-     * Seeded *before* the reader registers, and that order is load-bearing. The house crews hold
-     * `fixer`, `enforcer` and `technocrat` (`seed/constants.ts`), §F6 makes a character one
-     * account's for the whole world, and `seedStep` reads the unique-index failure that follows
-     * from a player having taken one as "already seeded" and leaves the neighbour out of the
-     * world. Registering first made this case fail on a missing rival about one run in five.
-     */
+  it('shows their street and the districts they hold whole', async () => {
     await seedMvpWorld({ db: app.db, repos: app.repos });
     const me = await player(app, 'reader');
-    const reader = app.repos.bases.findByOwnerId(me.userId);
-    if (!reader) throw new Error('fixture error: the reader has no base');
     const rival = app.repos.bases.findBotByDistrictId(BOT_DISTRICT_ID);
     if (!rival) throw new Error('fixture error: the seeded neighbour is missing');
-    expect(rival.districtId).not.toBe(reader.districtId);
-    app.repos.city.setAdminFog(reader.id, rival.districtId, true);
-    const seen = app.repos.city.visibleDistricts(reader.id);
-    const dark = CITY_DISTRICTS.find(
-      (district) => district.kind === 'contested' && !seen.has(district.id),
-    );
-    if (!dark) throw new Error('fixture error: the reader can already see the whole city');
-    for (const location of dark.locations) {
+    const whole = CITY_DISTRICTS.filter((district) => district.kind === 'contested').at(-1)!;
+    for (const location of whole.locations) {
       const control = app.repos.city.control(location.id);
       if (!control) throw new Error(`fixture error: ${location.id} has no control row`);
       app.repos.city.put({ ...control, holder: { kind: 'crew', baseId: rival.id }, garrison: {} });
     }
 
-    const fogged = (await file(app, me.token, rival.id)).json<CrewProfileResponse>();
-    expect(fogged.home.seen).toBe(false);
-    expect(fogged.home.buildings).toEqual([]);
-    expect(fogged.districtsHeldWhole).toEqual([]);
-    expect(fogged.hiddenHoldings).toBe(dark.locations.length);
-    expect(JSON.stringify(fogged)).not.toContain(dark.name);
-
-    app.repos.city.setAdminFog(reader.id, rival.districtId, false);
-    app.repos.city.markScouted(reader.id, rival.districtId, new Date().toISOString());
-    app.repos.city.markScouted(reader.id, dark.id, new Date().toISOString());
-    const walked = (await file(app, me.token, rival.id)).json<CrewProfileResponse>();
-    expect(walked.home.seen).toBe(true);
-    expect(walked.home.buildings.length).toBeGreaterThan(0);
-    expect(walked.districtsHeldWhole.map((district) => district.districtId)).toEqual([dark.id]);
-    expect(walked.hiddenHoldings).toBe(0);
+    const theirs = (await file(app, me.token, rival.id)).json<CrewProfileResponse>();
+    expect(theirs.home.buildings.length).toBeGreaterThan(0);
+    expect(theirs.districtsHeldWhole.map((district) => district.districtId)).toEqual([whole.id]);
+    expect(theirs.holdings).toHaveLength(whole.locations.length);
   });
 
   it('quotes the rank the standings would give them', async () => {
@@ -270,13 +226,15 @@ describe('who holds a location, on the district read', () => {
   it('names the player behind a crew, and nobody behind the looters', async () => {
     const me = await player(app, 'reader');
     const them = await player(app, 'rival');
-    const reader = app.repos.bases.findByOwnerId(me.userId);
-    if (!reader) throw new Error('fixture error: the reader has no base');
-    const seen = app.repos.city.visibleDistricts(reader.id);
+    // Somewhere the looters stand too, so both halves of the naming rule are on one read.
     const open = CITY_DISTRICTS.find(
-      (district) => district.kind === 'contested' && seen.has(district.id),
+      (district) =>
+        district.kind === 'contested' &&
+        district.locations.filter(
+          (one) => app.repos.city.control(one.id)?.holder.kind === 'looters',
+        ).length > 1,
     );
-    if (!open) throw new Error('fixture error: the reader starts with no ground open');
+    if (!open) throw new Error('fixture error: no district with two looter plots');
     const locationId = hand(app, them.baseId, open.id);
 
     const detail = (

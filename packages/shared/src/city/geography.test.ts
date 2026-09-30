@@ -1,12 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { ALL_DISTRICTS, TERMINUS_CITY_ID, districtsOfCity, findDistrict } from './atlas.js';
-import { DEFAULT_CITY_ID } from './cities.js';
+import { ALL_DISTRICTS, findDistrict } from './atlas.js';
 import {
   INTER_CITY_MINUTES,
   MIN_TRAVEL_MINUTES,
   TRAVEL_MINUTES_PER_MAP_UNIT,
   mapDistance,
-  nearestDistricts,
   rawMinutesBetween,
   travelMinutesBetween,
 } from './geography.js';
@@ -17,8 +15,7 @@ import {
  * A position is normalised 0 to 1 inside its own city, so the three cities are printed on top of
  * one another and the distance between two of them is not a distance. `rawMinutesBetween` answers
  * that with a frontier term; what is pinned here is that the term is the whole of the difference,
- * that it is the same in both directions, and that vision stops at the city line rather than
- * ranking ground in another city by an overlap that means nothing.
+ * and that it is the same in both directions.
  */
 
 const at = (id: string) => {
@@ -86,35 +83,5 @@ describe('the road between two cities', () => {
     // every channel a road reads is spent on it, the frontier term included.
     expect(quick).toBeLessThan(plain / 2);
     expect(quick).toBeGreaterThanOrEqual(MIN_TRAVEL_MINUTES);
-  });
-});
-
-describe('what a mast can see', () => {
-  it('stops at the city line, wherever the crew is standing', () => {
-    for (const cityId of [DEFAULT_CITY_ID, TERMINUS_CITY_ID]) {
-      const districts = districtsOfCity(cityId);
-      expect(districts.length).toBeGreaterThan(1);
-      for (const from of districts) {
-        // More than the city holds, so a leak from another city would have room to show up.
-        const seen = nearestDistricts(from.id, ALL_DISTRICTS.length);
-        expect(
-          seen.every((one) => one.cityId === cityId),
-          from.id,
-        ).toBe(true);
-        expect(seen.some((one) => one.id === from.id)).toBe(false);
-        // And the whole of its own city is reachable, so the scoping is a line and not a cap.
-        expect(seen.length).toBe(districts.length - 1);
-      }
-    }
-  });
-
-  it('ranks by the map and breaks ties on the id, so the fog does not flicker', () => {
-    const seen = nearestDistricts('kettle-row', 4);
-    const home = at('kettle-row');
-    const spans = seen.map((one) => mapDistance(home.position, one.position));
-    expect([...spans].sort((a, b) => a - b)).toEqual(spans);
-    expect(nearestDistricts('kettle-row', 4).map((one) => one.id)).toEqual(
-      seen.map((one) => one.id),
-    );
   });
 });

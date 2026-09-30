@@ -3,7 +3,6 @@ import {
   LEADER_HOLD_MESSAGES,
   buildBoostOilCost,
   cancelRefund,
-  scoutRecalledReturnsAt,
   auctionPhaseAt,
   nextLotBid,
   DEFAULT_CITY_ID,
@@ -32,7 +31,6 @@ import {
   type CrewOfficer,
   type CrewResponse,
   type ResearchResponse,
-  type ScoutingRunView,
   type SettingsResponse,
   type CityResponse,
   type DistrictDetailResponse,
@@ -171,6 +169,51 @@ export async function settleFonts(page: Page): Promise<void> {
  * Capped, because a runaway page (an infinite scroller, a layout loop) should fail the test rather
  * than allocate a 200,000px window.
  */
+/**
+ * No element may stick out of the viewport horizontally.
+ *
+ * The check `visual.spec.ts` runs, less anything inside a sideways scroller, which is reachable
+ * rather than cut. Shared by the specs outside that matrix that need it. `[data-scenery]`
+ * opts one element out and never its subtree: full-bleed artwork is deliberately wider than the
+ * frame, and what stands on it is still content.
+ */
+export async function expectNothingClippedHorizontally(page: Page): Promise<void> {
+  const offenders = await page.evaluate<string[]>(() => {
+    /*
+     * An element lying past the fold *inside a sideways scroller* is reachable, not cut.
+     *
+     * Both of this sweep's first two reports were that: the build rail is `overflow-x-auto` and
+     * runs six orders across a box 860px wide, and the missions board's body scrolls below `xl`.
+     * The scroller's own box still has to be inside the frame, which is the part worth checking,
+     * so what is skipped is a descendant of one and never the scroller itself.
+     */
+    const reachable = (el: HTMLElement): boolean => {
+      for (let node = el.parentElement; node !== null; node = node.parentElement) {
+        const how = getComputedStyle(node).overflowX;
+        if (how !== 'auto' && how !== 'scroll') continue;
+        if (node.scrollWidth <= node.clientWidth + 1) continue;
+        const box = node.getBoundingClientRect();
+        if (box.right <= window.innerWidth + 1 && box.left >= -1) return true;
+      }
+      return false;
+    };
+    const bad: string[] = [];
+    for (const el of Array.from(document.body.querySelectorAll<HTMLElement>('*'))) {
+      const rect = el.getBoundingClientRect();
+      if (rect.width === 0 || rect.height === 0) continue;
+      const style = getComputedStyle(el);
+      if (style.visibility === 'hidden' || style.position === 'fixed') continue;
+      if (el.hasAttribute('data-scenery')) continue;
+      if (rect.right > window.innerWidth + 1 || rect.left < -1) {
+        if (reachable(el)) continue;
+        bad.push(`${el.tagName.toLowerCase()}.${el.className} [${rect.left}..${rect.right}]`);
+      }
+    }
+    return bad.slice(0, 5);
+  });
+  expect(offenders, `elements outside the viewport: ${offenders.join(' | ')}`).toEqual([]);
+}
+
 /**
  * Nothing on the screen is wider or taller than the screen.
  *
@@ -525,7 +568,7 @@ export async function expectNoImagesClipped(page: Page, root = 'body'): Promise<
  * bench: no location is being worked, no gate raised, and the one drill is twenty minutes into
  * its hour. A cancel spec needs each of those *inside its first tenth*, and a spec routing the
  * read itself could not then watch the harness's own cancel handler clear it. So the install
- * takes them in, models them the way it models `scoutingRun`, and each handler below refunds
+ * takes them in, models them per install, and each handler below refunds
  * what the spec says was paid and drops the work on the next read.
  */
 export interface UnderWay {
@@ -628,16 +671,6 @@ export async function installApi(
    * let go by an earlier run of itself. A copy per `installApi` is what makes each spec's writes
    * its own.
    */
-  /*
-   * The scouting run this crew has out, if any.
-   *
-   * Per install and mutable for the same reason the roster is: sending a scout is a *write*, and
-   * the client invalidates the district and reads it again straight afterwards. A fixture that
-   * answered the write with a run and the next read without one would flip the panel back to
-   * "send somebody" a frame later, and a test could not tell that from the button doing nothing.
-   */
-  let scoutingRun: ScoutingRunView | null = null;
-
   const roster: CrewResponse = structuredClone(
     (meResponse.base?.level ?? 1) > 1 ? crewFat : crewStart,
   );
@@ -797,12 +830,9 @@ export async function installApi(
     /*
      * The map, of whichever city was asked for.
      *
-     * `?city=` is honoured here rather than ignored, because the map is the one read whose *answer*
-     * decides what the screen does next: a tag opens the district page or the scout sheet
-     * depending on the fog it finds, so a harness that served the home city's map for an away city
-     * would have every away tag taking the wrong branch, which is the bug this fixture exists to
-     * catch. `cityState` is this install's own copy and carries the gate work a spec put under way,
-     * so the crew's own city still answers from it.
+     * `?city=` is honoured here rather than ignored, so an away map draws the away city's
+     * holdings rather than the home city's. `cityState` is this install's own copy and carries the
+     * gate work a spec put under way, so the crew's own city still answers from it.
      */
     if (pathname.endsWith('/api/city')) {
       const asked = searchParams.get('city');
@@ -915,61 +945,10 @@ export async function installApi(
     // §A4: the city writes all answer with the district they touched, so one handler covers them.
     // `/api/city/attack` and `/api/city/raid` used to need their own line here, because they
     // answered with a battle report; they are gone with the instant fight they resolved.
-    if (
-      pathname.endsWith('/api/city/scout') ||
-      // §A4: working a location up. Without a line here it fell through to the district read
-      // below and answered a POST with a district, which is a 200 that changes nothing.
-      pathname.endsWith('/api/city/upgrade')
-    ) {
-      /*
-       * §A4: sending a scout does not open the ground, it starts a walk.
-       *
-       * The fixture answers the send with the same district still dark and a run under way, which
-       * is what the server does. Answering with open ground would let a test press the button and
-       * watch the fog lift, which is the old instant scout, and the whole point of the rework is
-       * that it does not do that any more.
-       */
-      if (pathname.endsWith('/api/city/scout')) {
-        const body = route.request().postDataJSON() as { districtId: string };
-        const detail = districtDetailFor(body.districtId);
-        scoutingRun = {
-          districtId: body.districtId,
-          districtName: detail.district.name,
-          officerId: 'off-3',
-          officerName: 'Vela',
-          departedAt: new Date().toISOString(),
-          returnsAt: new Date(Date.now() + 214 * 60_000).toISOString(),
-          // Forty-seven minutes' walk each way, two hours on the ground: the walk is what a
-          // recall can undo, so it is stored rather than read back off the mark.
-          travelMinutes: 47,
-          recalledAt: null,
-        };
-        return json({
-          district: { ...detail, scoutPlan: null, scoutingRun },
-          base: meResponse.base ?? baseDetail.base,
-        });
-      }
+    // §A4: working a location up. Without a line here it fell through to the district read below
+    // and answered a POST with a district, which is a 200 that changes nothing.
+    if (pathname.endsWith('/api/city/upgrade')) {
       return json({ district: districtDetail, base: meResponse.base ?? baseDetail.base });
-    }
-    /*
-     * Turning the scout round: no bill to refund, so what comes back is time. They are home as
-     * far off as they have come (`scoutRecalledReturnsAt`, the server's own arithmetic) and the
-     * ground stays shut, which the panel reads off `recalledAt`.
-     */
-    if (pathname.endsWith('/api/city/scout/recall')) {
-      if (scoutingRun === null) {
-        return json({ error: { code: 'CONFLICT', message: 'Nobody is out' } }, 409);
-      }
-      const now = new Date();
-      scoutingRun = {
-        ...scoutingRun,
-        recalledAt: now.toISOString(),
-        returnsAt: scoutRecalledReturnsAt(scoutingRun, now).toISOString(),
-      };
-      return json({
-        district: { ...detailFor(scoutingRun.districtId), scoutPlan: null, scoutingRun },
-        base: session.base ?? baseDetail.base,
-      });
     }
     // Calling a location's work off: the work the spec put under way comes off the sheet and
     // ninety percent of what it says was paid comes back.
@@ -983,9 +962,7 @@ export async function installApi(
       return json({ district: detailFor(work.districtId), base: refund(work.paid) });
     }
     if (pathname.includes('/api/city/')) {
-      const detail = detailFor(pathname.split('/').filter(Boolean).pop() ?? '');
-      // A run under way outlives the write that started it, so the panel stays on the countdown.
-      return json(scoutingRun === null ? detail : { ...detail, scoutingRun, scoutPlan: null });
+      return json(detailFor(pathname.split('/').filter(Boolean).pop() ?? ''));
     }
     /*
      * §A4: the road. `recall` answers with the list minus the column it was given, so a run can
@@ -1415,7 +1392,6 @@ export async function installApi(
     // snapshot is what puts the Console door in the nav for these runs.
     if (pathname.endsWith('/api/admin')) return json(adminSnapshot);
     if (pathname.endsWith('/api/admin/knobs')) return json({ admin: adminSnapshot });
-    if (pathname.endsWith('/api/admin/fog')) return json({ admin: adminSnapshot });
     if (pathname.endsWith('/api/admin/mock-battle')) return json({ admin: adminSnapshot });
     /*
      * §B9: the Scrapyard's own page.
@@ -1695,8 +1671,8 @@ export async function expectSheetNotWashedOut(
  * The board's arrows stop at the ends of the list rather than rolling round (see `StepArrow`), so
  * the specs that used to press `board-right` a fixed dozen times and rely on the wrap to sweep
  * every board would now click a disabled button and time out on the last one. This steps right
- * while there is anywhere right to go, which visits each area exactly once whatever the day's
- * scouting left open.
+ * while there is anywhere right to go, which visits each area exactly once whatever boards the
+ * fixture has open.
  *
  * `look` returning true stops the walk and is reported back, so a caller can say "find me the
  * board with X on it" and know whether it found one.

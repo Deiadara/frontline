@@ -6,10 +6,9 @@ import { liveHub } from './hub.js';
  * Which shared-world nudge a successful write sends to every open tab (maintainer request, 2026-09-11).
  *
  * One table over the route prefixes rather than a `liveHub.broadcast` line in each of thirty
- * handlers, for the reason the fog is enforced in one function: a write that changes the shared
- * world and forgets to say so is a bug two players notice as two different maps, and a table a
- * new route falls into by its prefix cannot forget. What is *not* here is deliberate: scouting,
- * building, training, research and the crew's own file change nothing another player can see, and
+ * handlers: a write that changes the shared world and forgets to say so is a bug two players
+ * notice as two different maps, and a table a new route falls into by its prefix cannot forget.
+ * What is *not* here is deliberate: spying, building, training, research and the crew's own file change nothing another player can see, and
  * the sender's own tabs already learn of those through the write's response and the `base` kind.
  *
  * Only a **successful** write broadcasts (see the hook below). A refusal changed nothing, so

@@ -1,19 +1,17 @@
 import { BLUEPRINTS } from '../blueprints/catalog.js';
 import { BUILDING_KINDS } from '../building/kinds.js';
-import { SYNDIC_ARMOR, SYNDIC_PENETRATION } from '../city/combine.js';
+import { EXECUTIONER_THRESHOLD, SYNDIC_ARMOR, SYNDIC_PENETRATION } from '../city/combine.js';
 import { MISC_AREA_ID } from '../missions.areas.js';
 import {
   CHAPEL_LOCATIONS,
   COMBINE_DISTRICTS,
   PLAYABLE_CITY_COUNT,
   PLAYABLE_CONTESTED,
-  PLAYABLE_DISTRICTS,
   RAIL_STATIONS,
-  SMALLEST_CITY_DISTRICTS,
 } from './world.js';
 import { markIndex } from '../crew/marks.js';
 import type { FeatSpec } from './feats.js';
-import type { FeatEra, FeatReward, FeatSize } from './rewards.js';
+import { featRewardValue, type FeatEra, type FeatReward, type FeatSize } from './rewards.js';
 import type { FeatMeasure } from './measures.js';
 
 /**
@@ -26,7 +24,7 @@ import type { FeatMeasure } from './measures.js';
  * whose targets do not climb, refuses an id used twice, and refuses a scope that names a district
  * or a building the game does not have. A catalogue this size cannot be kept honest by reading it.
  *
- * The rewards come from the nine helpers below rather than being typed out five hundred
+ * The rewards come from the eight helpers below rather than being typed out five hundred
  * times. That is not only brevity: a helper is priced once, in one place, against the survey of
  * what the live economy actually pays, so an author choosing `purse('mid', 'medium')` cannot
  * accidentally hand over four times what the feat beside it pays for the same work.
@@ -40,7 +38,7 @@ import type { FeatMeasure } from './measures.js';
  *   * **fighting**: declared battles, units committed, ground taken;
  *   * **the Combine**: the regime's units, its leaders and its ground, on a card of their own;
  *   * **the week**: the NPC garrisons worn down, and the ground kept through Monday's rebuild;
- *   * **the city**: scouting, holdings, whole districts, gates;
+ *   * **the city**: spying, holdings, whole districts, gates;
  *   * **the frontier**: ground held in a city you do not live in, and Terminus's railway;
  *   * **the district**: buildings, traps, fittings, the things that are built and not won;
  *   * **the crew**: units, officers, the Overseer's own sheet;
@@ -49,7 +47,7 @@ import type { FeatMeasure } from './measures.js';
  *   * **people**: the faction and the post.
  *
  * The earliest step of most chains is an **instructor**: it asks for one of something, so that a
- * player who has never sent a scout is told that scouting exists by being paid to try it once.
+ * player who has never sent a spy job is told that spying exists by being paid to try it once.
  *
  * ## One ladder per group runs to tier X
  *
@@ -136,21 +134,6 @@ const lesson = (era: FeatEra, size: FeatSize): FeatReward => ({
 });
 
 /**
- * Infamy. Named `street` because `name` is what the game calls the thing infamy buys.
- *
- * A tenth of what it was before the rank ladder was repriced (2026-09-28): the whole ladder costs
- * about fifty thousand now, and two late feats paid enough to buy all of it on the spot.
- * `CAPS_PER_INFAMY` rose by the same ten, so every band still prices the same.
- */
-const street = (era: FeatEra, size: FeatSize): FeatReward => ({
-  infamy: {
-    early: { small: 2, medium: 13, large: 45 },
-    mid: { small: 24, medium: 150, large: 600 },
-    late: { small: 130, medium: 800, large: 2_000 },
-  }[era][size],
-});
-
-/**
  * Bodies.
  *
  * The early tiers pay **Scavengers** alongside the Razors, and used to pay Haulers. Haulers moved
@@ -178,6 +161,22 @@ const recruits = (era: FeatEra, size: FeatSize): FeatReward =>
       large: { units: { juggernauts: 100, ironsides: 80, snipers: 60 } },
     },
   })[era][size];
+
+/**
+ * The first fighters a crew sees, paid by the first mission feats it finishes (maintainer,
+ * 2026-09-29: "give some fighters through some of the first feats you get for doing missions").
+ *
+ * A new crew is handed Scavengers, and Scavengers cannot hold ground, so before this the only way
+ * to a foothold (and so to any district board) was a Gauntlet at Nexus 3 and Quarters 2: measured
+ * at 11 h 35 min to the first Razors on a scripted opening. Razors because they need no blueprint,
+ * one bed each, and no notoriety to field. Three is enough to walk onto open ground and still send
+ * two on the misc board's fight card. The purse beside them is trimmed so the rung stays in its
+ * band and below the rung above it.
+ */
+const FIRST_SQUAD: FeatReward = {
+  units: { razors: 3 },
+  resources: { caps: 200, planks: 20, oil: 10 },
+};
 
 /**
  * Parts, in quantities a crew can actually spend.
@@ -254,16 +253,22 @@ const leaves = (pageId: string, count: number): FeatReward => ({ items: { [pageI
 const contraband = (...ids: [string, ...string[]]): FeatReward => ({ boosts: ids });
 
 /**
- * Caps and a name in one go: what a fight actually pays, so what a fighting feat pays.
+ * Caps and a lesson: what a fight actually pays, so what a fighting feat pays.
  *
  * The two halves step up one size behind the feat, because adding two full bundles of the
  * declared size would land a `medium` feat in the `large` band. The first attempt took both from
  * the size below instead, which undershot every `medium` by a few per cent and was caught by the
- * band check rather than by anybody reading it: purse leads, infamy follows.
+ * band check rather than by anybody reading it: purse leads, the lesson follows.
+ *
+ * The second half was infamy until feats stopped paying it (maintainer, 2026-09-29): a name is
+ * made in fights and nowhere else. A fight's other payout is experience (`raidWon`), so that is
+ * what took its place. It differs from `wages` only at `large`, where the purse stays a size
+ * behind: `spoils('late', 'large')` has to stay under `rise(4)`, the rung most of these chains
+ * climb onto next, and a full late purse would put it at twice that.
  */
 const spoils = (era: FeatEra, size: FeatSize): FeatReward => ({
   ...purse(era, size === 'small' ? 'small' : 'medium'),
-  ...street(era, size === 'large' ? 'medium' : 'small'),
+  ...lesson(era, size === 'large' ? 'medium' : 'small'),
 });
 
 /** Caps and a lesson: what building something teaches, so what a building feat pays. */
@@ -288,8 +293,9 @@ const wages = (era: FeatEra, size: FeatSize): FeatReward => ({
  * `catalog.test.ts` holds as "never pays a rung less than the rung below it".
  *
  * The flavour picks the currency and not the size: every flavour at a given step is worth about the
- * same to the band check, so a ladder about killing can pay in a name and one about the yard can pay
- * in coin without either being the better rung to take.
+ * same to the band check, so a ladder about killing can pay in bodies and one about the yard can pay
+ * in coin without either being the better rung to take. There is no flavour that pays infamy: feats
+ * pay no infamy at all (maintainer, 2026-09-29), and `catalog.test.ts` refuses one that does.
  */
 /**
  * The biggest squad a single reward may hand over, as a multiple of the base bundle below.
@@ -322,7 +328,7 @@ const RISE_SIZES: readonly FeatSize[] = [
   'large',
 ];
 
-export type DeepFlavour = 'coin' | 'blood' | 'bodies' | 'schooling';
+export type DeepFlavour = 'coin' | 'bodies' | 'schooling';
 
 /** The coin bundle at a given multiple, named so the `bodies` top-up cannot drift away from it. */
 const coinAt = (times: number): FeatReward => ({
@@ -334,6 +340,24 @@ const coinAt = (times: number): FeatReward => ({
     highQualityMetal: Math.round(6_000 * times),
   },
 });
+
+/** The `bodies` squad at a given multiple: the dearest heavy, the wall and the rifles. */
+const squadAt = (times: number): FeatReward => ({
+  units: {
+    juggernauts: Math.max(1, Math.round(105 * times)),
+    ironsides: Math.max(1, Math.round(84 * times)),
+    snipers: Math.max(1, Math.round(63 * times)),
+  },
+});
+
+/**
+ * What the squad is worth against the coin bundle at the same multiple, read off the unit prices.
+ *
+ * Sized so the two matched when a Juggernaut cost 3,087 caps-equivalent. The 2026-09-30 reprice
+ * took it to 1,622 and the squad to about two thirds of the coin, so bodies rungs fell under the
+ * coin rungs below them. Derived rather than written down, so the next reprice tops up on its own.
+ */
+const SQUAD_SHARE = featRewardValue(squadAt(1)) / featRewardValue(coinAt(1));
 
 /** What step `step` of the ladder pays, in the currency the chain is about. */
 const rise = (step: number, flavour: DeepFlavour): FeatReward => {
@@ -352,9 +376,6 @@ const rise = (step: number, flavour: DeepFlavour): FeatReward => {
        * and `catalog.test.ts` now does.
        */
       return coinAt(times);
-    case 'blood':
-      // A tenth of the old 42,200, with the ladder: see `street`.
-      return { infamy: Math.round(4_220 * times) };
     case 'bodies': {
       /*
        * A squad, bounded by the beds that exist, with the rest paid in coin (bug pass, 2026-09-17).
@@ -369,18 +390,12 @@ const rise = (step: number, flavour: DeepFlavour): FeatReward => {
        *
        * The squad stops at {@link BODIES_CAP_TIMES} and the value the rung still owes is made up in
        * caps, which is the same move `kit` makes when a tier wants more value than there are parts
-       * worth handing over.
+       * worth handing over. What it owes is counted at {@link SQUAD_SHARE}, since a squad at a
+       * multiple is worth less than the coin at it.
        */
       const squad = Math.min(times, BODIES_CAP_TIMES);
-      const owed = times - squad;
-      return {
-        units: {
-          juggernauts: Math.max(1, Math.round(105 * squad)),
-          ironsides: Math.max(1, Math.round(84 * squad)),
-          snipers: Math.max(1, Math.round(63 * squad)),
-        },
-        ...(owed > 0 ? coinAt(owed) : {}),
-      };
+      const owed = times - squad * SQUAD_SHARE;
+      return { ...squadAt(squad), ...(owed > 0 ? coinAt(owed) : {}) };
     }
     case 'schooling':
       // A fifth of the old 300,000, with the level curve: see `lesson`.
@@ -456,11 +471,11 @@ const WORK: FeatSpec[] = [
     {
       id: 'runs_1',
       name: 'Out the Gate',
-      blurb: 'Send the crew out and get them home again. Five times.',
+      blurb: 'Send the crew out and get them home again. Five times. Three Razors want in.',
       era: 'early',
       size: 'small',
       target: 5,
-      reward: purse('early', 'small'),
+      reward: FIRST_SQUAD,
     },
     {
       id: 'runs_2',
@@ -549,11 +564,13 @@ const WORK: FeatSpec[] = [
     {
       id: 'clean_1',
       name: 'Clean Work',
-      blurb: 'Ten jobs that came off. Failure is the tax, not the trade.',
+      blurb: 'Ten jobs that came off. Failure is the tax, not the trade. Two Razors sign on.',
       era: 'early',
       size: 'small',
       target: 10,
-      reward: lesson('early', 'small'),
+      // Two more fighters for the first ten clean runs (see `FIRST_SQUAD`), and what is left of
+      // the band in experience.
+      reward: { units: { razors: 2 }, xp: 14 },
     },
     {
       id: 'clean_2',
@@ -630,7 +647,7 @@ const WORK: FeatSpec[] = [
         era: 'early',
         size: 'small',
         target: 5,
-        reward: street('early', 'small'),
+        reward: lesson('early', 'small'),
       },
       {
         id: 'raids_2',
@@ -639,7 +656,7 @@ const WORK: FeatSpec[] = [
         era: 'mid',
         size: 'medium',
         target: 40,
-        reward: street('mid', 'medium'),
+        reward: lesson('mid', 'medium'),
       },
       {
         id: 'raids_3',
@@ -648,7 +665,7 @@ const WORK: FeatSpec[] = [
         era: 'late',
         size: 'medium',
         target: 150,
-        reward: street('late', 'medium'),
+        reward: lesson('late', 'medium'),
       },
       {
         id: 'raids_4',
@@ -657,7 +674,7 @@ const WORK: FeatSpec[] = [
         era: 'late',
         size: 'medium',
         target: 400,
-        reward: rise(2, 'blood'),
+        reward: rise(2, 'schooling'),
       },
       {
         id: 'raids_5',
@@ -666,7 +683,7 @@ const WORK: FeatSpec[] = [
         era: 'late',
         size: 'medium',
         target: 900,
-        reward: rise(3, 'blood'),
+        reward: rise(3, 'schooling'),
       },
       {
         id: 'raids_6',
@@ -675,7 +692,7 @@ const WORK: FeatSpec[] = [
         era: 'late',
         size: 'large',
         target: 1_800,
-        reward: rise(4, 'blood'),
+        reward: rise(4, 'schooling'),
       },
       {
         id: 'raids_7',
@@ -684,7 +701,7 @@ const WORK: FeatSpec[] = [
         era: 'late',
         size: 'large',
         target: 3_500,
-        reward: rise(5, 'blood'),
+        reward: rise(5, 'schooling'),
       },
     ],
     'battle',
@@ -793,11 +810,11 @@ const WORK: FeatSpec[] = [
       {
         id: 'oddjobs_1',
         name: 'Whatever Is Going',
-        blurb: 'Three miscellaneous jobs. The board always has those.',
+        blurb: 'Three miscellaneous jobs. Three Razors hear about it and come looking for work.',
         era: 'early',
         size: 'small',
         target: 3,
-        reward: purse('early', 'small'),
+        reward: FIRST_SQUAD,
       },
       {
         id: 'oddjobs_2',
@@ -946,7 +963,7 @@ const FIGHTING: FeatSpec[] = [
       era: 'early',
       size: 'small',
       target: 1,
-      reward: street('early', 'small'),
+      reward: recruits('early', 'small'),
     },
     {
       id: 'fights_2',
@@ -955,7 +972,7 @@ const FIGHTING: FeatSpec[] = [
       era: 'early',
       size: 'medium',
       target: 10,
-      reward: street('early', 'medium'),
+      reward: recruits('early', 'medium'),
     },
     {
       id: 'fights_3',
@@ -982,7 +999,7 @@ const FIGHTING: FeatSpec[] = [
       era: 'late',
       size: 'large',
       target: 500,
-      reward: rise(4, 'blood'),
+      reward: rise(4, 'bodies'),
     },
     {
       id: 'fights_6',
@@ -991,7 +1008,7 @@ const FIGHTING: FeatSpec[] = [
       era: 'late',
       size: 'large',
       target: 1_200,
-      reward: rise(5, 'blood'),
+      reward: rise(5, 'bodies'),
     },
     {
       id: 'fights_7',
@@ -1000,7 +1017,7 @@ const FIGHTING: FeatSpec[] = [
       era: 'late',
       size: 'large',
       target: 2_800,
-      reward: rise(6, 'blood'),
+      reward: rise(6, 'bodies'),
     },
     {
       id: 'fights_8',
@@ -1009,7 +1026,7 @@ const FIGHTING: FeatSpec[] = [
       era: 'late',
       size: 'large',
       target: 6_000,
-      reward: rise(7, 'blood'),
+      reward: rise(7, 'bodies'),
     },
   ]),
   ...chain('wins', 'battles_won', [
@@ -1020,7 +1037,7 @@ const FIGHTING: FeatSpec[] = [
       era: 'early',
       size: 'medium',
       target: 1,
-      reward: street('early', 'medium'),
+      reward: recruits('early', 'medium'),
     },
     {
       id: 'wins_2',
@@ -1029,7 +1046,7 @@ const FIGHTING: FeatSpec[] = [
       era: 'mid',
       size: 'medium',
       target: 10,
-      reward: street('mid', 'medium'),
+      reward: recruits('mid', 'medium'),
     },
     {
       id: 'wins_3',
@@ -1038,7 +1055,7 @@ const FIGHTING: FeatSpec[] = [
       era: 'late',
       size: 'medium',
       target: 50,
-      reward: street('late', 'medium'),
+      reward: recruits('late', 'medium'),
     },
     {
       id: 'wins_4',
@@ -1121,7 +1138,7 @@ const FIGHTING: FeatSpec[] = [
       era: 'late',
       size: 'large',
       target: 250,
-      reward: rise(4, 'blood'),
+      reward: rise(4, 'bodies'),
     },
     {
       id: 'attack_5',
@@ -1130,7 +1147,7 @@ const FIGHTING: FeatSpec[] = [
       era: 'late',
       size: 'large',
       target: 600,
-      reward: rise(5, 'blood'),
+      reward: rise(5, 'bodies'),
     },
     {
       id: 'attack_6',
@@ -1139,7 +1156,7 @@ const FIGHTING: FeatSpec[] = [
       era: 'late',
       size: 'large',
       target: 1_400,
-      reward: rise(6, 'blood'),
+      reward: rise(6, 'bodies'),
     },
     {
       id: 'attack_7',
@@ -1148,7 +1165,7 @@ const FIGHTING: FeatSpec[] = [
       era: 'late',
       size: 'large',
       target: 3_000,
-      reward: rise(7, 'blood'),
+      reward: rise(7, 'bodies'),
     },
   ]),
   ...chain('defend', 'battles_defended_won', [
@@ -1336,7 +1353,7 @@ const FIGHTING: FeatSpec[] = [
       era: 'early',
       size: 'small',
       target: 25,
-      reward: street('early', 'small'),
+      reward: recruits('early', 'small'),
     },
     {
       id: 'kills_2',
@@ -1345,7 +1362,7 @@ const FIGHTING: FeatSpec[] = [
       era: 'mid',
       size: 'medium',
       target: 500,
-      reward: street('mid', 'medium'),
+      reward: recruits('mid', 'medium'),
     },
     {
       id: 'kills_3',
@@ -1354,7 +1371,7 @@ const FIGHTING: FeatSpec[] = [
       era: 'late',
       size: 'large',
       target: 5_000,
-      reward: street('late', 'large'),
+      reward: rise(4, 'bodies'),
     },
     {
       id: 'kills_4',
@@ -1363,7 +1380,7 @@ const FIGHTING: FeatSpec[] = [
       era: 'late',
       size: 'large',
       target: 10_000,
-      reward: rise(6, 'blood'),
+      reward: rise(6, 'bodies'),
     },
     {
       id: 'kills_5',
@@ -1372,7 +1389,7 @@ const FIGHTING: FeatSpec[] = [
       era: 'late',
       size: 'large',
       target: 20_000,
-      reward: rise(7, 'blood'),
+      reward: rise(7, 'bodies'),
     },
     {
       id: 'kills_6',
@@ -1381,7 +1398,7 @@ const FIGHTING: FeatSpec[] = [
       era: 'late',
       size: 'large',
       target: 35_000,
-      reward: rise(8, 'blood'),
+      reward: rise(8, 'bodies'),
     },
     {
       id: 'kills_7',
@@ -1390,7 +1407,7 @@ const FIGHTING: FeatSpec[] = [
       era: 'late',
       size: 'large',
       target: 60_000,
-      reward: rise(9, 'blood'),
+      reward: rise(9, 'bodies'),
     },
     {
       id: 'kills_8',
@@ -1399,7 +1416,7 @@ const FIGHTING: FeatSpec[] = [
       era: 'late',
       size: 'large',
       target: 100_000,
-      reward: rise(10, 'blood'),
+      reward: rise(10, 'bodies'),
     },
     {
       id: 'kills_9',
@@ -1408,7 +1425,7 @@ const FIGHTING: FeatSpec[] = [
       era: 'late',
       size: 'large',
       target: 170_000,
-      reward: rise(11, 'blood'),
+      reward: rise(11, 'bodies'),
     },
     {
       id: 'kills_10',
@@ -1418,7 +1435,7 @@ const FIGHTING: FeatSpec[] = [
       era: 'late',
       size: 'large',
       target: 280_000,
-      reward: rise(12, 'blood'),
+      reward: rise(12, 'bodies'),
     },
   ]),
 
@@ -1735,7 +1752,7 @@ const FIGHTING: FeatSpec[] = [
       era: 'late',
       size: 'medium',
       target: 1,
-      reward: street('late', 'medium'),
+      reward: recruits('late', 'medium'),
     },
     {
       id: 'overwhelmed_2',
@@ -1753,7 +1770,7 @@ const FIGHTING: FeatSpec[] = [
       era: 'late',
       size: 'large',
       target: 25,
-      reward: rise(4, 'blood'),
+      reward: rise(4, 'bodies'),
     },
   ]),
   ...chain('unbloodied', 'battles_won_flawless', [
@@ -1764,7 +1781,7 @@ const FIGHTING: FeatSpec[] = [
       era: 'mid',
       size: 'medium',
       target: 1,
-      reward: street('mid', 'medium'),
+      reward: recruits('mid', 'medium'),
     },
     {
       id: 'unbloodied_2',
@@ -1801,7 +1818,7 @@ const FIGHTING: FeatSpec[] = [
       era: 'mid',
       size: 'medium',
       target: 1,
-      reward: street('mid', 'medium'),
+      reward: recruits('mid', 'medium'),
     },
     {
       id: 'jammed_2',
@@ -1819,7 +1836,7 @@ const FIGHTING: FeatSpec[] = [
       era: 'late',
       size: 'large',
       target: 40,
-      reward: rise(4, 'blood'),
+      reward: rise(4, 'bodies'),
     },
   ]),
   /**
@@ -1841,7 +1858,7 @@ const FIGHTING: FeatSpec[] = [
       era: 'mid',
       size: 'medium',
       target: 1,
-      reward: street('mid', 'medium'),
+      reward: recruits('mid', 'medium'),
     },
     {
       id: 'planted_2',
@@ -1859,7 +1876,7 @@ const FIGHTING: FeatSpec[] = [
       era: 'late',
       size: 'large',
       target: 30,
-      reward: rise(4, 'blood'),
+      reward: rise(4, 'bodies'),
     },
   ]),
   /**
@@ -1882,7 +1899,7 @@ const FIGHTING: FeatSpec[] = [
       era: 'early',
       size: 'small',
       target: 1,
-      reward: street('early', 'small'),
+      reward: recruits('early', 'small'),
     },
     {
       id: 'loud_2',
@@ -1900,7 +1917,7 @@ const FIGHTING: FeatSpec[] = [
       era: 'late',
       size: 'large',
       target: 60,
-      reward: rise(4, 'blood'),
+      reward: rise(4, 'bodies'),
     },
   ]),
   ...chain('routs', 'battles_won_lopsided', [
@@ -1920,7 +1937,7 @@ const FIGHTING: FeatSpec[] = [
       era: 'late',
       size: 'medium',
       target: 20,
-      reward: street('late', 'medium'),
+      reward: recruits('late', 'medium'),
     },
     {
       id: 'routs_3',
@@ -1969,7 +1986,7 @@ const FIGHTING: FeatSpec[] = [
       era: 'mid',
       size: 'medium',
       target: 1,
-      reward: street('mid', 'medium'),
+      reward: recruits('mid', 'medium'),
     },
     {
       id: 'repelled_2',
@@ -1987,36 +2004,47 @@ const FIGHTING: FeatSpec[] = [
       era: 'late',
       size: 'large',
       target: 40,
-      reward: rise(4, 'blood'),
+      reward: rise(4, 'bodies'),
     },
   ]),
+  /*
+   * Retargeted to the softened traps (maintainer, 2026-09-29). The top rung was 5,000, and the
+   * biggest trap then stopped at 34 kills: at least 148 Flooded Cellars at list price.
+   *
+   * A trap now takes `bite` times the square root of the column (`trapBite`), so on a column of 200
+   * the five that bite take 2, 2, 3, 3 and 4, 2.8 on average, and Razor Wire takes nobody. Ten is
+   * four traps sprung. 120 is 43, between the 40 and the 90 of the `traps` ladder beside this one.
+   * 500 is 179, short of the 200 laid for The Ground Bites, or 56 Flooded Cellars on the 1,000-strong
+   * columns of the late game (9 each). The cheapest way there is Pressure Plates: 250 of them on
+   * columns of 200, 175,000 scrap at list price against the 828,800 the old rung asked.
+   */
   ...chain('snares', 'trap_kills', [
     {
       id: 'snares_1',
       name: 'Before They Knew',
-      blurb: 'Twenty five units taken by your traps before a shot was fired at anybody.',
+      blurb: 'Ten units taken by your traps before a shot was fired at anybody.',
       era: 'mid',
       size: 'small',
-      target: 25,
+      target: 10,
       reward: purse('mid', 'small'),
     },
     {
       id: 'snares_2',
       name: 'The Ground Is Wired',
-      blurb: 'Five hundred killed by things buried under the approach.',
+      blurb: 'A hundred and twenty killed by things buried under the approach.',
       era: 'late',
       size: 'medium',
-      target: 500,
+      target: 120,
       reward: spoils('late', 'medium'),
     },
     {
       id: 'snares_3',
       name: 'Nothing Walks In Clean',
-      blurb: 'Five thousand taken by traps. Columns slow right down two blocks out.',
+      blurb: 'Five hundred taken by traps. Columns slow right down two blocks out.',
       era: 'late',
       size: 'large',
-      target: 5_000,
-      reward: rise(4, 'blood'),
+      target: 500,
+      reward: rise(4, 'bodies'),
     },
   ]),
   ...chain('breaker', 'gate_levels_broken', [
@@ -2093,17 +2121,14 @@ const FIGHTING: FeatSpec[] = [
  *
  * ## The three leaders are standalones
  *
- * The Syndic, the Executioner and Directive Xero come back (2026-09-24). The regime's garrisons
- * and the looters' erode through the week and are put back at Sunday midnight, Athens time, on
- * every location no player holds, and a named leader returns on the same condition: only where
- * nobody holds the plot he stood on. Hold the Annexe Uplink and keep it and the Syndic stays dead;
- * lose it and he is standing there again the following Monday.
+ * The regime's garrisons and the looters' erode through the week and are put back at Sunday
+ * midnight, Athens time, on every plot the regime or the looters still hold. A leader is a body in
+ * his plot's garrison, so he comes back only if he fell in a fight the regime won. Once his plot
+ * is taken he is gone for good: nothing hands a taken plot back to the regime (maintainer,
+ * 2026-09-29), so each kill feat is one crew's in the life of the world.
  *
- * So `combine_leaders_slain` under one of their ids really can reach two and beyond, and these are
- * `solo` at a target of one anyway. Killing a leader is something a crew has done or has not, and
- * the only ladder available on it reads "kill the Syndic five times", which is a feat that asks
- * somebody to lose the Annexes four times to finish it. The first kill is the whole of what there
- * is to reward.
+ * So these are `solo` at a target of one. Killing a leader is something a crew has done or has
+ * not, and the first kill is the whole of what there is to reward.
  *
  * They pay at the top of the late band because each one is the end of a district, and the Chapel,
  * which is Directive Xero's own plot, has a feat of its own for being held afterwards.
@@ -2123,8 +2148,9 @@ const FIGHTING: FeatSpec[] = [
  * ## The turncoats
  *
  * `units_turned` is the one ladder in the catalogue that counts something that happened *to* the
- * crew. Directive Xero's Change of Heart takes the units that would have been intimidated and keeps
- * them, and the board would otherwise say nothing about it at all. It pays in experience, which
+ * crew. Directive Xero's Change of Heart takes the units that would have been intimidated for the
+ * one fight, and they are dead after it (maintainer, 2026-09-29), and the board would otherwise
+ * say nothing about it at all. It pays in experience, which
  * is what a lost squad is worth, and the blurbs do not pretend it was a good day.
  */
 const COMBINE: FeatSpec[] = [
@@ -2136,7 +2162,7 @@ const COMBINE: FeatSpec[] = [
       era: 'early',
       size: 'small',
       target: 10,
-      reward: street('early', 'small'),
+      reward: recruits('early', 'small'),
     },
     {
       id: 'regime_2',
@@ -2156,7 +2182,7 @@ const COMBINE: FeatSpec[] = [
       era: 'mid',
       size: 'medium',
       target: 500,
-      reward: street('mid', 'medium'),
+      reward: recruits('mid', 'medium'),
     },
     {
       id: 'regime_4',
@@ -2175,7 +2201,7 @@ const COMBINE: FeatSpec[] = [
       era: 'late',
       size: 'large',
       target: 6_000,
-      reward: street('late', 'large'),
+      reward: rise(4, 'bodies'),
     },
     {
       id: 'regime_6',
@@ -2185,7 +2211,7 @@ const COMBINE: FeatSpec[] = [
       era: 'late',
       size: 'large',
       target: 15_000,
-      reward: rise(6, 'blood'),
+      reward: rise(6, 'bodies'),
     },
   ]),
   ...chain(
@@ -2247,7 +2273,7 @@ const COMBINE: FeatSpec[] = [
         era: 'early',
         size: 'medium',
         target: 20,
-        reward: street('early', 'medium'),
+        reward: recruits('early', 'medium'),
       },
       {
         id: 'greycoats_2',
@@ -2266,7 +2292,7 @@ const COMBINE: FeatSpec[] = [
         era: 'mid',
         size: 'large',
         target: 800,
-        reward: street('mid', 'large'),
+        reward: recruits('mid', 'large'),
       },
       {
         id: 'greycoats_4',
@@ -2323,7 +2349,7 @@ const COMBINE: FeatSpec[] = [
         era: 'late',
         size: 'large',
         target: 1_500,
-        reward: rise(5, 'blood'),
+        reward: rise(5, 'bodies'),
       },
     ],
     'street_enforcers',
@@ -2367,12 +2393,18 @@ const COMBINE: FeatSpec[] = [
     ],
     'suppressor',
   ),
+  /*
+   * Sized for one crew in a busy world (maintainer, 2026-09-29). The regime never takes a plot
+   * back, so each of its 74 plots in the open cities counts once, for whichever crew takes it
+   * first, and every crew on the map is after the same ones. The ladder ran to 50, which asked
+   * one crew for two thirds of all of it before anybody else got there.
+   */
   ...chain('liberated', 'combine_locations_taken', [
     {
       id: 'liberated_1',
       name: 'Off the Regime',
       blurb:
-        'Take one location off the Combine. The Tideline Market is the closest and the cheapest.',
+        'Take one location off the Combine. The Wet Galley on the Docks is as cheap as its ground gets.',
       era: 'early',
       size: 'medium',
       target: 1,
@@ -2380,40 +2412,45 @@ const COMBINE: FeatSpec[] = [
     },
     {
       id: 'liberated_2',
-      name: 'Five Doors the Combine Lost',
-      blurb: 'Five plots taken off the regime. The Docks and the Belt are where they come easiest.',
+      name: 'Three Doors the Combine Lost',
+      blurb:
+        'Three plots taken off the regime. The Docks and the Belt are where they come easiest.',
       era: 'mid',
       size: 'medium',
-      target: 5,
+      target: 3,
       reward: spoils('mid', 'medium'),
     },
     {
       id: 'liberated_3',
       name: 'Up the Hill',
-      blurb: 'Twelve Combine holdings taken. You are past the Green Belt and the ground is harder.',
+      blurb:
+        'Six Combine holdings taken, most of a district’s worth, in a city where every crew is after the same doors.',
       era: 'late',
       size: 'medium',
-      target: 12,
+      target: 6,
       reward: spoils('late', 'medium'),
     },
     {
       id: 'liberated_4',
-      name: 'The Annexes Answer to You',
+      name: 'New Signage',
       blurb:
-        'Twenty five locations taken off the regime, retakes included. Whole districts have changed their signage.',
+        'Ten locations taken off the regime. Whole streets have changed their signage, and the regime is not coming back for them.',
       era: 'late',
       size: 'large',
-      target: 25,
+      target: 10,
       reward: spoils('late', 'large'),
     },
     {
       id: 'liberated_5',
-      name: 'Every Plot on the Climb',
-      blurb: 'Fifty Combine holdings taken, counting every one they took back and you took again.',
+      name: 'The Map Moves One Way',
+      blurb:
+        'Fifteen Combine holdings taken. The regime never takes a plot back, so every one of them was a first, and there are only so many to go round.',
       era: 'late',
       size: 'large',
-      target: 50,
-      reward: rise(7, 'coin'),
+      target: 15,
+      // Under `annexed_2`, three whole districts held, which is more ground than this and harder
+      // to keep: the rung this replaced paid `rise(7)` for fifty.
+      reward: rise(5, 'coin'),
     },
   ]),
   ...chain('pushback', 'combine_fights_won', [
@@ -2454,7 +2491,7 @@ const COMBINE: FeatSpec[] = [
       era: 'late',
       size: 'large',
       target: 120,
-      reward: street('late', 'large'),
+      reward: rise(4, 'bodies'),
     },
     {
       id: 'pushback_5',
@@ -2464,7 +2501,7 @@ const COMBINE: FeatSpec[] = [
       era: 'late',
       size: 'large',
       target: 300,
-      reward: rise(6, 'blood'),
+      reward: rise(6, 'bodies'),
     },
   ]),
   ...chain('clean_sweep', 'combine_fights_won_flawless', [
@@ -2476,7 +2513,7 @@ const COMBINE: FeatSpec[] = [
       era: 'mid',
       size: 'medium',
       target: 1,
-      reward: street('mid', 'medium'),
+      reward: recruits('mid', 'medium'),
     },
     {
       id: 'clean_sweep_2',
@@ -2495,7 +2532,7 @@ const COMBINE: FeatSpec[] = [
       era: 'late',
       size: 'large',
       target: 40,
-      reward: street('late', 'large'),
+      reward: rise(4, 'bodies'),
     },
     {
       id: 'clean_sweep_4',
@@ -2510,7 +2547,7 @@ const COMBINE: FeatSpec[] = [
   ]),
   /**
    * Won while the district's legendary still lived, so under his power: Standing Orders on every
-   * Combine sheet in the Annexes, the Executioner finishing anybody under a tenth of a life,
+   * Combine sheet in the Annexes, the Executioner finishing anybody brought down to his line,
    * Directive Xero's line at a hundred morale. It is decided at the settle from the same control
    * rows the engine reads (`combinePresenceOver`), so a fight after the leader has fallen counts
    * for `pushback` only.
@@ -2529,7 +2566,7 @@ const COMBINE: FeatSpec[] = [
       era: 'mid',
       size: 'medium',
       target: 1,
-      reward: street('mid', 'medium'),
+      reward: recruits('mid', 'medium'),
     },
     {
       id: 'shadow_2',
@@ -2538,13 +2575,12 @@ const COMBINE: FeatSpec[] = [
       era: 'late',
       size: 'medium',
       target: 10,
-      reward: street('late', 'medium'),
+      reward: recruits('late', 'medium'),
     },
     {
       id: 'shadow_3',
       name: 'Where the Executioner Walks',
-      blurb:
-        'Thirty wins in a district its legendary still commands. Anybody left under a tenth of a life dies, and you brought that into the plan.',
+      blurb: `Thirty wins in a district its legendary still commands. On the Blacksite anybody brought down to ${Math.round(EXECUTIONER_THRESHOLD * 100)}% of a life dies, and you brought that into the plan.`,
       era: 'late',
       size: 'large',
       target: 30,
@@ -2558,7 +2594,7 @@ const COMBINE: FeatSpec[] = [
       era: 'late',
       size: 'large',
       target: 75,
-      reward: rise(8, 'blood'),
+      reward: rise(8, 'bodies'),
     },
   ]),
   /**
@@ -2574,7 +2610,7 @@ const COMBINE: FeatSpec[] = [
       era: 'early',
       size: 'small',
       target: 20,
-      reward: street('early', 'small'),
+      reward: recruits('early', 'small'),
     },
     {
       id: 'broken_2',
@@ -2583,7 +2619,7 @@ const COMBINE: FeatSpec[] = [
       era: 'mid',
       size: 'medium',
       target: 200,
-      reward: street('mid', 'medium'),
+      reward: recruits('mid', 'medium'),
     },
     {
       id: 'broken_3',
@@ -2592,7 +2628,7 @@ const COMBINE: FeatSpec[] = [
       era: 'late',
       size: 'large',
       target: 1_000,
-      reward: street('late', 'large'),
+      reward: rise(4, 'bodies'),
     },
   ]),
   ...chain('turncoats', 'units_turned', [
@@ -2600,7 +2636,7 @@ const COMBINE: FeatSpec[] = [
       id: 'turncoats_1',
       name: 'One of Yours Stayed',
       blurb:
-        'Lose a unit to Directive Xero’s Change of Heart. They would have run; instead they crossed the line and stood with him.',
+        'Lose a unit to Directive Xero’s Change of Heart. They would have run; instead they crossed the line, fought one fight for him, and were never seen again.',
       era: 'late',
       size: 'small',
       target: 1,
@@ -2610,7 +2646,7 @@ const COMBINE: FeatSpec[] = [
       id: 'turncoats_2',
       name: 'The Roll Call Is Shorter',
       blurb:
-        'Twenty five of your units have gone over to the Combine in the CCS. You paid for every one of them, and you will fight every one of them.',
+        'Twenty five of your units have gone over to the Combine in the CCS. You paid for every one of them, and every one of them spent its last fight shooting at you.',
       era: 'late',
       size: 'medium',
       target: 25,
@@ -2618,9 +2654,9 @@ const COMBINE: FeatSpec[] = [
     },
     {
       id: 'turncoats_3',
-      name: 'They Wear Grey Now',
+      name: 'They Died in Grey',
       blurb:
-        'A hundred and fifty of your people changed sides under the Chapel. Their names are still on your ledger. Their faces are on the other side of the line.',
+        'A hundred and fifty of your people changed sides under the Chapel. Each of them fought one fight on the other side of the line, and nobody saw them after it.',
       era: 'late',
       size: 'large',
       target: 150,
@@ -2680,7 +2716,7 @@ const COMBINE: FeatSpec[] = [
     {
       id: 'syndic_slain',
       name: 'The Liaison Is Dead',
-      blurb: `Kill the Syndic on the Annexe Uplink. Every yard in the Annexes fights without Standing Orders for as long as the plot is yours: no +${SYNDIC_PENETRATION} penetration, no +${SYNDIC_ARMOR} armour.`,
+      blurb: `Kill the Syndic on the Annexe Uplink. Take the plot and she is gone for good: every yard in the Annexes fights without Standing Orders from then on, no +${SYNDIC_PENETRATION} penetration, no +${SYNDIC_ARMOR} armour.`,
       era: 'late',
       size: 'large',
       target: 1,
@@ -2695,7 +2731,7 @@ const COMBINE: FeatSpec[] = [
       id: 'executioner_slain',
       name: 'Arrests Resume',
       blurb:
-        'Kill the Executioner at the Blacksite Armory. Nobody on the Blacksite is finished off where they stand while the Armory is yours. Let it go and he is back the Monday after.',
+        'Kill the Executioner at the Blacksite Armory. Take the Armory and he is gone for good: nobody on the Blacksite is finished off where they stand again.',
       era: 'late',
       size: 'large',
       target: 1,
@@ -2709,11 +2745,11 @@ const COMBINE: FeatSpec[] = [
       id: 'directive_xero_slain',
       name: 'The Chapel Is Quiet',
       blurb:
-        'Kill Directive Xero in the Chosen Chapel. The Combine in one person, carried out: nobody changes sides for him while the Chapel is yours. Lose it and he is back the following Monday.',
+        'Kill Directive Xero in the Chosen Chapel. The Combine in one person, carried out: take the Chapel and he is gone for good, and nobody changes sides for him again.',
       era: 'late',
       size: 'large',
       target: 1,
-      reward: rise(8, 'blood'),
+      reward: rise(8, 'bodies'),
     },
     'combine_leaders_slain',
     'directive_xero',
@@ -2765,9 +2801,10 @@ const COMBINE: FeatSpec[] = [
  *     `spendGarrisons`), so a Combine or looter district really can be worn down to nobody across a
  *     week of assaults. Before that write existed its garrison was an immortal defence that was
  *     nonetheless counted as killed.
- *   * **Every plot no crew holds is rebuilt at Monday 00:00, Athens time** (`city/regrowth.ts`), back
- *     to the strength the district's difficulty and the location's own ground say it should have.
- *     Crew ground is untouched, and the named leaders come back on the same condition.
+ *   * **Every plot the regime or the looters still hold is rebuilt at Monday 00:00, Athens time**
+ *     (`city/regrowth.ts`), back to the strength the district's difficulty and the location's own
+ *     ground say it should have. A plot a crew took is never theirs again, even once the crew lets
+ *     it go, so a named leader whose plot fell stays dead (maintainer, 2026-09-29).
  *
  * Between them those two turn the city into something with a tide, and the board is where a player
  * finds out it has one. Two ladders, one per half:
@@ -2814,7 +2851,7 @@ const WEEK: FeatSpec[] = [
       era: 'mid',
       size: 'medium',
       target: 3,
-      reward: street('mid', 'medium'),
+      reward: recruits('mid', 'medium'),
     },
     {
       id: 'stripped_3',
@@ -2953,7 +2990,7 @@ const CITY: FeatSpec[] = [
     {
       id: 'taken_1',
       name: 'Took It Off Them',
-      blurb: 'Capture a location somebody else was holding.',
+      blurb: 'Take a location: win it in a fight, or walk onto ground nobody is holding.',
       era: 'early',
       size: 'medium',
       target: 1,
@@ -2971,7 +3008,7 @@ const CITY: FeatSpec[] = [
     {
       id: 'taken_3',
       name: 'Forty',
-      blurb: 'Forty places that used to be somebody else’s.',
+      blurb: 'Forty places taken, fought for or walked onto.',
       era: 'late',
       size: 'large',
       target: 40,
@@ -3089,11 +3126,16 @@ const CITY: FeatSpec[] = [
       reward: rise(8, 'coin'),
     },
   ]),
-  ...chain('gates', 'gates_captured', [
+  /*
+   * Breaking gates, not holding them (audit, 2026-09-28). A won gate fight takes the door off its
+   * hinges for `GATE_BREACH_HOURS` and opens the district to a raid; nobody holds a gate after it.
+   * The ladder promised doors that answered to you and counted the break, so the words moved.
+   */
+  ...chain('gates', 'gates_breached', [
     {
       id: 'gates_1',
       name: 'Through the Gate',
-      blurb: 'Take a district gate. The way in belongs to whoever holds it.',
+      blurb: 'Break a district gate. For a day the district behind it is open to a raid.',
       era: 'mid',
       size: 'medium',
       target: 1,
@@ -3102,7 +3144,7 @@ const CITY: FeatSpec[] = [
     {
       id: 'gates_2',
       name: 'Five Gates',
-      blurb: 'Five doors into the city, all of them answering to you.',
+      blurb: 'Five gates broken. Five districts that spent a day with the door hanging off.',
       era: 'late',
       size: 'medium',
       target: 5,
@@ -3111,7 +3153,7 @@ const CITY: FeatSpec[] = [
     {
       id: 'gates_3',
       name: 'Every Door in the Wall',
-      blurb: 'Fifteen gates taken. The wall is a suggestion now.',
+      blurb: 'Fifteen gates broken. The wall is a suggestion now.',
       era: 'late',
       size: 'large',
       target: 15,
@@ -3120,7 +3162,7 @@ const CITY: FeatSpec[] = [
     {
       id: 'gates_4',
       name: 'Forty Gates',
-      blurb: 'Taken off whoever was collecting at them.',
+      blurb: 'Kicked in, and a raid through every one of them for the asking.',
       era: 'late',
       size: 'large',
       target: 40,
@@ -3128,8 +3170,8 @@ const CITY: FeatSpec[] = [
     },
     {
       id: 'gates_5',
-      name: 'The Tollkeeper',
-      blurb: 'A hundred gates captured. Nobody moves in this city for free.',
+      name: 'The Battering Ram',
+      blurb: 'A hundred gates broken. Nobody in this city sleeps easy behind a door.',
       era: 'late',
       size: 'large',
       target: 100,
@@ -3138,70 +3180,12 @@ const CITY: FeatSpec[] = [
     {
       id: 'gates_6',
       name: 'Every Road In',
-      blurb: 'Two hundred and fifty gates taken. The map has your hand on its throat.',
+      blurb:
+        'Two hundred and fifty gates broken. Every door in the wall has your boot print on it.',
       era: 'late',
       size: 'large',
       target: 250,
       reward: rise(6, 'coin'),
-    },
-  ]),
-  ...chain('scouted', 'districts_scouted', [
-    {
-      id: 'scouted_1',
-      name: 'Have a Look',
-      blurb: 'Walk three districts. The fog is only fog until somebody goes.',
-      era: 'early',
-      size: 'small',
-      target: 3,
-      reward: lesson('early', 'small'),
-    },
-    {
-      id: 'scouted_2',
-      name: 'Eight Streets',
-      blurb: 'Eight districts scouted. You can read the map without guessing.',
-      era: 'early',
-      size: 'medium',
-      target: 8,
-      reward: lesson('early', 'medium'),
-    },
-    {
-      id: 'scouted_3',
-      name: 'Nowhere Left Dark',
-      blurb: 'Every district of your own city but the one you live in. You can stop guessing.',
-      era: 'mid',
-      size: 'medium',
-      /*
-       * Every district a crew can send anybody to at home, which is one short of its own city.
-       *
-       * `sendScout` refuses the crew's own district outright (`own_district`), and nothing else
-       * ever writes a `district_intel` row for where you live, so this tops out at eleven of
-       * twelve. It asked for twelve and sat at 11/12 for ever: the `stock_3` failure again, where
-       * a feat nobody can finish is indistinguishable from one nobody has got round to.
-       *
-       * Derived off the smallest city rather than off Ashfall, because the rung has to be one any
-       * crew can stand on and a crew lives in exactly one of them.
-       */
-      target: SMALLEST_CITY_DISTRICTS - 1,
-      reward: lesson('mid', 'medium'),
-    },
-    {
-      id: 'scouted_4',
-      name: 'The Whole Frontier',
-      blurb:
-        'Every district in the world but your own, walked into. Two cities, and no fog left in either.',
-      era: 'late',
-      size: 'medium',
-      /*
-       * The same rule read across the world instead of across one city (2026-09-24).
-       *
-       * `districts_scouted` was always a raw count of `district_intel` rows with no city filter,
-       * so the day Terminus opened it silently started counting both and the rung above stopped
-       * being the top of anything. Rather than narrow the measure, the ladder grew a rung that
-       * means what the number already said. `sendScout` resolves its target through
-       * `findDistrict`, which answers for every city, so a scout really can be sent across.
-       */
-      target: PLAYABLE_DISTRICTS.length - 1,
-      reward: lesson('late', 'medium'),
     },
   ]),
   /*
@@ -3247,79 +3231,145 @@ const CITY: FeatSpec[] = [
       reward: lesson('late', 'medium'),
     },
   ]),
-  ...chain('scouting', 'scouting_runs', [
+  /*
+   * Every spy job that came home, stood or failed (maintainer, 2026-09-29: the scouting ladders,
+   * "repoint to spying"). The two scouting ladders were one question asked twice once there was
+   * nothing to scout, so they are one ladder here, on the rewards the runs ladder paid. A job costs
+   * a hundred caps and an evening, so the targets are a small fraction of what the runs asked.
+   */
+  ...chain('spy_jobs', 'spy_jobs_returned', [
     {
-      id: 'scouting_1',
-      name: 'Send a Scout',
-      blurb: 'Five scouting runs. Cheap, quiet, and it tells you where not to go.',
+      id: 'spy_jobs_1',
+      name: 'Send the Runners',
+      blurb: 'Five spy jobs home. Cheap, quiet, and it tells you where not to go.',
       era: 'early',
       size: 'small',
       target: 5,
       reward: kit('early', 'small'),
     },
     {
-      id: 'scouting_2',
+      id: 'spy_jobs_2',
       name: 'Eyes Out',
-      blurb: 'Forty runs. Nothing moves in this city that you hear about second.',
+      blurb: 'Twenty-five jobs home. Nothing moves in this city that you hear about second.',
       era: 'mid',
       size: 'small',
-      target: 40,
+      target: 25,
       reward: kit('mid', 'small'),
     },
     {
-      id: 'scouting_3',
+      id: 'spy_jobs_3',
       name: 'The Standing Watch',
-      blurb: 'A hundred and fifty. Somebody is always out there.',
+      blurb: 'Sixty jobs home. Somebody of yours is always out there.',
       era: 'late',
       size: 'small',
-      target: 150,
+      target: 60,
       reward: kit('late', 'small'),
     },
     {
-      id: 'scouting_4',
-      name: 'Nothing Unmapped',
+      id: 'spy_jobs_4',
+      name: 'Nothing Unread',
       blurb:
-        'Five hundred scouting runs. There is no corner of this city you have not looked into.',
+        'A hundred and fifty jobs home. There is no corner of this city you have not looked into.',
       era: 'late',
       size: 'medium',
-      target: 500,
+      target: 150,
       reward: lesson('late', 'medium'),
     },
     {
-      id: 'scouting_5',
-      name: 'Twelve Hundred Walks',
-      blurb: 'Scouts out and back. Somebody has drawn all of it.',
+      id: 'spy_jobs_5',
+      name: 'Three Hundred Evenings',
+      blurb: 'Runners out and back, three hundred times. Somebody has drawn all of it.',
       era: 'late',
       size: 'medium',
-      target: 1_200,
+      target: 300,
       reward: rise(2, 'schooling'),
     },
     {
-      id: 'scouting_6',
+      id: 'spy_jobs_6',
       name: 'The Standing Map',
-      blurb: 'Two thousand eight hundred runs. Nothing in this city surprises you.',
+      blurb: 'Six hundred jobs home. Nothing in this city surprises you.',
       era: 'late',
       size: 'medium',
-      target: 2_800,
+      target: 600,
       reward: rise(3, 'schooling'),
     },
     {
-      id: 'scouting_7',
+      id: 'spy_jobs_7',
       name: 'Eyes Everywhere',
-      blurb: 'Six and a half thousand scouting runs, and they keep going out.',
+      blurb: 'A thousand jobs home, and the runners keep going out.',
       era: 'late',
       size: 'large',
-      target: 6_500,
+      target: 1_000,
       reward: rise(4, 'schooling'),
     },
     {
-      id: 'scouting_8',
+      id: 'spy_jobs_8',
       name: 'You Knew Before They Did',
-      blurb: 'Fifteen thousand runs. The news reaches you on its way to being news.',
+      blurb: 'Sixteen hundred jobs home. The news reaches you on its way to being news.',
       era: 'late',
       size: 'large',
-      target: 15_000,
+      target: 1_600,
       reward: rise(5, 'schooling'),
+    },
+  ]),
+  /*
+   * Jobs on a player's ground that came home without anybody knowing whose they were (maintainer,
+   * 2026-09-28). Nothing is unnoticed before Traffic Analysis, and after it a chair at F+ goes
+   * unseen one time in ten, so even the first rung is a crew that has climbed the track and
+   * trained the chair: mid era, not early.
+   */
+  ...chain('spy_unnoticed', 'spy_jobs_unnoticed', [
+    {
+      id: 'spy_unnoticed_1',
+      name: 'Nobody Saw a Thing',
+      blurb: 'Five jobs on a rival and not one of them knew it was you.',
+      era: 'mid',
+      size: 'small',
+      target: 5,
+      reward: kit('mid', 'small'),
+    },
+    {
+      id: 'spy_unnoticed_2',
+      name: 'In and Out',
+      blurb: 'Thirty jobs unnoticed. They check the locks and never think to check the roof.',
+      era: 'late',
+      size: 'small',
+      target: 30,
+      reward: kit('late', 'small'),
+    },
+    {
+      id: 'spy_unnoticed_3',
+      name: 'Ghost Stories',
+      blurb:
+        'A hundred and twenty. Their people swear somebody reads their mail. Nobody believes them.',
+      era: 'late',
+      size: 'medium',
+      target: 120,
+      reward: lesson('late', 'medium'),
+    },
+  ]),
+  /*
+   * The courier's daily report (Turned Runners, maintainer 2026-09-28). Ninth rung of a track that
+   * wants an A in the chair, and one report a day at most, so the targets are counted in weeks.
+   */
+  ...chain('courier', 'courier_reports', [
+    {
+      id: 'courier_1',
+      name: 'He Stops Here First',
+      blurb: "A week of the courier's reports. Their own man, carrying their news to you.",
+      era: 'late',
+      size: 'small',
+      target: 7,
+      reward: kit('late', 'small'),
+    },
+    {
+      id: 'courier_2',
+      name: 'Their Post, Our Table',
+      blurb: "Sixty mornings of somebody else's paperwork on your table.",
+      era: 'late',
+      size: 'medium',
+      target: 60,
+      reward: lesson('late', 'medium'),
     },
   ]),
 ];
@@ -3463,7 +3513,7 @@ const FRONTIER: FeatSpec[] = [
       blurb: 'Fought somewhere else and won. There is no such thing as far for this crew.',
       era: 'late',
       size: 'large',
-      reward: rise(5, 'blood'),
+      reward: rise(5, 'bodies'),
       target: 200,
     },
   ]),
@@ -4137,12 +4187,12 @@ const DISTRICT: FeatSpec[] = [
    *
    * Two chains because the system asks two things. Fitting is the steady one, open from the first
    * slot at level 5. A set is three slots on one structure all of one family, so it needs a
-   * structure at twenty and belongs late; the targets stop at five because a sixth set is a sixth
-   * building at maximum level, which is further than any other feat in the catalogue reaches.
+   * structure at its last rung and belongs late; the targets stop at five because a sixth set is a
+   * sixth building at maximum level, which is further than any other feat in the catalogue reaches.
    *
-   * "All of them" is 31 rather than 33 (2026-09-18). The third bracket opens at level 20
-   * (`MODIFICATION_SLOT_LEVELS`), and the Garage and the Infirmary now stop at 10, so those two
-   * never get a third one: nine structures with three brackets and two with two.
+   * "All of them" is 33: eleven structures with three brackets each. It was 31 from 2026-09-18,
+   * while the Garage and the Infirmary stopped at 10 under a third bracket that opened at 20; since
+   * 2026-09-29 a ten-rung structure opens its last two at 10 (`modificationSlotLevelsFor`).
    */
   ...chain('fittings', 'modifications_fitted', [
     {
@@ -4184,10 +4234,10 @@ const DISTRICT: FeatSpec[] = [
     {
       id: 'fittings_5',
       name: 'Every Bracket Full',
-      blurb: 'Thirty one fittings, which is all of them. There is nowhere left to bolt anything.',
+      blurb: 'Thirty three fittings, which is all of them. There is nowhere left to bolt anything.',
       era: 'late',
       size: 'large',
-      target: 31,
+      target: 33,
       reward: rise(4, 'coin'),
     },
   ]),
@@ -4195,7 +4245,7 @@ const DISTRICT: FeatSpec[] = [
     {
       id: 'sets_1',
       name: 'Built Around One Idea',
-      blurb: 'A structure at twenty with three of a kind in it. It does one thing very well.',
+      blurb: 'A structure with three of a kind in it. It does one thing very well.',
       era: 'late',
       size: 'small',
       target: 1,
@@ -4221,14 +4271,15 @@ const DISTRICT: FeatSpec[] = [
     },
   ]),
   /*
-   * The unit bench (2026-09-15): thirty modification cards, three brackets a unit, one of each.
+   * The unit bench (2026-09-15): thirty five modification cards, three brackets a unit.
    *
    * Counted off the brackets rather than off the stock, for the reason the deck is: building a
-   * card and bolting it on are two acts, and `addons_built` already counts the first. A card is
-   * one object and goes on one unit, so the ceiling is the catalogue, thirty; the top rung asks for
-   * two thirds of it, which is a crew that has collected most of the twenty-seven documents. The
-   * masterpiece feat stands alone: the five dearest cards want a level-7 yard and a five-or-six
-   * page document each, and the first one bolted on is the moment, not the fifth.
+   * card and bolting it on are two acts, and `addons_built` already counts the first. The yard
+   * bills a card again for every unit it goes on (2026-09-16), so the same card may sit on several
+   * units and the ceiling is the brackets, not the catalogue (`catalog.test.ts`). Forty at the top is
+   * fourteen units kitted out, of the twenty four any card fits. The masterpiece feat stands alone:
+   * a masterpiece card wants a whole rare document, off the pages or off the fence, and the first
+   * one bolted on is the moment, not the fifth.
    */
   ...chain('kitted', 'unit_modifications_fitted', [
     {
@@ -4252,7 +4303,7 @@ const DISTRICT: FeatSpec[] = [
     {
       id: 'kitted_3',
       name: 'Nobody Standard',
-      blurb: 'Twenty cards in brackets. Two thirds of everything the yard can cut, on somebody.',
+      blurb: 'Twenty cards in brackets: seven units at the least, each one built for its job.',
       era: 'late',
       size: 'medium',
       target: 20,
@@ -4281,7 +4332,8 @@ const DISTRICT: FeatSpec[] = [
     {
       id: 'masterpiece_fitted',
       name: 'Known By Name',
-      blurb: 'A masterpiece card bolted to a unit. One of these turns up a year.',
+      blurb:
+        'A masterpiece card bolted to a unit. The plans are rare, and the fence prices them so.',
       era: 'late',
       size: 'small',
       target: 1,
@@ -4443,8 +4495,9 @@ const CREW: FeatSpec[] = [
    * has already done by the time they read this sentence, and it has to: the rule this rung is
    * held to below is that what it pays is **trainable by a bare district**, so the player can go
    * and buy more of what just landed, and every fighter in the game is behind a Gauntlet that
-   * wants Nexus 3. Fighters are earned instead, off the early reward bands and the training floor
-   * once the Gauntlet is up. The rung after this one is `first_jobs`, which pays three more.
+   * wants Nexus 3. Fighters are earned instead: the first mission feats pay Razors (`FIRST_SQUAD`),
+   * and the training floor sells them once the Gauntlet is up. The rung after this one is
+   * `first_jobs`, which pays three more carriers.
    *
    * Standalone rather than the head of a ladder, because it is the one feat in the catalogue
    * whose measure can never reach two: `POST /overseer` refuses a second character.
@@ -4775,6 +4828,12 @@ const CREW: FeatSpec[] = [
       reward: rise(4, 'coin'),
     },
   ]),
+  /*
+   * A signing is a Bar auction won, and a crew sits at two tables a day, three from level 40
+   * (`maxOpenAuctionsFor`), about day 23 at the pace that puts level 50 on day 41. The top rung
+   * was 1,200: over a year of winning every table. At the caps, 23 + (600 - 2 * 23) / 3 = 208
+   * days for the top rung, and 400 lands at day 141. `catalog.test.ts` holds it there.
+   */
   ...chain('hired', 'officers_hired', [
     {
       id: 'hired_1',
@@ -4823,20 +4882,20 @@ const CREW: FeatSpec[] = [
     },
     {
       id: 'hired_6',
-      name: 'Five Hundred Signed On',
-      blurb: 'Five hundred signed. It is hard to find a crew you have not staffed.',
+      name: 'Four Hundred Signed On',
+      blurb: 'Four hundred signed. It is hard to find a crew you have not staffed.',
       era: 'late',
       size: 'medium',
-      target: 500,
+      target: 400,
       reward: rise(2, 'coin'),
     },
     {
       id: 'hired_7',
       name: 'The Employer',
-      blurb: 'Twelve hundred officers hired. Half the city has your name on a contract.',
+      blurb: 'Six hundred officers hired. Most of the city has worked under your name.',
       era: 'late',
       size: 'medium',
-      target: 1_200,
+      target: 600,
       reward: rise(3, 'coin'),
     },
   ]),
@@ -5346,7 +5405,7 @@ const TRADE: FeatSpec[] = [
     {
       id: 'trade_1',
       name: 'First Sale',
-      blurb: 'Have somebody take a listing of yours off the board.',
+      blurb: 'Have somebody take a listing of yours worth 250 caps or more off the board.',
       era: 'early',
       size: 'small',
       target: 1,
@@ -5382,7 +5441,7 @@ const TRADE: FeatSpec[] = [
     {
       id: 'trade_5',
       name: 'Six Hundred Deals',
-      blurb: 'Listings of yours taken off the board by somebody else.',
+      blurb: 'Listings of yours taken by somebody else, one a day from each buyer.',
       era: 'late',
       size: 'medium',
       target: 600,
@@ -5420,7 +5479,7 @@ const TRADE: FeatSpec[] = [
     {
       id: 'buys_1',
       name: 'Buy Something',
-      blurb: 'Take three deals off the board, the supplier or the Broker.',
+      blurb: 'Three deals worth 250 caps or more: off the board, from the supplier or the Broker.',
       era: 'early',
       size: 'small',
       target: 3,
@@ -5447,7 +5506,7 @@ const TRADE: FeatSpec[] = [
     {
       id: 'buys_4',
       name: 'Four Hundred Bought',
-      blurb: 'Listings, supply runs, barter with the Broker and lots won.',
+      blurb: 'Listings, supply runs, the Broker and the Runner, one deal a day with each.',
       era: 'late',
       size: 'medium',
       target: 400,
@@ -5481,6 +5540,12 @@ const TRADE: FeatSpec[] = [
       reward: rise(6, 'coin'),
     },
   ]),
+  /*
+   * The fence lets a crew win one lot a day, two from level 50 (`blackMarketTakesPerDay`), which
+   * the audit's pace puts at about day 41 (2026-09-28). The top rung was 2,200: over three years
+   * at that ceiling. At the caps, 41 + (420 - 41) / 2 = 230.5 days for the top rung; 280 lands at
+   * day 161 and 350 at day 196. `catalog.test.ts` holds it there.
+   */
   ...chain('contraband', 'contraband_taken', [
     {
       id: 'contraband_1',
@@ -5526,30 +5591,30 @@ const TRADE: FeatSpec[] = [
     },
     {
       id: 'contraband_5',
-      name: 'Four Hundred and Fifty Off the Shelf',
+      name: 'Two Hundred and Eighty Off the Shelf',
       blurb: 'Back-room lots won at midnight and used by morning.',
       era: 'late',
       size: 'large',
-      target: 450,
-      reward: rise(4, 'blood'),
+      target: 280,
+      reward: rise(4, 'coin'),
     },
     {
       id: 'contraband_6',
       name: 'The Back Room Regular',
-      blurb: 'A thousand crates won. They stopped asking what it is for.',
+      blurb: 'Three hundred and fifty crates won. They stopped asking what it is for.',
       era: 'late',
       size: 'large',
-      target: 1_000,
-      reward: rise(5, 'blood'),
+      target: 350,
+      reward: rise(5, 'coin'),
     },
     {
       id: 'contraband_7',
       name: 'Nothing Is Off Limits',
-      blurb: 'Two thousand two hundred crates won in the back room over a lifetime.',
+      blurb: 'Four hundred and twenty crates won in the back room over a lifetime.',
       era: 'late',
       size: 'large',
-      target: 2_200,
-      reward: rise(6, 'blood'),
+      target: 420,
+      reward: rise(6, 'coin'),
     },
   ]),
 ];
@@ -5592,7 +5657,7 @@ const NAME: FeatSpec[] = [
       era: 'late',
       size: 'large',
       target: 12_000,
-      reward: rise(6, 'blood'),
+      reward: rise(6, 'schooling'),
     },
     {
       id: 'infamy_5',
@@ -5601,7 +5666,7 @@ const NAME: FeatSpec[] = [
       era: 'late',
       size: 'large',
       target: 17_000,
-      reward: rise(7, 'blood'),
+      reward: rise(7, 'schooling'),
     },
     {
       id: 'infamy_6',
@@ -5610,7 +5675,7 @@ const NAME: FeatSpec[] = [
       era: 'late',
       size: 'large',
       target: 20_000,
-      reward: rise(8, 'blood'),
+      reward: rise(8, 'schooling'),
     },
     {
       id: 'infamy_7',
@@ -5620,7 +5685,7 @@ const NAME: FeatSpec[] = [
       era: 'late',
       size: 'large',
       target: 28_000,
-      reward: rise(9, 'blood'),
+      reward: rise(9, 'schooling'),
     },
     {
       id: 'infamy_8',
@@ -5630,7 +5695,7 @@ const NAME: FeatSpec[] = [
       era: 'late',
       size: 'large',
       target: 36_000,
-      reward: rise(10, 'blood'),
+      reward: rise(10, 'schooling'),
     },
     {
       id: 'infamy_9',
@@ -5639,7 +5704,7 @@ const NAME: FeatSpec[] = [
       era: 'late',
       size: 'large',
       target: 46_000,
-      reward: rise(11, 'blood'),
+      reward: rise(11, 'schooling'),
     },
     {
       id: 'infamy_10',
@@ -5648,7 +5713,7 @@ const NAME: FeatSpec[] = [
       era: 'late',
       size: 'large',
       target: 60_000,
-      reward: rise(12, 'blood'),
+      reward: rise(12, 'schooling'),
     },
   ]),
   ...chain('notoriety', 'notoriety', [
@@ -5686,7 +5751,7 @@ const NAME: FeatSpec[] = [
       era: 'late',
       size: 'large',
       target: 10,
-      reward: rise(6, 'blood'),
+      reward: rise(6, 'schooling'),
     },
   ]),
   ...chain('research', 'research_done', [
@@ -5759,58 +5824,68 @@ const NAME: FeatSpec[] = [
       target: 1,
       reward: leaves('pg_snipers_barrel_liners', 1),
     },
+    /*
+     * Rungs 2 to 7 set against the page supply of 2026-09-29, when the mission prize went to four
+     * pages in seven rotations and the categories were weighted by their pages
+     * (`blueprints/prize.ts`). Simulated then, pages found at the end of the first and second
+     * year: 588 and 1,063 for a player launching 8 runs a day, 1,407 and 2,707 at 24, 3,741 and
+     * 7,377 at 72. So the player at 24 a day meets rung 4 in about the fourth month, rung 6 at
+     * about a year and rung 7 near the end of the second; the player at 8 a day meets rung 5 in
+     * the second year. At the old supply the top two rungs (1,000 and 2,200) came at two years
+     * and four and a half for the player at 24 a day.
+     */
     {
       id: 'pages_2',
-      name: 'Twenty Pages',
+      name: 'Forty Pages',
       blurb: 'Enough paper to finish something. Probably not the thing you wanted.',
       era: 'mid',
       size: 'medium',
-      target: 20,
+      target: 40,
       reward: kit('mid', 'medium'),
     },
     {
       id: 'pages_3',
-      name: 'Eighty Pages',
+      name: 'A Hundred and Fifty Pages',
       blurb: 'A collection. Half of it is for things you will never build.',
       era: 'late',
       size: 'medium',
-      target: 80,
+      target: 150,
       reward: kit('late', 'medium'),
     },
     {
       id: 'pages_4',
-      name: 'Two Hundred Pages',
+      name: 'Four Hundred Pages',
       blurb: 'Found in hauls, bought off fences, taken off the dead.',
       era: 'late',
       size: 'medium',
-      target: 200,
+      target: 400,
       reward: rise(3, 'coin'),
     },
     {
       id: 'pages_5',
       name: 'The Library',
-      blurb: 'Four hundred and fifty pages. Somebody should bind these.',
+      blurb: 'Eight hundred pages. Somebody should bind these.',
       era: 'late',
       size: 'large',
-      target: 450,
+      target: 800,
       reward: rise(4, 'coin'),
     },
     {
       id: 'pages_6',
-      name: 'A Thousand Leaves',
+      name: 'Fourteen Hundred Leaves',
       blurb: 'Pages found. Most blueprints came to you in pieces.',
       era: 'late',
       size: 'large',
-      target: 1_000,
+      target: 1_400,
       reward: rise(5, 'coin'),
     },
     {
       id: 'pages_7',
       name: 'Paper Is a Habit',
-      blurb: 'Two thousand two hundred pages recovered over a lifetime.',
+      blurb: 'Two thousand six hundred pages recovered over a lifetime.',
       era: 'late',
       size: 'large',
-      target: 2_200,
+      target: 2_600,
       reward: rise(6, 'coin'),
     },
   ]),
@@ -6101,6 +6176,13 @@ const PEOPLE: FeatSpec[] = [
       reward: purse('mid', 'medium'),
     },
   ]),
+  /*
+   * Only fights feed a faction's infamy (`creditFaction` in `battle/resolve.ts`), and a table seats
+   * five. The audit put a crew that fights every day at about 300 fight infamy a day, which is also
+   * the pace that reaches `infamy_10` (60,000) in 200 days, so a full table banks about 1,500 a
+   * day. The ladder ran to forty million: seventy years of that. From `faction_5` it is retuned so
+   * the top rung, 330,000, is 220 days of a full table fighting daily. `catalog.test.ts` holds it.
+   */
   ...chain('faction', 'faction_infamy', [
     {
       id: 'faction_1',
@@ -6127,7 +6209,7 @@ const PEOPLE: FeatSpec[] = [
       era: 'late',
       size: 'large',
       target: 50000,
-      reward: street('late', 'large'),
+      reward: rise(4, 'bodies'),
     },
     {
       id: 'faction_4',
@@ -6141,57 +6223,58 @@ const PEOPLE: FeatSpec[] = [
     {
       id: 'faction_5',
       name: 'A Table Nobody Sits At Twice',
-      blurb: 'Three hundred and forty thousand won between you.',
+      blurb: 'A hundred and sixty five thousand won between you.',
       era: 'late',
       size: 'large',
-      target: 340_000,
+      target: 165_000,
       reward: rise(7, 'bodies'),
     },
     {
       id: 'faction_6',
       name: 'Everybody Has Lost Somebody',
       blurb:
-        'Nine hundred thousand under the badge. Every crew in the city has lost someone to yours.',
+        'Two hundred thousand under the badge. Every crew in the city has lost someone to yours.',
       era: 'late',
       size: 'large',
-      target: 900_000,
+      target: 200_000,
       reward: rise(8, 'bodies'),
     },
     {
       id: 'faction_7',
       name: 'A Condition of the City',
-      blurb: 'Two million four hundred thousand. You are not a faction, you are weather.',
+      blurb: 'Two hundred and thirty five thousand. You are not a faction, you are weather.',
       era: 'late',
       size: 'large',
-      target: 2_400_000,
+      target: 235_000,
       reward: rise(9, 'bodies'),
     },
     {
       id: 'faction_8',
       name: 'What the Colours Mean',
-      blurb: 'Six million won together. Nobody has to be told what they are looking at.',
+      blurb:
+        'Two hundred and seventy thousand won together. Nobody has to be told what they are looking at.',
       era: 'late',
       size: 'large',
-      target: 6_000_000,
+      target: 270_000,
       reward: rise(10, 'bodies'),
     },
     {
       id: 'faction_9',
       name: 'The Other Government',
-      blurb: 'Sixteen million under one badge. The Combine negotiates rather than declares.',
+      blurb: 'Three hundred thousand under one badge. The Combine negotiates rather than declares.',
       era: 'late',
       size: 'large',
-      target: 16_000_000,
+      target: 300_000,
       reward: rise(11, 'bodies'),
     },
     {
       id: 'faction_10',
       name: 'One Badge, One City',
       blurb:
-        'Forty million. There is the city, and there is you, and lately those are one sentence.',
+        'Three hundred and thirty thousand. There is the city, and there is you, and lately those are one sentence.',
       era: 'late',
       size: 'large',
-      target: 40_000_000,
+      target: 330_000,
       reward: rise(12, 'bodies'),
     },
   ]),

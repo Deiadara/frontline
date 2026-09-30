@@ -55,7 +55,7 @@ async function register(app: FastifyInstance, username: string) {
 type Held = 'player' | 'bot' | 'looters';
 
 /**
- * A contested district the caller has scouted, with one location held as `held` says.
+ * A contested district, with one location held as `held` says.
  *
  * The same second account backs both the player and the bot case: the bot is that account's base
  * with `is_bot` flipped, so the two differ in one column and nothing else.
@@ -77,7 +77,6 @@ async function cityWithACaller(infamy: number, held: Held = 'player') {
   );
   const location = district?.locations[0];
   if (!district || !location) throw new Error('fixture: no contested ground to call on');
-  app.repos.city.markScouted(caller.baseId, district.id, new Date().toISOString());
   app.repos.city.put({
     locationId: location.id,
     holder: held === 'looters' ? { kind: 'looters' } : { kind: 'crew', baseId: rival.baseId },
@@ -185,7 +184,6 @@ async function cityWithMixedGround() {
   if (!district) throw new Error('fixture: no contested ground with three plots');
   const [first, second, third] = district.locations;
   if (!first || !second || !third) throw new Error('fixture: three plots expected');
-  app.repos.city.markScouted(caller.baseId, district.id, new Date().toISOString());
   const hold = (locationId: string, baseId: string) =>
     app.repos.city.put({
       locationId,
@@ -211,7 +209,6 @@ async function cityWithMixedGround() {
   /** Puts a rival on a residential plot of their own, and lets the caller see it. */
   const houses = (baseId: string, districtId: string) => {
     db.prepare('UPDATE bases SET district_id = ? WHERE id = ?').run(districtId, baseId);
-    app.repos.city.markScouted(caller.baseId, districtId, new Date().toISOString());
   };
   /** The route's bill for the same target the board quoted, from a caller with no name at all. */
   const declare = (target: BattleTarget) =>

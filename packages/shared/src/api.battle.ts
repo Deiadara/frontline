@@ -8,8 +8,9 @@ import {
   type BattleTarget,
 } from './battle/scheduled.js';
 import { BaseSchema } from './base.js';
+import { LocationHolderKindSchema } from './city/control.js';
 import { FleetSchema } from './building/vehicles.js';
-import { LevelUpSchema, RailQuoteSchema, ScoutingRunViewSchema } from './api.js';
+import { LevelUpSchema, RailQuoteSchema } from './api.js';
 import { IdSchema, IsoDateTimeSchema } from './primitives.js';
 import { OfficerRoleSchema } from './roles.js';
 import { ArmySchema, UnitIdSchema, UnitStatsSchema } from './units/index.js';
@@ -40,7 +41,7 @@ export const BattleLeaderSchema = z.object({
    * A leader has to get there like everybody else, at their own `speed` and in whatever machine
    * this crew has committed to the fight, so the picker's choice is between a better sheet and a
    * shorter road rather than between two sheets. Per officer rather than one figure for the crew,
-   * because the pace is the person: the Head of Finance and the Scout are not the same number.
+   * because the pace is the person: the Head of Finance and the Cartographer are not the same number.
    *
    * Defaulted so a payload written before the field existed still parses.
    */
@@ -123,6 +124,8 @@ export const TrapOptionSchema = z.object({
   trapId: z.string().min(1),
   name: z.string(),
   description: z.string(),
+  /** What it does to the attack, the line the Scrapyard's row prints (`trapEffectLine`). */
+  effect: z.string(),
   /** How many of these the crew is carrying. */
   held: z.number().int().nonnegative(),
   available: z.boolean(),
@@ -238,6 +241,12 @@ export const BattleReportViewSchema = z.object({
   won: z.boolean(),
   analysis: BattleAnalysisSchema.nullable(),
   redacted: z.boolean(),
+  /**
+   * Who stood on the ground, as a kind: the report draws the Combine's and the looters' insignia
+   * beside their side (maintainer, 2026-09-30), and the analysis carries only a name. Defaulted so a
+   * payload from before the field reads as a fight between crews, which draws no insignia.
+   */
+  defenderKind: LocationHolderKindSchema.default('crew'),
 });
 export type BattleReportView = z.infer<typeof BattleReportViewSchema>;
 
@@ -336,14 +345,8 @@ export type StationedForce = z.infer<typeof StationedForceSchema>;
 export const ActionsResponseSchema = z.object({
   /** Everything this crew has walking, soonest to arrive first. */
   movements: z.array(MovementViewSchema),
-  /**
-   * The scout this crew has out, or null. The road page is "where is everybody right now", and a
-   * scout on their way to a dark district is somebody. Defaulted so a fixture written before it
-   * still parses.
-   */
-  scoutingRun: ScoutingRunViewSchema.nullable().default(null),
-  /** The spy job this crew has out, or null: runners on a road are somebody too (2026-09-22). */
-  spyRun: SpyRunViewSchema.nullable().default(null),
+  /** The spy jobs this crew has out: runners on a road are somebody too (2026-09-22). */
+  spyRuns: z.array(SpyRunViewSchema).default([]),
   /** Columns walking between the crew's own places (`moves/moves.ts`), soonest to land first. */
   moves: z.array(UnitMoveViewSchema).default([]),
   /**
@@ -360,7 +363,7 @@ export const ActionsResponseSchema = z.object({
   /**
    * §A4: what this crew has standing on ground it holds, one row per place.
    *
-   * The Monitor listed columns, crews on jobs and the scout, and said nothing at all about the
+   * The Monitor listed columns and crews on jobs, and said nothing at all about the
    * people posted on held ground: a crew whose whole army was in garrisons was told nobody was
    * out. They are not *doing* anything, which is exactly why no other screen was going to show
    * them, and "where is everybody" is the one question this page exists to answer.

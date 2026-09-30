@@ -12,6 +12,14 @@ import { buildApp } from '../app.js';
 import { loadConfig } from '../config.js';
 import { openDatabase, runMigrations, type AppDatabase } from '../db/index.js';
 import { settleMovements } from '../battle/movement.js';
+import {
+  closeWorlds,
+  declare as declareIn,
+  faction as seatFaction,
+  holdPlot,
+  makeWorld,
+  register as registerIn,
+} from '../testing/fight-world.js';
 import { chooseOverseer } from '../testing/overseer.js';
 
 /**
@@ -34,6 +42,7 @@ afterEach(async () => {
     db.close();
   }
 });
+afterEach(closeWorlds);
 
 const auth = (token: string): { authorization: string } => ({ authorization: `Bearer ${token}` });
 
@@ -117,7 +126,6 @@ describe('an ally who reinforced somebody else’s attack', () => {
      * held end to end is shut, which leaves a gate fight as the only legal call there. Any open
      * location fight does for this test, and Chrome Row's squatted half is one.
      */
-    app.repos.city.markScouted(declarer.baseId, 'chrome-row', new Date().toISOString());
     const target: BattleTarget = {
       kind: 'location',
       districtId: 'chrome-row',
@@ -182,6 +190,50 @@ describe('an ally who reinforced somebody else’s attack', () => {
     // strength, which is the number the battle board deliberately blurs.
     expect(listed.committed).toBe(sizeOf('attacker'));
     expect(listed.committed).not.toBe(sizeOf('defender'));
+  });
+});
+
+/**
+ * A fight between two of the table's own (bug pass, 2026-09-28).
+ *
+ * Each member's side was listed with its committed strength whatever side the reader was on. So
+ * the member who called the fight read the defender's line off the faction page, ring included,
+ * and a third member, who fights for neither (`alignmentReader`), read both.
+ */
+describe('a fight inside the faction', () => {
+  it("shows nobody the other side's strength", async () => {
+    const world = await makeWorld('attacker');
+    const caller = await registerIn(world, 'caller', { razors: 5 });
+    const holder = await registerIn(world, 'holder', { razors: 40 });
+    const bystander = await registerIn(world, 'bystander');
+    const outsider = await registerIn(world, 'outsider', { razors: 5 });
+    seatFaction(world, 'f1', [caller, holder, bystander]);
+    holdPlot(world, holder, { razors: 3 });
+    const battleId = await declareIn(world, caller);
+    const row = world.app.repos.sieges.deployment(battleId, 'defender', holder.baseId)!;
+    world.app.repos.sieges.putDeployment({
+      ...row,
+      army: { razors: 17 },
+      perimeter: { razors: 9 },
+    });
+    // The control: an outsider's call on the holder's gate, which the whole table defends.
+    const home = world.app.repos.bases.findById(holder.baseId)!.districtId;
+    const defended = await declareIn(world, outsider, { kind: 'gate', districtId: home });
+
+    const listed = async (reader: typeof caller) =>
+      (
+        await world.app.inject({
+          method: 'GET',
+          url: '/api/factions',
+          headers: { authorization: `Bearer ${reader.token}` },
+        })
+      )
+        .json<FactionResponse>()
+        .battles.map((battle) => ({ battleId: battle.battleId, side: battle.side }));
+
+    const theirs = [{ battleId: defended, side: 'defender' }];
+    expect(await listed(caller)).toEqual(theirs);
+    expect(await listed(bystander)).toEqual(theirs);
   });
 });
 

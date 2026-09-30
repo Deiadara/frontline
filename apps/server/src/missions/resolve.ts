@@ -40,7 +40,13 @@ import { forceSize, mergeArmies } from '../battle/forces.js';
  */
 export const MAYHEM_GUARANTEED_PARTS = 3;
 import { createRng } from '../characters/rng.js';
-import { standingEffectsFor } from '../crew/standing.js';
+import {
+  liftedOfficerSheet,
+  liftedOverseerSheet,
+  officerLiftRoom,
+  standingEffectsFor,
+  type LiftRoom,
+} from '../crew/standing.js';
 import { overseerOf } from '../crew/training.js';
 import { refundFor } from '../battle/resolve.js';
 import { fightMissionBattle } from './battle.js';
@@ -88,10 +94,16 @@ function leaderOf(
   base: Base,
   overseer: Overseer | undefined,
   crew: CrewEffects | null,
+  room: LiftRoom,
 ): BattleOfficer | undefined {
+  // The lifted sheet, the one the quote and the frozen odds were read off (`benchFor`).
   if (stored.mission.overseerLed) {
     return overseer
-      ? { officerId: overseer.id, name: overseer.name, attributes: overseer.attributes }
+      ? {
+          officerId: overseer.id,
+          name: overseer.name,
+          attributes: liftedOverseerSheet(overseer.attributes, room),
+        }
       : undefined;
   }
   const officer = base.commanders.find((held) => held.id === stored.mission.officerId);
@@ -102,7 +114,7 @@ function leaderOf(
   return {
     officerId: officer.id,
     name: officer.name,
-    attributes: officer.attributes,
+    attributes: liftedOfficerSheet(officer, room).attributes,
     ...(sheetBonus ? { sheetBonus } : {}),
   };
 }
@@ -187,6 +199,7 @@ export function resolveDueMissions(repos: Repositories, base: Base, now: Date): 
    */
   const crewCarry = crew ?? standingEffectsFor(repos, base, now);
   const overseer = fights ? overseerOf(repos, base) : undefined;
+  const room = fights ? officerLiftRoom(repos, base, now) : null;
 
   const settlements = due.map((stored) => {
     /*
@@ -220,7 +233,7 @@ export function resolveDueMissions(repos: Repositories, base: Base, now: Date): 
             force: stored.mission.force,
             vehicles: stored.mission.vehicles,
             grade,
-            leader: leaderOf(stored, base, overseer, crew),
+            leader: room ? leaderOf(stored, base, overseer, crew, room) : undefined,
             anyRide,
             // The crew's brackets as they stand at the mark, the same read `missionCarry` gets.
             loadouts: base.unitLoadouts,
@@ -579,20 +592,25 @@ export function resolveDueMissions(repos: Repositories, base: Base, now: Date): 
         : `Nobody came back from ${name ?? 'the job'}`,
       link: '/game/missions',
       subjectId: settled.mission.id,
-      now,
+      at: missionCompletesAt(settled.mission),
     });
   }
 
   // §F1e: the sheet itself, named. `mission_home` says a crew is back and which job it was; this
   // says what came home in the inventory and points at the document the page belongs to. Diffed
-  // against the inventory as it stood, so every crew that landed on this call is covered at once.
-  tellPagesFound(repos, {
-    userId: base.ownerId,
-    before: base.inventory,
-    after: settled.inventory,
-    source: { kind: 'mission' },
-    now,
-  });
+  // run by run, so each page is dated at the return of the crew that carried it.
+  let held = base.inventory;
+  for (const run of settlements) {
+    const after = addItems(held, run.found);
+    tellPagesFound(repos, {
+      userId: base.ownerId,
+      before: held,
+      after,
+      source: { kind: 'mission' },
+      at: missionCompletesAt(run.mission),
+    });
+    held = after;
+  }
 
   /*
    * The level-up, if this settlement crossed one, is **not** returned.

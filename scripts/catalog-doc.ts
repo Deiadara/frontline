@@ -34,6 +34,7 @@ import {
   BUILDING_CATALOG,
   BUILDING_KINDS,
   CITY_DISTRICTS,
+  isContested,
   CITY_LOCATIONS,
   describeBoostEffect,
   describeBoostUnlock,
@@ -94,6 +95,7 @@ import {
   RESOURCE_ORDER,
   TRAINING_DRILLS,
   TRAP_CATALOG,
+  trapEffectLine,
   COMBINE_UNITS,
   PLAYER_UNITS,
   UNIT_CATALOG,
@@ -186,8 +188,6 @@ export function clock(seconds: number): string {
   const rest = minutes % 60;
   return rest === 0 ? `${hours}h` : `${hours}h ${rest}m`;
 }
-
-const percent = (fraction: number): string => `${Math.round(fraction * 100)}%`;
 
 /* -------------------------------------------------------------------------- */
 /* Sections                                                                    */
@@ -314,15 +314,14 @@ function trapsSection(): Section {
     sources: ['packages/shared/src/battle/traps.ts'],
     rows: TRAP_CATALOG.length,
     body: table(
-      ['Id', 'Name', 'Needs', 'Yard level', 'Cost', 'Kill share', 'Max kills', 'Description'],
+      ['Id', 'Name', 'Needs', 'Yard level', 'Cost', 'Effect', 'Description'],
       TRAP_CATALOG.map((spec) => [
         code(spec.id),
         spec.name,
         code(spec.requiresTech),
         String(scrapyardLevelForTrap(spec)),
         money(spec.cost),
-        percent(spec.killShare),
-        String(spec.maxKills),
+        trapEffectLine(spec),
         clip(spec.description),
       ]),
     ),
@@ -407,7 +406,6 @@ function featsSection(): Section {
       reward.units ? 'units' : '',
       reward.items ? 'items' : '',
       reward.xp ? 'xp' : '',
-      reward.infamy ? 'infamy' : '',
       reward.boosts ? 'boosts' : '',
     ]
       .filter((one) => one !== '')
@@ -497,6 +495,7 @@ function missionsSection(): Section {
 /* ----------------------------------------------------------------------- areas */
 
 function areasSection(): Section {
+  // A plot has no difficulty and posts no board (maintainer, 2026-09-30), so both cells stay empty.
   const rows = CITY_DISTRICTS.map((district) => [
     code(district.id),
     district.name,
@@ -504,8 +503,8 @@ function areasSection(): Section {
     district.formalName ?? '',
     district.kind,
     district.allegiance,
-    String(district.difficulty),
-    `+${areaPayPercent(district.id)}%`,
+    isContested(district) ? String(district.difficulty) : '',
+    isContested(district) ? `+${areaPayPercent(district.id)}%` : '',
     String(district.locations.length),
     clip(district.blurb),
   ]);

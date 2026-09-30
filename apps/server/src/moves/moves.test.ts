@@ -236,7 +236,6 @@ describe('ground', () => {
     arm(me, { razors: 10 });
     const press = me.app.repos.city.control('steelbelt-press')!;
     me.app.repos.city.put({ ...press, holder: { kind: 'unoccupied' }, garrison: {} });
-    me.app.repos.city.markScouted(me.baseId, 'steelbelt', new Date().toISOString());
 
     const res = await move(me, {
       from: { kind: 'district' },
@@ -263,7 +262,6 @@ describe('ground', () => {
       vehicles: {},
     });
     expect(dark.statusCode).toBe(400);
-    me.app.repos.city.markScouted(me.baseId, 'steelbelt', new Date().toISOString());
     // The Press is the looters' in the seeded city.
     const theirs = await move(me, {
       from: { kind: 'district' },
@@ -275,8 +273,8 @@ describe('ground', () => {
     expect(theirs.json<{ error: { message: string } }>().error.message).toMatch(/Call a fight/);
   });
 
-  /** Found by the playthrough: the list offered an ally's ground the send then refused. */
-  it("lists an ally's ground only once this crew has seen the district", async () => {
+  /** The whole city is visible (2026-09-29), so an ally's ground is a destination wherever it is. */
+  it("lists an ally's ground as somewhere to walk to", async () => {
     const { me, ally } = await makeWorld();
     const press = me.app.repos.city.control('steelbelt-press')!;
     me.app.repos.city.put({ ...press, holder: { kind: 'crew', baseId: ally.baseId } });
@@ -303,11 +301,9 @@ describe('ground', () => {
         .json<UnitsResponse>()
         .moveDestinations.filter((d) => d.group === 'faction');
 
-    expect(await allied()).toEqual([]);
-    me.app.repos.city.markScouted(me.baseId, 'steelbelt', new Date().toISOString());
     expect(
       (await allied()).map((d) => (d.place.kind === 'location' ? d.place.locationId : null)),
-    ).toContain('steelbelt-press');
+    ).toEqual(['steelbelt-press']);
   });
 
   it("posts units on a faction ally's ground: theirs, standing for the holder", async () => {
@@ -319,7 +315,6 @@ describe('ground', () => {
       holder: { kind: 'crew', baseId: ally.baseId },
       garrison: { razors: 3 },
     });
-    me.app.repos.city.markScouted(me.baseId, 'steelbelt', new Date().toISOString());
 
     // Strangers first: their ground is not a place to walk onto.
     const stranger = await move(me, {

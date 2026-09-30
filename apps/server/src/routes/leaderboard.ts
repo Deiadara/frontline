@@ -120,6 +120,12 @@ export function registerLeaderboardRoutes(app: FastifyInstance): void {
         board,
         localOnly: local,
         scope,
+        /*
+         * The top hundred by the wallet only. The client's other sorts and its name search work
+         * inside these rows, so a crew outside them cannot be found that way. Deliberate for now
+         * (maintainer, 2026-09-29): the world is aimed at about twenty players, far inside the
+         * window. Rank and cut on the server when that stops being true.
+         */
         entries: withRanks.slice(0, LEADERBOARD_LIMIT),
         yourRank: you?.rank ?? null,
       };

@@ -16,7 +16,6 @@ import { createOverseersRepo, type OverseersRepo } from './overseers.js';
 import { createUsersRepo, type UsersRepo } from './users.js';
 import { createFactionsRepo, type FactionsRepo } from './factions.js';
 import { createSocialRepo, type SocialRepo } from './social.js';
-import { createScoutingRepo, type ScoutingRepo } from './scouting.js';
 import { createSpyingRepo, type SpyingRepo } from './spying.js';
 import {
   createAlliedGarrisonsRepo,
@@ -59,7 +58,6 @@ export interface Repositories {
   /** Append-only record of what has happened. Written to, never read by a rule. */
   history: HistoryRepo;
   /** §A4: officers out casing a district, and the ground they have opened. */
-  scouting: ScoutingRepo;
   /** Spy jobs on the clock and every report they came home with (2026-09-22). */
   spying: SpyingRepo;
   /** Columns walking between the crew's own places (2026-09-22). */
@@ -85,10 +83,7 @@ export interface Repositories {
   tx<T>(work: () => T): T;
 }
 
-export function createRepositories(
-  db: AppDatabase,
-  options: { admin?: boolean } = {},
-): Repositories {
+export function createRepositories(db: AppDatabase): Repositories {
   return {
     users: createUsersRepo(db),
     factions: createFactionsRepo(db),
@@ -100,7 +95,7 @@ export function createRepositories(
     sleepers: createSleeperRepo(db),
     missions: createMissionsRepo(db),
     bar: createBarRepo(db),
-    city: createCityRepo(db, options.admin ?? false),
+    city: createCityRepo(db),
     movements: createMovementRepo(db),
     market: createMarketRepo(db),
     vendorAuctions: createVendorAuctionsRepo(db),
@@ -109,7 +104,6 @@ export function createRepositories(
     history: createHistoryRepo(db),
     feats: createFeatsRepo(db),
     regrowth: createRegrowthRepo(db),
-    scouting: createScoutingRepo(db),
     spying: createSpyingRepo(db),
     moves: createMovesRepo(db),
     automations: createAutomationsRepo(db),

@@ -121,7 +121,6 @@ describe('a home raided and lost', () => {
     const resident = await register(app, 'resident', { razors: 6, scavengers: 10, haulers: 4 });
     const HOME = 'ashen-terraces';
     db.prepare('UPDATE bases SET district_id = ? WHERE id = ?').run(HOME, resident.baseId);
-    app.repos.city.markScouted(raider.baseId, HOME, new Date().toISOString());
     app.repos.sieges.breakGate(HOME, new Date(Date.now() + 24 * 3_600_000).toISOString());
     const battleId = await declare(app, raider, { kind: 'district', districtId: HOME });
 
@@ -143,7 +142,6 @@ describe('a home raided and lost', () => {
     const resident = await register(app, 'resident', { razors: 6, scavengers: 30 });
     const HOME = 'ashen-terraces';
     db.prepare('UPDATE bases SET district_id = ? WHERE id = ?').run(HOME, resident.baseId);
-    app.repos.city.markScouted(raider.baseId, HOME, new Date().toISOString());
     app.repos.sieges.breakGate(HOME, new Date(Date.now() + 24 * 3_600_000).toISOString());
     const battleId = await declare(app, raider, { kind: 'district', districtId: HOME });
 
@@ -160,7 +158,6 @@ describe('an attack turned back', () => {
   it('brings home porters that were sent while they could fight and are out of the line now', async () => {
     const { app, db, engine } = await world('defender');
     const caller = await register(app, 'caller', {});
-    app.repos.city.markScouted(caller.baseId, 'steelbelt', new Date().toISOString());
     const battleId = await declare(app, caller, {
       kind: 'location',
       districtId: 'steelbelt',
@@ -183,7 +180,6 @@ describe('a column that reaches a garrison after the mark', () => {
     const { app, db, engine, seen } = await world('defender');
     const caller = await register(app, 'caller', { razors: 20 });
     const holder = await register(app, 'holder', { razors: 20 });
-    app.repos.city.markScouted(caller.baseId, 'steelbelt', new Date().toISOString());
     const control = app.repos.city.control(SQUATTED)!;
     app.repos.city.put({
       ...control,
@@ -229,8 +225,6 @@ describe('a Sleeper cell woken into a call', () => {
     const { app } = await world('attacker');
     const caller = await register(app, 'caller', { razors: 20 });
     const holder = await register(app, 'holder', { razors: 20 });
-    app.repos.city.markScouted(caller.baseId, 'steelbelt', new Date().toISOString());
-    app.repos.city.markScouted(holder.baseId, 'steelbelt', new Date().toISOString());
     const control = app.repos.city.control(SQUATTED)!;
     app.repos.city.put({
       ...control,

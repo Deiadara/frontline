@@ -70,10 +70,10 @@ export function capturedGateDefensePercent(level: number): number {
 }
 
 /**
- * §B7: and how much less a scout reading this district comes away with.
+ * §B7: and how much less a spy reading this district comes away with.
  *
  * The board's rule is that "the spying part is true for all gates as well". It lands on the same
- * `intelResistancePercent` a home Gate does, so a scout looking at a district behind a level 8
+ * `intelResistancePercent` a home Gate does, so a spy looking at a district behind a level 8
  * captured gate is up against exactly what they would be looking at a home district behind a
  * level 8 one.
  */

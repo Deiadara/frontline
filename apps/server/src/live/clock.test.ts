@@ -101,10 +101,6 @@ async function makeStack(username: string): Promise<Stack> {
   const armed = app.repos.bases.findById(baseId)!;
   app.repos.bases.updateArmy(baseId, { ...armed.army, razors: 20 }, armed.trainingQueue);
 
-  // Scouting is a journey now (`scouting/scouting.ts`), so the button no longer opens
-  // ground: it sends somebody who walks back hours later. A fixture wants the *state*,
-  // not the trip, so the intel is written directly.
-  app.repos.city.markScouted(baseId, OPEN_DISTRICT, new Date().toISOString());
   return { app, db, token, baseId };
 }
 
@@ -417,5 +413,51 @@ describe('a crew comes home on time', () => {
 
     expect(heard.map((event) => event.kind)).toContain('notification');
     expect(heard.map((event) => event.kind)).toContain('base');
+  });
+});
+
+/*
+ * Maintainer ruling, 2026-09-29: the standings, a crew's file and a faction's page showed an
+ * offline crew as it was when its owner last looked. The clock banks a finished build now, with
+ * nobody reading anything, and leaves a crew with nothing finished alone.
+ */
+describe('a crew’s finished work lands on the clock', () => {
+  function orderNexus(stack: Stack, startedAt: Date) {
+    const base = stack.app.repos.bases.findById(stack.baseId)!;
+    const nexus = base.buildings.find((one) => one.kind === 'nexus')!;
+    stack.app.repos.bases.updateDistrict(stack.baseId, base.buildings, [
+      {
+        id: 'order-nexus',
+        kind: 'nexus',
+        level: nexus.level + 1,
+        startedAt: startedAt.toISOString(),
+        durationSeconds: 60,
+        paid: {},
+        parts: {},
+      },
+    ]);
+    return nexus.level;
+  }
+  const nexusLevel = (stack: Stack) =>
+    stack.app.repos.bases.findById(stack.baseId)!.buildings.find((one) => one.kind === 'nexus')!
+      .level;
+
+  it('banks a finished build with nobody reading a page', async () => {
+    const stack = await makeStack('builder');
+    const was = orderNexus(stack, new Date(Date.now() - 120_000));
+    expect(nexusLevel(stack), 'the stored row waits for a read').toBe(was);
+
+    tickWorld(stack.app.repos, stack.app.skirmishEngine, new Date());
+
+    expect(nexusLevel(stack)).toBe(was + 1);
+    expect(stack.app.repos.bases.findById(stack.baseId)!.buildQueue).toEqual([]);
+  });
+
+  it('leaves a build that is still going up alone', async () => {
+    const stack = await makeStack('patient');
+    const was = orderNexus(stack, new Date());
+    tickWorld(stack.app.repos, stack.app.skirmishEngine, new Date());
+    expect(nexusLevel(stack)).toBe(was);
+    expect(stack.app.repos.bases.findById(stack.baseId)!.buildQueue).toHaveLength(1);
   });
 });

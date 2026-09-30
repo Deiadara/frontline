@@ -1,6 +1,11 @@
 import { expect, test, type Page } from '@playwright/test';
 import { fullQueue, hudExtremes } from './fixtures';
-import { expectNothingOverflowsTheScreen, installApi, settleFonts } from './harness';
+import {
+  expectNothingClippedHorizontally,
+  expectNothingOverflowsTheScreen,
+  installApi,
+  settleFonts,
+} from './harness';
 
 /**
  * Every screen under the heaviest save the fixtures can build, at the narrowest frame (bug pass,
@@ -17,51 +22,6 @@ import { expectNothingOverflowsTheScreen, installApi, settleFonts } from './harn
  */
 
 test.use({ viewport: { width: 1024, height: 768 } });
-
-/**
- * No element may stick out of the viewport horizontally.
- *
- * The same check `visual.spec.ts` runs, and a copy of it rather than an import, because it is
- * private there and this file is the one place outside that matrix that needs it. `[data-scenery]`
- * opts one element out and never its subtree: full-bleed artwork is deliberately wider than the
- * frame, and what stands on it is still content.
- */
-async function expectNothingClippedHorizontally(page: Page): Promise<void> {
-  const offenders = await page.evaluate<string[]>(() => {
-    /*
-     * An element lying past the fold *inside a sideways scroller* is reachable, not cut.
-     *
-     * Both of this sweep's first two reports were that: the build rail is `overflow-x-auto` and
-     * runs six orders across a box 860px wide, and the missions board's body scrolls below `xl`.
-     * The scroller's own box still has to be inside the frame, which is the part worth checking,
-     * so what is skipped is a descendant of one and never the scroller itself.
-     */
-    const reachable = (el: HTMLElement): boolean => {
-      for (let node = el.parentElement; node !== null; node = node.parentElement) {
-        const how = getComputedStyle(node).overflowX;
-        if (how !== 'auto' && how !== 'scroll') continue;
-        if (node.scrollWidth <= node.clientWidth + 1) continue;
-        const box = node.getBoundingClientRect();
-        if (box.right <= window.innerWidth + 1 && box.left >= -1) return true;
-      }
-      return false;
-    };
-    const bad: string[] = [];
-    for (const el of Array.from(document.body.querySelectorAll<HTMLElement>('*'))) {
-      const rect = el.getBoundingClientRect();
-      if (rect.width === 0 || rect.height === 0) continue;
-      const style = getComputedStyle(el);
-      if (style.visibility === 'hidden' || style.position === 'fixed') continue;
-      if (el.hasAttribute('data-scenery')) continue;
-      if (rect.right > window.innerWidth + 1 || rect.left < -1) {
-        if (reachable(el)) continue;
-        bad.push(`${el.tagName.toLowerCase()}.${el.className} [${rect.left}..${rect.right}]`);
-      }
-    }
-    return bad.slice(0, 5);
-  });
-  expect(offenders, `elements outside the viewport: ${offenders.join(' | ')}`).toEqual([]);
-}
 
 /** The screens a player actually walks between, by the path the bottom bar uses. */
 const SCREENS: readonly (readonly [name: string, path: string, ready: string])[] = [
@@ -80,7 +40,13 @@ const SCREENS: readonly (readonly [name: string, path: string, ready: string])[]
 /** The heaviest save the fixtures can build: extreme numbers *and* a full build queue. */
 const HEAVIEST = {
   ...hudExtremes,
-  base: { ...hudExtremes.base!, buildQueue: fullQueue.base!.buildQueue },
+  // The research comes with the queue: six orders need the queue rung, and without it the rail
+  // read `6/4`, a state the server refuses to build.
+  base: {
+    ...hudExtremes.base!,
+    research: fullQueue.base!.research,
+    buildQueue: fullQueue.base!.buildQueue,
+  },
 };
 
 async function open(page: Page, path: string, ready: string): Promise<void> {

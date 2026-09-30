@@ -3,7 +3,6 @@ import {
   findLocation,
   combineLeaderOf,
   combineLeaderAlive,
-  EVERY_LOCATION,
   cityOfDistrict,
   districtsOfCity,
   findDistrict,
@@ -15,8 +14,8 @@ import {
   garrisonSize,
   isDistrictRaidable,
   isHeldBy,
-  nearestDistricts,
   locationDefense,
+  openSpyTiers,
   travelMinutesBetween,
   unifiedBonusFor,
   unitsUnlockedByLocation,
@@ -41,24 +40,23 @@ import { standingEffectsFor } from '../crew/standing.js';
 import { upgradeSeconds, upgradingSince } from './upgrade.js';
 import type { Repositories } from '../db/repos/index.js';
 import { isClosedPlot } from '../battle/ground.js';
-import { scoutBlocker, scoutParty, planScout } from '../scouting/scouting.js';
-import { planSpy, spyBlocker, spyRunView } from '../spying/spying.js';
+import { planSpy, spyBlocker, spyPartiesFor, spyRunViews } from '../spying/spying.js';
 import { capturedGatesFor } from './gates.js';
 
 /**
  * Reading the city (GDD §A4).
  *
- * The fog is enforced **here**, on the way out, and nowhere else. A district this crew has not
- * scouted returns no locations at all, not a redacted list, not zeroes. That is the only version
- * that cannot leak: a client cannot render what was never sent, and there is one function to check
- * rather than one per field.
+ * Every district is open to every crew (maintainer, 2026-09-29: "whole city visible"): who holds
+ * each location and the district as a whole is on the map for anybody. What stays hidden is what
+ * is standing there, and that is enforced **here**, on the way out, in `projectLocation`: a
+ * garrison on ground this crew does not hold is never sent, and what the crew knows about it is its
+ * last spy report. A client cannot render what was never sent.
  */
 
 /** Everything the city read needs, gathered once rather than per district. */
 export interface CityContext {
   base: Base;
   controls: Map<string, LocationControl>;
-  visible: Set<string>;
   effects: TerritoryEffects;
   /** A crew's name by base id, for "who holds this". */
   nameOf: (baseId: string) => string;
@@ -74,11 +72,7 @@ export interface CityContext {
   latestSpyReport: (locationId: string) => SpyReport | null;
 }
 
-/**
- * @param cityId the city being looked at, for the fog. Defaults to the crew's own, which is where
- *   every reader but the map is standing.
- */
-export function cityContextFor(repos: Repositories, base: Base, cityId?: string): CityContext {
+export function cityContextFor(repos: Repositories, base: Base): CityContext {
   const controls = repos.city.controls();
   const effects = standingEffectsFor(repos, base);
   const summaries = repos.bases.listSummaries();
@@ -91,7 +85,6 @@ export function cityContextFor(repos: Repositories, base: Base, cityId?: string)
     base,
     controls,
     effects,
-    visible: visibleDistricts(repos, base, controls, effects, cityId),
     nameOf: (baseId) => names.get(baseId) ?? 'a crew nobody knows',
     latestSpyReport: (locationId) =>
       repos.spying.latestFor(base.id, { kind: 'location', locationId }) ?? null,
@@ -109,40 +102,7 @@ export function cityContextFor(repos: Repositories, base: Base, cityId?: string)
 }
 
 /**
- * Which districts this crew can see inside.
- *
- * Three ways in, and they compose: your own district is always visible, anywhere you have sent
- * people stays visible, and a Satellite Uplink shows you the nearest few without walking into them,
- * which is the whole reason that location is worth taking.
- */
-export function visibleDistricts(
-  repos: Repositories,
-  base: Base,
-  controls: Map<string, LocationControl>,
-  effects: TerritoryEffects,
-  /** The city being looked at. The crew's own unless the map has been pointed somewhere else. */
-  cityId: string = cityOfDistrict(base.districtId),
-): Set<string> {
-  // Through the admin-aware read, so the testing build sees every district it has not hidden.
-  const visible = repos.city.visibleDistricts(base.id, cityId);
-  visible.add(base.districtId);
-
-  // Anywhere this crew is already standing is, self-evidently, somewhere they can see. Read off
-  // every location in the world: ground a crew took in a second city is ground it can see into,
-  // and walking one city's catalogue left that district fogged on the holder's own map.
-  for (const location of EVERY_LOCATION) {
-    const control = controls.get(location.id);
-    if (control && isHeldBy(control, base.id)) visible.add(location.districtId);
-  }
-
-  for (const district of nearestDistricts(base.districtId, effects.visionRange)) {
-    visible.add(district.id);
-  }
-  return visible;
-}
-
-/**
- * The crew a residential district page is about, from the viewer's side of the fog.
+ * The crew a residential district page is about, from the viewer's side.
  *
  * **Your own front door is always you.** A home plot holds one crew now, bots included
  * (`takenHomes` in `routes/overseer.ts`, maintainer 2026-09-28), so for anybody else's plot there is
@@ -168,30 +128,24 @@ function summarise(
   context: CityContext,
   resident: DistrictSummary['base'],
 ): DistrictSummary {
-  const scouted = context.visible.has(district.id);
   const home = findDistrict(context.base.districtId);
 
   return {
     district,
-    scouted,
     travelMinutes: home
       ? travelMinutesBetween(home, district, {
           reductionPercent: context.effects.travelSpeedPercent,
           flatMinutesOff: context.effects.roadMinutesOff,
         })
       : 0,
-    holder: scouted ? districtHolder(district, context.controls) : null,
-    // Null rather than 0/0 on unscouted ground: zero is a fact about the world, null is a fact
-    // about what this crew knows, and the map must not confuse the two.
-    held: scouted
-      ? {
-          mine: district.locations.filter((location) => {
-            const control = context.controls.get(location.id);
-            return control !== undefined && isHeldBy(control, context.base.id);
-          }).length,
-          total: district.locations.length,
-        }
-      : null,
+    holder: districtHolder(district, context.controls),
+    held: {
+      mine: district.locations.filter((location) => {
+        const control = context.controls.get(location.id);
+        return control !== undefined && isHeldBy(control, context.base.id);
+      }).length,
+      total: district.locations.length,
+    },
     base: district.kind === 'residential' ? resident : null,
     isHome: district.id === context.base.districtId,
   };
@@ -207,9 +161,7 @@ function summarise(
  * written against.
  *
  * Any other city is a map a player is **looking at** rather than standing in (`routes/city.ts`
- * holds that door). The fog is the same fog: a crew that has never been to Terminus is served its
- * twelve districts with `scouted` false on every one of them and no counts at all, which is the
- * honest answer and the one that lets the screen offer a scout instead of a locked page.
+ * holds that door), and it reads exactly as the crew's own does: the whole city is visible.
  */
 export function projectCity(
   repos: Repositories,
@@ -217,7 +169,7 @@ export function projectCity(
   now: Date,
   cityId: string = cityOfDistrict(base.districtId),
 ): CityResponse {
-  const context = cityContextFor(repos, base, cityId);
+  const context = cityContextFor(repos, base);
   const summaries = repos.bases.listSummaries();
 
   return {
@@ -244,6 +196,7 @@ function projectLocation(
   control: LocationControl,
   context: CityContext,
   now: Date,
+  admin: boolean,
 ): LocationView {
   const spec = LOCATION_CATALOG[location.kind];
   const mine = isHeldBy(control, context.base.id);
@@ -272,7 +225,7 @@ function projectLocation(
         : HOLDER_LABELS[control.holder.kind],
     holderPlayer: control.holder.kind === 'crew' ? context.playerOf(control.holder.baseId) : null,
     // So the sheet can offer to call the work off in its first tenth (`time/cancel.ts`).
-    upgradingSince: upgradingSince(location, control),
+    upgradingSince: upgradingSince(location, control, admin),
     /*
      * Nothing about somebody else's garrison is free any more (maintainer, 2026-09-22). The
      * count used to be blurred by their counter-intel and served anyway; now the defence figure
@@ -300,44 +253,6 @@ function projectLocation(
   };
 }
 
-/** The run this crew has out, if any, named so a screen can say who and where. */
-export function scoutingRunView(
-  repos: Repositories,
-  base: Base,
-): DistrictDetailResponse['scoutingRun'] {
-  const run = repos.scouting.activeFor(base.id)[0];
-  if (!run) return null;
-  const officer = base.commanders.find((held) => held.id === run.officerId);
-  return {
-    districtId: run.districtId,
-    districtName: findDistrict(run.districtId)?.name ?? run.districtId,
-    officerId: run.officerId,
-    // A party since 2026-09-22, which is what every run sent since then is drawn as. A run from
-    // before that still names who went, and one whose officer was let go mid-journey still has
-    // to draw: the walk is under way whoever is doing it.
-    officerName: run.officerId === null ? 'Scout Party' : (officer?.name ?? 'Somebody'),
-    departedAt: run.departedAt,
-    returnsAt: run.returnsAt,
-    // The leg the screen times its recall window off: see `ScoutingRunViewSchema`.
-    travelMinutes: run.travelMinutes,
-    recalledAt: run.recalledAt,
-  };
-}
-
-/** What sending somebody here would cost, before it is committed to. */
-function quoteScout(
-  repos: Repositories,
-  base: Base,
-  district: District,
-  now: Date,
-): DistrictDetailResponse['scoutPlan'] {
-  const whispers = scoutParty(base);
-  if (!whispers) return null;
-  const plan = planScout(repos, base, district.id, whispers, now);
-  if (!plan) return null;
-  return { minutes: plan.minutes };
-}
-
 function quoteSpy(
   repos: Repositories,
   base: Base,
@@ -353,7 +268,7 @@ function quoteSpy(
  *
  * His existence is public and his death is public: which leader runs which district is the
  * thing everybody in the city already knows, and a crew that took his plot has told everybody.
- * What is *under* him stays behind the fog with the rest of the garrison.
+ * What is *under* him stays unknown with the rest of the garrison until somebody spies on it.
  */
 function combineLeaderView(
   district: District,
@@ -381,15 +296,15 @@ export function projectDistrict(
   base: Base,
   district: District,
   now: Date,
+  /** Testing mode, for the start of a location's five-second upgrade (`upgradingSince`). */
+  admin = false,
 ): DistrictDetailResponse {
   const context = cityContextFor(repos, base);
-  const scouted = context.visible.has(district.id);
   const home = findDistrict(base.districtId);
   const unified = unifiedBonusFor(district.id);
   const resident = residentSummary(repos.bases.listSummaries(), district.id, base);
   /*
-   * What is standing on their ground. Read behind the fog like everything else: you cannot describe
-   * a street you have never walked down.
+   * What is standing on their ground: public, like any building on a street.
    *
    * A plot **nobody has moved into** is closed until a crew claims it (maintainer, 2026-09-28), so it
    * draws nothing. It used to draw a level-1 district, so a crew could walk the streets of a plot
@@ -397,25 +312,21 @@ export function projectDistrict(
    */
   const closed = isClosedPlot(repos, district, base);
   const residentBuildings =
-    !scouted || closed ? [] : resident ? (repos.bases.findById(resident.id)?.buildings ?? []) : [];
+    closed || !resident ? [] : (repos.bases.findById(resident.id)?.buildings ?? []);
 
   return {
     district,
-    scouted,
     travelMinutes: home
       ? travelMinutesBetween(home, district, {
           reductionPercent: context.effects.travelSpeedPercent,
           flatMinutesOff: context.effects.roadMinutesOff,
         })
       : 0,
-    // The fog, enforced in one location: unscouted ground returns nothing at all.
-    locations: scouted
-      ? district.locations.flatMap((location) => {
-          const control = context.controls.get(location.id);
-          return control ? [projectLocation(location, control, context, now)] : [];
-        })
-      : [],
-    holder: scouted ? districtHolder(district, context.controls) : null,
+    locations: district.locations.flatMap((location) => {
+      const control = context.controls.get(location.id);
+      return control ? [projectLocation(location, control, context, now, admin)] : [];
+    }),
+    holder: districtHolder(district, context.controls),
     // The Combine legendary over this ground, dead or alive: public, like the seat-of-power tag.
     combineLeader: combineLeaderView(district, [...context.controls.values()]),
     unified: unified ? { title: unified.title, effect: describeHoldBonus(unified.bonus) } : null,
@@ -426,19 +337,14 @@ export function projectDistrict(
       resident !== null &&
       resident.id !== base.id &&
       isDistrictRaidable(district, district.id === base.districtId),
-    scoutingRun: scoutingRunView(repos, base),
-    // Quoted only where it could be acted on. A price beside ground you have already walked is
-    // noise, and one beside your own front door is nonsense.
-    scoutPlan:
-      scouted || closed || district.id === base.districtId
-        ? null
-        : quoteScout(repos, base, district, now),
-    scoutBlocker: scoutBlocker(base),
-    spyRun: spyRunView(repos, base),
-    // Quoted where a job could be sent: open ground somebody else holds. The tier is the
-    // client's choice and only moves the caps, so any tier prices the clock.
+    spyRuns: spyRunViews(repos, base),
+    spyParties: spyPartiesFor(repos, base),
+    spyTiersOpen: openSpyTiers(base.research.technologies),
+    // Quoted where a job could be sent: anywhere but the crew's own district and a plot nobody
+    // has claimed, which has nobody to read. The tier is the client's choice and only moves the
+    // caps, so any tier prices the clock.
     spyQuote:
-      scouted && district.id !== base.districtId ? quoteSpy(repos, base, district, now) : null,
+      closed || district.id === base.districtId ? null : quoteSpy(repos, base, district, now),
     spyBlocker: spyBlocker(base),
     // The door's own last look, for the gate window (`SpyPanel`). Only where a gate is a thing
     // a stranger could read: never on the crew's own district.

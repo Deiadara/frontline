@@ -2,6 +2,7 @@ import {
   ALL_DISTRICTS,
   CITIES,
   DEFAULT_CITY_ID,
+  createCommander,
   maxOpenAuctionsFor,
   type BarAuction,
   type BarResponse,
@@ -17,7 +18,7 @@ import { chooseOverseer, pinOverseer } from '../testing/overseer.js';
 import { openDoors } from '../testing/doors.js';
 import { reserveFor, settleBarAuctions } from './auction.js';
 import {
-  barSeatsFor,
+  BAR_ROSTER_SIZE,
   cityOfRecruit,
   findBarRecruit,
   parseRecruitId,
@@ -108,8 +109,8 @@ async function makePlayer(app: FastifyInstance, username: string): Promise<Playe
   const overseer = await chooseOverseer(app, body.token);
   openDoors(app, body.token, 'bar');
   expect(overseer.statusCode).toBe(201);
-  // The signature perk widens the room by 40%, and which one an account is offered is a hash of a
-  // UUID. Pinned, so two runs count the same number of seats.
+  // Which character an account is offered is a hash of a UUID, and each carries a signature perk.
+  // Pinned, so two runs price the same room.
   pinOverseer(app, body.token);
   return {
     token: body.token,
@@ -319,8 +320,7 @@ describe('the calibre a bid is judged at', () => {
 
     // The positive control: the level-1 version of this same person is a different person, so the
     // two numbers below genuinely have room to disagree.
-    const seats = barSeatsFor(crewEffectsFor(app.repos, base).recruitPoolPercent);
-    const flat = findBarRecruit(bar.day, auction.recruitId, seats, app.repos.bases.averageLevel());
+    const flat = findBarRecruit(bar.day, auction.recruitId, app.repos.bases.averageLevel());
     expect(flat, 'fixture: the id does not resolve at all').toBeDefined();
     expect(
       reserveFor(flat!),
@@ -373,5 +373,42 @@ describe('how many tables a crew may hold', () => {
     expect(placed.statusCode, placed.body).toBe(200);
     expect(placed.json<BidResponse>().auctionsUsed).toBe(1);
     expect((await readBar(app, one)).auctionsUsed).toBe(allowed);
+  });
+});
+
+/**
+ * Eight people, for every crew (maintainer, 2026-09-30).
+ *
+ * Charisma, Diplomacy and a handful of perks and rungs used to seat up to four more people for the
+ * crew that had them. That is gone, and their sources pay other channels now. The fixture crew
+ * carries everything that used to widen the room the most, and the control is that the officer is
+ * really on its books: their Charisma shows up where it pays today, on training speed.
+ */
+describe('the size of the room', () => {
+  it('seats the same eight for a charismatic crew as for a plain one', async () => {
+    const app = await makeApp();
+    const plain = await makePlayer(app, 'room_plain');
+    const loud = await makePlayer(app, 'room_loud');
+
+    const base = app.repos.bases.findById(loud.baseId)!;
+    const before = crewEffectsFor(app.repos, base).trainingSpeedPercent;
+    app.repos.bases.updateCommanders(base.id, [
+      ...base.commanders,
+      createCommander('room-talker', 'Talker', 'consigliere', { charisma: 100, diplomacy: 100 }, [
+        'bar_regular',
+        'talent_scout',
+        'sig_headhunter',
+      ]),
+    ]);
+    const after = crewEffectsFor(app.repos, app.repos.bases.findById(loud.baseId)!);
+    expect(
+      after.trainingSpeedPercent,
+      'fixture: the officer never reached the crew',
+    ).toBeGreaterThan(before);
+
+    const plainIds = (await readBar(app, plain)).recruits.map((one) => one.id);
+    const loudIds = (await readBar(app, loud)).recruits.map((one) => one.id);
+    expect(plainIds).toHaveLength(BAR_ROSTER_SIZE);
+    expect(loudIds).toEqual(plainIds);
   });
 });

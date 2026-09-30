@@ -3,7 +3,7 @@ import { DEFAULT_CITY_ID } from './city/cities.js';
 import { MAX_NOTORIETY } from './economy/notoriety.js';
 import { BlueprintCategorySchema } from './blueprints/catalog.js';
 import { BuildingKindSchema } from './building/index.js';
-import { OfficerRoleSchema } from './roles.js';
+import { OFFICER_ROLES, OfficerRoleSchema } from './roles.js';
 import { AutomationOrderSchema, AutomationSchema } from './automations/automations.js';
 import { ResourceKeySchema } from './resources.js';
 import {
@@ -11,6 +11,7 @@ import {
   BlackMarketSlotSchema,
   BoostStashSchema,
 } from './market/blackmarket.js';
+import { DisplayNameSchema, PasswordSchema } from './accounts.js';
 import { IdSchema, IsoDateTimeSchema, UsernameSchema } from './primitives.js';
 import { PLAYER_LEVEL_UNLOCKS } from './progression/unlocks.js';
 import { PartialResourcesSchema } from './resources.js';
@@ -48,7 +49,7 @@ export const UpdateProfileRequestSchema = z
      * straight back into it on the next `/me`. `.nullable()` gives that instruction somewhere to
      * live on the wire; the repo already understood it.
      */
-    displayName: z.string().trim().min(1).max(32).nullable().optional(),
+    displayName: DisplayNameSchema.nullable().optional(),
     /**
      * The account's mark.
      *
@@ -125,7 +126,7 @@ export type SaveAutomationRequest = z.infer<typeof SaveAutomationRequestSchema>;
  * is the proof: a player who is logged in changes it at will.
  */
 export const ChangePasswordRequestSchema = z.object({
-  newPassword: z.string().min(8).max(128),
+  newPassword: PasswordSchema,
 });
 export type ChangePasswordRequest = z.infer<typeof ChangePasswordRequestSchema>;
 
@@ -156,6 +157,8 @@ export const BlackMarketOfferSchema = z.object({
   price: z.number().int().positive(),
   /** The rank the fence wants, so a card can say why rather than just refusing. */
   minNotoriety: z.number().int().nonnegative(),
+  /** A blueprint lot whose document this crew already holds (`alreadyKnown`): never biddable. */
+  alreadyKnown: z.boolean().default(false),
   /** What it does *here*, in the player's own words, with this city's figures already in it. */
   effect: z.string().min(1),
   /**
@@ -180,6 +183,12 @@ export const BlackMarketResponseSchema = z.object({
    * screen without it caps the field at `infamy`.
    */
   bidCeiling: z.number().int().nonnegative().optional(),
+  /**
+   * The crew's standing discount at the fence, capped: what comes off a won lot's infamy
+   * (`discountedInfamy`). A lot prints the bid beside what this crew would pay (maintainer,
+   * 2026-09-29).
+   */
+  discountPercent: z.number().nonnegative().default(0),
   /** How many lots this crew has won at today's close, and how many it may win. */
   takenToday: z.number().int().nonnegative(),
   takesPerDay: z.number().int().positive(),
@@ -188,7 +197,8 @@ export const BlackMarketResponseSchema = z.object({
   /** When the shelf turns over, as an instant. The client counts down to it in the player's zone. */
   refreshesAt: IsoDateTimeSchema,
   /**
-   * The city's average player level, which is what the prices and the potency are weighted by.
+   * The city's average player level, which is what the prices are weighted by. A crate's effect is not
+   * (2026-09-29): it does what its card says in every city.
    *
    * Quoted so the screen can *say so*. A shelf whose prices move for reasons a player cannot see is
    * a shelf they will assume is broken.
@@ -283,7 +293,7 @@ export const AdminKnobsRequestSchema = z
      * Seat this many officers, one per role, at the given rating.
      *
      * The Bar is the only door to an officer and its auctions settle at midnight, so a server on
-     * its first day has nobody who can scout, lead a fight or sit a chair: every system that reads
+     * its first day has nobody who can spy, lead a fight or sit a chair: every system that reads
      * the crew's sheet is unreachable until a day has passed. That makes a whole half of the game
      * untestable on a fresh world, which is exactly what the bench is for.
      *
@@ -291,7 +301,12 @@ export const AdminKnobsRequestSchema = z
      * chose rather than a draw.
      */
     officers: z
-      .object({ count: z.number().int().min(0).max(19), rating: z.number().int().min(1).max(100) })
+      .object({
+        // One chair per role, off the list rather than typed: the bound read 19 after the Scout's
+        // chair was retired, so a count of 19 was accepted and seated 18 (bug pass, 2026-09-29).
+        count: z.number().int().min(0).max(OFFICER_ROLES.length),
+        rating: z.number().int().min(1).max(100),
+      })
       .optional(),
     /**
      * Clear the rest on every standing order, so the next party may leave on the next tick.
@@ -303,7 +318,12 @@ export const AdminKnobsRequestSchema = z
      */
     automationsRested: z.boolean().optional(),
   })
-  .refine((body) => Object.keys(body).length > 0, 'Nothing to set');
+  .refine((body) => Object.keys(body).length > 0, 'Nothing to set')
+  // A structure named with no level moved nothing and still answered 200 (bug pass, 2026-09-29).
+  .refine(
+    (body) => body.structure === undefined || body.buildingLevel !== undefined,
+    'Name a level for that structure',
+  );
 export type AdminKnobsRequest = z.infer<typeof AdminKnobsRequestSchema>;
 
 /**
@@ -356,21 +376,6 @@ export const AdminGrantRequestSchema = z
      */
     units: ArmySchema.optional(),
     /**
-     * Eyes on every district in the world (maintainer, 2026-09-24).
-     *
-     * The Console's End game preset is meant to be the ceiling on everything, and it was handing a
-     * crew every document, every rung and a full yard onto a map they had still never walked. Most
-     * of the city read as fog, so the one screen the whole preset exists to be looked at opened
-     * the scout sheet instead of the district.
-     *
-     * The **world**, not the crew's own city, because the bench is for looking at everything and
-     * there are two playable cities now: scouting one of them would leave the other exactly as
-     * shut as before. It writes real scout marks rather than the Console's fog override, so what a
-     * reviewer sees is the state a crew reaches by playing, not a second kind of visibility that
-     * only exists on the bench.
-     */
-    scouted: z.literal('all').optional(),
-    /**
      * A location held in every open city (maintainer, 2026-09-28), so the multi-city screens
      * (the city picker on every room, the crossing, the second board) have ground to read on the
      * bench. Skipped in a city where the crew already holds something.
@@ -387,36 +392,12 @@ export const AdminSnapshotSchema = z.object({
   infamy: z.number().int().nonnegative(),
   /** Every structure and the level it currently stands at, so the console can show what it is moving. */
   buildings: z.array(z.object({ kind: BuildingKindSchema, level: z.number().int().min(0) })),
-  /**
-   * The Console's fog of war: every district, and whether this crew can see into it right now.
-   *
-   * In admin mode everything is scouted unless the admin has un-ticked it, so `visible` is the
-   * effective answer rather than what the crew's scouts have actually seen.
-   */
-  fog: z
-    .array(
-      z.object({
-        districtId: IdSchema,
-        name: z.string(),
-        visible: z.boolean(),
-        /** The crew's own district: listed, ticked, and not a knob. You live there. */
-        home: z.boolean(),
-      }),
-    )
-    .default([]),
   /** The last backups on disk, newest first: the recovery path, visible rather than documented. */
   backups: z.array(
     z.object({ file: z.string().min(1), takenAt: IsoDateTimeSchema, bytes: z.number().int() }),
   ),
 });
 export type AdminSnapshot = z.infer<typeof AdminSnapshotSchema>;
-
-/** One district shown or hidden on the Console. */
-export const AdminFogRequestSchema = z.object({
-  districtId: IdSchema,
-  visible: z.boolean(),
-});
-export type AdminFogRequest = z.infer<typeof AdminFogRequestSchema>;
 
 export const AdminMutationResponseSchema = z.object({ admin: AdminSnapshotSchema });
 export type AdminMutationResponse = z.infer<typeof AdminMutationResponseSchema>;

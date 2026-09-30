@@ -1,6 +1,8 @@
 import {
   ITEM_CATALOG,
   addItems,
+  dealValue,
+  discountedCaps,
   lotSeed,
   marketDay,
   nextLotBid,
@@ -23,8 +25,8 @@ import {
   type VendorLine,
   type VendorVisit,
 } from '@frontline/shared';
-import { previousDay } from '../bar/auction.js';
-import { tallyMarketBuy, tallyPagesIn } from '../feats/tally.js';
+import { missedLotTitle, outcomeAgainst, previousDay } from '../bar/auction.js';
+import { tallyMarketDeal, tallyPagesIn } from '../feats/tally.js';
 import { standingEffectsFor } from '../crew/standing.js';
 import { settleBase } from '../district/settle.js';
 import type { Repositories } from '../db/repos/index.js';
@@ -62,21 +64,6 @@ import { settleEach } from '../world/guard.js';
 
 /** How many bids one lot shows. The wire caps it and so does the projection that fills it. */
 export const MAX_LOT_BIDS_SHOWN = 20;
-
-/**
- * A price with the crew's market discount taken off (§A4).
- *
- * Floored at one cap: no amount of ground makes anything free, which is the same rule `discounted`
- * applies to every other price in the game. It lives here rather than on the board because the
- * close is the only thing left that charges a discounted figure: what the barrow *quotes* is the
- * city's number now that every line is a lot.
- */
-export const MAX_MARKET_DISCOUNT = 45;
-
-export function discountedCaps(price: number, percent: number): number {
-  const off = Math.min(MAX_MARKET_DISCOUNT, Math.max(0, percent));
-  return Math.max(1, Math.round(price * (1 - off / 100)));
-}
 
 /** What one crew would actually be charged for a bid of theirs. */
 function chargeFor(repos: Repositories, base: Base, amount: number, now: Date): number {
@@ -328,6 +315,12 @@ interface LotWinner {
   price: number;
 }
 
+/** Who took a lot, and the ranking the close walked to find them, which the bells read. */
+interface LotAward {
+  winner: LotWinner | null;
+  ranked: readonly { userId: string }[];
+}
+
 /**
  * Closes every lot whose visit is over.
  *
@@ -353,11 +346,14 @@ function closeLot(
   now: Date,
 ): void {
   const { day, session, lineId } = lot;
+  const closedAt = visitClosedAt(day, session, now);
   const line = findVendorLine(day, lineId);
   const bids = repos.vendorAuctions.bidsFor(day, session, lineId);
   // A line id that names nothing on that day's barrow cannot be sold to anybody, and leaving it due
   // would settle it again on every read for ever. It goes down as a lot nobody took.
-  const winner = line ? award(repos, { day, session, line, bids, now }) : null;
+  const { winner, ranked } = line
+    ? award(repos, { day, session, line, bids, now, closedAt })
+    : { winner: null, ranked: [] };
 
   repos.vendorAuctions.recordResult({
     day,
@@ -368,7 +364,21 @@ function closeLot(
     price: winner?.price ?? null,
     settledAt: now.toISOString(),
   });
-  tellTheBarrow(repos, { item: line?.item ?? null, lineId, bids, winner, now });
+  tellTheBarrow(repos, { item: line?.item ?? null, lineId, bids, ranked, winner, closedAt });
+}
+
+/**
+ * When the visit a lot stood in closed, which is what its bells are dated.
+ *
+ * `now` for a session its day no longer has, which `visitClosesAt` throws on and the repo's
+ * `hasClosed` already treats as over.
+ */
+function visitClosedAt(day: string, session: number, now: Date): Date {
+  try {
+    return visitClosesAt(day, session);
+  } catch {
+    return now;
+  }
 }
 
 /**
@@ -386,12 +396,13 @@ function award(
     line: VendorLine;
     bids: readonly VendorBid[];
     now: Date;
+    closedAt: Date;
   },
-): LotWinner | null {
-  const { day, session, line, bids, now } = lot;
+): LotAward {
+  const { day, session, line, bids, now, closedAt } = lot;
   // Nothing left on the line is not the same as nobody bidding: a lot can be closed after the city
   // cleared the line out on an earlier visit, and there is no unit to hand over.
-  if (leftOnTheLine(repos, day, line) === 0) return null;
+  if (leftOnTheLine(repos, day, line) === 0) return { winner: null, ranked: [] };
 
   const ranked = rankLotBids(bids, line.price, lotSeed(day, session, line.id));
   for (const entry of ranked) {
@@ -419,7 +430,12 @@ function award(
      * on zero for both. `tallyPagesIn` picks the pages out of the bundle rather than counting the
      * unit, so a lot of salvage does not finish the blueprint ladder.
      */
-    tallyMarketBuy(repos, base.id);
+    tallyMarketDeal(repos, base.id, {
+      side: 'buy',
+      counterparty: 'runner',
+      worth: dealValue({ resources: { caps: charge }, items: {} }, { resources: {}, items: won }),
+      now,
+    });
     tallyPagesIn(repos, base.id, won);
     // Rung here rather than in `tellTheBarrow`, which is where the lot's own bells are: this one
     // is about the inventory, and the inventory is only in scope at the moment the goods change hands.
@@ -429,11 +445,11 @@ function award(
       before: base.inventory,
       after: held,
       source: { kind: 'runner' },
-      now,
+      at: closedAt,
     });
-    return { userId: entry.userId, price: entry.amount };
+    return { winner: { userId: entry.userId, price: entry.amount }, ranked };
   }
-  return null;
+  return { winner: null, ranked };
 }
 
 /** What a line is called in a sentence. The wire carries the id; a bell carries the name. */
@@ -448,11 +464,12 @@ function tellTheBarrow(
     item: string | null;
     lineId: string;
     bids: readonly VendorBid[];
+    ranked: readonly { userId: string }[];
     winner: LotWinner | null;
-    now: Date;
+    closedAt: Date;
   },
 ): void {
-  const { item, lineId, bids, winner, now } = lot;
+  const { item, lineId, bids, ranked, winner, closedAt } = lot;
   const name = itemName(item);
   if (winner) {
     notify(repos, {
@@ -461,7 +478,7 @@ function tellTheBarrow(
       title: `You took ${name} off the Runner for ${winner.price}`,
       link: '/game/market',
       subjectId: lineId,
-      now,
+      at: closedAt,
     });
   }
 
@@ -473,10 +490,15 @@ function tellTheBarrow(
     notify(repos, {
       userId: bid.userId,
       kind: 'market_outbid',
-      title: winner ? `${name} went to ${winnerName} for ${winner.price}` : `${name} went unsold`,
+      title: missedLotTitle({
+        name,
+        passed: outcomeAgainst(ranked, winner?.userId ?? null, bid.userId) === 'passed',
+        winner: winner ? { name: winnerName, price: String(winner.price) } : null,
+        nobody: 'went unsold',
+      }),
       link: '/game/market',
       subjectId: lineId,
-      now,
+      at: closedAt,
     });
   }
 }
@@ -489,9 +511,9 @@ export const LOT_RESULTS_LOOKBACK_DAYS = 7;
 /**
  * How the lots this crew bid on at one visit ended.
  *
- * `passed` needs the ranking rather than the result row: a crew whose bid was highest and who could
- * not cover it when he packed up is not the same story as one that was simply outbid, and the row
- * alone cannot tell them apart.
+ * `passed` needs the ranking rather than the result row: a crew whose bid was over the winner's and
+ * who could not cover it when he packed up is not the same story as one that was simply outbid, and
+ * the row alone cannot tell them apart. See `outcomeAgainst`.
  */
 export function lotResultsFor(
   repos: Repositories,
@@ -568,7 +590,7 @@ function outcomeFor(repos: Repositories, result: VendorLotResult, reader: string
       line.price,
       lotSeed(result.day, result.session, result.lineId),
     );
-    if (ranked[0]?.userId === reader) return 'passed';
+    return outcomeAgainst(ranked, result.winnerUserId, reader);
   }
   return result.winnerUserId === null ? 'unsold' : 'lost';
 }

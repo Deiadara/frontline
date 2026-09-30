@@ -11,11 +11,11 @@ import {
   findBlackMarketGood,
   averageCityLevel,
   blackMarketBoost,
+  blackMarketDrawWeight,
   blackMarketEffect,
-  blackMarketPotency,
   blackMarketPrice,
+  blackMarketStrength,
   discountedInfamy,
-  MAX_BLACK_MARKET_POTENCY,
   stashCount,
   takeFromStash,
   blackBidRefusal,
@@ -23,9 +23,11 @@ import {
   blackLotReserve,
   blackLotSeed,
   blackMarketClosesAt,
+  type BlackMarketGoodSpec,
 } from './blackmarket.js';
 import { nextLotBid } from './auction.js';
 import { GAME_TIMEZONE } from '../time/zone.js';
+import { CITIES } from '../city/cities.js';
 
 const NO_TURNOVER = Array.from({ length: BLACK_MARKET_SLOTS }, () => 0);
 
@@ -150,6 +152,114 @@ describe('the shelf', () => {
     const at = new Date('2026-07-15T22:30:00.000Z');
     expect(blackMarketDay(at, GAME_TIMEZONE)).toBe('2026-07-16');
     expect(blackMarketDay(at, 'UTC')).toBe('2026-07-15');
+  });
+});
+
+/**
+ * Rarer when better, commoner when weaker (maintainer, 2026-09-29). Each kind had one flat weight,
+ * and the first pass of a slot's sequence was a flat shuffle, so the good a city saw on an unbought
+ * shelf was drawn flat across the whole catalogue.
+ */
+describe('what the fence stocks most often', () => {
+  const byKind = new Map<string, BlackMarketGoodSpec[]>();
+  for (const spec of Object.values(BLACK_MARKET_GOODS)) {
+    byKind.set(spec.kind, [...(byKind.get(spec.kind) ?? []), spec]);
+  }
+
+  it('weighs a good down as its strength goes up, within every kind', () => {
+    for (const [kind, goods] of byKind) {
+      const ordered = [...goods].sort((a, b) => blackMarketStrength(a) - blackMarketStrength(b));
+      for (let step = 1; step < ordered.length; step += 1) {
+        const weaker = ordered[step - 1]!;
+        const stronger = ordered[step]!;
+        const where = `${kind}: ${stronger.id} against ${weaker.id}`;
+        if (blackMarketStrength(stronger) === blackMarketStrength(weaker)) {
+          expect(blackMarketDrawWeight(stronger), where).toBeCloseTo(
+            blackMarketDrawWeight(weaker),
+            9,
+          );
+        } else {
+          expect(blackMarketDrawWeight(stronger), where).toBeLessThan(
+            blackMarketDrawWeight(weaker),
+          );
+        }
+      }
+    }
+  });
+
+  it('keeps each kind as common as it was, on average across its goods', () => {
+    const mean: Record<string, number> = {
+      battle_boost: 6,
+      contraband: 4,
+      unit_upgrade: 2,
+      blueprint: 1,
+      blueprint_page: 1,
+    };
+    for (const [kind, goods] of byKind) {
+      const total = goods.reduce((sum, spec) => sum + blackMarketDrawWeight(spec), 0);
+      expect(total / goods.length, kind).toBeCloseTo(mean[kind]!, 9);
+    }
+  });
+
+  /** On the shelf a city actually sees: the first good in every slot, every day for two years. */
+  it('shows the weakest crate of a kind more often than the strongest', () => {
+    const seen = new Map<string, number>();
+    const start = Date.UTC(2026, 0, 1, 12);
+    for (let day = 0; day < 730; day += 1) {
+      const date = new Date(start + day * 86_400_000).toISOString().slice(0, 10);
+      for (const slot of blackMarketBoard(date, NO_TURNOVER)) {
+        seen.set(slot.goodId, (seen.get(slot.goodId) ?? 0) + 1);
+      }
+    }
+    for (const kind of ['battle_boost', 'contraband', 'unit_upgrade']) {
+      const ordered = [...byKind.get(kind)!].sort(
+        (a, b) => blackMarketStrength(a) - blackMarketStrength(b),
+      );
+      const weakest = seen.get(ordered[0]!.id) ?? 0;
+      const strongest = seen.get(ordered.at(-1)!.id) ?? 0;
+      // Measured 351 to 263 for the boosts, 264 to 205 for contraband and 167 to 121 for the kits.
+      expect(weakest, `${kind}: ${ordered[0]!.id}`).toBeGreaterThan(strongest * 1.2);
+    }
+    // ...and the kinds sit where their weights put them: six boosts for every blueprint, roughly.
+    const kindTotal = (kind: string) =>
+      byKind.get(kind)!.reduce((sum, spec) => sum + (seen.get(spec.id) ?? 0), 0);
+    expect(kindTotal('battle_boost')).toBeGreaterThan(kindTotal('blueprint') * 3);
+  });
+
+  /*
+   * "Fence kinds by weight" (maintainer, 2026-09-29): a kind's weight is its share of the shelf,
+   * however many goods it has. Written as literals, the independent anchor for `KIND_WEIGHT`. Drawn
+   * good by good the kits stood at 11.2%, the blueprints at 8.4% and the pages at 8.2%, because a
+   * kind's share was its weight times its size; measured after, 42.8, 29.1, 13.8, 7.2 and 7.1.
+   */
+  it('shows each kind as often as its weight says, whatever its size', () => {
+    const target: Record<string, number> = {
+      battle_boost: 6 / 14,
+      contraband: 4 / 14,
+      unit_upgrade: 2 / 14,
+      blueprint: 1 / 14,
+      blueprint_page: 1 / 14,
+    };
+    const seen = new Map<string, number>();
+    let slots = 0;
+    const start = Date.UTC(2026, 0, 1, 12);
+    for (let day = 0; day < 730; day += 1) {
+      const date = new Date(start + day * 86_400_000).toISOString().slice(0, 10);
+      for (const city of CITIES) {
+        for (const slot of blackMarketBoard(date, NO_TURNOVER, city.id)) {
+          const kind = BLACK_MARKET_GOODS[slot.goodId]!.kind;
+          seen.set(kind, (seen.get(kind) ?? 0) + 1);
+          slots += 1;
+        }
+      }
+    }
+    for (const kind of BLACK_MARKET_KINDS) {
+      const share = (seen.get(kind) ?? 0) / slots;
+      expect(
+        Math.abs(share - target[kind]!),
+        `${kind} at ${(100 * share).toFixed(1)}%`,
+      ).toBeLessThan(0.015);
+    }
   });
 });
 
@@ -315,30 +425,42 @@ describe('what the city’s average level does to the back room', () => {
     expect(blackMarketPrice({ ...syringes, infamy: 1 }, 1)).toBeGreaterThan(0);
   });
 
-  it('stocks better goods for a city that has been at it longer, up to a ceiling', () => {
-    const early = blackMarketBoost(syringes, 1)!;
-    const late = blackMarketBoost(syringes, 30)!;
-    expect(late.offensePercent).toBeGreaterThan(early.offensePercent);
-    expect(early.offensePercent).toBe(syringes.boost!.offensePercent);
-
-    // Capped, because a price may run away and a boost may not: doubling every figure on the crate
-    // is past the point where a defence can be built against it at all.
-    expect(blackMarketPotency(1000)).toBe(MAX_BLACK_MARKET_POTENCY);
-    expect(blackMarketBoost(syringes, 1000)!.offensePercent).toBe(
-      Math.round(syringes.boost!.offensePercent * MAX_BLACK_MARKET_POTENCY),
-    );
-  });
-
-  it('quotes the figures the fight will actually use, on the card', () => {
-    // The authored line has the *catalogue's* numbers baked into its prose. A card reading
-    // "+18% offense" over a fight that applied +27% is the card lying, which is worse than plain.
-    const late = blackMarketEffect(syringes, 30);
-    const applied = blackMarketBoost(syringes, 30)!;
-    expect(late).toContain(`+${applied.offensePercent}% offense`);
-    expect(late).not.toContain(`+${syringes.boost!.offensePercent}% offense`);
+  /**
+   * Flat (maintainer, 2026-09-29). A crate used to do up to half again in a veteran city, so the
+   * stash tab's "+18% offense" was the least a syringe did and a fight in Terminus applied +27%.
+   */
+  it('hands every fight the figures on the card, however far along the city is', () => {
+    for (const spec of Object.values(BLACK_MARKET_GOODS)) {
+      if (!spec.boost) continue;
+      expect(blackMarketBoost(spec), spec.id).toEqual(spec.boost);
+      // The line every screen prints is the authored one, the one the stash tab reads.
+      expect(blackMarketEffect(spec), spec.id).toBe(spec.effect);
+    }
     // Anything that is not a boost keeps its authored line. There are no figures in it to move.
     const blueprint = Object.values(BLACK_MARKET_GOODS).find((spec) => !spec.boost)!;
-    expect(blackMarketEffect(blueprint, 30)).toBe(blueprint.effect);
+    expect(blackMarketEffect(blueprint)).toBe(blueprint.effect);
+  });
+
+  /*
+   * The authored line is what the stash tab prints (`BoostStash.tsx`), so every figure the crate
+   * moves has to be in it, the penalties most of all: Banned Explosives read "+30% offense" and
+   * nothing else while it took 4% off the defence of everybody it went in with (bug pass,
+   * 2026-09-29).
+   */
+  it('names every figure a crate moves, penalties included, in its authored line', () => {
+    const labels = {
+      offensePercent: 'offense',
+      defensePercent: 'defence',
+      moralePercent: 'morale',
+    };
+    for (const spec of Object.values(BLACK_MARKET_GOODS)) {
+      if (!spec.boost) continue;
+      for (const [channel, label] of Object.entries(labels)) {
+        const value = spec.boost[channel as keyof typeof labels];
+        if (value === 0) continue;
+        expect(spec.effect, spec.id).toContain(`${value > 0 ? '+' : ''}${value}% ${label}`);
+      }
+    }
   });
 
   it('opens a lot at the weighted price, not at the catalogue one', () => {

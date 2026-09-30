@@ -143,7 +143,6 @@ async function makeWorld(engine: SkirmishEngine): Promise<World> {
   db.prepare('UPDATE bases SET district_id = ? WHERE id = ?').run(home, planted.baseId);
   const victim: Crew = { ...planted, districtId: home };
 
-  app.repos.city.markScouted(raider.baseId, victim.districtId, new Date().toISOString());
   // Nothing behind a standing gate can be reached. Breaking it is its own fight with its own tests.
   app.repos.sieges.breakGate(
     victim.districtId,

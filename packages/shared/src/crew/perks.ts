@@ -55,7 +55,6 @@ export type CrewOnlyBonus =
   | { kind: 'build_cost'; percent: number }
   | { kind: 'wage_discount'; percent: number }
   | { kind: 'payroll_step_discount'; percent: number }
-  | { kind: 'recruit_pool'; percent: number }
   | { kind: 'intel_resistance'; percent: number }
   | { kind: 'casualty_recovery'; percent: number }
   | { kind: 'cohesion'; percent: number }
@@ -71,7 +70,7 @@ export type CrewOnlyBonus =
   | { kind: 'allied_offense'; percent: number }
   /** The Gate holds harder, and only the Gate. Worth nothing to an attacker. */
   | { kind: 'gate_defense'; percent: number }
-  /** Worth nothing until you hold every location in your district, and a lot once you do. */
+  /** Defense in every fight, worth nothing until the crew holds some district whole (any district). */
   | { kind: 'whole_district'; percent: number }
   /** One named structure is cheaper to raise. Not every structure: this one. */
   | { kind: 'building_cost'; building: BuildingKind; percent: number }
@@ -884,14 +883,14 @@ const CATALOG: Perk[] = [
     'bar_regular',
     'Bar Regular',
     'people',
-    'Everybody worth hiring drinks with them eventually.',
+    'Everybody worth hiring drinks with them eventually, and signs for less.',
     {
-      kind: 'recruit_pool',
+      kind: 'training_cost',
       percent: 8,
     },
   ),
-  perk('talent_scout', 'Talent Scout', 'people', 'Spots the one worth hiring across a full room.', {
-    kind: 'recruit_pool',
+  perk('talent_scout', 'Talent Scout', 'people', 'Spots the quick learner across a full room.', {
+    kind: 'training_speed',
     percent: 12,
   }),
   perk('bunk_builder', 'Bunk Builder', 'people', 'Fits four where the plans allowed two.', {
@@ -979,9 +978,9 @@ const CATALOG: Perk[] = [
     'Second Glass',
     'intel',
     'Trains their own watchers, so the crew is never waiting on one pair of eyes.',
-    // A second party out at once, which the scouting door's one limit otherwise refuses outright.
-    // One, matching the Watchtower: two evenings of answers is the whole of what this buys.
-    { kind: 'scout_parties', flat: 1 },
+    // A second scouting party out at once until scouting left the game (2026-09-29). Nine points:
+    // what `perkWorth` priced the party at, one whole thing on a `wide` channel.
+    { kind: 'intel', percent: 9 },
   ),
   perk(
     'street_ears',
@@ -1011,9 +1010,11 @@ const CATALOG: Perk[] = [
     kind: 'intel_resistance',
     percent: 15,
   }),
+  // Sight of the nearest district until the whole city became visible (2026-09-29), converted at
+  // nine points of intel a district, the same worth. Likewise Survey Hand and Cartographer below.
   perk('rooftop_map', 'Rooftop Map', 'intel', 'Has walked the skyline end to end.', {
-    kind: 'vision',
-    districts: 1,
+    kind: 'intel',
+    percent: 9,
   }),
   perk('lab_discipline', 'Lab Discipline', 'intel', 'Runs the bench like a shift, not a hobby.', {
     kind: 'research_speed',
@@ -1028,8 +1029,8 @@ const CATALOG: Perk[] = [
     percent: 15,
   }),
   perk('survey_hand', 'Survey Hand', 'intel', 'Maps a district in a night and gets it right.', {
-    kind: 'vision',
-    districts: 2,
+    kind: 'intel',
+    percent: 18,
   }),
 
   /*
@@ -1343,8 +1344,8 @@ const CATALOG: Perk[] = [
     flat: 5,
   }),
   perk('sig_headhunter', 'Headhunter', 'people', 'Knows who is unhappy before their chief does.', {
-    kind: 'recruit_pool',
-    percent: 40,
+    kind: 'training_cost',
+    percent: 28,
   }),
   perk('sig_paymaster', 'Paymaster', 'people', 'Nobody has ever queried one of their envelopes.', {
     kind: 'wage_discount',
@@ -1470,8 +1471,8 @@ const CATALOG: Perk[] = [
     percent: 30,
   }),
   perk('sig_cartographer', 'Cartographer', 'intel', 'Has walked every street in the city twice.', {
-    kind: 'vision',
-    districts: 2,
+    kind: 'intel',
+    percent: 18,
   }),
   perk('sig_infiltrator', 'Infiltrator', 'intel', 'Gets in before anybody decides to stop them.', {
     kind: 'unit_stealth',
@@ -1564,12 +1565,12 @@ export function describePerkBonus(bonus: PerkBonus): string {
       return `-${bonus.percent}% wages`;
     case 'payroll_step_discount':
       return `-${bonus.percent}% to widen payroll`;
-    case 'recruit_pool':
-      return `+${bonus.percent}% recruits at the Bar`;
+    // Points, not percentages (bug pass, 2026-09-29). The spy contest adds both intel channels to
+    // a chair's fit as points, and the medics' points go through a curve before they are a share.
     case 'intel_resistance':
-      return `+${bonus.percent}% counter-intel`;
+      return `+${bonus.percent} spy points against enemy spies`;
     case 'casualty_recovery':
-      return `+${bonus.percent}% wounded recovered`;
+      return `+${bonus.percent} medic points`;
     case 'cohesion':
       return `+${bonus.percent}% cohesion`;
     // The conditional ones say *when*, not only how much: a number with no condition on it reads
@@ -1579,7 +1580,7 @@ export function describePerkBonus(bonus: PerkBonus): string {
     case 'gate_defense':
       return `+${bonus.percent}% Gate defense`;
     case 'whole_district':
-      return `+${bonus.percent}% defense holding the whole district`;
+      return `+${bonus.percent}% defense while you hold a district whole`;
     case 'building_cost':
       return `-${bonus.percent}% ${BUILDING_CATALOG[bonus.building].name} cost`;
     case 'building_credit':

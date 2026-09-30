@@ -26,7 +26,9 @@ import {
 import { describe, expect, it } from 'vitest';
 import { openDatabase, runMigrations } from '../db/index.js';
 import { createRepositories, type Repositories } from '../db/repos/index.js';
+import { ADMIN_ACTION_SECONDS } from '../admin/mode.js';
 import {
+  cancelGateRaise,
   capturedGatesFor,
   districtsHeldWhole,
   gateFor,
@@ -156,6 +158,29 @@ describe('raising one', () => {
     );
     // Not raised yet: the level moves when the clock lands, not when the order is placed.
     expect(result.gate.level).toBe(1);
+  });
+
+  /*
+   * Bug pass, 2026-09-29: the testing build flattened every build clock and waived every bill
+   * except this one, which charged in full and ran the real clock.
+   */
+  it('in admin mode, takes five seconds and nothing, and hands nothing back', () => {
+    const { repos, base } = stack();
+    takeWhole(repos, base.id, DISTRICT.id);
+    const broke = { ...base, resources: { ...STARTING_RESOURCES, caps: 0, scrap: 0, planks: 0 } };
+    repos.bases.updateResources(base.id, broke.resources);
+
+    const result = raiseCapturedGate(repos, broke, DISTRICT.id, new Date(HOUR), true);
+    expect(result.kind).toBe('started');
+    if (result.kind !== 'started') return;
+    expect(result.base.resources).toEqual(broke.resources);
+    expect(Date.parse(result.gate.upgradingUntil!)).toBe(
+      Date.parse(HOUR) + ADMIN_ACTION_SECONDS * 1000,
+    );
+
+    const cancelled = cancelGateRaise(repos, result.base, DISTRICT.id, new Date(HOUR), true, true);
+    expect(cancelled.kind).toBe('cancelled');
+    expect(repos.bases.findById(base.id)!.resources).toEqual(broke.resources);
   });
 
   it('refuses a crew that does not hold the ground', () => {
@@ -428,7 +453,6 @@ describe('what a captured gate changes (2026-09-22: read by spies, since nothing
   function rival(repos: Repositories, base: Base): void {
     repos.users.insert({ id: 'u2', username: 'rival', passwordHash: 'x', createdAt: HOUR });
     repos.bases.insert({ ...base, id: 'b2', ownerId: 'u2', name: 'Theirs' });
-    repos.city.markScouted(base.id, DISTRICT.id, HOUR);
   }
 
   function counterOn(repos: Repositories, base: Base): number {

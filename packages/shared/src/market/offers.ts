@@ -37,6 +37,16 @@ import {
  * place where goods change hands.
  */
 
+/**
+ * Why the board is shut to this crew: nobody fit to work in the Trader's chair (maintainer,
+ * 2026-09-29).
+ *
+ * Posting, countering and accepting need the crew's own Trader. What is already up stays up:
+ * another crew may still take it, and the poster may still withdraw it or claim what it earned,
+ * because goods held in escrow should never be stranded by an injury.
+ */
+export const NO_TRADER_TEXT = 'No Trader at work. The chair is empty or they are hurt';
+
 export const OFFER_STATUSES = ['open', 'accepted', 'withdrawn', 'expired'] as const;
 export const OfferStatusSchema = z.enum(OFFER_STATUSES);
 export type OfferStatus = z.infer<typeof OfferStatusSchema>;
@@ -60,6 +70,12 @@ export const MarketOfferSchema = z.object({
   counterTo: IdSchema.nullable(),
   /** Set on a counter: only this crew sees it and only this crew can take it. */
   directedAt: IdSchema.nullable(),
+  /**
+   * The city whose board it is pinned to (maintainer, 2026-09-29): the one it was posted in, or
+   * for a counter the one its listing is in. Only a crew with ground in that city sees it or takes
+   * it, the same door the city's Runner and back room have.
+   */
+  cityId: z.string().min(1),
 });
 export type MarketOffer = z.infer<typeof MarketOfferSchema>;
 
@@ -97,6 +113,31 @@ export function bundleValue(bundle: TradeBundle): number {
   );
   return Math.round(resources + items);
 }
+
+/**
+ * What one deal is worth to the trading feats: the smaller of its two sides, at {@link bundleValue}.
+ *
+ * The smaller side because that is what both parties really put in. A listing of one scrap for a
+ * thousand caps is a one-scrap deal whichever end of it you stand at, and a Broker barter is worth
+ * what he hands back rather than the double that went over the counter.
+ */
+export function dealValue(one: TradeBundle, other: TradeBundle): number {
+  return Math.min(bundleValue(one), bundleValue(other));
+}
+
+/**
+ * The least a deal has to be worth before `market_buys` or `market_sales` counts it (audit,
+ * 2026-09-28).
+ *
+ * Without a floor both ladders were a button: the Broker's ten-unit minimum, pressed thirty times,
+ * was thirty buys, and two accounts could pass one scrap back and forth for a buy and a sale a go.
+ * Two hundred and fifty caps is a hundred scrap. A level-1 crew clears it on its first day by either
+ * door: a supply run of 167 supplies is 376 of its starting 600 caps, and 200 of its starting 500
+ * scrap at the Broker's half rate comes back as 125 oil, 250 caps' worth. What it rules out is the deal made
+ * only to be counted. The other half of the rule, one deal per counterparty per day, is the
+ * server's (`feats/tally.ts`), because it needs the record of who has already been counted.
+ */
+export const MARKET_DEAL_FLOOR_CAPS = 250;
 
 /**
  * What a unit of each resource is worth in caps, for the valuation above.

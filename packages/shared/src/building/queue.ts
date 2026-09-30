@@ -3,6 +3,7 @@ import { IdSchema, IsoDateTimeSchema } from '../primitives.js';
 import { InventorySchema } from '../items/inventory.js';
 import { PartialResourcesSchema } from '../resources.js';
 import { cancelWindowMs, cancelWindowOpen } from '../time/cancel.js';
+import { xpForClock } from '../progression/state.js';
 import {
   BUILDING_MAX_LEVEL,
   BuildingKindSchema,
@@ -49,8 +50,8 @@ export const BUILD_QUEUE_RESEARCH_BONUS = 2;
  * The rung that buys the other two slots: the Fabricator track's third, `Batch Runs`.
  *
  * Declared here rather than in `research/tracks.ts`, which is the pattern the other earned
- * unlocks follow (`SCOUTING_RESEARCH_ID`, the five spy rungs): the id lives beside the rule that
- * reads it, so a rename has one place to fail rather than two places to drift.
+ * unlocks follow (the five spy rungs): the id lives beside the rule that reads it, so a rename has
+ * one place to fail rather than two places to drift.
  *
  * "Forty of them, then set up for the next thing. Never one at a time" is a line about running
  * work in parallel, which is what the slots are.
@@ -84,6 +85,14 @@ export const BuildQueueEntrySchema = z.object({
    */
   durationSeconds: z.number().int().positive(),
   /**
+   * The XP this order pays when it lands, fixed when it was ordered (maintainer, 2026-09-29).
+   *
+   * Priced off the clock the order was placed under, before the Generator's burn: the burn buys
+   * time for oil and nothing else, so it re-times `durationSeconds` and leaves this alone. Absent on
+   * an order written before the field existed, which {@link queueEntryXp} prices the old way.
+   */
+  xp: z.number().int().positive().optional(),
+  /**
    * What the order took out of the stockpile, so a cancel can hand ninety percent of it back
    * (`time/cancel.ts`). Defaulted empty: an order written before this field existed refunds
    * nothing, which is what it did.
@@ -103,6 +112,11 @@ export const BuildQueueSchema = z.array(BuildQueueEntrySchema).default([]);
 export type BuildQueue = z.infer<typeof BuildQueueSchema>;
 
 const SECOND_MS = 1000;
+
+/** What a build order pays on landing: its frozen figure, or its clock for an order that has none. */
+export function queueEntryXp(entry: BuildQueueEntry): number {
+  return entry.xp ?? xpForClock('buildingConstructed', entry.durationSeconds);
+}
 
 export function queueCompletesAt(entry: BuildQueueEntry): Date {
   return new Date(Date.parse(entry.startedAt) + entry.durationSeconds * SECOND_MS);

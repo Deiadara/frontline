@@ -1,7 +1,7 @@
 import { ALL_DISTRICTS } from '../city/atlas.js';
 import { CITIES } from '../city/cities.js';
 import { startingGarrison } from '../city/control.js';
-import type { District } from '../city/districts.js';
+import { isContested, type ContestedDistrict, type District } from '../city/districts.js';
 import type { Location } from '../city/locations.js';
 
 /**
@@ -43,9 +43,8 @@ export const PLAYABLE_DISTRICTS: readonly District[] = ALL_DISTRICTS.filter((dis
 );
 
 /** The contested half of it: the ground there is something to take, and something to work. */
-export const PLAYABLE_CONTESTED: readonly District[] = PLAYABLE_DISTRICTS.filter(
-  (district) => district.kind === 'contested',
-);
+export const PLAYABLE_CONTESTED: readonly ContestedDistrict[] =
+  PLAYABLE_DISTRICTS.filter(isContested);
 
 export const PLAYABLE_LOCATIONS: readonly Location[] = PLAYABLE_DISTRICTS.flatMap(
   (district) => district.locations,
@@ -53,20 +52,6 @@ export const PLAYABLE_LOCATIONS: readonly Location[] = PLAYABLE_DISTRICTS.flatMa
 
 /** Cities a crew can hold ground in, which is the ceiling on "how many cities are you in". */
 export const PLAYABLE_CITY_COUNT = OPEN_CITY_IDS.size;
-
-/**
- * Districts in the leanest open city.
- *
- * The bound for anything a crew does **at home**, because a crew lives in exactly one city and a
- * rung sized off the roomiest one is a rung the other city's residents cannot reach. Twelve and
- * twelve today, which is why nothing has noticed; it is derived so that the first city with ten
- * districts does not strand a rung on the day it opens.
- */
-export const SMALLEST_CITY_DISTRICTS: number = Math.min(
-  ...[...OPEN_CITY_IDS].map(
-    (cityId) => PLAYABLE_DISTRICTS.filter((district) => district.cityId === cityId).length,
-  ),
-);
 
 /** Districts that can be held end to end. A plot has nothing on it to take. */
 export const HOLDABLE_DISTRICTS: readonly District[] = PLAYABLE_DISTRICTS.filter(

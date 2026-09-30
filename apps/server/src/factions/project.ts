@@ -6,13 +6,16 @@ import {
   type AllyArmy,
   type AllyBattle,
   type Base,
+  type BattleSide,
   type Faction,
   type FactionInvite,
   type FactionMember,
   type FactionResponse,
+  type ScheduledBattle,
 } from '@frontline/shared';
 import type { Repositories } from '../db/repos/index.js';
 import { residentOf, targetName } from '../battle/ground.js';
+import { alignmentReader } from '../battle/alignment.js';
 import { sideOf } from '../battle/deploy.js';
 import { cardsAtTable } from './cards.js';
 
@@ -121,6 +124,16 @@ function allyBattles(
     if (!residents.has(districtId)) residents.set(districtId, residentOf(repos, districtId));
     return residents.get(districtId);
   };
+  const selfBaseId = members.find((member) => member.userId === selfUserId)?.baseId;
+  if (selfBaseId === undefined) return [];
+  // The side the reader's own units would take in each fight, asked once per fight.
+  const readerSides = new Map<string, BattleSide | null>();
+  const readerSideIn = (battle: ScheduledBattle): BattleSide | null => {
+    if (!readerSides.has(battle.id)) {
+      readerSides.set(battle.id, alignmentReader(repos, battle)(selfBaseId));
+    }
+    return readerSides.get(battle.id) ?? null;
+  };
 
   for (const member of members) {
     if (member.userId === selfUserId) continue;
@@ -138,6 +151,13 @@ function allyBattles(
        */
       const side = sideOf(repos, battle, member.baseId);
       if (side === null) continue;
+      /*
+       * ...and only a side the reader would fight on (bug pass, 2026-09-28). In a fight between two
+       * of the table's own, one member's side is the reader's enemy, and a faction-mate of both
+       * fights for neither (`alignmentReader`). Listing it anyway served the other side's committed
+       * strength, the ring included, which is the number the ring is bought to keep quiet.
+       */
+      if (readerSideIn(battle) !== side) continue;
 
       const sideRows = repos.sieges.side(battle.id, side);
       const committed = sideRows.reduce((total, row) => total + deployedSize(row), 0);

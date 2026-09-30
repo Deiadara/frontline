@@ -89,19 +89,12 @@ export async function adminBench(h: Harness, cast: Cast): Promise<void> {
   });
 
   h.at('admin: grants');
-  const granted = await h.ok<AdminMutationResponse>({
+  await h.ok<AdminMutationResponse>({
     as: e,
     method: 'POST',
     route: '/api/admin/grant',
-    body: { units: { razors: 7 }, technologies: 'master_of_whispers', scouted: 'all', boosts: 1 },
+    body: { units: { razors: 7 }, technologies: 'master_of_whispers', boosts: 1 },
   });
-  if (granted) {
-    const fogged = granted.admin.fog.filter((one) => !one.visible);
-    h.check(
-      fogged.length === 0,
-      `granting every district scouted left ${fogged.length} in the fog`,
-    );
-  }
   await h.refuse({
     as: e,
     method: 'POST',
@@ -109,35 +102,6 @@ export async function adminBench(h: Harness, cast: Cast): Promise<void> {
     body: {},
     expect: 400,
     code: 'VALIDATION_ERROR',
-  });
-
-  h.at('admin: fog');
-  const other = granted?.admin.fog.find((one) => !one.home);
-  if (other) {
-    const hidden = await h.ok<AdminMutationResponse>({
-      as: e,
-      method: 'POST',
-      route: '/api/admin/fog',
-      body: { districtId: other.districtId, visible: false },
-    });
-    h.check(
-      hidden?.admin.fog.find((one) => one.districtId === other.districtId)?.visible === false,
-      'the fog knob did not hide the district',
-    );
-    await h.ok({
-      as: e,
-      method: 'POST',
-      route: '/api/admin/fog',
-      body: { districtId: other.districtId, visible: true },
-    });
-  }
-  await h.refuse({
-    as: e,
-    method: 'POST',
-    route: '/api/admin/fog',
-    body: { districtId: 'atlantis', visible: false },
-    expect: 404,
-    code: 'NOT_FOUND',
   });
 
   h.at('admin: a mock fight');

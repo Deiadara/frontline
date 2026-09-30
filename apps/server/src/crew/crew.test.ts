@@ -186,7 +186,7 @@ describe('the Training tab over HTTP', () => {
     expect(second.json<{ error: { message: string } }>().error.message).toBe('The floor is taken');
 
     const chair = RESEARCH_ITEMS.find(
-      (item) => item.track === 'professor' && item.payout.bonus.kind === 'training_benches',
+      (item) => item.track === 'professor' && item.payout.bonus?.kind === 'training_benches',
     );
     expect(chair, 'the Professor has no rung that adds a bench').toBeDefined();
     app.repos.bases.updateResearch(base.id, {
@@ -632,9 +632,10 @@ describe('an attribute changes an outcome', () => {
 
   it('brings some of the dead back for Medicine', () => {
     expect(recoverCasualties({ razors: 10 }, 0)).toEqual({ razors: 10 });
-    expect(recoverCasualties({ razors: 10 }, 30)).toEqual({ razors: 7 });
-    // Capped: a fight is never free.
-    expect(recoverCasualties({ razors: 10 }, 500).razors).toBeGreaterThan(0);
+    // Thirty medic points are 22.6% on the curve, so two of ten come back.
+    expect(recoverCasualties({ razors: 10 }, 30)).toEqual({ razors: 8 });
+    // Never half: a fight is never free.
+    expect(recoverCasualties({ razors: 10 }, 500).razors).toBeGreaterThan(5);
   });
 
   it('reads the same effects whether the specialist is the Overseer or an officer', () => {
@@ -764,12 +765,12 @@ describe('a perk that lifts the other officers', () => {
    * off `peerLift`, so nine finished programmes raised a number no sheet ever saw. Measured against
    * the same officer with the rung unfinished, so the number has to move rather than merely exist.
    */
-  const lesson = RESEARCH_ITEMS.find((item) => item.payout.bonus.kind === 'officer_attribute');
-  if (!lesson || lesson.payout.bonus.kind !== 'officer_attribute') {
+  const lesson = RESEARCH_ITEMS.find((item) => item.payout.bonus?.kind === 'officer_attribute');
+  if (!lesson || lesson.payout.bonus?.kind !== 'officer_attribute') {
     throw new Error('no officer_attribute rung in the Lab');
   }
-  const seminar = RESEARCH_ITEMS.find((item) => item.payout.bonus.kind === 'officer_group');
-  if (!seminar || seminar.payout.bonus.kind !== 'officer_group') {
+  const seminar = RESEARCH_ITEMS.find((item) => item.payout.bonus?.kind === 'officer_group');
+  if (!seminar || seminar.payout.bonus?.kind !== 'officer_group') {
     throw new Error('no officer_group rung in the Lab');
   }
   // Destructured here, like `teacher` above: the narrowing from the two throws does not reach
@@ -1181,7 +1182,7 @@ describe('the Gate, from the district into a fight', () => {
   });
 
   /** The other half of §B7: a raised Gate is a district that is harder to read. */
-  it('makes the district harder to scout', () => {
+  it('makes the district harder to spy on', () => {
     const none = withGateAt(0);
     const raised = withGateAt(6);
 

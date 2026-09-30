@@ -1,8 +1,10 @@
+import { sendCellsHomeFromShutDistrict } from '../city/sleepers.js';
 import { randomUUID } from 'node:crypto';
 import {
   EVERY_LOCATION,
   MOVE_GATE_MINUTES,
   armySize,
+  cityIsOpen,
   findDistrict,
   findLocation,
   findUnit,
@@ -31,11 +33,11 @@ import { isFightingForce, mergeArmies, removeForce } from '../battle/forces.js';
 import { columnSpeedFor } from '../battle/movement.js';
 import { fightCalledOn, placeLocked } from '../battle/lock.js';
 import { putControl } from '../city/actions.js';
-import { visibleDistricts } from '../city/view.js';
 import { standingEffectsFor } from '../crew/standing.js';
 import type { Repositories } from '../db/repos/index.js';
 import { tallyCaptured, tallyRailJourney } from '../feats/tally.js';
 import { settleEach } from '../world/guard.js';
+import { adminSeconds } from '../admin/mode.js';
 
 /**
  * Moving units between the crew's places (maintainer ruling, 2026-09-22). The rules are in
@@ -80,10 +82,6 @@ export function crewsInFactionWith(repos: Repositories, base: Base): Set<string>
 export function moveDestinationsFor(repos: Repositories, base: Base): MoveDestination[] {
   const controls = repos.city.controls();
   const allies = crewsInFactionWith(repos, base);
-  // An ally's ground is only a destination once this crew has seen the district, which is the rule
-  // `sendMove` refuses on (2026-09-28: the list offered it and the send said "Nobody of yours has
-  // been there yet").
-  const visible = visibleDistricts(repos, base, controls, standingEffectsFor(repos, base));
   const out: MoveDestination[] = [
     {
       place: { kind: 'district' },
@@ -119,7 +117,7 @@ export function moveDestinationsFor(repos: Repositories, base: Base): MoveDestin
         group: 'yours',
         holderName: null,
       });
-    } else if (allies.has(control.holder.baseId) && visible.has(location.districtId)) {
+    } else if (allies.has(control.holder.baseId)) {
       out.push({
         place: { kind: 'location', locationId: location.id },
         label: location.name,
@@ -370,6 +368,12 @@ export function sendMove(
     now: Date;
     /** Ride Terminus's line if there is a ride to take. Optional, and walking is the default. */
     byRail?: boolean;
+    /**
+     * Testing mode: the column arrives in five seconds (maintainer ruling, 2026-09-29), and its
+     * stored clock is the whole minutes it runs, none, so the recall window and the machines' drive
+     * home agree with it.
+     */
+    admin?: boolean;
   },
 ): SendMoveResult {
   const { base, from, to, now } = input;
@@ -398,13 +402,15 @@ export function sendMove(
     const location = findLocation(to.locationId);
     const control = location ? repos.city.control(location.id) : undefined;
     if (!location || !control) return { kind: 'refused', reason: 'no_road' };
-    const visible = visibleDistricts(
-      repos,
-      base,
-      repos.city.controls(),
-      standingEffectsFor(repos, base),
-    );
-    if (!visible.has(location.districtId)) return { kind: 'refused', reason: 'unscouted' };
+    /*
+     * Saltmarch's plots have control rows like anybody's, and most of the Tidewalk is empty, so a
+     * column walked there claimed ground in a city no screen draws and opened its Bar, its mission
+     * board and its back room to the crew (bug pass, 2026-09-29). Only the way in is shut: a column
+     * already standing there may still walk home.
+     */
+    if (!cityIsOpen(findDistrict(location.districtId)?.cityId ?? '')) {
+      return { kind: 'refused', reason: 'city_closed' };
+    }
     const allies = crewsInFactionWith(repos, base);
     const holder = control.holder;
     const welcome =
@@ -440,8 +446,11 @@ export function sendMove(
    */
   const rode =
     input.byRail === true && railOfferFor(repos, base, from, to, { army, vehicles }) !== null;
-  const minutes = moveMinutes(repos, base, from, to, { army, vehicles }, rode);
-  if (minutes === null) return { kind: 'refused', reason: 'no_road' };
+  const road = moveMinutes(repos, base, from, to, { army, vehicles }, rode);
+  if (road === null) return { kind: 'refused', reason: 'no_road' };
+  const admin = input.admin === true;
+  const minutes = admin ? 0 : road;
+  const clockMs = adminSeconds(road * 60, admin) * 1000;
 
   const paid = takeFrom(repos, base, from, army, vehicles);
   const move: UnitMove = {
@@ -452,12 +461,12 @@ export function sendMove(
     army,
     vehicles,
     departedAt: now.toISOString(),
-    arrivesAt: new Date(now.getTime() + minutes * MINUTE_MS).toISOString(),
+    arrivesAt: new Date(now.getTime() + clockMs).toISOString(),
     travelMinutes: minutes,
     recalledAt: null,
+    byRail: rode,
   };
   repos.moves.insert(move);
-  if (rode) tallyRailJourney(repos, base.id);
   return { kind: 'sent', move, base: paid };
 }
 
@@ -532,7 +541,10 @@ function landAt(repos: Repositories, base: Base, to: MovePlace, army: Army, now:
           },
           now,
         );
-        tallyCaptured(repos, base.id, 'location');
+        tallyCaptured(repos, base.id);
+        // A claim that closes the district sends every Sleeper cell in it home (2026-09-29).
+        const claimed = findLocation(to.locationId);
+        if (claimed) sendCellsHomeFromShutDistrict(repos, claimed.districtId, now);
         return;
       }
       if (
@@ -666,6 +678,9 @@ export function settleMoves(repos: Repositories, now: Date): number {
       repos.moves.markSettled(move.id, now.toISOString());
       landAt(repos, base, landed, move.army, now);
       driveVehiclesHome(repos, repos.bases.findById(base.id) ?? base, move, landed, now);
+      // A ride counts once it has reached where it was going (audit, 2026-09-28): counted at the
+      // send, a train taken and turned round in its first tenth was a journey for nothing.
+      if (move.byRail === true && landed === move.to) tallyRailJourney(repos, base.id);
     },
   );
 }

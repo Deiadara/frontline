@@ -225,6 +225,7 @@ describe('who gets away', () => {
       luck: 0,
       cohesionPercent: 0,
       steadyNerve: false,
+      slowed: 0,
       stacks: [stackOf('razors', 6), stackOf('sparks', 4)],
     } satisfies SideState;
     losing.stacks[0]!.started = 10;
@@ -244,6 +245,7 @@ describe('who gets away', () => {
       luck: 0,
       cohesionPercent: 0,
       steadyNerve: false,
+      slowed: 0,
       stacks: [stackOf('ironsides', 5), stackOf('road_reavers', 3)],
     } satisfies SideState;
     // The Reavers' 65 rather than the Ironsides' 22: the mean of the two would be 38, and a

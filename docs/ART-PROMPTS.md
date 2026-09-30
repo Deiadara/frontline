@@ -1400,7 +1400,7 @@ with life at the small scale even as the structure fails. One tug boat moored, o
 quay.
 ```
 
-### 2.2 `district-ashen-terraces`: residential, difficulty 4
+### 2.2 `district-ashen-terraces`: residential
 
 ```
 SUBJECT: A hillside of stepped concrete tenements under a permanent fall of pale ash, terraces
@@ -1410,7 +1410,7 @@ funicular track climbs the slope. Quiet, elegiac, almost beautiful: a place that
 desirable. Two figures on separate terraces, not looking at each other.
 ```
 
-### 2.3 `district-kettle-row`: residential, difficulty 2
+### 2.3 `district-kettle-row`: residential
 
 ```
 SUBJECT: A long residential terrace along a southern cut, boiler houses venting between every
@@ -1492,7 +1492,7 @@ Skybridges radiate outward and end in nothing. Seen from below and far away. The
 and the most hostile image in the set.
 ```
 
-### 2.11 `district-upper-roofs`: residential, difficulty 2
+### 2.11 `district-upper-roofs`: residential
 
 ```
 SUBJECT: A shanty of stacked rooftops above a slab retaining wall, dwellings built on top of
@@ -1502,7 +1502,7 @@ Inhabited and improvised rather than derelict: the wall below is the Combine's a
 the coping is not. Two figures on a walkway, one hauling a bucket up on a rope.
 ```
 
-### 2.12 `district-south-quay`: residential, difficulty 1
+### 2.12 `district-south-quay`: residential
 
 ```
 SUBJECT: The tail end of a covered market where the awnings stop and a canal cut comes back up to
@@ -1547,6 +1547,10 @@ and the readable action sits on top of it.
 | `plate-district-ironmouth`         | `130019` | opaque                  |
 | `plate-district-marshalling-yards` | `130020` | opaque                  |
 | `plate-district-bonded-row`        | `130021` | opaque                  |
+| `plate-district-telemetry-hill`    | `130022` | opaque                  |
+| `plate-district-viaduct`           | `130023` | opaque                  |
+| `plate-district-last-platform`     | `130024` | opaque                  |
+| `plate-district-blockhouse`        | `130025` | opaque                  |
 
 ### 3.1 `plate-city`: the map base plate (plane 2)
 
@@ -1853,6 +1857,68 @@ the right, a fenced run of kennels with dogs and handlers in the lower left, a r
 with a crowd around two fighters in the lower middle, and a violet-lit clinic of curtained bays and
 steel trolleys at the lower right. Hot red and cold violet on wet concrete, emissives small and at
 head height. Painted signage is part of the street; nothing that reads as a label for a game object.
+```
+
+### 3.22 `plate-district-telemetry-hill`: Telemetry Hill, walked into (§A4)
+
+```
+SUBJECT: Telemetry Hill from above and slightly forward, the same camera as the other contested
+plates and **no sky** below the smog line: a walled Combine listening post on the only rise for
+forty miles, stone terraces climbing to a summit of dishes and masts at night. Seven places a player
+can stand, each recognisable at a glance: three great dishes on a roof at the upper left, a red
+lattice mast with a lit cabin at the top centre, a green-roofed hall with banners and lit windows at
+the centre left, a huddle of small houses bristling with wire aerials in the middle, a green copper
+dome on a colonnade at the upper right, a switching yard of tanks and transformers at the right, and
+a tent town of canvas and washing lines in the lower left, with a barred gatehouse closing the
+bottom centre. Warm sodium windows against cold blue stone, steam off every stack, emissives small
+and at head height. Painted signage is part of the street; nothing that reads as a label for a game
+object.
+```
+
+### 3.23 `plate-district-viaduct`: The Viaduct, walked into (§A4)
+
+```
+SUBJECT: The Viaduct from above and slightly forward, the same camera as the other contested plates
+and **no sky** below the smog line: forty brick arches carrying the line over a river gorge in cold
+blue mist, every arch bricked up into something and the Combine on all of them. Eight places a
+player can stand, each recognisable at a glance: a glass-roofed halt with lit platforms at the upper
+left, a sandbagged gun battery on the near approach at the left, the parapet of the bridge deck
+under a standing train at the top centre, a lit workshop under an arch with washing on lines at the
+centre, a lab down a stair with screens and an operating table at the lower left, twin furnaces
+burning orange on the far pier at the right, a blue-lit armoury of racks and open crates at the
+lower centre, and a tram depot with cars on its roads at the lower right. Cold blue stone and white
+water, warm furnace light, emissives small and at head height. Painted signage is part of the
+street; nothing that reads as a label for a game object.
+```
+
+### 3.24 `plate-district-last-platform`: The Last Platform, walked into (§A4)
+
+```
+SUBJECT: The Last Platform from inside, the one contested plate under a roof: the end of the line
+seen down the length of a great iron and glass train shed, with red Combine banners on every column.
+Eight places a player can stand, each recognisable at a glance: lit platforms with standing trains
+down the middle, a trading floor of counters and lamps at the left, a fenced holding compound of
+cages and containers at the lower left, a glazed clinic on the upper gallery at the top left, an
+armoury of racks and workbenches at the lower right, a bronze statue with one arm raised in the
+middle of the concourse, a bay of dead armour and gantries on the upper right, and an iron
+footbridge over the service pit at the bottom centre, with barrier gates and guards closing the
+concourse under the statue. Warm sodium under cold daylight through the roof, emissives small and at
+head height. Painted signage is part of the street; nothing that reads as a label for a game object.
+```
+
+### 3.25 `plate-district-blockhouse`: The Blockhouse, walked into (§A4)
+
+```
+SUBJECT: The Blockhouse from above and slightly forward, the same camera as the other contested
+plates and **no sky** below the smog line: a walled Combine garrison on a rock at night, green
+signal lamps on every wall. Eight places a player can stand, each recognisable at a glance: a
+private platform with a standing train under an arch at the lower left, a lit control room of desks
+and screens at the left, a glass-vaulted hall with a long table at the top centre, a switching yard
+of pipes and tanks at the bottom centre, a lit library of shelves at the centre right, a parade
+ground with troops in ranks in the middle, two cooling towers over a turbine hall at the lower
+right, and a lattice watchtower with a lit cabin at the far right. Warm sodium windows and green
+lamps against cold grey stone, emissives small and at head height. Painted signage is part of the
+street; nothing that reads as a label for a game object.
 ```
 
 ---

@@ -350,16 +350,15 @@ export type LeadRefusal = 'needs_leader';
  * can only ever be held by `run`: they are not on the books, so no fight can name them, §D4's
  * injuries are an officer's, and the player has no chair to be out of.
  */
-// `scouting` was a hold until 2026-09-22; a scout party takes nobody with it now. `bench` is
-// 2026-09-28: an officer with no chair leads nothing until they are given one.
+// `bench` is 2026-09-28: an officer with no chair leads nothing until they are given one.
 export const LEADER_HOLDS = ['run', 'fight', 'injury', 'bench'] as const;
 export const LeaderHoldSchema = z.enum(LEADER_HOLDS);
 export type LeaderHold = z.infer<typeof LeaderHoldSchema>;
 
 /**
  * The reason in a sentence about a named person, which is how a route refuses one:
- * `${name} ${LEADER_HOLD_MESSAGES[held]}`. One table, so the launch, the fight and the scouting
- * party cannot describe the same officer three different ways.
+ * `${name} ${LEADER_HOLD_MESSAGES[held]}`. One table, so the launch and the fight cannot describe
+ * the same officer two different ways.
  */
 export const LEADER_HOLD_MESSAGES: Readonly<Record<LeaderHold, string>> = {
   run: 'is out leading a run',

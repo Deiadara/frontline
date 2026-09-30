@@ -10,7 +10,9 @@ import {
   breachExpiry,
   clampLevel,
   disruptionFrom,
-  refreshDisruption,
+  disruptionPercentAt,
+  stackDisruption,
+  type Disruption,
   districtDefense,
   findDistrict,
   LOCATION_CATALOG,
@@ -32,6 +34,7 @@ import {
   removeItems,
   spendResources,
   springTrap,
+  type TrapWire,
   type Army,
   type Battlefield,
   type BattleAnalysis,
@@ -66,6 +69,7 @@ import {
   officerInjured,
   officerIsWorking,
   officerRecoveryAt,
+  stimmed,
   mergeFleets,
   removeFleet,
   scaledSpoils,
@@ -88,21 +92,21 @@ import {
 import { creditBase } from '../district/stores.js';
 import { settleBasesById } from '../district/settle.js';
 import { putControl } from '../city/actions.js';
-import { standingEffectsFor } from '../crew/standing.js';
+import { liftedOfficerSheet, officerLiftRoom, standingEffectsFor } from '../crew/standing.js';
 import { recallOvertaken, turnRound } from './movement.js';
 import { alignmentReader, fightPlaceFor, musterAtTheMark, presenceAt } from './alignment.js';
 import { walkHome } from '../moves/moves.js';
 import type { Repositories } from '../db/repos/index.js';
-import { sideForce, splitSurvivors } from './side.js';
+import { lineByCrew, sideForce, splitSurvivors } from './side.js';
 import { notifyBase } from '../social/notify.js';
-import { cityLevelFor } from '../blackmarket/shelf.js';
 
 import { forceSize, mergeArmies, offTheLine, removeForce } from './forces.js';
 import {
-  tallyBattleResolved,
   tallyBattleShape,
+  tallyBattleSide,
   tallyCombineFight,
   tallyCaptured,
+  tallyGateBreached,
   tallyDistrictRaid,
   tallyDistrictStripped,
   tallyInfamyEarned,
@@ -112,10 +116,16 @@ import {
   tallyGateLevelsBroken,
   tallyTrapKills,
 } from '../feats/tally.js';
-import { controlsIn, defendingBaseOf, residentOf, targetName } from './ground.js';
+import { controlsIn, crewsInFight, defendingBaseOf, residentOf, targetName } from './ground.js';
 import { awardPlayerXp } from '../progression/award.js';
-import { gateFor, holdsDistrictWhole, resetGateOnDistrictLost } from '../city/gates.js';
+import {
+  districtsHeldWhole,
+  gateFor,
+  holdsDistrictWhole,
+  resetGateOnDistrictLost,
+} from '../city/gates.js';
 import { settleEach } from '../world/guard.js';
+import { sendCellsHomeFromShutDistrict } from '../city/sleepers.js';
 import { gateLoweredLine, lowerGatesInPlay } from './wall-breaker.js';
 
 /**
@@ -365,7 +375,7 @@ function spendGarrisons(repos: Repositories, assembled: Assembled, survivors: Ar
  * Only the leader is held back. The regiment standing beside him fights the gate as it always
  * has, which is a separate rule with its own reasons written above.
  */
-function withoutTheLeader(locationId: string, garrison: Army): Army {
+export function withoutTheLeader(locationId: string, garrison: Army): Army {
   const leader = combineLeaderAt(locationId);
   if (!leader || (garrison[leader.unitId] ?? 0) <= 0) return garrison;
   const { [leader.unitId]: _standing, ...rest } = garrison;
@@ -419,8 +429,10 @@ interface TrapResult {
    * trap the one way to kill somebody in this game that paid nobody anything.
    */
   killed: Army;
-  note: { name: string; killed: number } | null;
+  note: { name: string; killed: number; slowed: boolean } | null;
   wipedOut: boolean;
+  /** What Razor Wire does to the attack's opening rounds, handed to the engine; null otherwise. */
+  slowed: TrapWire | null;
   /**
    * Whose trap it was, or null when nobody laid one.
    *
@@ -452,6 +464,7 @@ function springAnyTrap(repos: Repositories, battle: ScheduledBattle, attacking: 
     killed: {},
     note: null,
     wipedOut: false,
+    slowed: null,
     ownerBaseId: null,
   };
   const row = repos.sieges
@@ -484,13 +497,14 @@ function springAnyTrap(repos: Repositories, battle: ScheduledBattle, attacking: 
   );
 
   // A Wall Breaker in the column walks through it (maintainer, 2026-09-26): the trap is spent all
-  // the same, and takes nobody.
+  // the same, and takes nobody. Razor Wire included: a Colossus does not pick its way through tape.
   if (breaksWalls(attacking)) {
     return {
       attacking,
       killed: {},
-      note: { name: spec.name, killed: 0 },
+      note: { name: spec.name, killed: 0, slowed: false },
       wipedOut: false,
+      slowed: null,
       ownerBaseId: owner.id,
     };
   }
@@ -499,8 +513,9 @@ function springAnyTrap(repos: Repositories, battle: ScheduledBattle, attacking: 
   return {
     attacking: toll.survivors,
     killed: toll.killed,
-    note: { name: spec.name, killed: forceSize(toll.killed) },
+    note: { name: spec.name, killed: forceSize(toll.killed), slowed: toll.slowed !== null },
     wipedOut: toll.wipedOut,
+    slowed: toll.slowed,
     ownerBaseId: owner.id,
   };
 }
@@ -522,6 +537,31 @@ export function refundFor(dead: Army, percent: number): PartialResources {
   }
   const whole = Math.floor(caps);
   return whole > 0 ? { caps: whole } : {};
+}
+
+/**
+ * An ally's trap, paid to the ally: its victims at their own ground's rate, the faction's share and
+ * the `infamy_earned` feat, which is what the principal's ledger pays for the rest of the side.
+ * Read fresh, because nothing earlier in the settle has written this crew's economy.
+ */
+function payTrapSetter(
+  repos: Repositories,
+  trap: { setterId: string; district: District; killed: Army; now: Date },
+): void {
+  const setter = repos.bases.findById(trap.setterId);
+  const earned = infamyForKills(trap.killed);
+  if (!setter || earned <= 0) return;
+  const banked = bankOutcome(
+    setter.economy,
+    trap.district,
+    false,
+    earned,
+    trap.now,
+    standingEffectsFor(repos, setter, trap.now).infamyGainPercent,
+  );
+  creditFaction(repos, setter, setter.economy, banked);
+  repos.bases.updateEconomy(setter.id, banked);
+  tallyInfamyEarned(repos, setter.id, earned);
 }
 
 /** §D7 and §D8 in one write, from one reading of the district. */
@@ -566,31 +606,42 @@ function bankOutcome(
  * units is a different fight from one you took on your own, and a perk that only pays there is a
  * reason to fight alongside your faction rather than a number that pays out regardless.
  *
- * Counted from the rows rather than from the declaration, because reinforcements arrive after it.
+ * Counted from the rows rather than from the declaration, because reinforcements arrive after it,
+ * and read after `musterAtTheMark`, so the rows hold every crew that fights for the side. Two
+ * crews in the line have no row of their own, and both are counted here (bug pass, 2026-09-28):
+ * the side's principal, whose row on a home gate or raid names nobody (`declare`), and an ally
+ * whose posting on the plot stands with the garrison (`assemble`'s `posted`). Counted off the
+ * rows alone, a defender with a faction-mate in its line was paid the perk only when the ally
+ * had walked a column in.
  */
-function alliedSideCount(repos: Repositories, battleId: string, side: 'attacker' | 'defender') {
+function alliedSideCount(
+  repos: Repositories,
+  battleId: string,
+  side: BattleSide,
+  inLineWithoutRow: { principalId: string | undefined; posted: Assembled['posted'] },
+): number {
   const bases = new Set<string>();
+  if (inLineWithoutRow.principalId !== undefined) bases.add(inLineWithoutRow.principalId);
   for (const row of repos.sieges.side(battleId, side)) {
     if (row.baseId !== null) bases.add(row.baseId);
+  }
+  for (const posting of inLineWithoutRow.posted) {
+    if (forceSize(posting.army) > 0) bases.add(posting.baseId);
   }
   return bases.size;
 }
 
 /**
- * Whether this crew holds every location in the district they live in.
+ * Whether this crew holds at least one district whole, anywhere on the map.
  *
- * The condition behind `whole_district`. A sweep rather than a majority on purpose: the perk is
- * priced for a state that is hard to reach and easy to lose, so one location changing hands turns
- * it off, and getting it back turns it on again.
+ * The condition behind `whole_district` (maintainer, 2026-09-29). It used to ask about the district
+ * the crew lives in, which is a residential plot with no locations, so it could never pay. Any
+ * district counts now, and "whole" is `districtsHeldWhole`, the same sweep the gate and the unified
+ * bonus turn on: one location changing hands turns it off, and getting it back turns it on again.
+ * It pays in every fight the crew is in, not only fights on the district it holds.
  */
-function holdsWholeDistrict(repos: Repositories, base: Base): boolean {
-  const district = findDistrict(base.districtId);
-  if (!district || district.locations.length === 0) return false;
-  const controls = repos.city.controls();
-  return district.locations.every((location) => {
-    const holder = controls.get(location.id)?.holder;
-    return holder?.kind === 'crew' && holder.baseId === base.id;
-  });
+function holdsAnyDistrictWhole(repos: Repositories, base: Base): boolean {
+  return districtsHeldWhole(repos, base.id).length > 0;
 }
 
 /** Pays out the two situational channels, and only where their condition actually holds. */
@@ -686,9 +737,11 @@ export function settleBattles(
   repos: Repositories,
   engine: SkirmishEngine,
   now: Date,
+  /** Only the fights whose mark is at or before this. `world/settle.ts` passes last week's end. */
+  dueBy: Date = now,
 ): ResolvedSiege[] {
   const resolved: ResolvedSiege[] = [];
-  const due = repos.sieges.due(now.toISOString()).filter((battle) => isBattleDue(battle, now));
+  const due = repos.sieges.due(dueBy.toISOString()).filter((battle) => isBattleDue(battle, dueBy));
   // `settleEach` owns the transaction below and catches a fight that throws, so one unreadable
   // battle is reported and retried rather than stopping every fight after it (`world/guard.ts`).
   settleEach(
@@ -737,12 +790,8 @@ export function settleBattles(
         battle.target.kind === 'district' &&
         !gateIsBroken(repos.sieges.gate(district.id), new Date(battle.scheduledFor))
       ) {
-        const told = new Set(
-          [
-            battle.attackerBaseId,
-            ...repos.sieges.deployments(battle.id).map((row) => row.baseId),
-          ].filter((id): id is string => id !== null),
-        );
+        // Read before the call-off closes the rows, and the resident with them (`crewsInFight`).
+        const told = crewsInFight(repos, battle);
         callOff(repos, battle, now);
         for (const baseId of told) {
           notifyBase(repos, baseId, {
@@ -750,7 +799,8 @@ export function settleBattles(
             title: 'The gate was back up in time',
             body: `The fight at ${district.name} was called off. Everybody came home.`,
             link: '/game/battles',
-            now,
+            // At the mark, which is when the gate was found standing.
+            at: new Date(battle.scheduledFor),
           });
         }
         return;
@@ -770,7 +820,7 @@ export function settleBattles(
  * army lost). Both walk (maintainer, 2026-09-28): they used to reappear on the roster the instant
  * the fight was called off, wherever in the city it was.
  */
-function callOff(repos: Repositories, battle: ScheduledBattle, now: Date): void {
+export function callOff(repos: Repositories, battle: ScheduledBattle, now: Date): void {
   repos.sieges.abandon(battle.id, now.toISOString());
   for (const movement of repos.movements.forBattle(battle.id)) {
     turnRound(repos, movement, now);
@@ -783,12 +833,6 @@ function callOff(repos: Repositories, battle: ScheduledBattle, now: Date): void 
   }
 }
 
-/**
- * The city's average player level, which is what a boost is worth (§D8).
- *
- * The same reading `blackmarket/shelf.ts` prices against, and bots are excluded for the same
- * reason: §A3's rival is a fixture rather than a customer.
- */
 /**
  * The one boost this side applied to this fight, whatever kind it was.
  *
@@ -806,12 +850,11 @@ function appliedBoost(
   baseId: string,
   deployment: BattleDeployment | undefined,
   force: Army,
-  cityLevel: number,
   /** This side's own line rules, threaded to `oneBoost`. See the note there. */
   rules: LineRules,
 ): BattleBoost {
   const ids = deployment?.boostIds ?? [];
-  if (ids.length === 0) return NO_BOOST;
+  if (!deployment || ids.length === 0) return NO_BOOST;
 
   /*
    * Two names stack (maintainer request, 2026-09-12), and they stack by adding their percentages.
@@ -821,7 +864,7 @@ function appliedBoost(
    * name is meant to be worth the first one again rather than worth more than it.
    */
   return ids.reduce<BattleBoost>((total, id) => {
-    const one = oneBoost(repos, baseId, id, force, cityLevel, rules);
+    const one = oneBoost(repos, baseId, deployment.battleId, id, force, rules);
     return {
       offensePercent: total.offensePercent + one.offensePercent,
       defensePercent: total.defensePercent + one.defensePercent,
@@ -834,9 +877,9 @@ function appliedBoost(
 function oneBoost(
   repos: Repositories,
   baseId: string,
+  battleId: string,
   id: string,
   force: Army,
-  cityLevel: number,
   /**
    * What this side counts as a fighting sheet (bug pass, 2026-09-23).
    *
@@ -858,8 +901,27 @@ function oneBoost(
   if (!crate || stashCount(stash, id) <= 0) return NO_BOOST;
   // Spent, whatever happens next. A crate is applied to *a* battle, not to a won one, and leaving
   // it in the bag on a loss would make contraband a free retry.
-  repos.blackMarket.writeStash(baseId, takeFromStash(stash, id));
-  return blackMarketBoost(crate, cityLevel) ?? NO_BOOST;
+  const left = takeFromStash(stash, id);
+  repos.blackMarket.writeStash(baseId, left);
+  if (stashCount(left, id) <= 0) freeSpentCrate(repos, baseId, battleId, id);
+  return blackMarketBoost(crate) ?? NO_BOOST;
+}
+
+/**
+ * The last of a crate is gone, so it comes off every other fight it was named on (maintainer,
+ * 2026-09-29).
+ *
+ * Naming one crate on two fights is allowed, and the first to land spends it. A name is final
+ * (2026-09-12), so the id used to stay on the second fight's row and hold its slot for a crate that
+ * no longer existed: `/battles/boost` refused a new one with "this one already has its name" while
+ * the panel read "Nothing taken yet". The rule is about a live crate. A spent one frees the slot,
+ * and the crew can put something else there.
+ */
+function freeSpentCrate(repos: Repositories, baseId: string, spentOn: string, id: string): void {
+  for (const row of repos.sieges.deploymentsFor(baseId)) {
+    if (row.battleId === spentOn || !row.boostIds.includes(id)) continue;
+    repos.sieges.putDeployment({ ...row, boostIds: row.boostIds.filter((named) => named !== id) });
+  }
 }
 
 /**
@@ -869,15 +931,13 @@ function oneBoost(
  * added, because multiplicative stacking is where a strategy game's numbers stop being explainable.
  */
 function boosted(effects: CrewEffects, boost: BattleBoost): CrewEffects {
-  // §A4: the Black Clinic. Syringes handed out before the fight, one unit brought back to
-  // strength each. It lands on the same three channels a bought boost does rather than on a
-  // parallel one, so the engine reads one number per channel and the report explains itself.
-  const stims = Math.max(0, effects.battleStims);
-  const fromGround = stims * STIM_PERCENT_EACH;
-  if (boost === NO_BOOST && fromGround === 0) return effects;
+  // §A4: the Black Clinic's syringes (`stimmed`), on the same channels a bought boost lands on
+  // rather than on a parallel one, so the engine reads one number per channel.
+  const armed = stimmed(effects);
+  if (boost === NO_BOOST) return armed;
   return {
-    ...effects,
-    unitOffensePercent: effects.unitOffensePercent + boost.offensePercent + fromGround,
+    ...armed,
+    unitOffensePercent: armed.unitOffensePercent + boost.offensePercent,
     /*
      * A bought defence lands on the unit, not on the ground.
      *
@@ -894,18 +954,10 @@ function boosted(effects: CrewEffects, boost: BattleBoost): CrewEffects {
      * `MAX_HELD_DEFENSE`, which is correct rather than incidental, since that ceiling is on what
      * *holding built ground* is worth and a syringe is not built ground.
      */
-    unitVitalityPercent: effects.unitVitalityPercent + boost.defensePercent,
-    unitMoraleFlat: effects.unitMoraleFlat + boost.moralePercent + stims,
+    unitVitalityPercent: armed.unitVitalityPercent + boost.defensePercent,
+    unitMoraleFlat: armed.unitMoraleFlat + boost.moralePercent,
   };
 }
-
-/**
- * What one syringe is worth, in percentage points of offense.
- *
- * Small on purpose. A Black Clinic at level 4 hands out five of them, which is a real edge and not
- * a fight decided before it starts: the location is a thumb on the scale, not a second army.
- */
-export const STIM_PERCENT_EACH = 3;
 
 /**
  * §D1: the officer leading one side, or null.
@@ -937,12 +989,21 @@ function leaderFor(
 }
 
 /** An officer as the engine takes them. */
-/** The officer as the engine takes them, with their chair's fight rungs on their sheet. */
-function asCombatant(officer: Commander, effects: CrewEffects): BattleOfficer {
+/**
+ * The officer as the engine takes them: their **lifted** sheet (maintainer, 2026-09-29), the one
+ * the crew screen and the Deploy dialog's leader row draw, with their chair's fight rungs on it.
+ */
+function asCombatant(
+  repos: Repositories,
+  base: Base,
+  officer: Commander,
+  effects: CrewEffects,
+  now: Date,
+): BattleOfficer {
   return {
     officerId: officer.id,
     name: officer.name,
-    attributes: officer.attributes,
+    attributes: liftedOfficerSheet(officer, officerLiftRoom(repos, base, now)).attributes,
     sheetBonus: officerSheetBonusFor(effects, officer.role, 'battle'),
   };
 }
@@ -1188,13 +1249,9 @@ function resolveOne(
    * engine needs no third parameter and a syringe stacks with everything else by the same rule.
    *
    * `moralePercent` lands on `unitMoraleFlat` one-for-one. Morale is already a 0..100 rating, so a
-   * "+10% morale" syringe reading as +10 points is the interpretation that matches both the label
+   * "+5% morale" syringe reading as +5 points is the interpretation that matches both the label
    * on the crate and the number it moves.
    */
-  // What a crate is worth is a fact about the city, not about the crew that bought it: a shelf
-  // priced and stocked for a veteran street hands out veteran contraband, and this is where that
-  // lands. Read once for the fight, so both sides' bags are weighted by the same number.
-  const cityLevel = cityLevelFor(repos);
   /*
    * Each side's standing, read once, before the boost rather than after it.
    *
@@ -1213,7 +1270,6 @@ function resolveOne(
     attacker.id,
     sideForce(repos, battle.id, 'attacker', battle.scheduledFor),
     assembled.attacking,
-    cityLevel,
     attackerStanding,
   );
   const defenderBoost = defenderBase
@@ -1222,7 +1278,6 @@ function resolveOne(
         defenderBase.id,
         sideForce(repos, battle.id, 'defender', battle.scheduledFor),
         assembled.defending,
-        cityLevel,
         defenderStanding ?? bareLineRules(),
       )
     : NO_BOOST;
@@ -1273,8 +1328,13 @@ function resolveOne(
     defenderBase !== undefined &&
     !gateIsBroken(repos.sieges.gate(defenderBase.districtId), now);
 
-  const attackerAllied = alliedSideCount(repos, battle.id, 'attacker') > 1;
-  const defenderAllied = alliedSideCount(repos, battle.id, 'defender') > 1;
+  const attackerAllied =
+    alliedSideCount(repos, battle.id, 'attacker', { principalId: attacker.id, posted: [] }) > 1;
+  const defenderAllied =
+    alliedSideCount(repos, battle.id, 'defender', {
+      principalId: defenderBase?.id,
+      posted: assembled.posted,
+    }) > 1;
 
   /*
    * §D1/§D5: who is leading, and what their book is worth because of it.
@@ -1307,7 +1367,7 @@ function resolveOne(
 
   const attackerEffects = situational(boosted(attackerStanding, attackerBoost), {
     allied: attackerAllied,
-    wholeDistrict: holdsWholeDistrict(repos, attacker),
+    wholeDistrict: holdsAnyDistrictWhole(repos, attacker),
   });
   // ...the crew's `lead_*` channels and the rungs of the chair the leader sits in (`leadingAs`).
   const attackerFinal = attackerLead
@@ -1317,7 +1377,7 @@ function resolveOne(
     defenderBase && defenderStanding
       ? situational(boosted(defenderStanding, defenderBoost), {
           allied: defenderAllied,
-          wholeDistrict: holdsWholeDistrict(repos, defenderBase),
+          wholeDistrict: holdsAnyDistrictWhole(repos, defenderBase),
         })
       : undefined;
   const defenderFinal =
@@ -1350,14 +1410,19 @@ function resolveOne(
     locationName: name,
     attacking: trap.attacking,
     defending: assembled.defending,
+    ...(trap.slowed ? { attackerSlowed: trap.slowed } : {}),
     battlefield: ground,
     attackerTerritory: attackerFinal,
     attackerUpgrades: attacker.unitLoadouts,
     attackerCohesionPercent: attackerFinal.cohesionPercent,
     defenderPerimeter: assembled.defenderRing,
-    ...(attackerLead ? { attackerOfficer: asCombatant(attackerLead, attackerEffects) } : {}),
-    ...(defenderLead && defenderEffects
-      ? { defenderOfficer: asCombatant(defenderLead, defenderEffects) }
+    ...(attackerLead
+      ? { attackerOfficer: asCombatant(repos, attacker, attackerLead, attackerEffects, now) }
+      : {}),
+    ...(defenderLead && defenderEffects && defenderBase
+      ? {
+          defenderOfficer: asCombatant(repos, defenderBase, defenderLead, defenderEffects, now),
+        }
       : {}),
     ...(presence ? { defenderPresence: presence.power } : {}),
     ...(defenderFinal && defenderBase
@@ -1390,6 +1455,7 @@ function resolveOne(
     assembled,
     committed: trap.attacking,
     trapKilled: trap.killed,
+    trapSetterId: trap.ownerBaseId,
     outcome,
     attackerWon,
     now,
@@ -1515,51 +1581,71 @@ function resolveOne(
   if (defenderBase) awardPlayerXp(repos, defenderBase, attackerWon ? 'raidLost' : 'raidWon');
 
   /*
-   * Feats, for both crews, for the same reason the XP is paid to both: a declared fight is
-   * something the defender did as well.
+   * Feats, for every crew in the line, for the same reason the XP is paid to both sides: a declared
+   * fight is something the defender did as well, and an ally who reinforced it did it too (audit,
+   * 2026-09-28: allies were credited nothing and their kills went to the principal).
    *
    * `attacked` is which side of this fight the crew was on rather than who started the war, so the
    * "win fights you called" and "turn back fights called on you" ladders can be different feats.
+   * Each crew's line is read the way the survivors were split: the rows as they stood at the mark
+   * plus, on the defence, the allies' postings, with everything nobody else sent the principal's.
    * Infamy is tallied off the settlement rather than off the economy row, because the row has
    * already had it added and reading the difference back would be arithmetic on a number that a
    * perk percentage has moved.
    */
-  tallyBattleResolved(repos, attacker.id, {
+  tallyBattleSide(repos, {
     attacked: true,
     won: attackerWon,
     kills: settlement.attackerKills,
     // Where it was, for the away ladder. `tally.ts` decides what counts as abroad off the crew's
     // own row, so this is the district and nothing else.
     districtId: battle.target.districtId,
+    principal: attacker.id,
+    line: lineByCrew({
+      principal: attacker.id,
+      whole: assembled.attacking,
+      allies: repos.sieges.side(battle.id, 'attacker'),
+    }),
   });
   tallyInfamyEarned(repos, attacker.id, settlement.attackerInfamy);
-  if (defenderBase) {
-    tallyBattleResolved(repos, defenderBase.id, {
-      attacked: false,
-      won: !attackerWon,
-      kills: settlement.defenderKills,
-      districtId: battle.target.districtId,
-    });
-    tallyInfamyEarned(repos, defenderBase.id, settlement.defenderInfamy);
-  }
-  // Ground only. A district raid is a fight over a whole district and moves no control row, so
-  // counting it as a capture would credit the ladder for a place nobody took.
-  if (attackerWon && battle.target.kind !== 'district') {
-    tallyCaptured(repos, attacker.id, battle.target.kind === 'gate' ? 'gate' : 'location');
-  }
+  const defendingCrew = defenderBase?.id ?? null;
+  tallyBattleSide(repos, {
+    attacked: false,
+    won: !attackerWon,
+    // Less the trap's, which `tallyTrapKills` pays to whoever set it rather than by the line.
+    kills: settlement.defenderKills - forceSize(trap.killed),
+    districtId: battle.target.districtId,
+    principal: defendingCrew,
+    line: lineByCrew({
+      principal: defendingCrew,
+      whole: mergeArmies(assembled.defending, assembled.defenderRing),
+      allies: [
+        ...repos.sieges.side(battle.id, 'defender').map((row) => ({
+          baseId: row.baseId,
+          army: mergeArmies(row.army, row.perimeter),
+        })),
+        ...assembled.posted,
+      ],
+    }),
+  });
+  if (defenderBase) tallyInfamyEarned(repos, defenderBase.id, settlement.defenderInfamy);
+  // A location taken is a capture; a gate won is a breach that holds for a day and is nobody's
+  // after it. A district raid moves no control row and counts as neither.
+  if (attackerWon && battle.target.kind === 'location') tallyCaptured(repos, attacker.id);
+  if (attackerWon && battle.target.kind === 'gate') tallyGateBreached(repos, attacker.id);
 
   /*
    * The Combine's ledger (maintainer, 2026-09-19): a section of the board that moves only when
    * the other side was the regime. The Combine's dead are whichever map holds the defender's
    * losses: the loser's `killed` when the attacker won, the winner's `winnerLosses` when it did
    * not (an NPC has no infirmary, so nothing in that map came back). `flawless` is the attacker's
-   * own losses at zero, turncoats included: a unit that changed sides was lost.
+   * own losses at zero, and `defenderKills` already counts a unit that changed sides as lost.
    */
   if (battle.defender.kind === 'government') {
     const turned = Object.values(outcome.turned).reduce((total, count) => total + count, 0);
     tallyCombineFight(repos, attacker.id, {
       won: attackerWon,
-      flawless: attackerWon && settlement.defenderKills === 0 && turned === 0,
+      flawless: attackerWon && settlement.defenderKills === 0,
       underLeader: presence !== undefined,
       killed: attackerWon ? outcome.killed : outcome.winnerLosses,
       turned,
@@ -1680,6 +1766,8 @@ interface SettleInput {
   committed: Army;
   /** ...and who the trap took, which is off `committed` already and still owed to the ledger. */
   trapKilled: Army;
+  /** ...and the crew they are owed to: whoever set the trap, which may be an ally of the defender. */
+  trapSetterId: string | null;
   outcome: SkirmishOutcome;
   attackerWon: boolean;
   now: Date;
@@ -1705,6 +1793,7 @@ interface Settlement {
    * exact bug the doc block above this function warns about.
    */
   attackerKills: number;
+  /** The attacker's dead, Directive Xero's turncoats included: they count as dead everywhere. */
   defenderKills: number;
   /**
    * The winner's dead that the medics handed back, by unit id.
@@ -1744,9 +1833,9 @@ function applyOutcome(repos: Repositories, input: SettleInput): Settlement {
    *
    * Two sources, added. `casualtyRecoveryPercent` is the crew's own medicine and whatever ground
    * they hold; `infirmaryRecoveryPercent` is the structure, and it was authored, drawn on the base
-   * screen and read by nothing at all until this line. `recoverCasualties` caps the total at
-   * `MAX_CASUALTY_RECOVERY`, so a crew with a deep Infirmary and a chief medic does not walk
-   * everybody home.
+   * screen and read by nothing at all until this line. `recoverCasualties` puts the total through
+   * a diminishing curve that never reaches half (`casualtyRecoveryShare`), so a crew with a deep
+   * Infirmary and a chief medic does not walk everybody home.
    */
   const winnerBase = attackerWon ? attacker : defenderBase;
   const winnerRecovery =
@@ -1795,7 +1884,9 @@ function applyOutcome(repos: Repositories, input: SettleInput): Settlement {
   const defenderDead = attackerWon ? outcome.killed : winnerDead;
 
   /*
-   * Directive Xero's turncoats (`outcome.turned`) are off the attacker's books for good.
+   * Directive Xero's turncoats (`outcome.turned`) are off the attacker's books for good: they fight
+   * for him in this fight only and are dead afterwards, whichever way it went (maintainer,
+   * 2026-09-29). Nothing stands them anywhere, so this line is the whole of their settle.
    *
    * They are in `committed` (they marched) and in neither `killed` nor `fled` (the engine settles
    * them as nobody's), so without this line a winning attacker would walk home with the units
@@ -1868,6 +1959,27 @@ function applyOutcome(repos: Repositories, input: SettleInput): Settlement {
    * trap goes off before the crew that set it is anywhere near the wounded.
    */
   const attackerFallen = mergeArmies(attackerDead, input.trapKilled);
+  /*
+   * ...and Directive Xero's turncoats, counted as dead (maintainer, 2026-09-29: "Count them as
+   * dead"). They are in the Bone Market's refund and in the losses a flawless win is measured
+   * against, the same as the report's "Died". They stay out of `attackerFallen` because that list
+   * is also the infamy the defence is owed, which prices what it killed, and a fight under him is
+   * always the regime's, which banks none.
+   */
+  const attackerLost = mergeArmies(attackerFallen, outcome.turned);
+  /*
+   * The trap's dead are paid to whoever set it (bug pass, 2026-09-29). The defending side's ledger
+   * below is banked to the principal, and an ally may set the side's one trap, so an ally's
+   * Prepared Collapse used to pay its sixteen Razors to the crew being attacked (800 to 858) and
+   * the ally nothing. An ally's victims come off that ledger here and `payTrapSetter` banks them.
+   * The principal's own trap stays in the one sum: same crew, and one floor instead of two.
+   */
+  const allyTrapSetter =
+    input.trapSetterId !== null && input.trapSetterId !== defenderBase?.id
+      ? input.trapSetterId
+      : null;
+  const principalOwed =
+    allyTrapSetter === null ? attackerFallen : removeForce(attackerFallen, input.trapKilled);
   const defenderFallen = attackerWon
     ? defenderDead
     : mergeArmies(defenderDead, outcome.perimeterLosses);
@@ -2047,8 +2159,8 @@ function applyOutcome(repos: Repositories, input: SettleInput): Settlement {
   );
   const defenderInfamy = Math.floor(
     attackerWon
-      ? infamyForKills(attackerFallen) + vehicleInfamy(attackerVehicles.destroyed)
-      : infamyForKills(removeForce(attackerFallen, outcome.perimeterCaught)) +
+      ? infamyForKills(principalOwed) + vehicleInfamy(attackerVehicles.destroyed)
+      : infamyForKills(removeForce(principalOwed, outcome.perimeterCaught)) +
           infamyPointsForFled(loserRan) +
           infamyPointsForRingDead(outcome.perimeterCaught) +
           vehicleInfamy(attackerVehicles.destroyed),
@@ -2071,7 +2183,7 @@ function applyOutcome(repos: Repositories, input: SettleInput): Settlement {
    * branch, so on every other path the refund was computed, reported on the battle card, and never
    * banked. A mechanic that is visible and inert is worse than one that is absent.
    */
-  let haul: PartialResources = refundFor(attackerFallen, attackerGround.salvageRefundPercent);
+  let haul: PartialResources = refundFor(attackerLost, attackerGround.salvageRefundPercent);
   /**
    * §A4: whether the raiders actually got into a structure, which is what leaves the place limping.
    *
@@ -2172,24 +2284,29 @@ function applyOutcome(repos: Repositories, input: SettleInput): Settlement {
           now,
         });
       }
+      // ...and a district taken end to end sends every Sleeper cell in it home (2026-09-29).
+      sendCellsHomeFromShutDistrict(repos, battle.target.districtId, now);
     } else {
       // Whoever held it holds it, and whoever of *theirs* is left standing is its garrison now,
       // including anybody they sent up for the fight. An ally's survivors are not theirs to keep:
       // a garrison belongs to the ground's holder, and the allies walk home below.
-      // ...plus whoever changed sides under Directive Xero and is still standing: they are his
-      // now, and his means the ground's (`outcome.turnedAlive`).
+      //
+      // Nobody who changed sides under Directive Xero joins it (maintainer, 2026-09-29): a
+      // turncoat fights for him in this fight only and is dead afterwards, on a plot as at a gate.
       /*
        * On the regime's ground, `spendGarrisons` above has already written the plot's own share of
        * the line and left the muster's on the floor (`Assembled.garrisons`), so what the row holds
        * at this point is the answer. Reading it back rather than recomputing it keeps one
-       * apportionment in the game instead of two that can disagree; the turncoats are merged on
-       * top either way, because they come out of the attacker's army and are in neither split.
+       * apportionment in the game instead of two that can disagree.
+       *
+       * Asked of the defender rather than of the split (bug pass, 2026-09-29): a plot the week has
+       * emptied puts no row in the split, and the whole line written back onto it was the muster.
        */
       const held =
-        assembled.garrisons.length > 0
+        assembled.garrisons.length > 0 || battle.defender.kind !== 'crew'
           ? (repos.city.control(battle.target.locationId)?.garrison ?? {})
           : principalLine;
-      repos.city.setGarrison(battle.target.locationId, mergeArmies(held, outcome.turnedAlive));
+      repos.city.setGarrison(battle.target.locationId, held);
     }
   } else if (attackerWon) {
     const broken = breakIn(repos, input, winnerDead);
@@ -2295,6 +2412,9 @@ function applyOutcome(repos: Repositories, input: SettleInput): Settlement {
     creditFaction(repos, defenderBase, defenderBase.economy, defenderBanked);
     repos.bases.updateEconomy(defenderBase.id, defenderBanked);
   }
+  if (allyTrapSetter !== null) {
+    payTrapSetter(repos, { setterId: allyTrapSetter, district, killed: input.trapKilled, now });
+  }
 
   /*
    * The allies' share, back to the crews that sent it.
@@ -2393,6 +2513,9 @@ function applyOutcome(repos: Repositories, input: SettleInput): Settlement {
       emptyDeployment(battle.id, defenderBase.id, 'defender', now.toISOString()),
     );
   }
+  // What the raid leaves broken, worked out before the receipts so the resident's can say it, and
+  // written last (below).
+  const disruption = raided && input.resident ? disruptionAfter(repos, input) : null;
   const rows: [BattleSide, ReturnType<Repositories['sieges']['side']>][] = [
     ['attacker', attackerRows],
     ['defender', repos.sieges.side(battle.id, 'defender')],
@@ -2407,8 +2530,16 @@ function applyOutcome(repos: Repositories, input: SettleInput): Settlement {
       const settled = `${targetName(battle.target, residentOf(repos, battle.target.districtId))} is settled.`;
       notifyBase(repos, row.baseId, {
         kind: 'battle_report',
-        title: attackerWon ? 'A fight was won' : 'A fight was lost',
-        body: wrecks ? `${settled} Wrecked on the way: ${describeFleet(wrecks)}.` : settled,
+        // This side's result, not the attacker's: the defender of a raid that got through was told
+        // "A fight was won", and one who held was told it lost.
+        title: attackerWon === (side === 'attacker') ? 'A fight was won' : 'A fight was lost',
+        body: [
+          settled,
+          wrecks ? `Wrecked on the way: ${describeFleet(wrecks)}.` : null,
+          disruption && row.baseId === input.resident?.id ? disruptionLine(disruption, now) : null,
+        ]
+          .filter((line) => line !== null)
+          .join(' '),
         /*
          * At **this** report, not at the pile of them (maintainer request, 2026-09-15).
          *
@@ -2423,7 +2554,8 @@ function applyOutcome(repos: Repositories, input: SettleInput): Settlement {
          */
         link: `/game/battles?report=${battle.id}`,
         subjectId: battle.id,
-        now,
+        // The fight happened at its mark, however long after it the tick got round to it.
+        at: new Date(battle.scheduledFor),
       });
     }
   }
@@ -2469,9 +2601,8 @@ function applyOutcome(repos: Repositories, input: SettleInput): Settlement {
    *
    * "What leaves is bounded by what the raiders can carry; what stays broken is disruption" is
    * `raid.ts`'s whole second half, and `settleDistrict` reads `economy.disruption` per segment of
-   * every production walk. A raid used to charge the victim twice, here and again per roof on a
-   * 24 hour repair clock; the per-structure half is gone and this one scales with the defeat
-   * instead, so the size of a raid still decides what it costs.
+   * every production walk: a cut to what the structures make, sized by how hard the raid hit
+   * (maintainer ruling, 2026-09-29). The crew's bonuses are not touched.
    *
    * Written last, off a fresh read, and against the **resident** rather than the defending crew.
    * Those are the same row on an ordinary break-in and not on the odd one where a crew holds a
@@ -2479,19 +2610,9 @@ function applyOutcome(repos: Repositories, input: SettleInput): Settlement {
    * hours of bad running are the resident's too. Last, because the defender's own economy write
    * above rebuilds that column from the snapshot this settle opened with.
    */
-  if (raided && input.resident) {
+  if (disruption && input.resident) {
     const limping = repos.bases.findById(input.resident.id);
-    if (limping) {
-      repos.bases.updateEconomy(limping.id, {
-        ...limping.economy,
-        // A second raid refreshes rather than stacks: two crews taking turns must not be able to
-        // hold a district at zero output for ever.
-        disruption: refreshDisruption(
-          limping.economy.disruption,
-          disruptionFrom(now, defenderLossShare(input)),
-        ),
-      });
-    }
+    if (limping) repos.bases.updateEconomy(limping.id, { ...limping.economy, disruption });
   }
 
   return {
@@ -2500,18 +2621,44 @@ function applyOutcome(repos: Repositories, input: SettleInput): Settlement {
     haul,
     lootWasted,
     attackerKills: forceSize(defenderFallen),
-    defenderKills: forceSize(attackerFallen),
+    defenderKills: forceSize(attackerLost),
     recovered,
   };
 }
 
 /**
+ * The resident's disruption once this raid is on it. A second raid adds its blow to what is left
+ * of the first, through a curve that never reaches its asymptote: two crews taking turns cannot
+ * hold a district at zero output.
+ */
+function disruptionAfter(repos: Repositories, input: SettleInput): Disruption | null {
+  const resident = input.resident && repos.bases.findById(input.resident.id);
+  if (!resident) return null;
+  return stackDisruption(
+    resident.economy.disruption,
+    disruptionFrom(input.now, defenderLossShare(input)),
+  );
+}
+
+/**
+ * The raided crew's line about it (maintainer request, 2026-09-29): the cut and the window as
+ * stored, so a raid stacked on an earlier one reads the stacked figure. Nothing when the raid cut
+ * nothing a player could see.
+ */
+function disruptionLine(disruption: Disruption, now: Date): string | null {
+  const percent = Math.round(disruptionPercentAt(disruption, now));
+  if (percent === 0 || disruption.until === null) return null;
+  const hours = Math.round((Date.parse(disruption.until) - now.getTime()) / 3_600_000);
+  return `Your structures make ${percent}% less for the next ${hours} ${hours === 1 ? 'hour' : 'hours'}.`;
+}
+
+/**
  * How badly the defence lost, 0..1: the share of the line that defended and did not walk away.
  *
- * What the raid's disruption is priced off (`raidDisruptionPercent`), so a fight that went the
- * distance costs the district a tenth of its output for the evening and one nobody turned up to
- * costs it half. **1 when nobody defended**, which is the honest reading of an undefended district
- * rather than a division by zero: everything that was there to lose was lost.
+ * The raid's blow, which its disruption is priced off (`raidDisruptionPercent`): a line that lost a
+ * fifth of itself costs the structures 10% of their output for six hours, and a line wiped out, or
+ * one nobody turned up to, 30%. **1 when nobody defended**, which is the honest reading of an
+ * undefended district rather than a division by zero: everything that was there to lose was lost.
  *
  * `outcome.killed` is the losing side's dead, and this is only ever read on a won raid, so it is
  * the defender's. The routed are deliberately not in it: somebody who ran is somebody the raiders

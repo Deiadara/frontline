@@ -1,7 +1,8 @@
 import {
   UnitMoveSchema,
+  withoutRetiredUnits,
+  withoutRetiredVehicles,
   type Army,
-  type Fleet,
   type MovePlace,
   type UnitMove,
 } from '@frontline/shared';
@@ -39,6 +40,7 @@ interface Row {
   travel_minutes: number;
   settled_at: string | null;
   recalled_at: string | null;
+  by_rail: number;
 }
 
 const toMove = (row: Row): UnitMove =>
@@ -47,12 +49,19 @@ const toMove = (row: Row): UnitMove =>
     baseId: row.base_id,
     from: JSON.parse(row.from_json) as MovePlace,
     to: JSON.parse(row.to_json) as MovePlace,
-    army: JSON.parse(row.army_json) as Army,
-    vehicles: JSON.parse(row.vehicles_json) as Fleet,
+    /*
+     * A unit or a machine the catalogue no longer carries is dropped, as every other stored army
+     * is (bug pass, 2026-09-29). This reader had no floor under it: one retired id in one column
+     * threw out of `due`, which took the whole moves stage of the world tick down for every crew,
+     * and out of `activeFor`, which answered 500 on six of the owner's screens.
+     */
+    army: withoutRetiredUnits(JSON.parse(row.army_json)),
+    vehicles: withoutRetiredVehicles(JSON.parse(row.vehicles_json)),
     departedAt: row.departed_at,
     arrivesAt: row.returns_at,
     travelMinutes: row.travel_minutes,
     recalledAt: row.recalled_at,
+    byRail: row.by_rail === 1,
   });
 
 /** Prepared on first use: the tables arrive in 0110, and some tests migrate only part way. */
@@ -68,8 +77,8 @@ export function createMovesRepo(db: AppDatabase): MovesRepo {
   const insertStmt = lazy(
     `INSERT INTO unit_moves
        (id, base_id, from_json, to_json, army_json, vehicles_json, departed_at, returns_at,
-        travel_minutes, recalled_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        travel_minutes, recalled_at, by_rail)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   );
   const dueStmt = lazy(
     'SELECT * FROM unit_moves WHERE settled_at IS NULL AND returns_at <= ? ORDER BY returns_at',
@@ -96,6 +105,7 @@ export function createMovesRepo(db: AppDatabase): MovesRepo {
         // home are put on the road already turned round (`moves/moves.ts`), which is what shuts
         // their recall window from the first tick.
         move.recalledAt,
+        move.byRail === true ? 1 : 0,
       );
     },
     due(nowIso) {
@@ -134,7 +144,9 @@ export function createAlliedGarrisonsRepo(db: AppDatabase): AlliedGarrisonsRepo 
   );
   const deleteStmt = lazy('DELETE FROM allied_garrisons WHERE location_id = ? AND base_id = ?');
   const clearStmt = lazy('DELETE FROM allied_garrisons WHERE location_id = ?');
-  const army = (row: PostedRow): Army => JSON.parse(row.army_json) as Army;
+  // Unchecked before (bug pass, 2026-09-29): a retired unit posted here walked home in a new move
+  // with its id intact, into the reader above.
+  const army = (row: PostedRow): Army => withoutRetiredUnits(JSON.parse(row.army_json)) as Army;
   return {
     at(locationId) {
       return (atStmt().all(locationId) as PostedRow[]).map((row) => ({

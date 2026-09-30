@@ -271,3 +271,57 @@ describe('the heading is wholly in caps', () => {
     expect(shouted()).toBe(true);
   });
 });
+
+/**
+ * A gate is read before it is broken (maintainer, 2026-09-29): the caller carries Spy beside Call
+ * it where the door can be spied, and Cancel sits on the far left, apart from both.
+ */
+describe('the buttons on the row', () => {
+  const GATE: BattleTarget = { kind: 'gate', districtId: 'annexes' };
+
+  function openWith(onSpy?: () => void) {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false, staleTime: Infinity } },
+    });
+    queryClient.setQueryData(queryKeys.battles, board);
+    render(
+      <QueryClientProvider client={queryClient}>
+        <DeclareDialog
+          target={GATE}
+          placeName="The Annexes"
+          slots={[EARLY]}
+          infamy={RICH}
+          pending={false}
+          error={null}
+          onClose={() => undefined}
+          onConfirm={() => undefined}
+          onSpy={onSpy}
+        />
+      </QueryClientProvider>,
+    );
+  }
+
+  it('offers Spy when it is given a way to spy, and hands over to it', () => {
+    const onSpy = vi.fn();
+    openWith(onSpy);
+    fireEvent.click(screen.getByTestId('declare-spy'));
+    expect(onSpy).toHaveBeenCalledOnce();
+  });
+
+  it('draws no Spy where the door cannot be read', () => {
+    openWith();
+    expect(screen.queryByTestId('declare-spy')).toBeNull();
+  });
+
+  it('puts Cancel first on the row, before Spy and Call it', () => {
+    openWith(() => undefined);
+    const order = ['declare-cancel', 'declare-spy', 'declare-confirm'].map((id) =>
+      screen.getByTestId(id),
+    );
+    for (let index = 1; index < order.length; index += 1) {
+      expect(
+        order[index - 1]!.compareDocumentPosition(order[index]!) & Node.DOCUMENT_POSITION_FOLLOWING,
+      ).toBeTruthy();
+    }
+  });
+});

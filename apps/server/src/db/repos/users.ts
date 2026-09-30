@@ -58,6 +58,11 @@ export interface UsersRepo {
   markTutorialSeen(userId: string, steps: readonly string[]): void;
   /** Every account's username, in one read, for the boards that list everybody. */
   usernames(): Map<string, string>;
+  /**
+   * Every account's two names, for the display-name clash check (bug pass, 2026-09-29). All of
+   * them rather than a `lower()` match in SQL, whose case folding stops at ASCII.
+   */
+  names(): { id: string; username: string; displayName: string | null }[];
   /** The version every live token for this account must carry, or null for no such account. */
   sessionVersion(userId: string): number | null;
   /** Ends every session the account has open, and answers the version a new token must carry. */
@@ -130,6 +135,8 @@ export function createUsersRepo(db: AppDatabase): UsersRepo {
   // Lazy for the same reason: `session_version` is 0121's column.
   let sessionStmt: Statement<[string]> | null = null;
   let revokeStmt: Statement<[string]> | null = null;
+  // And `display_name`, which is 0022's.
+  let namesStmt: Statement<[]> | null = null;
   // One statement per field rather than a built-up SQL string: five prepared statements cost
   // nothing and a concatenated UPDATE is how a column name ends up coming from a request body.
   const profileStmts: Readonly<
@@ -198,6 +205,19 @@ export function createUsersRepo(db: AppDatabase): UsersRepo {
     usernames() {
       const rows = usernamesStmt.all() as { id: string; username: string }[];
       return new Map(rows.map((row) => [row.id, row.username]));
+    },
+    names() {
+      namesStmt ??= db.prepare('SELECT id, username, display_name FROM users');
+      const rows = namesStmt.all() as {
+        id: string;
+        username: string;
+        display_name: string | null;
+      }[];
+      return rows.map((row) => ({
+        id: row.id,
+        username: row.username,
+        displayName: row.display_name,
+      }));
     },
     sessionVersion(userId) {
       sessionStmt ??= db.prepare('SELECT session_version FROM users WHERE id = ?');

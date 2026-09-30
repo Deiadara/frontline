@@ -5,7 +5,7 @@ import { Icon, type IconName } from '../../components/ui/Icon';
 import { cn } from '../../lib/cn';
 import { useNotifications, useReadAllNotifications, useReadNotification } from '../../lib/queries';
 import { Modal } from '../../components/ui/Modal';
-import { LoadFailure } from '../../components/ui/LoadFailure';
+import { ScreenLoad } from '../../components/ui/LoadFailure';
 import { PageShell } from '../game/PageShell';
 import { NotificationDetail } from './NotificationDetail';
 import { NotificationFilters } from './NotificationFilters';
@@ -111,13 +111,18 @@ export function NotificationsPage() {
    * A failure is said out loud rather than rendered as a blank sheet.
    *
    * `return null` here drew *nothing at all* on a failed read: no heading, no text, no way to tell
-   * a broken request from an empty inbox. See `LoadFailure` for the bug that taught us.
+   * a broken request from an empty inbox. See `LoadFailure` for the bug that taught us. The read
+   * still in flight got the same blank sheet until 2026-09-29, so it says so too.
    */
   if (!data) {
-    if (!query.isError) return null;
     return (
       <PageShell title="Notifications" wide>
-        <LoadFailure what="Your notifications" onRetry={() => void query.refetch()} />
+        <ScreenLoad
+          what="Your notifications"
+          loading="Reading the notices…"
+          isError={query.isError}
+          onRetry={() => void query.refetch()}
+        />
       </PageShell>
     );
   }

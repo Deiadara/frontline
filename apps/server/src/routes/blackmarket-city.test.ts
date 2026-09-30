@@ -2,7 +2,7 @@ import {
   ALL_DISTRICTS,
   DEFAULT_CITY_ID,
   MAX_NOTORIETY,
-  SALTMARCH_CITY_ID,
+  TERMINUS_CITY_ID,
   blackLotId,
   cityOfBlackLot,
   type BlackMarketResponse,
@@ -91,7 +91,7 @@ const readShelf = (app: FastifyInstance, token: string, city?: string) =>
 
 /** A location in a city the crew does not live in, which is what makes them a visitor to it. */
 const AWAY_LOCATION = ALL_DISTRICTS.filter(
-  (district) => district.cityId === SALTMARCH_CITY_ID && district.locations.length > 0,
+  (district) => district.cityId === TERMINUS_CITY_ID && district.locations.length > 0,
 )[0]!.locations[0]!;
 
 function give(app: FastifyInstance, locationId: string, baseId: string): void {
@@ -123,7 +123,7 @@ describe('which back room a crew may stand in', () => {
     const app = await makeApp();
     const one = await player(app, 'fence_stranger');
 
-    const response = await readShelf(app, one.token, SALTMARCH_CITY_ID);
+    const response = await readShelf(app, one.token, TERMINUS_CITY_ID);
 
     expect(response.statusCode).toBe(403);
     expect(response.json<{ error: { code: string } }>().error.code).toBe('CITY_SHUT');
@@ -141,17 +141,17 @@ describe('which back room a crew may stand in', () => {
     const one = await player(app, 'fence_visitor');
     give(app, AWAY_LOCATION.id, one.baseId);
 
-    const away = await readShelf(app, one.token, SALTMARCH_CITY_ID);
+    const away = await readShelf(app, one.token, TERMINUS_CITY_ID);
     expect(away.statusCode, away.body).toBe(200);
-    const saltmarch = away.json<BlackMarketResponse>();
-    expect(saltmarch.cityId).toBe(SALTMARCH_CITY_ID);
-    expect(saltmarch.cities).toContain(SALTMARCH_CITY_ID);
+    const terminus = away.json<BlackMarketResponse>();
+    expect(terminus.cityId).toBe(TERMINUS_CITY_ID);
+    expect(terminus.cities).toContain(TERMINUS_CITY_ID);
 
     const home = (await readShelf(app, one.token)).json<BlackMarketResponse>();
     expect(home.day, 'the two reads have to be the same day or the crates prove nothing').toBe(
-      saltmarch.day,
+      terminus.day,
     );
-    expect(saltmarch.offers.map((offer) => offer.slot.goodId)).not.toEqual(
+    expect(terminus.offers.map((offer) => offer.slot.goodId)).not.toEqual(
       home.offers.map((offer) => offer.slot.goodId),
     );
   });
@@ -160,7 +160,7 @@ describe('which back room a crew may stand in', () => {
    * And the two ledgers are separate, which is the half the lot id's prefix is for.
    *
    * A bid is stored against `(day, lot_id, user_id)` and a result against `(day, lot_id)`. Before
-   * the prefix, slot 3 in Saltmarch and slot 3 in Ashfall were one lot id, so this crew would have
+   * the prefix, slot 3 in Terminus and slot 3 in Ashfall were one lot id, so this crew would have
    * been leading a lot in a city they had never been to.
    */
   it('keeps a bid in the room it was placed in', async () => {
@@ -168,10 +168,10 @@ describe('which back room a crew may stand in', () => {
     const one = await player(app, 'fence_bidder');
     give(app, AWAY_LOCATION.id, one.baseId);
 
-    const saltmarch = (
-      await readShelf(app, one.token, SALTMARCH_CITY_ID)
+    const terminus = (
+      await readShelf(app, one.token, TERMINUS_CITY_ID)
     ).json<BlackMarketResponse>();
-    const lot = saltmarch.offers[0]!;
+    const lot = terminus.offers[0]!;
     const placed = await app.inject({
       method: 'POST',
       url: '/api/black-market/bid',
@@ -180,18 +180,18 @@ describe('which back room a crew may stand in', () => {
         slotIndex: lot.slot.index,
         goodId: lot.slot.goodId,
         amount: lot.price + 100,
-        city: SALTMARCH_CITY_ID,
+        city: TERMINUS_CITY_ID,
       },
     });
     expect(placed.statusCode, placed.body).toBe(200);
 
-    const away = (await readShelf(app, one.token, SALTMARCH_CITY_ID)).json<BlackMarketResponse>();
+    const away = (await readShelf(app, one.token, TERMINUS_CITY_ID)).json<BlackMarketResponse>();
     expect(away.offers[lot.slot.index]?.lot?.yourBid).toBe(lot.price + 100);
 
     const home = (await readShelf(app, one.token)).json<BlackMarketResponse>();
     expect(
       home.offers[lot.slot.index]?.lot?.yourBid,
-      'a bid in Saltmarch is showing on the Ashfall shelf',
+      'a bid in Terminus is showing on the Ashfall shelf',
     ).toBeNull();
   });
 
@@ -210,9 +210,9 @@ describe('which back room a crew may stand in', () => {
   it('names every city in its lot ids, with no exception for the open one', () => {
     expect(blackLotId('2026-09-17', 3)).toBe('ashfall:2026-09-17-black-3');
     expect(blackLotId('2026-09-17', 3, DEFAULT_CITY_ID)).toBe('ashfall:2026-09-17-black-3');
-    expect(blackLotId('2026-09-17', 3, SALTMARCH_CITY_ID)).toBe('saltmarch:2026-09-17-black-3');
+    expect(blackLotId('2026-09-17', 3, TERMINUS_CITY_ID)).toBe('terminus:2026-09-17-black-3');
     // ...and the prefix is what the close reads back to find the room again.
     expect(cityOfBlackLot(blackLotId('2026-09-17', 3))).toBe(DEFAULT_CITY_ID);
-    expect(cityOfBlackLot(blackLotId('2026-09-17', 3, SALTMARCH_CITY_ID))).toBe(SALTMARCH_CITY_ID);
+    expect(cityOfBlackLot(blackLotId('2026-09-17', 3, TERMINUS_CITY_ID))).toBe(TERMINUS_CITY_ID);
   });
 });

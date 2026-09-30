@@ -5,6 +5,7 @@ import {
   mergeFleets,
   removeFleet,
   ridingGroups,
+  stimmed,
   unitSlotsUsed,
   wrecked,
   type Army,
@@ -109,9 +110,10 @@ export function fightMissionBattle(args: {
     defending: enemy,
     ...(args.leader ? { attackerOfficer: args.leader } : {}),
     ...(args.loadouts ? { attackerUpgrades: args.loadouts } : {}),
+    // The syringes on hand go in before the first shot, as they do on a declared battle.
     ...(args.territory
       ? {
-          attackerTerritory: args.territory,
+          attackerTerritory: stimmed(args.territory),
           attackerCohesionPercent: args.territory.cohesionPercent,
         }
       : {}),

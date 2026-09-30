@@ -3,8 +3,8 @@
  *
  * Six cards, shown once each, on the screens they are about. The game has eleven systems and a
  * new crew arrives on a city map with no explanation of any of them: what a district is, who is
- * holding it, why the whole map is grey, or what the Combine is. This is the smallest thing that
- * answers those in the order a player meets them.
+ * holding it, or what the Combine is. This is the smallest thing that answers those in the order a
+ * player meets them.
  *
  * ## The rules the maintainer set
  *
@@ -75,7 +75,8 @@ export interface TutorialCardSpec {
 export const TUTORIAL_CARDS: readonly TutorialCardSpec[] = [
   {
     step: 'welcome',
-    title: 'Ashfall',
+    // Drawn as the name of the city the crew lives in: see `tutorialTitle`.
+    title: 'Your city',
     lede: 'You have a district, a handful of people and no reputation at all.',
     body: [
       'Everything in this city belongs to somebody. What you hold, you hold because you took it and nobody has taken it back yet.',
@@ -86,11 +87,11 @@ export const TUTORIAL_CARDS: readonly TutorialCardSpec[] = [
   {
     step: 'combine',
     title: 'The Combine',
-    lede: 'The company that owns the city, and the reason the map is mostly grey.',
+    lede: 'The company that owns the city, and most of the ground on the map.',
     body: [
       'The Combine is not a gang. It is the administration: it runs the power, the water and the checkpoints, and it holds most of the districts on the map as property rather than as territory.',
       'It does not negotiate and it does not need to. Ground you take from it is ground it will come back for.',
-      'At the top is Directive Xero, in the Combine Spire. Everything above you in this city answers to him, and the last district in the game is the one he stands in. You are not going to meet him for a long time.',
+      'At the top is Directive Xero, in the Combine Spire over Ashfall. Everything the Combine holds answers to him, and the last district in the game is the one he stands in. You are not going to meet him for a long time.',
     ],
     portraitUnitId: 'directive_xero',
   },
@@ -100,7 +101,7 @@ export const TUTORIAL_CARDS: readonly TutorialCardSpec[] = [
     lede: 'Twelve districts. Four are lived in, eight are worth fighting over.',
     body: [
       'Each contested district holds locations: a pawn shop, a water works, a rail yard. Holding one pays you every hour for as long as you keep it, and holding every location in a district pays a bonus on top.',
-      'Press a district to look inside it. What you cannot see yet is what you have not scouted.',
+      'Press a district to look inside it. Who holds what is public; what they have standing there takes a spy to count.',
     ],
   },
   {
@@ -110,6 +111,7 @@ export const TUTORIAL_CARDS: readonly TutorialCardSpec[] = [
     body: [
       'A mission sends a crew out for a set time and brings back what the job pays. Every card is graded from F- to S+, and a run that fails banks nothing.',
       'Every run needs somebody leading it, you to start with. Who leads it decides the odds.',
+      'The misc board is always open. A district posts work only once you hold a place in it.',
     ],
   },
   {
@@ -132,6 +134,18 @@ export const TUTORIAL_CARDS: readonly TutorialCardSpec[] = [
     ],
   },
 ];
+
+/**
+ * The heading a card is drawn under, for a crew living in `homeCity` (bug pass, 2026-09-29).
+ *
+ * The welcome card is named for the city the crew lives in. It was the word "Ashfall", written
+ * when Ashfall was the only city, and a crew that picked Terminus at the character screen opened
+ * the game on a card naming a city it had just chosen not to live in. Every other card keeps its
+ * own title.
+ */
+export function tutorialTitle(card: TutorialCardSpec, homeCity: string | undefined): string {
+  return card.step === 'welcome' && homeCity !== undefined ? homeCity : card.title;
+}
 
 /** The card for a step, or `undefined` for an id no catalogue entry claims. */
 export function tutorialCard(step: TutorialStep): TutorialCardSpec | undefined {

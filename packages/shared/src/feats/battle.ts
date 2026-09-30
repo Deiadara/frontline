@@ -1,3 +1,4 @@
+import { MAX_JAM } from '../battle/engine.js';
 import type { FeatMeasure } from './measures.js';
 
 /**
@@ -45,12 +46,14 @@ export const LOPSIDED_AT = 10;
  * How hard a crew's jammers have to be working for the fight to be worth a counter.
  *
  * Half of {@link MAX_JAM}, which is the figure a line that is a full quarter jammers reaches in
- * nominal conditions. Half of it is about an eighth of the line given over to Netrunners: a real
- * decision about what you brought, and well clear of one of them tagging along. The ground moves
- * the jam either way (`jamCondition`), so the same force can clear this in a crammed cellar and
- * miss it in the open, which is the mechanic working rather than a wobble in the feat.
+ * nominal conditions, and read off it so a retune of the jam moves the feat with it (8.5 since the
+ * jam went from 40 to 17 on 2026-09-30). Half of it is an eighth of the line's unit slots given
+ * over to Netrunners (counted in slots since 2026-09-30): a real decision about what you brought,
+ * and well clear of one of them tagging along. The ground moves the jam either way
+ * (`jamCondition`), so the same force can clear this in a crammed cellar and miss it in the open,
+ * which is the mechanic working rather than a wobble in the feat.
  */
-export const JAMMING_AT = 20;
+export const JAMMING_AT = MAX_JAM / 2;
 
 /** One crew's side of a settled fight, in the numbers the counters are decided on. */
 export interface BattleFeatFacts {

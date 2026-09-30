@@ -16,7 +16,7 @@ import { chooseOverseer } from '../testing/overseer.js';
  * The `bases` table has no unique index on `district_id`, so a district holds as many crews as land
  * on it. Both city projections used to answer "the resident" with the first row of an unordered
  * `SELECT ... FROM bases`, which meant the earliest-registered player's whole structure list was
- * served to every other player on the one screen nobody has to scout: their own front door.
+ * served to every other player on the one screen that is always theirs: their own front door.
  *
  * Sharing used to be the default, because every account was created in `STARTER_DISTRICT_ID`.
  * Since 2026-09-28 a plot holds one crew and a new account is only seated on a free one, so these
@@ -124,10 +124,11 @@ describe('the crew a residential district page is about', () => {
     expect(home?.base?.id).not.toBe(first.baseId);
   });
 
-  it('does not hand one player another player’s structure list', async () => {
+  it('does not hand one player another player’s structure list on a shared plot', async () => {
     const app = await makeApp();
     const first = await makePlayer(app, 'operator_one');
     const second = await makePlayer(app, 'operator_two');
+    share(app, second.baseId, STARTER_DISTRICT_ID);
 
     const firstBase = app.repos.bases.findById(first.baseId);
     if (!firstBase) throw new Error('no base');

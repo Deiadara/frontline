@@ -13,13 +13,12 @@ import { PLAQUE_PLATE, PlaqueFace } from '../../components/DistrictPlaque';
 import { DrawnRule } from '../../components/ui/DrawnMarks';
 import { PerkTags } from '../../components/PerkTags';
 import { Icon, type IconName } from '../../components/ui/Icon';
-import { ScreenLoad } from '../../components/ui/LoadFailure';
 import { Panel } from '../../components/ui/Panel';
 import { PortraitFrame } from '../../components/ui/PortraitFrame';
 import { cn } from '../../lib/cn';
 import { useCrewProfile, useMe } from '../../lib/queries';
 import { FactionBadge } from '../faction/FactionBadge';
-import { PageShell } from '../game/PageShell';
+import { PageShell, ScreenLoadSheet } from '../game/PageShell';
 import { FileSection } from '../overseer/FileSection';
 import { OverseerPortrait } from '../overseer/OverseerPortrait';
 
@@ -44,7 +43,7 @@ export function CrewProfilePage() {
 
   if (!data) {
     return (
-      <ScreenLoad
+      <ScreenLoadSheet
         what="This crew's file"
         loading="Pulling the file…"
         isError={query.isError}
@@ -268,14 +267,7 @@ export function CrewProfilePage() {
               </Link>
             }
           >
-            {!home.seen ? (
-              <p
-                className="font-body text-[13px] italic text-ink-300"
-                data-testid="profile-home-unseen"
-              >
-                You have not walked their street. Scout it and this page will say what is standing.
-              </p>
-            ) : home.buildings.length === 0 ? (
+            {home.buildings.length === 0 ? (
               <p className="font-body text-[13px] italic text-ink-300">
                 Nothing built yet. The plot stands as it was found.
               </p>
@@ -322,12 +314,8 @@ export function CrewProfilePage() {
             )}
           </FileSection>
 
-          <FileSection
-            icon="city"
-            title="Holdings"
-            note="Ground they hold in every city, on streets you have walked"
-          >
-            <Holdings holdings={holdings} hidden={data.hiddenHoldings} />
+          <FileSection icon="city" title="Holdings" note="Ground they hold in every city">
+            <Holdings holdings={holdings} />
             {data.districtsHeldWhole.length > 0 && (
               <div
                 className="flex flex-wrap items-center gap-2 border-t border-surface-700/70 pt-2"
@@ -355,24 +343,17 @@ export function CrewProfilePage() {
 }
 
 /** What they hold, grouped by district, each row a way there. */
-function Holdings({ holdings, hidden }: { holdings: ProfileHolding[]; hidden: number }) {
+function Holdings({ holdings }: { holdings: ProfileHolding[] }) {
   const byDistrict = new Map<string, ProfileHolding[]>();
   for (const hold of holdings) {
     const group = byDistrict.get(hold.districtId) ?? [];
     group.push(hold);
     byDistrict.set(hold.districtId, group);
   }
-  const more =
-    hidden === 0
-      ? null
-      : hidden === 1
-        ? 'One more, on ground you have not scouted.'
-        : `${hidden} more, on ground you have not scouted.`;
-
   if (holdings.length === 0) {
     return (
       <p className="font-body text-[13px] italic text-ink-300" data-testid="profile-holdings">
-        {more ?? 'Nothing outside their own walls.'}
+        Nothing outside their own walls.
       </p>
     );
   }
@@ -409,14 +390,6 @@ function Holdings({ holdings, hidden }: { holdings: ProfileHolding[]; hidden: nu
           </ul>
         </div>
       ))}
-      {more !== null && (
-        <p
-          className="font-body text-[12px] italic text-ink-300"
-          data-testid="profile-hidden-holdings"
-        >
-          {more}
-        </p>
-      )}
     </div>
   );
 }

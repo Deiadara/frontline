@@ -9,6 +9,8 @@ import {
   nerve,
   intimidate,
   allocate,
+  asFormed,
+  intimidationReach,
   MAX_MEND_SHARE,
   MAX_INTIMIDATED_SHARE,
   bareLineRules,
@@ -18,11 +20,16 @@ import {
   pursue,
   simulate,
   sidePower,
+  TAUNT_CEILING,
+  TAUNT_FULL_SHARE,
   TAUNT_PULL,
+  tauntPull,
   type SideState,
   type Simulation,
   type Stack,
 } from './engine.js';
+import { PURSUIT_LOSS } from './morale.js';
+import { mulberry32, seedFrom } from '../rng.js';
 
 /** A side built the way the engine builds one, for the rules that read a whole side at once. */
 const mendSide = (army: Army): SideState =>
@@ -295,11 +302,48 @@ describe('regressions', () => {
       perBody: wounded.pool / wounded.alive,
     };
 
-    pursue([wounded]);
+    // Every fifth draw under the pursuit's odds: two of the ten are caught.
+    let draw = 0;
+    pursue([wounded], () => (draw++ % 5 === 0 ? 0.1 : 0.9));
 
-    expect(wounded.alive).toBeLessThan(before.alive);
+    expect(wounded.alive).toBe(8);
     expect(wounded.pool).toBeLessThan(before.pool);
     expect(wounded.pool / wounded.alive).toBeCloseTo(before.perBody, 6);
+  });
+
+  /**
+   * A stack of one or two could not be run down (maintainer, 2026-09-29: "roll per unit"). The
+   * share was rounded, so one body stayed one and two stayed two. Each body has its own draw now.
+   */
+  it('runs down a stack of one or two a fifth of the time a body, like any other', () => {
+    const razors = findUnit('razors')!;
+    const stackOf = (count: number) => ({
+      unit: razors,
+      effective: bare(razors),
+      alive: count,
+      pool: count * bare(razors).vitality,
+      bodies: new Array<number>(count).fill(bare(razors).vitality),
+      morale: 0,
+      brokeAt: 1,
+      started: count,
+      charged: 0,
+      suppressed: 0,
+      dealt: 0,
+      sheet: razors.stats,
+      modGain: {},
+      loudTier: 0,
+    });
+    const next = mulberry32(seedFrom('pursuit-per-body'));
+    for (const size of [1, 2, 3, 40]) {
+      const trials = 2_000;
+      let caught = 0;
+      for (let trial = 0; trial < trials; trial += 1) {
+        const stack = stackOf(size);
+        pursue([stack], next);
+        caught += size - stack.alive;
+      }
+      expect(caught / (trials * size), `a stack of ${size}`).toBeCloseTo(PURSUIT_LOSS, 1);
+    }
   });
 
   it('never leaves a stack holding more health than its units can carry', () => {
@@ -361,15 +405,48 @@ describe('a taunting stack takes the fire off the line behind it', () => {
 
   const shooter = stackOf('snipers', 10);
 
-  it('pulls the taunt share onto the wall and leaves the rest to be divided', () => {
+  it('pulls at least the full taunt share onto a wall that is half its line or more', () => {
     const wall = stackOf('ironsides', 6);
     const soft = stackOf('stitchers', 6);
     const split = allocate(shooter, [wall, soft]);
 
-    expect(shareOf(split, 'ironsides')).toBeCloseTo(TAUNT_PULL, 10);
-    expect(shareOf(split, 'stitchers')).toBeCloseTo(1 - TAUNT_PULL, 10);
+    expect(shareOf(split, 'ironsides')).toBeGreaterThanOrEqual(TAUNT_PULL);
+    expect(shareOf(split, 'ironsides')).toBeLessThan(TAUNT_PULL * TAUNT_CEILING);
+    expect(shareOf(split, 'stitchers')).toBeCloseTo(1 - shareOf(split, 'ironsides'), 10);
     // Whatever the rule does, a stack fires all of its fire.
     expect(split.reduce((sum, part) => sum + part.share, 0)).toBeCloseTo(1, 10);
+  });
+
+  /** The maintainer's rule, 2026-09-29: no hard caps. Every Ironside pulls a little more. */
+  it('pulls more for every Ironside, past the knee as well as before it', () => {
+    const pulls = [1, 2, 5, 10, 20, 40, 80].map((count) =>
+      tauntPull([stackOf('ironsides', count), stackOf('razors', 30)]),
+    );
+    for (let i = 1; i < pulls.length; i += 1) expect(pulls[i]!).toBeGreaterThan(pulls[i - 1]!);
+    expect(pulls.at(-1)!).toBeLessThan(TAUNT_PULL * TAUNT_CEILING);
+  });
+
+  /**
+   * The 2026-09-29 ruling: the pull scales with the wall's share of its line's unit slots, reaching
+   * the ceiling at {@link TAUNT_FULL_SHARE}. A flat 75% let one Ironside screen 200 Razors.
+   */
+  it('pulls in proportion to the wall share of the line, below the ceiling', () => {
+    const slots = findUnit('ironsides')!.unitSlots;
+    for (const razors of [4, 10, 40, 200]) {
+      const line = [stackOf('ironsides', 1), stackOf('razors', razors)];
+      const share = slots / (slots + razors * findUnit('razors')!.unitSlots);
+      const expected = TAUNT_PULL * Math.min(1, share / TAUNT_FULL_SHARE);
+      expect(tauntPull(line), `1 Ironside and ${razors} Razors`).toBeCloseTo(expected, 10);
+      expect(shareOf(allocate(shooter, line), 'ironsides')).toBeCloseTo(expected, 10);
+    }
+    // A lone Ironside in front of forty Razors takes about a tenth of the fire, not three quarters.
+    expect(tauntPull([stackOf('ironsides', 1), stackOf('razors', 40)])).toBeLessThan(0.11);
+  });
+
+  it('reads who is standing, so a wall shot down to a sliver screens like a sliver', () => {
+    const whole = tauntPull([stackOf('ironsides', 6), stackOf('razors', 30)]);
+    const thinned = tauntPull([stackOf('ironsides', 2), stackOf('razors', 30)]);
+    expect(thinned).toBeLessThan(whole);
   });
 
   /** The bit that makes it a taunt rather than a preference: it beats being the better target. */
@@ -377,10 +454,12 @@ describe('a taunting stack takes the fire off the line behind it', () => {
     const wall = stackOf('ironsides', 6);
     const behind = [stackOf('stitchers', 6), stackOf('snipers', 6), stackOf('sparks', 10)];
     const split = allocate(shooter, [wall, ...behind]);
+    const pull = tauntPull([wall, ...behind]);
 
-    expect(shareOf(split, 'ironsides')).toBeCloseTo(TAUNT_PULL, 10);
+    expect(pull).toBeGreaterThan(0.5);
+    expect(shareOf(split, 'ironsides')).toBeCloseTo(pull, 10);
     for (const soft of behind) {
-      expect(shareOf(split, soft.unit.id), soft.unit.id).toBeLessThan(TAUNT_PULL);
+      expect(shareOf(split, soft.unit.id), soft.unit.id).toBeLessThan(pull);
     }
   });
 
@@ -432,6 +511,167 @@ describe('a taunting stack takes the fire off the line behind it', () => {
 
     expect(shareOf(split, 'ironsides')).toBe(0);
     expect(shareOf(split, 'stitchers')).toBeCloseTo(1, 10);
+  });
+});
+
+/**
+ * The taunt, measured in whole fights over a sweep of seeds (the 2026-09-29 ruling).
+ *
+ * The allocate tests above pin the split; these pin what it is for. A flat 75% pull made one
+ * Ironside worth more than anything else in a line of any size: 36 Razors and 1 Ironside beat 40
+ * Razors in 300 of 300 fights, the Ironside never fell, and 200 and 1 beat 203 every time. Ranges
+ * rather than points, because the engine is retuned often and a sweep keeps its direction.
+ */
+describe('a shield line screens in proportion to its size', () => {
+  const SEEDS = 300;
+  const sweep = (attacking: Army, defending: Army) => {
+    let wins = 0;
+    let wallFell = 0;
+    for (let i = 0; i < SEEDS; i += 1) {
+      const result = fight(attacking, defending, `taunt-${i}`);
+      if (result.winner === 'attacker') wins += 1;
+      const wall = result.attacker.stacks.find((stack) => stack.unit.id === 'ironsides');
+      if (wall && wall.alive < wall.started) wallFell += 1;
+    }
+    return { rate: wins / SEEDS, wallFell: wallFell / SEEDS };
+  };
+
+  const token = sweep({ razors: 36, ironsides: 1 }, { razors: 40 });
+  const middling = sweep({ razors: 30, ironsides: 3 }, { razors: 40 });
+  const half = sweep({ razors: 22, ironsides: 6 }, { razors: 40 });
+
+  it('no longer lets one Ironside carry a losing line', () => {
+    // Measured 36% (was 100%). The Ironside falls in about two fights of three (was never).
+    expect(token.rate).toBeGreaterThan(0.2);
+    expect(token.rate).toBeLessThan(0.5);
+    expect(token.wallFell).toBeGreaterThan(0.4);
+  });
+
+  it('gives a wall about half its line the fire it was built for', () => {
+    // Measured 25% for 30+3 and 67% for 22+6 (were 100% and 93%).
+    expect(middling.rate).toBeGreaterThan(0.12);
+    expect(middling.rate).toBeLessThan(0.4);
+    expect(half.rate).toBeGreaterThan(0.55);
+    expect(half.rate).toBeLessThan(0.85);
+    expect(half.rate).toBeGreaterThan(token.rate + 0.15);
+  });
+
+  it('screens a big line no more than its three slots are worth', () => {
+    // Measured 55% against 203 Razors (was 100%); a plain mirror of 203 is about 49%.
+    expect(sweep({ razors: 200, ironsides: 1 }, { razors: 203 }).rate).toBeLessThan(0.75);
+  });
+});
+
+/** Win rates of `armies` in turn against one defender, over the same seeds each. */
+const sweepRates = (armies: Army[], defending: Army, prefix: string, seeds = 300): number[] =>
+  armies.map((attacking) => {
+    let wins = 0;
+    for (let i = 0; i < seeds; i += 1) {
+      if (fight(attacking, defending, `${prefix}-${i}`).winner === 'attacker') wins += 1;
+    }
+    return wins / seeds;
+  });
+
+/** No step down past the noise of a 300-seed rate: more of a unit is never worse (2026-09-29). */
+const NOISE = 0.04;
+const neverFalls = (rates: number[], what: string) => {
+  for (let i = 1; i < rates.length; i += 1) {
+    expect(rates[i]!, `${what}: ${rates.join(', ')}`).toBeGreaterThanOrEqual(rates[i - 1]! - NOISE);
+  }
+};
+
+describe('more of a unit is never worse, and nothing hard-caps (maintainer, 2026-09-29)', () => {
+  it('never lowers a line for another Ironside in it', () => {
+    const rates = sweepRates(
+      [0, 1, 2, 3, 4, 6, 8].map((n) => ({ razors: 30, ...(n > 0 ? { ironsides: n } : {}) })),
+      { razors: 40 },
+      'wall',
+    );
+    neverFalls(rates, 'Ironsides added to 30 Razors against 40');
+    expect(rates.at(-1)!).toBeGreaterThan(rates[0]! + 0.5);
+  });
+
+  it('never lowers a side for another Juggernaut in it', () => {
+    const rates = sweepRates(
+      [1, 2, 3, 4, 6].map((n) => ({ juggernauts: n })),
+      { razors: 40 },
+      'fear',
+    );
+    neverFalls(rates, 'Juggernauts against 40 Razors');
+  });
+
+  it('never lowers a line for another medic behind it', () => {
+    const rates = sweepRates(
+      [0, 2, 4, 6, 8, 10, 12].map((n) => ({ razors: 30, ...(n > 0 ? { stitchers: n } : {}) })),
+      { razors: 38 },
+      'mend',
+    );
+    neverFalls(rates, 'Stitchers behind 30 Razors against 38');
+  });
+});
+
+/**
+ * Fear reaches about 1.5 times the intimidating side's own unit slots (maintainer, 2026-09-29).
+ *
+ * The pressure was the enemy's mean intimidation with no term for numbers, so two Juggernauts (12
+ * slots) beat 40 Razors 100% of the time and 100 Razors 99%.
+ */
+describe('intimidation frightens in proportion to how many are doing it', () => {
+  const formed = (army: Army) => asFormed(mendSide(army));
+
+  it('reaches a mirror in full, so even fights are unchanged', () => {
+    expect(intimidationReach(formed({ razors: 40 }), formed({ razors: 40 }))).toBeGreaterThan(0.99);
+  });
+
+  it('reaches about 1.5 slots of line per slot, and a little more for every unit past that', () => {
+    const line = formed({ razors: 40 });
+    const reach = [1, 2, 4, 6, 10, 20].map((n) =>
+      intimidationReach(formed({ juggernauts: n }), line),
+    );
+    // Two Juggernauts are 12 slots, so they reach 18 of the 40.
+    expect(reach[1]).toBeCloseTo(18 / 40, 10);
+    for (let i = 1; i < reach.length; i += 1) expect(reach[i]!).toBeGreaterThan(reach[i - 1]!);
+    expect(reach.at(-1)!).toBeLessThan(1);
+  });
+
+  it('no longer lets two Juggernauts rout any number of Razors', () => {
+    const against = (razors: number) => sweepRates([{ juggernauts: 2 }], { razors }, 'fear')[0]!;
+    // Measured 0% and 0% (were 100% and 99%); against a line they do reach, still 100%.
+    expect(against(40)).toBeLessThan(0.1);
+    expect(against(100)).toBeLessThan(0.05);
+    expect(against(12)).toBeGreaterThan(0.9);
+  });
+});
+
+/**
+ * Medics nerfed without a hard cap (maintainer, 2026-09-29): "still a strong unit", "sending 12
+ * medics rather than 10 should always be better, but they should not be OP".
+ */
+describe('a field hospital pays less for every medic past the knee, and never stops paying', () => {
+  it('undoes about a quarter of a round with six Stitchers behind thirty', () => {
+    const share = mendShare(mendSide({ razors: 30, stitchers: 6 }));
+    // Was 0.36 under the hard 0.45 ceiling.
+    expect(share).toBeGreaterThan(0.22);
+    expect(share).toBeLessThan(0.25);
+  });
+
+  it('pays something for every medic, however many came', () => {
+    const shares = [1, 4, 8, 10, 12, 20, 40].map((n) =>
+      mendShare(mendSide({ razors: 30, stitchers: n })),
+    );
+    for (let i = 1; i < shares.length; i += 1) expect(shares[i]!).toBeGreaterThan(shares[i - 1]!);
+    expect(shares.at(-1)!).toBeLessThan(MAX_MEND_SHARE);
+  });
+
+  it('is still strong, and no longer a sure thing', () => {
+    const [withMedics, sameSlotsOnTheLine] = sweepRates(
+      [{ razors: 30, stitchers: 6 }, { razors: 36 }],
+      { razors: 38 },
+      'mend',
+    );
+    // Measured 76% against 9% (was 100% against 10%).
+    expect(withMedics!).toBeLessThan(0.9);
+    expect(withMedics!).toBeGreaterThan(sameSlotsOnTheLine! + 0.3);
   });
 });
 

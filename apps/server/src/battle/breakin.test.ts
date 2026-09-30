@@ -20,13 +20,11 @@
 import {
   DECLARE_INFAMY_COST,
   MAX_LOCATION_LEVEL,
-  MAX_RAID_DISRUPTION_PERCENT,
-  MIN_RAID_DISRUPTION_PERCENT,
   RAID_DISRUPTION_HOURS,
-  DISRUPTED_CHANNELS,
   RESOURCE_KEYS,
   featMeasureKey,
   declarationWindow,
+  raidDisruptionPercent,
   skirmishOutcome,
   weightOf,
   type Army,
@@ -45,6 +43,7 @@ import { settleDistrict } from '../district/settle.js';
 import { storeCeilingsOf } from '../district/stores.js';
 import { standingEffectsFor } from '../crew/standing.js';
 import { settleMovements } from './movement.js';
+import { sendMove } from '../moves/moves.js';
 import { settleBattles } from './resolve.js';
 import { chooseOverseer, pinOverseer } from '../testing/overseer.js';
 
@@ -163,7 +162,6 @@ async function makeWorld(engine: SkirmishEngine = bloody): Promise<World> {
   const victim: Crew = { ...planted, districtId: HOME };
   expect(raider.districtId).not.toBe(victim.districtId);
 
-  app.repos.city.markScouted(raider.baseId, victim.districtId, new Date().toISOString());
   // Nothing behind a standing gate can be reached, so the way in is already open. Breaking it is
   // its own fight with its own rules and its own tests; this file is about what happens *after*.
   app.repos.sieges.breakGate(
@@ -603,30 +601,29 @@ describe('one raid on the whole district', () => {
     const halved = await raidWith(halfLost);
 
     expect(halved, 'the cut did not move with the defeat').toBeLessThan(wiped);
-    expect(halved).toBeGreaterThanOrEqual(MIN_RAID_DISRUPTION_PERCENT);
-    // The board's ceiling, and the worst night in the game is exactly on it.
-    expect(wiped).toBe(MAX_RAID_DISRUPTION_PERCENT);
-    expect(wiped).toBeLessThanOrEqual(50);
+    // Half the line lost is a medium raid, the whole of it a crushing one (`raid.ts`).
+    expect(halved).toBeCloseTo(raidDisruptionPercent(0.5), 9);
+    expect(wiped).toBeCloseTo(raidDisruptionPercent(1), 9);
   });
 
   /**
-   * The second half of §A4's disruption: not only fewer hours of production, but a weaker crew.
-   *
-   * Measured through `standingEffectsFor`, which is the fold every consumer of a crew's standing
-   * reads: a channel that was not cut here is a channel a raid does not reach anywhere.
+   * ...and nothing else (maintainer ruling, 2026-09-29). A raid used to take a share off every
+   * positive percentage the crew held for the six hours, which taxed its fights, training and
+   * research for a raid on its warehouse and still missed the chair rungs. Measured through
+   * `standingEffectsFor`, the fold every consumer of a crew's standing reads, with ground worth
+   * holding so there are percentages to lose.
    */
-  it('takes the same share off every positive percentage the victim holds', async () => {
+  it('leaves every bonus the victim holds whole', async () => {
     const world = await makeWorld();
     fill(world, world.victim.baseId);
     world.app.repos.bases.updateArmy(world.raider.baseId, { razors: 20 }, []);
-    // Ground worth holding, so the victim has percentages to lose in the first place.
     give(world, 'steelbelt-bones');
 
     const victim = () => world.app.repos.bases.findById(world.victim.baseId)!;
     const before = standingEffectsFor(world.app.repos, victim(), new Date());
-    // `DISRUPTED_CHANNELS` rather than every percent channel: `productionPercent` is exempt because
-    // the settle walk already takes the same quarter off the hours it multiplies.
-    const paying = DISRUPTED_CHANNELS.filter((channel) => before[channel] > 0);
+    const paying = Object.entries(before).filter(
+      ([channel, value]) => channel.endsWith('Percent') && typeof value === 'number' && value > 0,
+    );
     expect(
       paying,
       'the victim holds no positive percentage, so there is nothing to measure',
@@ -634,21 +631,10 @@ describe('one raid on the whole district', () => {
 
     await breakIn(world);
 
+    expect(victim().economy.disruption.percent, 'the raid did not land').toBeGreaterThan(0);
     const after = standingEffectsFor(world.app.repos, victim(), new Date());
-    // Read off what the raid actually wrote rather than off a constant: the percentage moves with
-    // the defeat now, and a test that assumed one would drift the day a fixture's defence changed.
-    const scale = 1 - victim().economy.disruption.percent / 100;
-    for (const channel of paying) {
-      expect(after[channel], `${channel} was untouched by the raid`).toBeCloseTo(
-        before[channel] * scale,
-        6,
-      );
-    }
-    // And it wears off: read past the expiry and the crew is whole again.
-    const over = new Date(Date.parse(victim().economy.disruption.until as string) + 1_000);
-    const recovered = standingEffectsFor(world.app.repos, victim(), over);
-    for (const channel of paying) {
-      expect(recovered[channel], `${channel} never came back`).toBeCloseTo(before[channel], 6);
+    for (const [channel, value] of paying) {
+      expect(after[channel as keyof typeof after], `${channel} was cut by the raid`).toBe(value);
     }
   });
 });
@@ -658,13 +644,19 @@ describe('one raid on the whole district', () => {
  *
  * `raid.ts` says it in two bullets, and only one of them was implemented. What leaves is bounded
  * by the carry, and `plunder` does that; what stays broken is disruption, and *nothing wrote it*.
- * `disruptionFrom` and `refreshDisruption` were exported and documented and called by nobody,
+ * `disruptionFrom` and the merge beside it were exported and documented and called by nobody,
  * while `settleDistrict` carefully cut its production walk at an expiry that could never be set.
  * So the one consequence of losing a raid that a victim cannot buy back never happened.
  */
 describe('what a raid leaves behind (§A4)', () => {
   const disruptionOf = (world: World, baseId: string) =>
     world.app.repos.bases.findById(baseId)!.economy.disruption;
+  /** The bodies of the fight receipts a crew was sent. */
+  const receipts = (world: World, baseId: string) =>
+    world.app.repos.social
+      .notifications(world.app.repos.bases.findById(baseId)!.ownerId, 20)
+      .filter((one) => one.kind === 'battle_report')
+      .map((one) => one.body);
 
   /**
    * ...and the research that buys the other answer, end to end (maintainer, 2026-09-18).
@@ -730,8 +722,8 @@ describe('what a raid leaves behind (§A4)', () => {
     await breakIn(world);
 
     const hurt = disruptionOf(world, world.victim.baseId);
-    // Nobody survived the stub's fight, which is the worst a defence can do, so this is the cap.
-    expect(hurt.percent).toBe(MAX_RAID_DISRUPTION_PERCENT);
+    // Nobody stood in the line, which reads as the whole defence lost: a crushing raid.
+    expect(hurt.percent).toBeCloseTo(raidDisruptionPercent(1), 9);
     expect(hurt.until).not.toBeNull();
     const hours = (Date.parse(hurt.until as string) - at) / 3_600_000;
     expect(hours).toBeGreaterThan(RAID_DISRUPTION_HOURS - 0.1);
@@ -739,6 +731,11 @@ describe('what a raid leaves behind (§A4)', () => {
 
     // The crew that did it goes home to a district that works: this is a thing done *to* somebody.
     expect(disruptionOf(world, world.raider.baseId).until).toBeNull();
+
+    // And the crew it was done to is told, in the receipt it cannot mute (maintainer, 2026-09-29).
+    const line = `Your structures make 30% less for the next ${RAID_DISRUPTION_HOURS} hours.`;
+    expect(receipts(world, world.victim.baseId)).toEqual([expect.stringContaining(line)]);
+    expect(receipts(world, world.raider.baseId).join()).not.toContain('less for the next');
   });
 
   /** And what the victim actually loses for it: a share of the hours, off the production walk. */
@@ -833,61 +830,36 @@ describe('what a raid leaves behind (§A4)', () => {
   });
 
   /**
-   * A second raid refreshes rather than stacks, field by field.
-   *
-   * The grief case `refreshDisruption` was written for: two crews taking turns must not be able to
-   * hold a district at zero output, and a crew that raided an hour ago must not be able to raid
-   * again to hand the victim back four of the six hours. Both fields are asserted because the
-   * percentage moves with the defeat now: taking the later record whole would let a token raid
-   * *lift* a district out of a cut it had just been put in.
+   * A second raid adds its blow to what is left of the first, end to end: the settle writes the
+   * stacked record the pure function names, and the raid's own six hours start at the raid.
    */
-  it('takes the longer window and the harsher cut, never the sum of either', async () => {
+  it('stacks a second raid on what is left of the first', async () => {
     const world = await makeWorld();
     fill(world, world.victim.baseId);
     world.app.repos.bases.updateArmy(world.raider.baseId, { razors: 40 }, []);
 
     const victim = world.app.repos.bases.findById(world.victim.baseId)!;
-    const longer = new Date(Date.now() + 24 * 3_600_000).toISOString();
-    const hourAgo = new Date(Date.now() - 3_600_000).toISOString();
-    world.app.repos.bases.updateEconomy(victim.id, {
-      ...victim.economy,
-      disruption: { until: longer, since: hourAgo, percent: MIN_RAID_DISRUPTION_PERCENT },
-    });
+    const standing = {
+      until: new Date(Date.now() + 5 * 3_600_000).toISOString(),
+      since: new Date(Date.now() - 3_600_000).toISOString(),
+      percent: raidDisruptionPercent(1),
+    };
+    world.app.repos.bases.updateEconomy(victim.id, { ...victim.economy, disruption: standing });
 
     await breakIn(world);
 
     const after = disruptionOf(world, world.victim.baseId);
-    // The longer expiry stands: six fresh hours must not shorten a day that was already owed.
-    expect(after.until).toBe(longer);
-    // ...and the harsher cut stands, at one raid's worth rather than two.
-    expect(after.percent).toBe(MAX_RAID_DISRUPTION_PERCENT);
-  });
-
-  /** The other direction: a gentler raid on a district already cut to the bone lifts nothing. */
-  it('does not let a token second raid lift a standing cut', async () => {
-    const world = await makeWorld(halfLost);
-    fill(world, world.victim.baseId);
-    world.app.repos.bases.updateArmy(world.raider.baseId, { razors: 40 }, []);
-    world.app.repos.bases.updateArmy(world.victim.baseId, { razors: 8 }, []);
-
-    const victim = world.app.repos.bases.findById(world.victim.baseId)!;
-    const shorter = new Date(Date.now() + 60_000).toISOString();
-    world.app.repos.bases.updateEconomy(victim.id, {
-      ...victim.economy,
-      disruption: {
-        until: shorter,
-        since: new Date(Date.now() - 3_600_000).toISOString(),
-        percent: MAX_RAID_DISRUPTION_PERCENT,
-      },
-    });
-
-    await breakIn(world);
-
-    const after = disruptionOf(world, world.victim.baseId);
-    // The fresh six hours are the longer window, so they win...
-    expect(Date.parse(after.until as string)).toBeGreaterThan(Date.parse(shorter));
-    // ...and half a line walking away does not buy the district its output back.
-    expect(after.percent).toBe(MAX_RAID_DISRUPTION_PERCENT);
+    // Nobody home, so a crushing blow, on five sixths of one still standing: past one raid's cut,
+    // short of two.
+    expect(after.percent).toBeGreaterThan(raidDisruptionPercent(1.8));
+    expect(after.percent).toBeLessThan(raidDisruptionPercent(2));
+    const hours =
+      (Date.parse(after.until as string) - Date.parse(after.since as string)) / 3_600_000;
+    expect(hours).toBeCloseTo(RAID_DISRUPTION_HOURS, 6);
+    // The receipt reads the stacked figure, not this raid's own 30%.
+    expect(receipts(world, world.victim.baseId)).toEqual([
+      expect.stringContaining(`make ${Math.round(after.percent)}% less`),
+    ]);
   });
 });
 
@@ -924,5 +896,40 @@ describe('the district a raid breaks into', () => {
     const victim = world.app.repos.bases.findById(world.victim.baseId)!;
     expect(victim.trainingQueue, 'the stale queue was written back').toEqual([]);
     expect(victim.army.razors).toBe(5);
+  });
+
+  /**
+   * "Any units in the district are automatically included in defense" (maintainer, 2026-09-29).
+   *
+   * Every unit standing in the district fights, without the resident deploying a single one. Not
+   * the ones on the road: a column walking out to the gate has left the district army, and so has
+   * a party on a job. Not the gate garrison either, which met the raiders at the door and lost
+   * when the gate went down.
+   */
+  it('is defended by every unit standing in the district, and only those', async () => {
+    let defending: Army = {};
+    const world = await makeWorld({
+      resolve: (input) => {
+        defending = input.defending;
+        return skirmishOutcome({ winner: 'defender', log: ['held'] });
+      },
+    });
+    world.app.repos.bases.updateArmy(world.raider.baseId, { razors: 20 }, []);
+    world.app.repos.bases.updateArmy(world.victim.baseId, { razors: 10, cyber_dogs: 3 }, []);
+    world.app.repos.bases.updateGateArmy(world.victim.baseId, { razors: 7 });
+    // Four Razors on the road to the gate, sent before the raid was called.
+    const walking = sendMove(world.app.repos, {
+      base: world.app.repos.bases.findById(world.victim.baseId)!,
+      from: { kind: 'district' },
+      to: { kind: 'gate' },
+      army: { razors: 4 },
+      vehicles: {},
+      now: new Date(),
+    });
+    expect(walking.kind, JSON.stringify(walking)).toBe('sent');
+
+    await breakIn(world);
+
+    expect(defending).toEqual({ razors: 6, cyber_dogs: 3 });
   });
 });

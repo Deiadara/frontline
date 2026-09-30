@@ -19,7 +19,7 @@ import { findUnit, type Army, type UnitSpec } from '../units/index.js';
  * The seven bonus kinds the 2026-09-09 pass added to the shared union.
  *
  * They are on `HoldBonus` rather than beside it, so authoring one gives it to the map, the perk
- * book and the Lab's nineteen tracks at once: that is the design `crew/effects.ts` is built around
+ * book and the Lab's eighteen tracks at once: that is the design `crew/effects.ts` is built around
  * and it is why the channel and the fold are the load-bearing half. What each of them changes is a
  * *rule*, so the interesting assertions are about permissions and about shapes, not about sizes.
  *
@@ -31,7 +31,7 @@ import { findUnit, type Army, type UnitSpec } from '../units/index.js';
  */
 
 const fold = (...bonuses: readonly HoldBonus[]): TerritoryEffects =>
-  bonuses.reduce(applyHoldBonus, noTerritoryEffects());
+  bonuses.reduce((into, bonus) => applyHoldBonus(into, bonus), noTerritoryEffects());
 
 const spec = (unitId: string): UnitSpec => {
   const found = findUnit(unitId);
@@ -63,8 +63,6 @@ describe('every new kind says what it is in one line', () => {
     [{ kind: 'carriers_fight' }, 'porters fight'],
     [{ kind: 'any_ride' }, 'anything can be put on a machine'],
     [{ kind: 'steady_nerve' }, 'a stack that breaks shakes nobody'],
-    [{ kind: 'scout_parties', flat: 1 }, '+1 scouting party out at once'],
-    [{ kind: 'scout_parties', flat: 2 }, '+2 scouting parties out at once'],
     [{ kind: 'unit_mark', unitId: 'ironsides', mark: 'stalwart' }, 'Holds the Line for one unit'],
   ];
 
@@ -87,9 +85,6 @@ describe('the switches are permissions, not amounts', () => {
       fold({ kind: 'road_shortcut', minutes: 4 }, { kind: 'road_shortcut', minutes: 3 })
         .roadMinutesOff,
     ).toBe(7);
-    expect(
-      fold({ kind: 'scout_parties', flat: 1 }, { kind: 'scout_parties', flat: 1 }).scoutPartiesFlat,
-    ).toBe(2);
 
     const marks = fold(
       { kind: 'unit_mark', unitId: 'ironsides', mark: 'stalwart' },

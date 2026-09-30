@@ -20,7 +20,7 @@
 import { describe, expect, it } from 'vitest';
 import { bareBattlefield } from './battlefield.js';
 import { simulate } from './engine.js';
-import { fleeChance, pursuitSpeed } from './rout.js';
+import { fleeChance, pursuitSpeed, routSurvivors } from './rout.js';
 import { TacticalSkirmishEngine, type SkirmishInput, type SkirmishOutcome } from './skirmish.js';
 import type { Army } from '../units/index.js';
 
@@ -195,5 +195,45 @@ describe('what a withdrawal is measured against', () => {
     reavers.brokeAt = 2;
 
     expect(pursuitSpeed(side)).toBe(footSpeed);
+  });
+});
+
+/*
+ * Bug pass, 2026-09-29. A Combine legendary stands on one plot and nowhere else (`city/combine.ts`),
+ * and taking the plot is his death. He rolled the rout like anybody else, so a fight that took his
+ * plot sometimes had him in `fled`: 2 of 120 real Chapel captures. The plot was a crew's, so he was
+ * gone for the world and never coming back, and `combine_leaders_slain` was never written, which
+ * left `directive_xero_slain` out of reach of every crew in the game.
+ */
+describe('a Combine legendary on the losing side', () => {
+  const lost = simulate({
+    seed: 'leader-rout',
+    battlefield: bareBattlefield(),
+    attacker: { name: 'A', army: { razors: 40 }, defending: false },
+    defender: { name: 'D', army: { greycoat: 3, syndic: 1 }, defending: true },
+  }).defender;
+  // Standing at the end, whatever the draw did to him, so the rout is the only thing asked.
+  const standing = {
+    ...lost,
+    stacks: lost.stacks.map((stack) => ({ ...stack, alive: stack.started })),
+  };
+  const context = { pursuit: 0, lastRound: 3, away: false };
+
+  it('does not run, so the plot falling is his death', () => {
+    // A stream that lets everybody who is allowed to run get away.
+    const { fled, killed } = routSurvivors(standing, context, () => 0);
+    expect(fled['syndic'] ?? 0).toBe(0);
+    expect(killed['syndic']).toBe(1);
+    // ...while the regiment beside him still runs.
+    expect(fled['greycoat']).toBe(3);
+  });
+
+  it('still takes his draw, so the stream the rest of the rout reads is the one it always was', () => {
+    let draws = 0;
+    routSurvivors(standing, context, () => {
+      draws += 1;
+      return 0.5;
+    });
+    expect(draws).toBe(4);
   });
 });

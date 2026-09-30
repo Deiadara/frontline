@@ -1,6 +1,9 @@
 import { randomUUID } from 'node:crypto';
 import {
   cellCanHold,
+  cityIsOpen,
+  districtHolder,
+  findDistrict,
   findLocation,
   findUnit,
   isHeldBy,
@@ -10,10 +13,9 @@ import {
   type SleeperRefusal,
 } from '@frontline/shared';
 import type { Repositories } from '../db/repos/index.js';
+import { landedBy } from '../battle/alignment.js';
 import { mergeArmies, removeForce } from '../battle/forces.js';
 import { travelMsTo } from '../battle/movement.js';
-import { standingEffectsFor } from '../crew/standing.js';
-import { visibleDistricts } from './view.js';
 import { settleEach } from '../world/guard.js';
 import { placeLocked } from '../battle/lock.js';
 
@@ -50,7 +52,10 @@ export interface PlantInput {
  */
 export function plantSleepers(repos: Repositories, input: PlantInput): SleeperResult {
   const location = findLocation(input.locationId);
-  if (!location) return { kind: 'refused', reason: 'unscouted' };
+  if (!location) return { kind: 'refused', reason: 'no_road' };
+  // A cell in a closed city waits for a fight nobody can call there (bug pass, 2026-09-29).
+  const district = findDistrict(location.districtId);
+  if (!cityIsOpen(district?.cityId ?? '')) return { kind: 'refused', reason: 'city_closed' };
 
   const sending = Object.fromEntries(
     Object.entries(input.army).filter(([, count]) => count > 0),
@@ -73,28 +78,14 @@ export function plantSleepers(repos: Repositories, input: PlantInput): SleeperRe
     return { kind: 'refused', reason: 'garrison_locked' };
   }
 
-  /*
-   * The fog, read off the map rather than off the raw intel table.
-   *
-   * `visibleDistricts` is what the city screen draws and what `battle/declare.ts` gates a
-   * declaration on: the scouted set, plus the ground this crew holds, plus whatever a Satellite
-   * Uplink reaches. This door read `repos.city.scouted` instead, which is only the first of those
-   * three, so a crew could call a fight on a district it had seen from the Uplink and could not
-   * put a cell on it first. That is backwards: the whole value of a cell is being in place before
-   * the declaration, so the preparatory door must not be tighter than the door it prepares for.
-   */
-  const visible = visibleDistricts(
-    repos,
-    input.base,
-    repos.city.controls(),
-    standingEffectsFor(repos, input.base, input.now),
-  );
-  if (!visible.has(location.districtId)) {
-    return { kind: 'refused', reason: 'unscouted' };
-  }
   const control = repos.city.control(location.id);
   if (control && isHeldBy(control, input.base.id)) {
     return { kind: 'refused', reason: 'already_yours' };
+  }
+  // A district held end to end is shut, and a cell cannot be planted behind its gate
+  // (maintainer, 2026-09-29): the gate is the one thing there to call on.
+  if (district && districtHolder(district, repos.city.controls()) !== null) {
+    return { kind: 'refused', reason: 'district_shut' };
   }
 
   /*
@@ -182,6 +173,61 @@ export function recallSleepers(
 }
 
 /**
+ * Whether two cells on one place were on the ground by the mark of every fight there still to run.
+ *
+ * A merged row keeps the older cell's clock, and the fight at the mark reads it (`landedBy`). A
+ * tick that runs late lands a cell after a mark whose fight has not been settled yet, and merged
+ * into a cell that was there in time it woke into that fight with it (bug pass, 2026-09-28). Such
+ * a cell waits in a row of its own instead; any later fight on the place was called after both
+ * had landed, so the two rows fight it together.
+ */
+/**
+ * A district that has just closed sends every cell in it home (maintainer, 2026-09-29).
+ *
+ * "If you had them there and the other player closes down the district, they return home." Run
+ * after the two writes that can close a district: a location captured in a fight
+ * (`battle/resolve.ts`) and one claimed by a column walking onto empty ground (`moves/moves.ts`).
+ * Nothing happens while the district is still split. Every cell on or bound for one of its
+ * locations turns round the way a recalled cell does: a waiting one walks the leg it walked out,
+ * one still on the road walks back what it has covered. The holder's own cells go too; on ground
+ * a crew holds end to end its people are a garrison, not a cell (`already_yours`).
+ *
+ * Returns the cells sent home, so a caller can say so.
+ */
+export function sendCellsHomeFromShutDistrict(
+  repos: Repositories,
+  districtId: string,
+  now: Date,
+): SleeperCell[] {
+  const district = findDistrict(districtId);
+  if (!district || districtHolder(district, repos.city.controls()) === null) return [];
+  const sent: SleeperCell[] = [];
+  for (const location of district.locations) {
+    for (const cell of repos.sleepers.onOrBoundFor(location.id)) {
+      const walked =
+        cell.phase === 'waiting'
+          ? cell.travelMs
+          : Math.min(cell.travelMs, Math.max(0, now.getTime() - Date.parse(cell.departedAt)));
+      repos.sleepers.markReturning(
+        cell.id,
+        now.toISOString(),
+        new Date(now.getTime() + Math.max(0, walked)).toISOString(),
+      );
+      const returning = repos.sleepers.findById(cell.id);
+      if (returning) sent.push(returning);
+    }
+  }
+  return sent;
+}
+
+function sameFightsReached(repos: Repositories, standing: SleeperCell, cell: SleeperCell): boolean {
+  return repos.sieges
+    .pending()
+    .filter(({ target }) => target.kind === 'location' && target.locationId === cell.locationId)
+    .every(({ scheduledFor }) => landedBy(standing, scheduledFor) === landedBy(cell, scheduledFor));
+}
+
+/**
  * Land every walk whose mark has passed: cells going to ground, and cells coming home.
  *
  * Called by the world clock beside `settleMovements`. Returns how many rows moved, so the settle
@@ -208,13 +254,12 @@ export function settleSleepers(repos: Repositories, now: Date): number {
       /*
        * Gone to ground, merged with whatever this crew already has waiting there.
        *
-       * One row per crew per location is what every reader downstream assumes: `assemble` asks
-       * `waitingAt` for a single cell, and the Monitor lists one line per place. Merging here
-       * rather than at the send is deliberate, because until they arrive they are two columns on
-       * two different marks and only one of them is standing anywhere.
+       * One row per place is what the Monitor lists and what a declaration wakes (`waitingAt`).
+       * Merging here rather than at the send is deliberate, because until they arrive they are two
+       * columns on two different marks and only one of them is standing anywhere.
        */
       const standing = repos.sleepers.waitingAt(cell.baseId, cell.locationId);
-      if (standing) {
+      if (standing && sameFightsReached(repos, standing, cell)) {
         repos.sleepers.setArmy(standing.id, mergeArmies(standing.army, cell.army));
         repos.sleepers.remove(cell.id);
       } else {

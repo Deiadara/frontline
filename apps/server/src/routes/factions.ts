@@ -13,11 +13,7 @@ import {
   canInvite,
   canKick,
   canSetRank,
-  leavingDisbands,
-  buildingLevel,
-  CENTRAL_BUILDING,
-  FOUND_FACTION_NEXUS_LEVEL,
-  FOUND_FACTION_PLAYER_LEVEL,
+  canFoundFaction,
   sameFactionName,
   type FactionMutationResponse,
   type FactionRefusal,
@@ -27,6 +23,7 @@ import type { FastifyInstance } from 'fastify';
 import { AppError, parseBody } from '../errors.js';
 import { hasRoom, projectFaction } from '../factions/project.js';
 import { notify, notifyFaction } from '../social/notify.js';
+import { invitationRefusal, outOfLettersToday, recordInvitationLetter } from '../social/limits.js';
 import { sendMessage } from '../social/send.js';
 import { adjustDeployment } from '../battle/deploy.js';
 import { alignmentReader } from '../battle/alignment.js';
@@ -34,6 +31,7 @@ import { defendingBaseOf } from '../battle/ground.js';
 import { REFUSAL_MESSAGES } from '../battle/routes.js';
 import { settleBase } from '../district/settle.js';
 import { bringPostedUnitsHome } from '../factions/unpost.js';
+import { leaveFaction } from '../factions/leave.js';
 import { requireAreaFor } from '../progression/doors.js';
 
 /**
@@ -83,13 +81,7 @@ export function registerFactionRoutes(app: FastifyInstance): void {
        * the same sentence on the found-a-faction form, so a player never reaches this by surprise.
        */
       const founder = app.repos.bases.findByOwnerId(userId);
-      if (
-        !founder ||
-        founder.level < FOUND_FACTION_PLAYER_LEVEL ||
-        buildingLevel(founder.buildings, CENTRAL_BUILDING) < FOUND_FACTION_NEXUS_LEVEL
-      ) {
-        refuse('not_established');
-      }
+      if (!founder || !canFoundFaction(founder)) refuse('not_established');
       // Checked through the domain's own comparison rather than the UNIQUE index, so "Iron  Wolves"
       // and "Iron Wolves" collide here the way they will on screen. The index is the cruder backstop.
       const taken = app.repos.factions.all();
@@ -173,6 +165,15 @@ export function registerFactionRoutes(app: FastifyInstance): void {
         const faction = app.repos.factions.find(held.factionId);
         if (!faction) refuse('not_a_member');
         const now = new Date();
+        const letter = {
+          senderUserId: userId,
+          factionId: faction.id,
+          inviteeUserId: invitee.id,
+          now,
+        };
+        const tooOften = invitationRefusal(app.repos, letter);
+        if (tooOften) refuse(tooOften);
+        if (outOfLettersToday(app.repos, userId, now)) refuse('too_many_today');
         const inviteId = randomUUID();
         app.repos.factions.invite({
           id: inviteId,
@@ -212,6 +213,7 @@ export function registerFactionRoutes(app: FastifyInstance): void {
           },
           keepSentCopy: false,
         });
+        recordInvitationLetter(app.repos, letter);
         return answer(userId);
       })();
     },
@@ -279,7 +281,7 @@ export function registerFactionRoutes(app: FastifyInstance): void {
           title: `${request.currentUser.username} has joined`,
           body: '',
           link: '/game/faction',
-          now,
+          at: now,
           exceptUserId: userId,
         });
         return answer(userId);
@@ -293,48 +295,7 @@ export function registerFactionRoutes(app: FastifyInstance): void {
     (request): FactionMutationResponse => {
       const userId = request.currentUser.id;
       return app.db.transaction(() => {
-        const held = membership(userId);
-        const members = app.repos.factions.members(held.factionId);
-        const now = new Date();
-
-        /*
-         * A leader walking out takes the faction with them (board's rule, `leavingDisbands`).
-         *
-         * Not a refusal, which is what this used to be: a leader who wanted out was told to hand it
-         * over first and had no way to simply be finished with it. Now leaving is always allowed
-         * and the leader is told what it will cost before they do it, which is the client's job
-         * (`LeaveDialog`) and the reason the same rule is a shared function rather than a branch
-         * living here. Handing over first still works, and is the way to leave without ending it:
-         * after the handover this caller is a chief and takes the ordinary path below.
-         */
-        if (leavingDisbands(held.rank, members.length)) {
-          notifyFaction(app.repos, held.factionId, {
-            kind: 'faction_left',
-            title: `${request.currentUser.username} disbanded the faction`,
-            body: 'The faction they led is gone.',
-            link: '/game/faction',
-            now,
-            exceptUserId: userId,
-          });
-          const everyone = members.map((row) => row.userId);
-          bringPostedUnitsHome(app.repos, everyone, everyone);
-          app.repos.factions.disband(held.factionId);
-          return answer(userId);
-        }
-
-        bringPostedUnitsHome(
-          app.repos,
-          [userId],
-          members.map((row) => row.userId).filter((id) => id !== userId),
-        );
-        app.repos.factions.removeMember(userId);
-        notifyFaction(app.repos, held.factionId, {
-          kind: 'faction_left',
-          title: `${request.currentUser.username} has left the faction`,
-          body: '',
-          link: '/game/faction',
-          now,
-        });
+        leaveFaction(app.repos, membership(userId), request.currentUser.username, new Date());
         return answer(userId);
       })();
     },
@@ -362,7 +323,7 @@ export function registerFactionRoutes(app: FastifyInstance): void {
           title: `${request.currentUser.username} disbanded the faction`,
           body: 'The faction they led is gone.',
           link: '/game/faction',
-          now: new Date(),
+          at: new Date(),
           exceptUserId: userId,
         });
         const everyone = app.repos.factions.members(held.factionId).map((row) => row.userId);
@@ -404,20 +365,27 @@ export function registerFactionRoutes(app: FastifyInstance): void {
                 .filter((id) => id !== targetId),
             );
             app.repos.factions.removeMember(targetId);
+            /*
+             * An invitation is spent on the table's word, and it was the sender's. One sent by a
+             * chief who has just been thrown out still seated its recipient (audit, 2026-09-28).
+             */
+            app.repos.factions.dropInvitesSentBy(targetId);
             notify(app.repos, {
               userId: targetId,
               kind: 'faction_left',
               title: 'You have been removed from the faction',
               body: '',
               link: '/game/faction',
-              now,
+              at: now,
             });
             notifyFaction(app.repos, held.factionId, {
               kind: 'faction_left',
               title: `${app.repos.users.findById(targetId)?.username ?? 'Somebody'} was removed`,
               body: '',
               link: '/game/faction',
-              now,
+              at: now,
+              // Not the one who did it, as a join and a disband already leave out their actor.
+              exceptUserId: userId,
             });
             return answer(userId);
           }
@@ -426,7 +394,10 @@ export function registerFactionRoutes(app: FastifyInstance): void {
             if (!canSetRank(held.rank)) refuse('not_allowed');
             // Chiefs do not make chiefs: the leader is the only rank that moves anybody.
             if (target.rank === 'leader') refuse('not_allowed');
-            app.repos.factions.setRank(targetId, action === 'promote' ? 'chief' : 'member');
+            const rank = action === 'promote' ? 'chief' : 'member';
+            app.repos.factions.setRank(targetId, rank);
+            // A rank that may not invite cannot leave invitations standing either.
+            if (!canInvite(rank)) app.repos.factions.dropInvitesSentBy(targetId);
             notify(app.repos, {
               userId: targetId,
               kind: 'faction_joined',
@@ -436,7 +407,7 @@ export function registerFactionRoutes(app: FastifyInstance): void {
                   : 'You are an ordinary member of the faction now',
               body: '',
               link: '/game/faction',
-              now,
+              at: now,
             });
             return answer(userId);
           }
@@ -452,7 +423,7 @@ export function registerFactionRoutes(app: FastifyInstance): void {
               title: 'You lead the faction now',
               body: `${request.currentUser.username} handed it over.`,
               link: '/game/faction',
-              now,
+              at: now,
             });
             return answer(userId);
           }
@@ -538,7 +509,7 @@ export function registerFactionRoutes(app: FastifyInstance): void {
             title: `${request.currentUser.username} is sending help`,
             body: 'Units are on the road to a fight of yours.',
             link: '/game/battles',
-            now,
+            at: now,
           });
         }
         return answer(userId);

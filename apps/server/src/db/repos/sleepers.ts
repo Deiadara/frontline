@@ -1,4 +1,9 @@
-import { SleeperCellSchema, type Army, type SleeperCell } from '@frontline/shared';
+import {
+  SleeperCellSchema,
+  withoutRetiredUnits,
+  type Army,
+  type SleeperCell,
+} from '@frontline/shared';
 import type { AppDatabase } from '../index.js';
 
 /**
@@ -21,6 +26,8 @@ export interface SleeperRepo {
   waitingAt(baseId: string, locationId: string): SleeperCell | undefined;
   /** Every crew's cells in place on one location, for a spy report with the rung that lists them. */
   waitingOn(locationId: string): SleeperCell[];
+  /** Every cell on or bound for a location, whoever planted it: what a district closing sends home. */
+  onOrBoundFor(locationId: string): SleeperCell[];
   findById(id: string): SleeperCell | undefined;
   /** Landed: the phase becomes `waiting` and `arrivesAt` becomes the moment they went to ground. */
   markWaiting(id: string, atIso: string): void;
@@ -47,7 +54,9 @@ const read = (row: Row): SleeperCell =>
     id: row.id,
     baseId: row.base_id,
     locationId: row.location_id,
-    army: JSON.parse(row.army_json) as Army,
+    // Retired units dropped, as in every other stored army (bug pass, 2026-09-29): `due` parses
+    // every cell on the clock, so one retired id stopped every crew's cells from landing.
+    army: withoutRetiredUnits(JSON.parse(row.army_json)),
     phase: row.phase,
     departedAt: row.departed_at,
     arrivesAt: row.arrives_at,
@@ -89,6 +98,9 @@ export function createSleeperRepo(db: AppDatabase): SleeperRepo {
   const waitingOnStmt = lazy(
     "SELECT * FROM sleeper_cells WHERE location_id = ? AND phase = 'waiting' ORDER BY arrives_at",
   );
+  const onOrBoundForStmt = lazy(
+    "SELECT * FROM sleeper_cells WHERE location_id = ? AND phase IN ('outbound', 'waiting') ORDER BY arrives_at",
+  );
   const byIdStmt = lazy('SELECT * FROM sleeper_cells WHERE id = ?');
   const waitStmt = lazy("UPDATE sleeper_cells SET phase = 'waiting', arrives_at = ? WHERE id = ?");
   const returnStmt = lazy(
@@ -115,6 +127,9 @@ export function createSleeperRepo(db: AppDatabase): SleeperRepo {
     },
     forBase(baseId) {
       return (forBaseStmt().all(baseId) as Row[]).map(read);
+    },
+    onOrBoundFor(locationId) {
+      return (onOrBoundForStmt().all(locationId) as Row[]).map(read);
     },
     waitingAt(baseId, locationId) {
       const row = waitingStmt().get(baseId, locationId) as Row | undefined;

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { TRAP_CATALOG } from '../battle/traps.js';
 import { MODIFICATION_RARITIES } from '../modification-rarity.js';
 import { UNIT_MODIFICATIONS, unitModificationsOfRarity } from '../units/modifications.js';
-import { isAdvancedModification, modificationPrice } from './addons.js';
+import { modificationPrice } from './addons.js';
 import { MODIFICATIONS } from './modifications.js';
 import {
   MAX_SCRAPYARD_DISCOUNT,
@@ -51,13 +51,26 @@ describe('the Scrapyard discount', () => {
 });
 
 describe('what each yard level opens', () => {
-  it('opens the plain bolt-ons at once and holds the advanced ones for a grown yard', () => {
+  /*
+   * "Even the yard ladder" (maintainer, 2026-09-29): a structure card waits on the same four rungs
+   * as a unit card of its grade. Literals, so the anchor does not move with the table it checks.
+   * By magnitude, 19 INTRICATE structure cards opened at 1 and 13 MASTERPIECE ones at 4.
+   */
+  it('opens a structure card on the rung a unit card of its grade opens at', () => {
+    const ladder = { basic: 1, intricate: 3, advanced: 4, masterpiece: 7 };
     for (const spec of MODIFICATIONS) {
-      expect(scrapyardLevelForModification(spec)).toBe(
-        isAdvancedModification(spec) ? SCRAPYARD_LEVEL_FOR_ADVANCED_MODIFICATION : 1,
-      );
+      expect(scrapyardLevelForModification(spec), spec.id).toBe(ladder[spec.rarity]);
     }
-    expect(SCRAPYARD_LEVEL_FOR_ADVANCED_MODIFICATION).toBeGreaterThan(1);
+    for (const spec of UNIT_MODIFICATIONS) {
+      expect(scrapyardLevelForUpgrade(spec), spec.id).toBe(ladder[spec.rarity]);
+    }
+    expect(SCRAPYARD_LEVEL_FOR_ADVANCED_MODIFICATION).toBe(ladder.advanced);
+    for (const rarity of MODIFICATION_RARITIES) {
+      expect(
+        MODIFICATIONS.filter((spec) => spec.rarity === rarity).length,
+        `${rarity} structure cards`,
+      ).toBeGreaterThan(0);
+    }
   });
 
   /**
@@ -89,20 +102,26 @@ describe('what each yard level opens', () => {
    * A rung a player worked for opens something better than the rung below it.
    *
    * It did not: the three traps added on 2026-09-11 took the even rungs beside the three that were
-   * already on the odd ones, which put Razor Wire (4% of an attack) at level 2 above Pressure
-   * Plates (6%) at level 1. Ordered by what the trap is worth rather than by when it was written.
+   * already on the odd ones, which put Razor Wire (then 4% of an attack) at level 2 above Pressure
+   * Plates (then 6%) at level 1. Ordered by what the trap is worth rather than by when it was
+   * written.
    */
   it('opens the traps in the order they are worth having', () => {
     const ladder = [...TRAP_CATALOG].sort(
       (a, b) => scrapyardLevelForTrap(a) - scrapyardLevelForTrap(b),
     );
-    for (let step = 1; step < ladder.length; step += 1) {
-      const below = ladder[step - 1]!;
-      const above = ladder[step]!;
-      expect(above.killShare, `${above.id} opens above ${below.id}`).toBeGreaterThan(
-        below.killShare,
+    // Razor Wire, the cheapest, kills nobody and opens first (maintainer, 2026-09-29); every trap
+    // that bites opens above it, each biting harder than the one below.
+    expect(ladder[0]!.effect.kind).toBe('wire');
+    const biting = ladder.slice(1);
+    for (const [step, above] of biting.entries()) {
+      if (above.effect.kind !== 'bite')
+        throw new Error(`${above.id} opens above the wire and bites nothing`);
+      const below = biting[step - 1];
+      if (below?.effect.kind !== 'bite') continue;
+      expect(above.effect.bite, `${above.id} opens above ${below.id}`).toBeGreaterThan(
+        below.effect.bite,
       );
-      expect(above.maxKills, `${above.id} opens above ${below.id}`).toBeGreaterThan(below.maxKills);
     }
     // Every trap on its own rung, so the ladder is a ladder rather than a pile.
     const levels = TRAP_CATALOG.map(scrapyardLevelForTrap);

@@ -3,7 +3,7 @@
  */
 import {
   OVERSEER_SUBJECT,
-  SCOUTING_RESEARCH_ID,
+  RESEARCH_ITEMS,
   cancelRefund,
   createCommander,
   makeAttributes,
@@ -17,7 +17,12 @@ import {
 import type { Harness, Player } from './playthrough-harness.js';
 import { player, type Cast } from './playthrough-cast.js';
 import { baseOf, expectDelta, negate, MINUTE } from './playthrough-helpers.js';
-import { addOfficer, grantResources } from './playthrough-bench.js';
+import { addOfficer } from './playthrough-bench.js';
+
+/** The Master of Whispers' first rung: the bench the Archive scene starts, cancels and finishes. */
+const FIRST_RUNG = RESEARCH_ITEMS.find(
+  (item) => item.track === 'master_of_whispers' && item.step === 1,
+)!.id;
 
 /** The chairs every crew fills from the bench, on top of whoever the Bar gave them. */
 const BENCH_CHAIRS: readonly OfficerRole[] = [
@@ -58,7 +63,6 @@ export async function crewScene(h: Harness, cast: Cast): Promise<void> {
   await chairs(h, a, b);
   await archive(h, a, b);
   await drills(h, a, b);
-  for (const label of ['B', 'C', 'D'] as const) await researchScouting(h, player(cast, label));
 }
 
 async function chairs(h: Harness, a: Player, b: Player): Promise<void> {
@@ -147,18 +151,18 @@ async function archive(h: Harness, a: Player, b: Player): Promise<void> {
   h.at('research: the Archive');
   const screen = await h.ok<ResearchResponse>({ as: a, method: 'GET', route: '/api/research' });
   if (!screen) return;
-  const scouting = screen.technologies.find((tech) => tech.id === SCOUTING_RESEARCH_ID);
-  h.check(scouting !== undefined, 'the Archive does not list the Scouting rung');
-  h.check(scouting?.blocker === null, `A cannot start Scouting: ${scouting?.blocker}`);
+  const rung = screen.technologies.find((tech) => tech.id === FIRST_RUNG);
+  h.check(rung !== undefined, 'the Archive does not list the first Whispers rung');
+  h.check(rung?.blocker === null, `A cannot start the first Whispers rung: ${rung?.blocker}`);
   const locked = screen.technologies.find((tech) => !tech.known && tech.blocker !== null);
-  if (!scouting || scouting.blocker !== null) return;
+  if (!rung || rung.blocker !== null) return;
 
   const before = await baseOf(h, a);
   const started = await h.ok<ResearchResponse>({
     as: a,
     method: 'POST',
     route: '/api/research/tech',
-    body: { techId: scouting.id },
+    body: { techId: rung.id },
   });
   const afterStart = await baseOf(h, a);
   h.check(started?.active !== null && started?.active !== undefined, 'the Archive started nothing');
@@ -166,11 +170,11 @@ async function archive(h: Harness, a: Player, b: Player): Promise<void> {
     h,
     before.resources,
     afterStart.resources,
-    negate(scouting.cost),
-    'starting Scouting',
+    negate(rung.cost),
+    'starting the first Whispers rung',
   );
   const other = screen.technologies.find(
-    (tech) => tech.id !== scouting.id && !tech.known && tech.blocker === null,
+    (tech) => tech.id !== rung.id && !tech.known && tech.blocker === null,
   );
   if (other) {
     await h.refuse({
@@ -195,8 +199,8 @@ async function archive(h: Harness, a: Player, b: Player): Promise<void> {
     h,
     afterStart.resources,
     afterCancel.resources,
-    cancelRefund(scouting.cost),
-    'cancelling Scouting',
+    cancelRefund(rung.cost),
+    'cancelling the first Whispers rung',
   );
   await h.refuse({
     as: a,
@@ -229,13 +233,13 @@ async function archive(h: Harness, a: Player, b: Player): Promise<void> {
   }
   // An empty till.
   const flush = await baseOf(h, a);
-  if ((scouting.cost.caps ?? 0) > 0) {
+  if ((rung.cost.caps ?? 0) > 0) {
     h.repos.bases.updateResources(a.baseId, { ...flush.resources, caps: 0 });
     await h.refuse({
       as: a,
       method: 'POST',
       route: '/api/research/tech',
-      body: { techId: scouting.id },
+      body: { techId: rung.id },
       expect: 409,
       code: 'INSUFFICIENT_CAPS',
     });
@@ -247,42 +251,24 @@ async function archive(h: Harness, a: Player, b: Player): Promise<void> {
     as: a,
     method: 'POST',
     route: '/api/research/tech',
-    body: { techId: scouting.id },
+    body: { techId: rung.id },
   });
   if (again?.completesAt) h.advanceTo(new Date(again.completesAt).getTime() + MINUTE);
   const done = await h.ok<ResearchResponse>({ as: a, method: 'GET', route: '/api/research' });
   h.check(
-    Boolean(done?.technologies.find((tech) => tech.id === SCOUTING_RESEARCH_ID)?.known),
-    'Scouting is not known after its clock ran out',
+    Boolean(done?.technologies.find((tech) => tech.id === FIRST_RUNG)?.known),
+    'the first Whispers rung is not known after its clock ran out',
   );
   h.check(done?.active === null, 'the finished project is still on the bench');
   await h.refuse({
     as: a,
     method: 'POST',
     route: '/api/research/tech',
-    body: { techId: SCOUTING_RESEARCH_ID },
+    body: { techId: FIRST_RUNG },
     expect: 409,
     code: 'RESEARCH_EXHAUSTED',
   });
   void b;
-}
-
-/** B, C and D learn Scouting too, through the same bench. */
-async function researchScouting(h: Harness, crew: Player): Promise<void> {
-  h.at(`research: ${crew.label} learns Scouting`);
-  grantResources(h, crew, { caps: 5_000 });
-  const started = await h.ok<ResearchResponse>({
-    as: crew,
-    method: 'POST',
-    route: '/api/research/tech',
-    body: { techId: SCOUTING_RESEARCH_ID },
-  });
-  if (started?.completesAt) h.advanceTo(new Date(started.completesAt).getTime() + MINUTE);
-  const done = await h.ok<ResearchResponse>({ as: crew, method: 'GET', route: '/api/research' });
-  h.check(
-    Boolean(done?.technologies.find((tech) => tech.id === SCOUTING_RESEARCH_ID)?.known),
-    `${crew.label}: Scouting is not known after its clock ran out`,
-  );
 }
 
 async function drills(h: Harness, a: Player, b: Player): Promise<void> {

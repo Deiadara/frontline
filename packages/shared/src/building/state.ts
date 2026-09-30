@@ -6,6 +6,7 @@ import {
   BUILDING_CATALOG,
   CENTRAL_BUILDING,
   levelCapForNexus,
+  levelCeilingFor,
   nexusLevelForUpgrade,
   type BuildingKind,
   type BuildingRequirement,
@@ -88,6 +89,19 @@ export function structureLevelCap(kind: BuildingKind, buildings: readonly Buildi
 }
 
 /**
+ * Whether `kind` already stands at its own last rung: the end of the content, as opposed to a Nexus
+ * holding it down.
+ *
+ * Read off the level rather than off {@link structureLevelCap}. The two only disagree in a district
+ * admin mode has built past its Nexus, and there the cap called a Garage at its tenth and last
+ * level "held by the Nexus". Admin mode waives that refusal, so the order went in for an eleventh
+ * Garage, or a twenty-first Lab, which no stored level parses: the save stopped loading.
+ */
+export function atLevelCeiling(kind: BuildingKind, buildings: readonly Building[]): boolean {
+  return buildingLevel(buildings, kind) >= levelCeilingFor(kind);
+}
+
+/**
  * The Nexus level this district is short of, for the upgrade it cannot currently order.
  *
  * `null` when the Nexus is not what is standing in the way. The number a refusal is written out of:
@@ -126,7 +140,7 @@ export function modificationCapacity(building: Building | undefined): {
   used: number;
   free: number;
 } {
-  const slots = modificationSlotsAt(building?.level ?? 0);
+  const slots = building ? modificationSlotsAt(building.level, building.kind) : 0;
   const used = building?.modifications.length ?? 0;
   return { slots, used, free: Math.max(0, slots - used) };
 }

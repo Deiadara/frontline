@@ -138,7 +138,13 @@ export const BATTLE_BOOSTS: readonly BattleBoostSpec[] = [
     name: 'Make An Example',
     description: 'Something public, something ugly, and nobody on your side thinking about home.',
     cost: 320,
-    effect: { kind: 'force', stat: 'morale', percent: 20 },
+    /*
+     * +10, not +20 (maintainer, 2026-09-29). A morale point lands on `unitMoraleFlat` one for one
+     * and is worth about two points of attack or defence in the engine, so at +20 this bought about
+     * twice the force per infamy of the two 200-infamy names. `market/morale-price.test.ts` holds
+     * the rate against the engine.
+     */
+    effect: { kind: 'force', stat: 'morale', percent: 10 },
     unlock: { kind: 'open' },
   },
   {

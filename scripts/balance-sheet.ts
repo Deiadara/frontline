@@ -276,7 +276,7 @@ function catalogueSections(): Section[] {
       'traps',
       'Traps',
       'packages/shared/src/building/traps.ts',
-      '`killShare` is the fraction of an attacking force a fitted trap takes, `maxKills` the ceiling on bodies from one trigger.',
+      '`effect` is a bite (units taken: `bite` times the square root of the attacking column, rounded) or the wire (speed and morale off the attack for its opening rounds).',
       TRAP_CATALOG as unknown as Record<string, unknown>[],
       () => 'trap',
     ),
@@ -308,9 +308,13 @@ function catalogueSections(): Section[] {
       'districts',
       'Districts',
       'packages/shared/src/map/districts.ts',
-      '`difficulty` scales mission pay and garrison strength. `position` is the map coordinate and feeds travel time. `locations` is the ground inside, as JSON.',
+      '`difficulty` (contested ground only) scales mission pay and garrison strength. `position` is the map coordinate and feeds travel time. `locations` is the ground inside, as JSON.',
       ALL_DISTRICTS,
-      (entry) => `${str(entry.kind)} / d${String(entry.difficulty)}`,
+      // Contested ground only: a plot has no difficulty (maintainer, 2026-09-30).
+      (entry) =>
+        entry.kind === 'contested'
+          ? `${str(entry.kind)} / d${String(entry.difficulty)}`
+          : str(entry.kind),
     ),
     listSection(
       'missions',

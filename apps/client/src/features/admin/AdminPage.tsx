@@ -1,13 +1,14 @@
 import {
+  ADMIN_MAX_PLAYER_LEVEL,
   BLUEPRINT_CATEGORIES,
   BLUEPRINT_CATEGORY_LABELS,
   BUILDING_CATALOG,
   BUILDING_KINDS,
   BUILDING_MAX_LEVEL,
-  CITY_DISTRICTS,
-  districtDisplayName,
+  MAX_NOTORIETY,
   OFFICER_ROLE_LABELS,
   OFFICER_ROLES,
+  PLAYER_UNITS,
   RESOURCE_KEYS,
   type AdminGrantRequest,
   type AdminKnobsRequest,
@@ -27,13 +28,12 @@ import { Panel } from '../../components/ui/Panel';
 import { cn } from '../../lib/cn';
 import {
   useAdmin,
-  useAdminFog,
   useAdminGrant,
   useAdminKnobs,
   useAdminReset,
   useAdminMockBattle,
 } from '../../lib/queries';
-import { InfoNote, PageShell } from '../game/PageShell';
+import { InfoNote, PageShell, ScreenLoadSheet } from '../game/PageShell';
 import { formatDayClock } from '@frontline/shared';
 import { usePlayerZone } from '../settings/usePlayerZone';
 import { ErrorNote } from '../../components/ui/ErrorNote';
@@ -84,7 +84,10 @@ interface Preset {
 const PRESETS: readonly Preset[] = [
   {
     label: 'First hour',
-    blurb: 'A Nexus, a Gate and nothing else. What a new crew actually opens.',
+    // What the knobs below do, not what a new crew opens: that is Clean slate (bug pass,
+    // 2026-09-29). The blurb said "A Nexus, a Gate and nothing else" over a preset that stands
+    // every structure at level 1, and a new crew opens a Nexus and a Generator.
+    blurb: 'Every structure at level 1, the crew at level 1 with no infamy, the queues empty.',
     /*
      * No grant, and that is the point of it rather than an omission.
      *
@@ -109,7 +112,7 @@ const PRESETS: readonly Preset[] = [
        *
        * An officer is the Bar's to give and the Bar settles at midnight, so a preset that does
        * not seat anybody hands a reviewer a mid-game crew with nineteen empty chairs: no
-       * scouting, no spying, no research track, no role fit. Half is the shape of the era. The
+       * spying, no research track, no role fit. Half is the shape of the era. The
        * count is derived rather than typed, so a nineteenth role does not leave this at nine.
        */
       officers: { count: Math.ceil(OFFICER_ROLES.length / 2), rating: 55 },
@@ -156,15 +159,6 @@ const PRESETS: readonly Preset[] = [
       parts: 250,
       consumables: 10,
       boosts: 5,
-      /*
-       * Eyes on every district in the world (maintainer, 2026-09-24).
-       *
-       * Without it this preset handed a crew the ceiling on everything and dropped them on a map
-       * they had never walked: most of the city read as fog, and the screens this bench exists to
-       * be looked at opened the scout sheet instead of the district. The world rather than one
-       * city, because there are two playable cities and scouting one leaves the other shut.
-       */
-      scouted: 'all' as const,
       // Ground in both open cities, so the multi-city screens have something to show.
       footholds: 'every-city' as const,
     },
@@ -290,6 +284,9 @@ function StateKnobs({ snapshot }: { snapshot: AdminSnapshot }) {
   const [playerLevel, setPlayerLevel] = useState(snapshot.playerLevel);
   const [infamy, setInfamy] = useState(snapshot.infamy);
   const [amount, setAmount] = useState(100_000);
+  const [rank, setRank] = useState(0);
+  const [officers, setOfficers] = useState<number>(OFFICER_ROLES.length);
+  const [rating, setRating] = useState(60);
   // Seeded once and then followed: every knob answers with a fresh snapshot, and a field still
   // holding the number it mounted with re-submits a stale level the next time its button is
   // pressed after the other knob has moved.
@@ -301,6 +298,7 @@ function StateKnobs({ snapshot }: { snapshot: AdminSnapshot }) {
     value: number,
     set: (next: number) => void,
     testId: string,
+    max = Number.MAX_SAFE_INTEGER,
   ) => (
     <label className="flex flex-col gap-1.5">
       <span className="font-display text-[11px] font-bold uppercase tracking-[0.18em] text-ink-200">
@@ -309,8 +307,11 @@ function StateKnobs({ snapshot }: { snapshot: AdminSnapshot }) {
       <input
         type="number"
         min={0}
+        max={max}
         value={value}
-        onChange={(event) => set(Math.max(0, Math.trunc(Number(event.target.value))))}
+        onChange={(event) =>
+          set(Math.min(max, Math.max(0, Math.trunc(Number(event.target.value) || 0))))
+        }
         data-testid={testId}
         className="w-32 rounded-sm border border-surface-600 bg-surface-950 px-2.5 py-2 text-[13px] tabular-nums text-ink-100"
       />
@@ -320,24 +321,75 @@ function StateKnobs({ snapshot }: { snapshot: AdminSnapshot }) {
   return (
     <Panel title="Standing and stock">
       <div className="flex flex-col gap-4 p-4">
-        <div className="flex flex-wrap items-end gap-3">
-          {numberField('Player level', playerLevel, setPlayerLevel, 'admin-player-level')}
+        {/* A field and its button wrap together, so a narrow column never leaves a button on
+            the line below the number it sends. */}
+        <div className="flex flex-wrap items-end gap-x-5 gap-y-3">
+          <div className="flex items-end gap-2">
+            {numberField('Player level', playerLevel, setPlayerLevel, 'admin-player-level')}
+            <Button
+              size="sm"
+              variant="ghost"
+              disabled={knobs.isPending}
+              onClick={() =>
+                knobs.mutate({
+                  playerLevel: Math.min(ADMIN_MAX_PLAYER_LEVEL, Math.max(1, playerLevel)),
+                })
+              }
+            >
+              Set level
+            </Button>
+          </div>
+          <div className="flex items-end gap-2">
+            {numberField('Infamy', infamy, setInfamy, 'admin-infamy')}
+            <Button
+              size="sm"
+              variant="ghost"
+              disabled={knobs.isPending}
+              onClick={() => knobs.mutate({ infamy })}
+            >
+              Set infamy
+            </Button>
+          </div>
+          <div className="flex items-end gap-2">
+            {numberField('Rank', rank, setRank, 'admin-notoriety', MAX_NOTORIETY)}
+            <Button
+              size="sm"
+              variant="ghost"
+              disabled={knobs.isPending}
+              onClick={() => knobs.mutate({ notoriety: rank })}
+              data-testid="admin-notoriety-go"
+            >
+              Set rank
+            </Button>
+          </div>
+        </div>
+
+        {/* The Bar settles at midnight, so this is the way to a crew with people in its chairs
+            today. One per role in the catalogue's order, all at one rating. */}
+        <div className="flex flex-wrap items-end gap-x-5 gap-y-3">
+          <div className="flex items-end gap-2">
+            {numberField('Officers', officers, setOfficers, 'admin-officers', OFFICER_ROLES.length)}
+            {numberField('Rated', rating, setRating, 'admin-officer-rating', 100)}
+            <Button
+              size="sm"
+              variant="ghost"
+              disabled={knobs.isPending}
+              onClick={() =>
+                knobs.mutate({ officers: { count: officers, rating: Math.max(1, rating) } })
+              }
+              data-testid="admin-officers-go"
+            >
+              Seat them
+            </Button>
+          </div>
           <Button
             size="sm"
             variant="ghost"
             disabled={knobs.isPending}
-            onClick={() => knobs.mutate({ playerLevel: Math.max(1, playerLevel) })}
+            onClick={() => knobs.mutate({ automationsRested: true })}
+            data-testid="admin-automations-rested"
           >
-            Set level
-          </Button>
-          {numberField('Infamy', infamy, setInfamy, 'admin-infamy')}
-          <Button
-            size="sm"
-            variant="ghost"
-            disabled={knobs.isPending}
-            onClick={() => knobs.mutate({ infamy })}
-          >
-            Set infamy
+            Rest the standing orders
           </Button>
         </div>
 
@@ -397,6 +449,35 @@ function GrantsPanel() {
   const grant = useAdminGrant();
   const [parts, setParts] = useState(20);
   const [track, setTrack] = useState<OfficerRole>('security_officer');
+  const [depth, setDepth] = useState(5);
+  const [stock, setStock] = useState(5);
+  const [unit, setUnit] = useState<string>(PLAYER_UNITS[0]?.id ?? '');
+  const [bodies, setBodies] = useState(20);
+  /** A count box in this panel's style, clamped to what the route takes. */
+  const countField = (
+    label: string,
+    value: number,
+    set: (next: number) => void,
+    max: number,
+    testId: string,
+  ) => (
+    <label className="flex flex-col gap-1.5">
+      <span className="font-display text-[11px] font-bold uppercase tracking-[0.18em] text-ink-200">
+        {label}
+      </span>
+      <input
+        type="number"
+        min={1}
+        max={max}
+        value={value}
+        onChange={(event) =>
+          set(Math.min(max, Math.max(1, Math.trunc(Number(event.target.value) || 1))))
+        }
+        data-testid={testId}
+        className="w-24 rounded-sm border border-surface-600 bg-surface-950 px-2.5 py-2 text-[13px] tabular-nums text-ink-100"
+      />
+    </label>
+  );
   /*
    * `key` off the test id, because one of the four callers below is a `.map`.
    *
@@ -466,22 +547,56 @@ function GrantsPanel() {
             <span className="font-display text-[11px] font-bold uppercase tracking-[0.18em] text-ink-200">
               One track
             </span>
-            <select
+            {/* The painted picker, for the reason the structure picker above gives. */}
+            <Dropdown
+              label="Which track to finish"
               value={track}
-              onChange={(event) => setTrack(event.target.value as OfficerRole)}
+              onChange={setTrack}
+              options={OFFICER_ROLES.map((role) => ({
+                value: role,
+                label: OFFICER_ROLE_LABELS[role],
+              }))}
               data-testid="admin-grant-track"
-              className="rounded-sm border border-surface-600 bg-surface-950 px-2.5 py-2 text-[13px] text-ink-100"
-            >
-              {OFFICER_ROLES.map((role) => (
-                <option key={role} value={role}>
-                  {OFFICER_ROLE_LABELS[role]}
-                </option>
-              ))}
-            </select>
+            />
           </label>
           {button('Finish that track', { technologies: track }, 'admin-grant-track-go')}
           <span className="font-body text-[12px] text-ink-300">
             A trap wants its Lab rung as well as its document.
+          </span>
+        </div>
+
+        <div className="flex flex-wrap items-end gap-3">
+          {countField('Rungs deep', depth, setDepth, 10, 'admin-grant-depth')}
+          {button('Every track that deep', { researchDepth: depth }, 'admin-grant-depth-go')}
+        </div>
+
+        <div className="flex flex-wrap items-end gap-3">
+          {countField('Of each', stock, setStock, 99, 'admin-grant-stock')}
+          {button('Every trap', { consumables: stock }, 'admin-grant-traps')}
+          {button('Every boost', { boosts: stock }, 'admin-grant-boosts')}
+        </div>
+
+        <div className="flex flex-wrap items-end gap-3">
+          <label className="flex flex-col gap-1.5">
+            <span className="font-display text-[11px] font-bold uppercase tracking-[0.18em] text-ink-200">
+              Unit
+            </span>
+            <Dropdown
+              label="Which unit to add"
+              value={unit}
+              onChange={setUnit}
+              options={PLAYER_UNITS.map((spec) => ({ value: spec.id, label: spec.name }))}
+              data-testid="admin-grant-unit"
+            />
+          </label>
+          {countField('How many', bodies, setBodies, 9_999, 'admin-grant-bodies')}
+          {button('Add to the roster', { units: { [unit]: bodies } }, 'admin-grant-units')}
+        </div>
+
+        <div className="flex flex-wrap items-center gap-3">
+          {button('A foothold in every city', { footholds: 'every-city' }, 'admin-grant-footholds')}
+          <span className="font-body text-[12px] text-ink-300">
+            One location in each open city, so the city pickers have somewhere to read.
           </span>
         </div>
 
@@ -492,102 +607,6 @@ function GrantsPanel() {
 }
 
 /** What is on disk, so a restore can be chosen without an ssh session. */
-/**
- * Fog of war (maintainer request).
- *
- * In admin mode every district is scouted, so a reviewer can open any screen without sending a
- * scout and waiting. This is where a district is un-ticked to look at the unscouted state of it.
- * The tick is the effective answer, computed server-side through the same seam the city reads;
- * real scouting intel is never written here, so admin mode off is exactly what the crew has seen.
- */
-function FogPanel({ snapshot }: { snapshot: AdminSnapshot }) {
-  const fog = useAdminFog();
-
-  const hidden = snapshot.fog.filter((entry) => !entry.visible).length;
-  /*
-   * The plots are numbered here, exactly as they are on the map.
-   *
-   * Every unclaimed residential district is stored as `Player District`, so the snapshot's own
-   * names put four identical rows in this list and left a reviewer un-ticking one at random to
-   * find out which was which. `districtDisplayName` is the rule the city, the district screen and
-   * the standings all name a plot by, and it numbers them from the viewer's own: the home row is
-   * already marked, so it keeps the bare name and the rest read I, II, III.
-   */
-  const home = snapshot.fog.find((entry) => entry.home)?.districtId ?? '';
-  const nameOf = (districtId: string, fallback: string): string => {
-    const district = CITY_DISTRICTS.find((one) => one.id === districtId);
-    return district ? districtDisplayName(district, { ownDistrictId: home }) : fallback;
-  };
-  const setAll = (visible: boolean) => {
-    for (const entry of snapshot.fog) {
-      if (entry.visible !== visible) fog.mutate({ districtId: entry.districtId, visible });
-    }
-  };
-  return (
-    <Panel
-      title="Fog of war"
-      action={
-        <span className="font-display text-[11px] uppercase tracking-[0.18em] text-ink-300">
-          {hidden === 0 ? 'Everything scouted' : `${hidden} hidden`}
-        </span>
-      }
-    >
-      <div className="flex flex-col gap-3 p-4">
-        <p className="font-body text-[12px] leading-relaxed text-ink-300">
-          Ticked is scouted. In testing mode everything is, until you say otherwise; un-tick a
-          district to see it the way a crew that has never been there does.
-        </p>
-        <ul className="grid gap-1.5 sm:grid-cols-2 2xl:grid-cols-3" data-testid="admin-fog">
-          {snapshot.fog.map((entry) => (
-            <li key={entry.districtId}>
-              <label className="flex items-center gap-2.5 rounded-sm border border-surface-600/70 bg-surface-800/60 px-3 py-2 font-body text-[13px] text-ink-100">
-                <input
-                  type="checkbox"
-                  checked={entry.visible}
-                  disabled={fog.isPending || entry.home}
-                  onChange={(event) =>
-                    fog.mutate({ districtId: entry.districtId, visible: event.target.checked })
-                  }
-                  data-testid={`admin-fog-${entry.districtId}`}
-                />
-                <span className="min-w-0 flex-1 break-words leading-snug">
-                  {nameOf(entry.districtId, entry.name)}
-                </span>
-                {entry.home && (
-                  <span className="shrink-0 font-display text-[10px] uppercase tracking-[0.14em] text-ink-400">
-                    Home
-                  </span>
-                )}
-              </label>
-            </li>
-          ))}
-        </ul>
-        <div className="flex flex-wrap gap-2">
-          <Button
-            size="sm"
-            variant="ghost"
-            disabled={fog.isPending}
-            onClick={() => setAll(true)}
-            data-testid="admin-fog-all"
-          >
-            Scout everything
-          </Button>
-          <Button
-            size="sm"
-            variant="ghost"
-            disabled={fog.isPending}
-            onClick={() => setAll(false)}
-            data-testid="admin-fog-none"
-          >
-            Hide everything
-          </Button>
-        </div>
-        {fog.error !== null && <ErrorNote>{fog.error.message}</ErrorNote>}
-      </div>
-    </Panel>
-  );
-}
-
 function BackupsPanel({ snapshot }: { snapshot: AdminSnapshot }) {
   const zone = usePlayerZone();
   return (
@@ -671,13 +690,17 @@ export function AdminPage() {
   /** Whether Clean slate has been pressed and not yet confirmed. */
   const [wiping, setWiping] = useState(false);
 
-  if (query.isLoading) {
+  // On a sheet: a bare line here landed at the top of the window, under the standing bar. A failed
+  // read says so rather than falling through to the redirect below, which is for a build that has
+  // no console at all.
+  if (query.isLoading || query.isError) {
     return (
-      <div className="flex flex-1 items-center justify-center p-8">
-        <p className="font-display text-xs uppercase tracking-[0.2em] text-ink-300">
-          Opening the console…
-        </p>
-      </div>
+      <ScreenLoadSheet
+        what="The console"
+        loading="Opening the console…"
+        isError={query.isError}
+        onRetry={() => void query.refetch()}
+      />
     );
   }
 
@@ -701,9 +724,12 @@ export function AdminPage() {
       }
     >
       <InfoNote tone="warn" label="Testing mode">
-        Every clock is <strong>{snapshot.state.actionSeconds} seconds</strong> and nothing is
-        charged, but screens show the real prices and times, and every gate still holds. Run with{' '}
-        <code>ADMIN=false</code> to charge.
+        Builds, training, drills, location upgrades and the columns you send take{' '}
+        <strong>{snapshot.state.actionSeconds} seconds</strong>, missions and research a minute, and
+        nothing is charged, though screens show the real prices and times. A column the game walks
+        home for you, after a fight or a faction ending, keeps the real pace. Gates about progress
+        are waived: a locked plot, a full queue, an empty wallet. Run with <code>ADMIN=false</code>{' '}
+        to charge.
       </InfoNote>
 
       <Panel title="Take me to">
@@ -761,7 +787,7 @@ export function AdminPage() {
         {wiping && (
           <Confirm
             title="Start over?"
-            body="This crew goes back to its first second: the district emptied, every location you hold given back to the city, the inventory and the shelf cleared, and the research undone. You pick a character again. Nothing about it can be undone."
+            body="This crew goes back to its first second: the district emptied, every location you hold given back to the city, the inventory and the shelf cleared, and the research undone. Every fight, mission and spy job it has going is forfeit, and it walks out of its faction. You pick a character again. Nothing about it can be undone."
             confirm="Wipe it"
             testId="confirm-reset"
             onCancel={() => setWiping(false)}
@@ -780,7 +806,6 @@ export function AdminPage() {
 
       <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)]">
         <StructureKnobs snapshot={snapshot} />
-        <FogPanel snapshot={snapshot} />
         <div className="flex flex-col gap-5">
           <StateKnobs snapshot={snapshot} />
           <GrantsPanel />

@@ -1,6 +1,7 @@
 import {
   AUTOMATION_KINDS,
   LEADER_HOLD_MESSAGES,
+  NO_RIGHT_HAND_TEXT,
   SaveAutomationRequestSchema,
   automationPowers,
   findUnit,
@@ -12,6 +13,7 @@ import type { FastifyInstance } from 'fastify';
 import { AppError, parseBody } from '../errors.js';
 import { ownBase } from './own-base.js';
 import { officerDuty } from '../crew/duty.js';
+import { workingOfficer } from '../crew/roster.js';
 import { automationCooldownMs } from '../automations/runners.js';
 
 /**
@@ -124,6 +126,11 @@ export function registerAutomationRoutes(app: FastifyInstance): void {
     // order *off* is never refused, whoever it names.
     if (body.enabled && namedOfficer?.role === null) {
       throw new AppError('MISSION_REFUSED', `${namedOfficer.name} ${LEADER_HOLD_MESSAGES.bench}`);
+    }
+    // The runner stalls every slot while nobody fit sits in the Right Hand's chair (2026-09-29),
+    // so switching one on then is refused here, where the player can see why.
+    if (body.enabled && workingOfficer(base.commanders, 'right_hand', now) === undefined) {
+      throw new AppError('FORBIDDEN', NO_RIGHT_HAND_TEXT);
     }
 
     const held = app.repos.automations.get(base.id, body.slot);

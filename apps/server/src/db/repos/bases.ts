@@ -8,6 +8,7 @@ import {
   withoutRetiredUnits,
   findModification,
   findVehicle,
+  findResearchItem,
   ITEM_CATALOG,
   BaseSchema,
   LevelUpSchema,
@@ -79,6 +80,17 @@ export interface BaseStanding {
   notoriety: number;
 }
 
+/** The four clocks a crew's own work runs on. See {@link BasesRepo.listWorkInFlight}. */
+export type BaseWork = Pick<Base, 'id' | 'buildQueue' | 'trainingQueue' | 'research' | 'training'>;
+
+const BaseWorkSchema = BaseSchema.pick({
+  id: true,
+  buildQueue: true,
+  trainingQueue: true,
+  research: true,
+  training: true,
+});
+
 export interface BasesRepo {
   insert(base: Base): void;
   /** Rewrites every column of an existing base. The Console's Clean slate; see `replaceStmt`. */
@@ -107,6 +119,13 @@ export interface BasesRepo {
    * numbers is how a screen that lists everybody becomes the slowest screen in the game.
    */
   listStandings(): BaseStanding[];
+  /**
+   * The clocks of every crew with a build, a batch, a Lab rung or a drill under way, and nothing
+   * else off the row, for the world clock's finished-work sweep (`district/finished.ts`). A crew is
+   * the heaviest row there is, so the sweep reads four small columns and loads a whole crew only
+   * when one of its clocks has run out.
+   */
+  listWorkInFlight(): BaseWork[];
   updateResources(baseId: string, resources: Resources): void;
   updateEconomy(baseId: string, economy: EconomyState): void;
   /** §F2: the training board and the officers it pays out to, written together. */
@@ -429,6 +448,29 @@ function knownCommanders(raw: unknown): unknown {
     });
 }
 
+/**
+ * Finished rungs the catalogue still carries, and the rung on the bench only if it still exists.
+ *
+ * The maintainer's ruling, 2026-09-29: a renamed or retired rung is gone for good, with no mapping
+ * to its successor and no refund. Commit `ab3b2c5` renamed or removed nine of the Field
+ * Commander's and the Raid Boss's rungs without a migration, and their ids sat in `technologies`,
+ * ignored by every effect but still counted by `research_done`. Dropping them here is the one place
+ * every reader goes through, so no count, gate or feat can see a dead id again. A project in flight
+ * on a dead rung is dropped with it rather than left to finish into an id that would be dropped on
+ * the next read, which would hold the Lab for nothing.
+ */
+function knownResearch(raw: unknown): unknown {
+  if (!isRow(raw)) return raw;
+  const known = (id: unknown): boolean =>
+    typeof id !== 'string' || findResearchItem(id) !== undefined;
+  const technologies = Array.isArray(raw.technologies)
+    ? (raw.technologies as unknown[]).filter(known)
+    : raw.technologies;
+  const project = isRow(raw.active) && isRow(raw.active.project) ? raw.active.project : undefined;
+  const active = project && !known(project.techId) ? null : raw.active;
+  return { ...raw, technologies, active };
+}
+
 function rowToBase(row: BaseRow): Base {
   return BaseSchema.parse({
     id: row.id,
@@ -440,7 +482,7 @@ function rowToBase(row: BaseRow): Base {
     resources: storedResources(readJson(row.resources_json)),
     economy: readJson(row.economy_json),
     progression: readJson(row.progression_json),
-    research: readJson(row.research_json),
+    research: knownResearch(readJson(row.research_json)),
     buildings: knownBuildings(readJson(row.buildings_json)),
     buildQueue: knownBuildQueue(readJson(row.build_queue_json)),
     army: withoutRetiredUnits(readJson(row.army_json)),
@@ -541,8 +583,8 @@ export function createBasesRepo(db: AppDatabase): BasesRepo {
    * Every column a `Base` owns, rewritten in one go, for the Console's Clean slate.
    *
    * An UPDATE rather than a DELETE and a fresh INSERT, because a base cannot be deleted while the
-   * crew has touched anything: `battles`, `district_intel`, `scheduled_battles`,
-   * `market_supply_runs` and `troop_movements` all reference `bases(id)` **without**
+   * crew has touched anything: `battles`, `scheduled_battles`, `market_supply_runs` and
+   * `troop_movements` all reference `bases(id)` **without**
    * `ON DELETE CASCADE`, so the delete is refused by the first of them with a row. Keeping the id
    * also keeps `location_control.holder_base_id`, which has no foreign key at all, pointing at
    * something real; the reset releases that ground explicitly rather than orphaning it.
@@ -572,6 +614,13 @@ export function createBasesRepo(db: AppDatabase): BasesRepo {
   );
   const standingsStmt = db.prepare(
     'SELECT id, owner_id, name, district_id, level, is_bot, economy_json FROM bases',
+  );
+  const workInFlightStmt = db.prepare(
+    `SELECT id, build_queue_json, training_queue_json, research_json, training_json FROM bases
+      WHERE build_queue_json <> '[]'
+         OR training_queue_json <> '[]'
+         OR json_extract(research_json, '$.active') IS NOT NULL
+         OR json_array_length(training_json, '$.sessions') > 0`,
   );
   const updateResourcesStmt = db.prepare('UPDATE bases SET resources_json = ? WHERE id = ?');
   const updateEconomyStmt = db.prepare('UPDATE bases SET economy_json = ? WHERE id = ?');
@@ -686,6 +735,23 @@ export function createBasesRepo(db: AppDatabase): BasesRepo {
     listSummaries() {
       const rows = summariesStmt.all() as BaseSummaryRow[];
       return rows.map(rowToSummary);
+    },
+    listWorkInFlight() {
+      const rows = workInFlightStmt.all() as Pick<
+        BaseRow,
+        'id' | 'build_queue_json' | 'training_queue_json' | 'research_json' | 'training_json'
+      >[];
+      // Through the same repairs `rowToBase` applies, so a retired id cannot fail this sweep.
+      return rows.map((row) =>
+        BaseWorkSchema.parse({
+          id: row.id,
+          buildQueue: knownBuildQueue(readJson(row.build_queue_json)),
+          trainingQueue: knownTrainingQueue(readJson(row.training_queue_json)),
+          research: knownResearch(readJson(row.research_json)),
+          training:
+            row.training_json === null ? undefined : knownTraining(readJson(row.training_json)),
+        }),
+      );
     },
     allCommanders() {
       const rows = allCommandersStmt.all() as { commanders_json: string }[];

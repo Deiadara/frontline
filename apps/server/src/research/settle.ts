@@ -1,5 +1,6 @@
 import {
   isResearchDue,
+  researchCompletesAt,
   factionXpFromLeadership,
   findResearchItem,
   xpForClock,
@@ -66,7 +67,7 @@ export function settleResearch(
     title: 'The Lab has finished',
     body: `${findResearchItem(active.project.techId)?.name ?? 'A programme'} is finished.`,
     link: '/game/research',
-    now,
+    at: researchCompletesAt(active),
   });
 
   // §I1, and the player. A rung is the longest single commitment in the game, so it is the one

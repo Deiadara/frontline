@@ -5,11 +5,10 @@ import {
 } from '@frontline/shared';
 import { Link, useParams } from 'react-router-dom';
 import { Icon, type IconName } from '../../components/ui/Icon';
-import { ScreenLoad } from '../../components/ui/LoadFailure';
 import { Panel } from '../../components/ui/Panel';
 import { useFactionProfile } from '../../lib/queries';
 import { crewFileHref } from '../city/LocationSheet';
-import { PageShell } from '../game/PageShell';
+import { PageShell, ScreenLoadSheet } from '../game/PageShell';
 import { FileSection } from '../overseer/FileSection';
 import { usePlayerZone } from '../settings/usePlayerZone';
 import { FactionBadge } from './FactionBadge';
@@ -25,7 +24,7 @@ import { seatTicks } from './geometry';
  * read a crew's file can read a faction's without learning a second page.
  *
  * The one thing the reader changes is the door at the foot of the rail. Everything else is the
- * same page whether you are at this table or scouting it: the schema decides what is public (see
+ * same page whether you are at this table or sizing it up: the schema decides what is public (see
  * `FactionProfileResponseSchema`), not the component, which is what keeps a rival from being able
  * to tell they are being shown less.
  */
@@ -82,7 +81,7 @@ export function FactionProfilePage() {
 
   if (!data) {
     return (
-      <ScreenLoad
+      <ScreenLoadSheet
         what="This faction's file"
         loading="Pulling the file…"
         isError={query.isError}

@@ -17,7 +17,6 @@ import { useEffect, useMemo } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { CancelMark } from '../../components/ui/CancelMark';
 import { DrawnFace } from '../../components/ui/DrawnMarks';
-import { ScreenLoad } from '../../components/ui/LoadFailure';
 import { HoverCard } from '../../components/ui/HoverCard';
 import { Icon } from '../../components/ui/Icon';
 import { DrawnDisc } from '../../components/ui/DrawnMarks';
@@ -36,7 +35,7 @@ import { formatRemaining } from '../base/format';
 import { useServerClock } from '../missions/useServerClock';
 import { BonusBreakdown } from './BonusBreakdown';
 import { UnitCard } from './UnitCard';
-import { PageShell } from '../game/PageShell';
+import { PageShell, ScreenLoadSheet } from '../game/PageShell';
 import { VehicleCatalogue } from '../garage/VehicleCatalogue';
 import { ErrorNote } from '../../components/ui/ErrorNote';
 
@@ -158,7 +157,7 @@ export function UnitsPage() {
 
   if (!data) {
     return (
-      <ScreenLoad
+      <ScreenLoadSheet
         what="Your units"
         loading="Counting heads…"
         isError={query.isError}

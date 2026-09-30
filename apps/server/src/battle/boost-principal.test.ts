@@ -127,7 +127,6 @@ describe('a name burned on somebody else’s home defence', () => {
       payload: { inviteId, accept: true },
     });
 
-    app.repos.city.markScouted(raider.baseId, HOME, new Date().toISOString());
     const declared = await app.inject({
       method: 'POST',
       url: '/api/battles/declare',

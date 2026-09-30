@@ -333,9 +333,10 @@ describe('3. stacking with buildings, which are the attacker’s in every Combin
    *
    * The order is `mend` -> `applyDamage`, and his line runs inside the second, so this measures
    * it on a hand-built side with no seed involved. Ten Razors with four Stitchers behind them is
-   * full cover (`MAX_MEND_SHARE`). The front Razor stands 15% of a life above his line and a round
-   * takes 15% of one off it: unmended it is brought to the line and finished, mended the round is
-   * 0.55 of that and it is left standing above it.
+   * past full cover, which undoes a little under `MAX_MEND_SHARE` of the round (0.3 since
+   * 2026-09-29, approached and never reached). The front Razor stands 15% of a life above his
+   * line and a round takes 15% of one off it: unmended it is brought to the line and finished,
+   * mended the round is about 0.7 of that and it is left standing above it.
    */
   it("keeps a wounded attacker above his line when the attacker's medics got to it first", () => {
     const sim = fight({ razors: 10, stitchers: 4 }, { greycoat: 10 }, undefined, 'medics');
@@ -363,9 +364,10 @@ describe('3. stacking with buildings, which are the attacker’s in every Combin
       count: (_unitId: string, n: number) => (finished += n),
     };
 
-    expect(mendShare(side), 'the hospital is doing everything it can').toBeCloseTo(0.45, 6);
+    const share = mendShare(side);
+    expect(share, 'the hospital is doing nearly everything it can').toBeGreaterThan(0.28);
     const cut = mend(side, new Map([[razors, raw]])).get(razors)!;
-    expect(cut).toBeCloseTo(raw * 0.55, 6);
+    expect(cut).toBeCloseTo(raw * (1 - share), 6);
 
     // The control: the same exchange with nobody to treat it is a body on the floor.
     stand();
@@ -660,7 +662,7 @@ describe('8. the ceiling, and whether it is ever reached', () => {
     const leader = combineLeaderOf('annexes');
     if (!leader) throw new Error('no leader over the Annexes');
     const district = findDistrict(leader.districtId);
-    if (!district) throw new Error('no district');
+    if (district?.kind !== 'contested') throw new Error('no contested district');
 
     let heaviestArmor = 0;
     let heaviestPenetration = 0;

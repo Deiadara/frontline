@@ -6,7 +6,6 @@ import {
   type Mission,
   type MissionsResponse,
   type MovementView,
-  type ScoutingRunView,
   type SpyRunView,
   type UnitMoveView,
   type SleeperCellView,
@@ -16,19 +15,18 @@ import {
 /**
  * Everybody who is not where they started, gathered from the reads the game already makes.
  *
- * Four kinds of away: a column walking to a fight (`/actions`), a crew out on a job (`/missions`),
- * a force standing at a fight it has reached (`/battles`, the caller's own muster), and the one
- * scout a crew may have out (`/actions` again). The page used to list only the first, so a player
- * whose whole army was on a mission was told "nobody is out". Pure, so the sections and the header
- * count can be pinned without a screen.
+ * A column walking to a fight (`/actions`), a crew out on a job (`/missions`), a force standing at
+ * a fight it has reached (`/battles`, the caller's own muster), and the rest of `/actions`: the spy
+ * job, moves, cells and postings. The page used to list only the first, so a player whose whole
+ * army was on a mission was told "nobody is out". Pure, so the sections and the header count can be
+ * pinned without a screen.
  */
 export interface Road {
   readonly columns: readonly MovementView[];
   readonly jobs: readonly Mission[];
   readonly fights: readonly BattleView[];
-  readonly scout: ScoutingRunView | null;
-  /** The spy job out, or null: the runners on a road are somebody too (2026-09-22). */
-  readonly spy: SpyRunView | null;
+  /** The spy jobs out: the runners on a road are somebody too (2026-09-22). Two at most. */
+  readonly spies: readonly SpyRunView[];
   /** Columns walking between the crew's own places (2026-09-22). */
   readonly moves: readonly UnitMoveView[];
   /** §A4: cells planted on somebody else's ground, in any of their three phases. */
@@ -51,8 +49,7 @@ export function onTheRoad(
     fights: (battles?.coming ?? []).filter(
       (view) => view.muster !== null && view.muster.size > 0 && view.battle.resolvedAt === null,
     ),
-    scout: actions?.scoutingRun ?? null,
-    spy: actions?.spyRun ?? null,
+    spies: actions?.spyRuns ?? [],
     moves: actions?.moves ?? [],
     cells: actions?.sleepers ?? [],
     stationed: actions?.stationed ?? [],
@@ -65,8 +62,7 @@ export function roadIsEmpty(road: Road): boolean {
     road.columns.length === 0 &&
     road.jobs.length === 0 &&
     road.fights.length === 0 &&
-    road.scout === null &&
-    road.spy === null &&
+    road.spies.length === 0 &&
     road.moves.length === 0 &&
     // A crew with people planted or posted is not a crew with nobody out, and saying so put the
     // "Nobody is out" card over the top of the only screen that lists either of them.
@@ -87,7 +83,6 @@ export function roadCounts(road: Road): {
   columns: number;
   jobs: number;
   fights: number;
-  scouts: number;
   spies: number;
   moves: number;
   cells: number;
@@ -100,8 +95,7 @@ export function roadCounts(road: Road): {
     columns: road.columns.length,
     jobs: road.jobs.length,
     fights: road.fights.length,
-    scouts: road.scout === null ? 0 : 1,
-    spies: road.spy === null ? 0 : 1,
+    spies: road.spies.length,
     moves: road.moves.length,
     cells: road.cells.length,
     stationed: road.stationed.length,

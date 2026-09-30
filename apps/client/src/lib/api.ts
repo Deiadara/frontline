@@ -77,7 +77,6 @@ import {
   type UpgradeLocationRequest,
   type PlantSleepersRequest,
   type RecallSleepersRequest,
-  type ScoutRequest,
   type CancelTrainingRequest,
   IncreasePayrollResponseSchema,
   ReleaseOfficerResponseSchema,
@@ -110,7 +109,6 @@ import {
   type TutorialSeenRequest,
   type UpdateProfileRequest,
   type ChangePasswordRequest,
-  type AdminFogRequest,
   type AdminGrantRequest,
   type AdminKnobsRequest,
   type BuildVehicleRequest,
@@ -119,7 +117,6 @@ import {
   type CancelBuildRequest,
   type CancelResearchRequest,
   type CancelLocationWorkRequest,
-  type RecallScoutRequest,
   type RecallSpyRequest,
   type MoveUnitsRequest,
   type RecallMoveRequest,
@@ -276,7 +273,7 @@ export const getOverseerChoices = () =>
   apiFetch('/overseer/choices', OverseerChoicesResponseSchema);
 
 /**
- * §A4: the map of a city, its fog and its holdings.
+ * §A4: the map of a city and its holdings.
  *
  * `city` is left off for the crew's own, the way `getBar` and `getMarket` take it. The map's door
  * is looser than a room's, though: any city with ground drawn for it answers, held or not, because
@@ -317,9 +314,6 @@ export const buildAddon = (body: BuildAddonRequest) =>
   apiFetch('/scrapyard/build', BuildAddonResponseSchema, jsonBody(body));
 
 export const getDistrict = (id: string) => apiFetch(`/city/${id}`, DistrictDetailResponseSchema);
-
-export const scoutDistrict = (body: ScoutRequest) =>
-  apiFetch('/city/scout', CityMutationResponseSchema, jsonBody(body));
 
 /** §A4: plant a cell of Sleepers on ground this crew does not hold (`sleepers.ts`). */
 export const plantSleepers = (body: PlantSleepersRequest) =>
@@ -555,10 +549,6 @@ export const grantAdmin = (body: AdminGrantRequest) =>
 /** §Console: this crew back to its first second, character included. */
 export const resetAdmin = () => apiFetch('/admin/reset', AdminMutationResponseSchema, jsonBody({}));
 
-/** Show or hide one district on the Console's fog of war. */
-export const setAdminFog = (body: AdminFogRequest) =>
-  apiFetch('/admin/fog', AdminMutationResponseSchema, jsonBody(body));
-
 /** The console's mock: somebody else in the city calls a fight on the reviewer's ground. */
 export const mockBattleOnMe = () =>
   apiFetch('/admin/mock-battle', AdminMutationResponseSchema, jsonBody({}));
@@ -700,10 +690,6 @@ export const cancelLocationUpgrade = (body: CancelLocationWorkRequest) =>
       jsonBody({ ...body, acceptWaste }),
     ),
   );
-
-/** A journey pays back time rather than caps: the scout walks home the distance covered. */
-export const recallScout = (body: RecallScoutRequest) =>
-  apiFetch('/city/scout/recall', CityMutationResponseSchema, jsonBody(body));
 
 /** Spying (2026-09-22): one place, one tier, the caps taken at the send. */
 export const spyOn = (body: SpyRequest) =>

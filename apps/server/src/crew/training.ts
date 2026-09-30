@@ -8,6 +8,7 @@ import {
   TRAINING_SECONDS,
   TRAININGS_PER_DAY,
   applyGain,
+  drillEndsAt,
   officerPortraits,
   rollDay,
   sessionFor,
@@ -16,6 +17,8 @@ import {
   type Base,
   type Commander,
   type Overseer,
+  type TrainingGain,
+  type TrainingSession,
   type TrainingResponse,
   type TrainingSubject,
 } from '@frontline/shared';
@@ -35,23 +38,38 @@ import { notifyBase } from '../social/notify.js';
 export interface SettledTraining {
   base: Base;
   overseer: Overseer | undefined;
+  /** The hours that landed on this settle, oldest first. Empty when nothing finished. */
+  gains: TrainingGain[];
+  /** When the last of those hours ended, which is what their receipt is dated. Null with no gains. */
+  finishedAt: Date | null;
 }
 
 /**
- * Everything finished, applied, and written.
+ * Everything finished, applied, written, and announced.
  *
  * Returns the base and Overseer as they now stand rather than re-reading them, so a caller can
  * project a response without a second round trip disagreeing with what was just committed.
  */
 export function settleTrainingFor(repos: Repositories, base: Base, now: string): SettledTraining {
+  const settled = bankTrainingFor(repos, base, now);
+  announceDrills(repos, settled.base, settled);
+  return settled;
+}
+
+/**
+ * The same, without the receipt: for `settleBase`, which banks drills at every cut point in its
+ * window and sends one receipt for all of them once the window is walked.
+ */
+export function bankTrainingFor(repos: Repositories, base: Base, now: string): SettledTraining {
   const overseer = overseerOf(repos, base);
   const { state, gains } = settleTraining(base.training, now);
+  const finishedAt = lastDrillEnded(base.training.sessions, now);
 
   if (gains.length === 0) {
     // The day may still have rolled even with nothing to pay out, and a rolled day is a state
     // change: not writing it means the allowance is recomputed on every read forever.
     if (state !== base.training) repos.bases.updateTraining(base.id, state, base.commanders);
-    return { base: { ...base, training: state }, overseer };
+    return { base: { ...base, training: state }, overseer, gains, finishedAt };
   }
 
   let commanders: Commander[] = base.commanders;
@@ -73,41 +91,55 @@ export function settleTrainingFor(repos: Repositories, base: Base, now: string):
   if (developed && developed !== overseer) {
     repos.overseers.updateAttributes(developed.id, developed.attributes);
   }
+  return { base: { ...base, training: state, commanders }, overseer: developed, gains, finishedAt };
+}
 
-  /*
-   * §F2: and the player is told, which they were not.
-   *
-   * `training_done` has been in the catalogue since notifications were written, with a label, a
-   * blurb, an icon and a switch of its own on the settings screen, and **nothing has ever sent
-   * one**: a player could turn "Training" off and on and change nothing either way. The same bug
-   * `unit_trained` had, fixed the same way and in the same place, at the settler that already knows
-   * the work landed (`district/settle.ts` says so in as many words).
-   *
-   * One per settle rather than one per session. Drilling is lazy like every other clock here, so a
-   * crew that has been away all night settles a day's sessions in one read, and a receipt each
-   * would be a burst of identical lines about an hour that finished eleven hours ago.
-   */
-  const who = gains[0];
-  const first = who
-    ? who.subjectId === OVERSEER_SUBJECT
-      ? (developed?.name ?? 'Your Overseer')
-      : (commanders.find((officer) => officer.id === who.subjectId)?.name ?? 'Somebody')
-    : 'Somebody';
+/** The end of the latest session that is over by `now`, or null when none is. */
+function lastDrillEnded(sessions: readonly TrainingSession[], now: string): Date | null {
+  const cutoff = Date.parse(now);
+  const ended = sessions.map(drillEndsAt).filter((end) => end <= cutoff);
+  return ended.length === 0 ? null : new Date(Math.max(...ended));
+}
+
+/**
+ * §F2: and the player is told, which they were not.
+ *
+ * `training_done` has been in the catalogue since notifications were written, with a label, a
+ * blurb, an icon and a switch of its own on the settings screen, and **nothing has ever sent
+ * one**: a player could turn "Training" off and on and change nothing either way. The same bug
+ * `unit_trained` had, fixed the same way and in the same place, at the settler that already knows
+ * the work landed (`district/settle.ts` says so in as many words).
+ *
+ * One per settle rather than one per session. Drilling is lazy like every other clock here, so a
+ * crew that has been away all night settles a day's sessions in one read, and a receipt each
+ * would be a burst of identical lines about an hour that finished eleven hours ago.
+ */
+export function announceDrills(
+  repos: Repositories,
+  base: Base,
+  drilled: Pick<SettledTraining, 'gains' | 'finishedAt'>,
+): void {
+  const { gains, finishedAt } = drilled;
+  const [who] = gains;
+  if (!who || finishedAt === null) return;
+  const first =
+    who.subjectId === OVERSEER_SUBJECT
+      ? (overseerOf(repos, base)?.name ?? 'Your Overseer')
+      : (base.commanders.find((officer) => officer.id === who.subjectId)?.name ?? 'Somebody');
   notifyBase(repos, base.id, {
     kind: 'training_done',
     title:
       gains.length === 1
-        ? `${first} finished an hour on ${ATTRIBUTE_LABELS[who!.attribute]}`
+        ? `${first} finished an hour on ${ATTRIBUTE_LABELS[who.attribute]}`
         : `${gains.length} hours on the floor are done`,
     body:
       gains.length === 1
         ? 'The sheet has moved.'
-        : `Starting with ${first} on ${ATTRIBUTE_LABELS[who!.attribute]}.`,
+        : `Starting with ${first} on ${ATTRIBUTE_LABELS[who.attribute]}.`,
     link: '/game/training',
-    now: new Date(now),
+    // Dated when the last of them ended, not at the read that noticed.
+    at: finishedAt,
   });
-
-  return { base: { ...base, training: state, commanders }, overseer: developed };
 }
 
 /** The Overseer behind a base, through the user who owns it. */

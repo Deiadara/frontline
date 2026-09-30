@@ -6,7 +6,8 @@ import {
   CAPTURED_GATE_START_LEVEL,
   capturedGateDefensePercent,
   CASUALTY_RECOVERY_PER_INFIRMARY_LEVEL,
-  MAX_CASUALTY_RECOVERY,
+  CASUALTY_RECOVERY_CEILING,
+  casualtyRecoveryShare,
   createCommander,
   declarationWindow,
   effectiveSpeed,
@@ -114,7 +115,6 @@ async function makeStack(engine?: SkirmishEngine, username = 'leader'): Promise<
   const purse = app.repos.bases.findById(baseId)!.economy;
   app.repos.bases.updateEconomy(baseId, { ...purse, infamy: DECLARE_INFAMY_COST * 8 });
 
-  app.repos.city.markScouted(baseId, 'steelbelt', new Date().toISOString());
   for (const locationId of RUSTYARD_LOCATIONS) app.repos.city.control(locationId);
   const ramp = app.repos.city.control('steelbelt-ramp')!;
   app.repos.city.put({ ...ramp, holder: { kind: 'unoccupied' }, garrison: {} });
@@ -290,6 +290,38 @@ describe('naming a leader (§D1)', () => {
     expect(view.leaders.map((leader) => leader.officerId)).toEqual([fit.id]);
     expect(view.leaders[0]!.stats).toEqual(officerBattleStats(fit.attributes));
   });
+
+  /**
+   * The lifted sheet, not the card (maintainer, 2026-09-29). A peer with Grip Coach puts +5
+   * Strength on every other officer; the crew screen has drawn it since the perk existed, and the
+   * leader row and the engine now read it too.
+   */
+  it('fights on the sheet the crew screen draws, lifts and all', async () => {
+    const engine = spy('attacker');
+    const stack = await makeStack(engine);
+    const officer = hire(stack);
+    const base = stack.app.repos.bases.findById(stack.baseId)!;
+    stack.app.repos.bases.updateCommanders(base.id, [
+      ...base.commanders,
+      createCommander('off-grip', 'Coach', 'trader', {}, ['grip_coach']),
+    ]);
+    const battleId = await declare(stack);
+
+    const view = (
+      await stack.app.inject({ method: 'GET', url: '/api/battles', headers: auth(stack.token) })
+    ).json<BattlesResponse>().coming[0]!;
+    const row = view.leaders.find((leader) => leader.officerId === officer.id)!;
+    const taught = { ...officer.attributes, strength: officer.attributes.strength + 5 };
+    expect(row.stats).toEqual(officerBattleStats(taught));
+    expect(row.stats).not.toEqual(officerBattleStats(officer.attributes));
+
+    expect((await lead(stack, battleId, officer.id)).statusCode).toBe(200);
+    await deploy(stack, battleId, { razors: 10 });
+    bringForward(stack, battleId, new Date(Date.now() - 1000));
+    settleBattles(stack.app.repos, engine, new Date());
+
+    expect(engine.seen[0]!.attackerOfficer?.attributes).toEqual(taught);
+  });
 });
 
 /**
@@ -297,8 +329,8 @@ describe('naming a leader (§D1)', () => {
  *
  * Clocked through the same two functions a column is, so one map and one set of road bonuses serve
  * both: `columnSpeed` decides whether this officer is walking or riding, and `travelMinutesBetween`
- * turns that into minutes. The pace is the person's own `speed`, which is what a scouting run is
- * already priced with.
+ * turns that into minutes. The pace is the person's own `speed`, which is what a spy job's walk
+ * is priced with too.
  *
  * What the fight then does about an officer who has not arrived by the mark is not decided here.
  * Nothing in `resolve.ts` reads this figure.
@@ -801,7 +833,13 @@ describe('the Infirmary gets some of the dead back (§B10)', () => {
     everybodyHome(stack.app.repos);
     if (!resolved) throw new Error('fixture: the fight did not resolve');
 
-    const recovery = 20 * CASUALTY_RECOVERY_PER_INFIRMARY_LEVEL;
+    // The crew's own medic points count as well. Under the old 40% cap a level 20 ward hid them;
+    // on the curve every point shows.
+    const crewPoints = standingEffectsFor(
+      stack.app.repos,
+      stack.app.repos.bases.findById(stack.baseId)!,
+    ).casualtyRecoveryPercent;
+    const recovery = 20 * CASUALTY_RECOVERY_PER_INFIRMARY_LEVEL + crewPoints;
     const expectedDead = recoverCasualties({ razors: FELL }, recovery).razors ?? 0;
     // The anchor: with nothing recovered the report and the roster agree whatever the settler does,
     // and reverting the fix would leave this green.
@@ -823,12 +861,12 @@ describe('the Infirmary gets some of the dead back (§B10)', () => {
     expect(resolved.analysis.defender.lost).toBe(5);
   });
 
-  it('never hands back more than the ceiling, however deep the Infirmary', () => {
-    // The cap lives on `recoverCasualties`, which both sources feed. Pinned here rather than only
-    // in the shared suite because this is the call site that adds two sources together, and two
-    // uncapped sources is exactly how a cap stops binding.
+  it('never hands back half, however deep the Infirmary', () => {
+    // The curve lives on `recoverCasualties`, which both sources feed. Pinned here rather than
+    // only in the shared suite because this is the call site that adds two sources together.
     const recovered = recoverCasualties({ razors: 100 }, 999).razors ?? 0;
-    expect(100 - recovered).toBe(Math.floor(100 * (MAX_CASUALTY_RECOVERY / 100)));
+    expect(100 - recovered).toBeLessThan(CASUALTY_RECOVERY_CEILING);
+    expect(100 - recovered).toBe(Math.floor(casualtyRecoveryShare(999)));
   });
 });
 
@@ -1284,7 +1322,7 @@ describe('an officer cannot lead two fights at once', () => {
     const refused = await lead(stack, second, officerId);
     expect(refused.statusCode).toBe(403);
     // The one sentence a fight holds somebody with, wherever they are turned away
-    // (`LEADER_HOLD_MESSAGES`): the launch and the scouting party say it too.
+    // (`LEADER_HOLD_MESSAGES`): the launch says it too.
     expect(refused.json<ApiError>().error.message).toBe('Vasco Renn is at a fight');
   });
 

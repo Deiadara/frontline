@@ -208,6 +208,29 @@ describe('the bench', () => {
     expect(knobs.statusCode).toBe(404);
   });
 
+  /*
+   * Bug pass, 2026-09-29: the refusal used to live inside each handler, behind `app.authenticate`,
+   * so a caller with no token was told 401 on every console path and 404 everywhere else.
+   */
+  it('answers a stranger on every console path exactly as on a path that never existed', async () => {
+    const { app } = await makeApp(false);
+    const never = await app.inject({ method: 'POST', url: '/api/no-such-door', payload: {} });
+    expect(never.statusCode).toBe(404);
+    for (const [method, path] of [
+      ['GET', '/api/admin'],
+      ['POST', '/api/admin/knobs'],
+      ['POST', '/api/admin/grant'],
+      ['POST', '/api/admin/reset'],
+      ['POST', '/api/admin/mock-battle'],
+    ] as const) {
+      const res = await app.inject(method === 'POST' ? { method, url: path, payload: {} } : path);
+      expect(res.statusCode, path).toBe(404);
+      expect(res.json(), path).toEqual(
+        JSON.parse(never.body.replace('POST /api/no-such-door', `${method} ${path}`)),
+      );
+    }
+  });
+
   it('puts every structure at a level, and takes them away again', async () => {
     const { app } = await makeApp(true);
     const { token } = await crew(app);

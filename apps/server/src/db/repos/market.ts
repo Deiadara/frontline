@@ -1,4 +1,5 @@
 import {
+  ITEM_CATALOG,
   MarketClaimSchema,
   MarketOfferSchema,
   type MarketClaim,
@@ -30,6 +31,7 @@ interface OfferRow {
   created_at: string;
   counter_to: string | null;
   directed_at: string | null;
+  city_id: string;
 }
 
 interface ClaimRow {
@@ -52,7 +54,9 @@ export interface MarketRepo {
   findById(id: string): MarketOffer | undefined;
   /** Every listing with this status, newest first. */
   listByStatus(status: OfferStatus): MarketOffer[];
-  /** What one crew has standing, counters included. */
+  /** Every open listing on one city's board, newest first. */
+  openInCity(cityId: string): MarketOffer[];
+  /** What one crew has standing, counters included, in every city, newest first. */
   openBySeller(baseId: string): MarketOffer[];
   setStatus(id: string, status: OfferStatus): void;
   /** Counters aimed at a listing, so withdrawing the parent can release theirs too. */
@@ -79,17 +83,44 @@ export interface MarketRepo {
   recordVendorSale(day: string, lineId: string, count: number, at: string): void;
 }
 
+/**
+ * A bundle with any item the catalogue no longer carries dropped (bug pass, 2026-09-29).
+ *
+ * The same floor the inventory has (`db/repos/bases.ts`), for the same reason: `InventorySchema` is
+ * keyed on the live catalogue, so a retired good in a stored bundle threw on every read of the row.
+ * A listing that threw was only left off the board; its expiry threw on every tick, so the escrow
+ * never came home, and a claim that threw was neither shown nor paid, taking the resources beside
+ * the retired good down with it. The good itself is worth nothing now, and the inventory would drop
+ * it the moment it landed.
+ */
+function withoutRetiredItems(raw: unknown): unknown {
+  if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) return raw;
+  const bundle = raw as Record<string, unknown>;
+  const items = bundle.items;
+  if (items === null || typeof items !== 'object' || Array.isArray(items)) return raw;
+  return {
+    ...bundle,
+    items: Object.fromEntries(
+      Object.entries(items).filter(([id]) => Object.hasOwn(ITEM_CATALOG, id)),
+    ),
+  };
+}
+
 function rowToOffer(row: OfferRow): MarketOffer {
   return MarketOfferSchema.parse({
     id: row.id,
     sellerBaseId: row.seller_base_id,
     sellerName: row.seller_name,
-    give: readJson(row.give_json),
-    want: readJson(row.want_json),
+    give: withoutRetiredItems(readJson(row.give_json)),
+    // On an open listing too (maintainer, 2026-09-29: "drop whatever is removed"). The listing gets
+    // cheaper, which is accepted; one left asking for nothing is closed by the board's sweep with
+    // its escrow held for the poster (`settleMarketBoard`), so nobody takes it for free.
+    want: withoutRetiredItems(readJson(row.want_json)),
     status: row.status,
     createdAt: row.created_at,
     counterTo: row.counter_to,
     directedAt: row.directed_at,
+    cityId: row.city_id,
   });
 }
 
@@ -99,7 +130,10 @@ function rowToClaim(row: ClaimRow, offer: MarketOffer): StoredClaim {
       id: row.id,
       offer,
       reason: row.reason,
-      goods: { resources: readJson(row.resources_json), items: readJson(row.items_json) },
+      goods: withoutRetiredItems({
+        resources: readJson(row.resources_json),
+        items: readJson(row.items_json),
+      }),
       takenBy: row.taken_by,
       createdAt: row.created_at,
       claimUntil: row.claim_until,
@@ -125,18 +159,27 @@ function readableOffers(rows: OfferRow[]): MarketOffer[] {
 }
 
 export function createMarketRepo(db: AppDatabase): MarketRepo {
-  const insertStmt = db.prepare(
+  // Prepared on first use: `market_claims` arrived with 0125 and `city_id` with 0132, and the
+  // repositories are also built over older schemas by the migration tests.
+  const lazy = (sql: string): (() => Statement) => {
+    let held: Statement | null = null;
+    return () => (held ??= db.prepare(sql));
+  };
+  const insertStmt = lazy(
     `INSERT INTO market_offers
        (id, seller_base_id, seller_name, give_json, want_json, status, created_at,
-        counter_to, directed_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        counter_to, directed_at, city_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   );
   const byIdStmt = db.prepare('SELECT * FROM market_offers WHERE id = ?');
   const byStatusStmt = db.prepare(
     'SELECT * FROM market_offers WHERE status = ? ORDER BY created_at DESC',
   );
+  const openInCityStmt = lazy(
+    "SELECT * FROM market_offers WHERE city_id = ? AND status = 'open' ORDER BY created_at DESC",
+  );
   const openBySellerStmt = db.prepare(
-    "SELECT * FROM market_offers WHERE seller_base_id = ? AND status = 'open'",
+    "SELECT * FROM market_offers WHERE seller_base_id = ? AND status = 'open' ORDER BY created_at DESC",
   );
   const setStatusStmt = db.prepare('UPDATE market_offers SET status = ? WHERE id = ?');
   const openPostedByStmt = db.prepare(
@@ -145,12 +188,6 @@ export function createMarketRepo(db: AppDatabase): MarketRepo {
   const countersStmt = db.prepare(
     "SELECT * FROM market_offers WHERE counter_to = ? AND status = 'open'",
   );
-  // Prepared on first use: `market_claims` arrived with 0125, and the repositories are also built
-  // over older schemas by the migration tests.
-  const lazy = (sql: string): (() => Statement) => {
-    let held: Statement | null = null;
-    return () => (held ??= db.prepare(sql));
-  };
   const insertClaimStmt = lazy(
     `INSERT INTO market_claims
        (id, base_id, offer_id, reason, resources_json, items_json, taken_by, created_at, claim_until)
@@ -188,7 +225,7 @@ export function createMarketRepo(db: AppDatabase): MarketRepo {
 
   return {
     insert(offer) {
-      insertStmt.run(
+      insertStmt().run(
         offer.id,
         offer.sellerBaseId,
         offer.sellerName,
@@ -198,6 +235,7 @@ export function createMarketRepo(db: AppDatabase): MarketRepo {
         offer.createdAt,
         offer.counterTo,
         offer.directedAt,
+        offer.cityId,
       );
     },
     findById(id) {
@@ -206,6 +244,9 @@ export function createMarketRepo(db: AppDatabase): MarketRepo {
     },
     listByStatus(status) {
       return readableOffers(byStatusStmt.all(status) as OfferRow[]);
+    },
+    openInCity(cityId) {
+      return readableOffers(openInCityStmt().all(cityId) as OfferRow[]);
     },
     openBySeller(baseId) {
       return readableOffers(openBySellerStmt.all(baseId) as OfferRow[]);

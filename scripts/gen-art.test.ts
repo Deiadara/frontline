@@ -280,6 +280,10 @@ describe('backend selection', () => {
     'plate-district-ironmouth',
     'plate-district-marshalling-yards',
     'plate-district-bonded-row',
+    'plate-district-telemetry-hill',
+    'plate-district-viaduct',
+    'plate-district-last-platform',
+    'plate-district-blockhouse',
   ];
 
   /**

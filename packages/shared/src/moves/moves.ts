@@ -51,7 +51,6 @@ export const MOVE_REFUSALS = [
   'needs_infamy',
   /** The source is not a place this crew has units standing. */
   'not_yours',
-  'unscouted',
   /** Somebody else holds the ground: call a fight instead. */
   'held_by_others',
   'no_road',
@@ -59,6 +58,8 @@ export const MOVE_REFUSALS = [
   'under_fire',
   /** A fight lands on the ground the column leaves within the hour: nothing leaves it now. */
   'garrison_locked',
+  /** The ground is in a city that is not open yet (`cityIsOpen`): nobody walks in to claim it. */
+  'city_closed',
 ] as const;
 export type MoveRefusal = (typeof MOVE_REFUSALS)[number];
 
@@ -75,6 +76,8 @@ export const UnitMoveSchema = z.object({
   /** The walk, frozen at the send: the leg a recall is measured against. */
   travelMinutes: z.number().int().nonnegative(),
   recalledAt: IsoDateTimeSchema.nullable().default(null),
+  /** On Terminus's line rather than on foot. Read at the landing, which is where a ride is counted. */
+  byRail: z.boolean().optional(),
 });
 export type UnitMove = z.infer<typeof UnitMoveSchema>;
 

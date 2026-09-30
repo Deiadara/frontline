@@ -380,6 +380,22 @@ describe('the muster a raid on one plot brings out', () => {
     expect(garrisonAt(PLOT)).toEqual(before);
   });
 
+  /*
+   * Bug pass, 2026-09-29. A gate fight can apportion a plot down to nobody, and an empty plot puts
+   * no row in the split, so the location path fell back to writing the whole surviving line onto
+   * it: the muster. Measured with one Razor against an emptied Annexes Faculty, the plot came back
+   * with 8 to 16 Greycoats and 3 to 7 Enforcers mid-week, which is regrowth nobody scheduled.
+   */
+  it('does not stand on a plot the week has already emptied', () => {
+    repos.city.setGarrison(PLOT, {});
+    callLocationFight({ civic_levy: 3 });
+
+    settleBattles(repos, fixed({ winner: 'defender' }), SETTLE);
+
+    expect(repos.city.control(PLOT)?.holder).toEqual({ kind: 'government' });
+    expect(garrisonAt(PLOT)).toEqual({});
+  });
+
   it('is spent by the fight like the garrison beside it', () => {
     const before = garrisonAt(PLOT);
     const unit = Object.keys(before)[0]!;

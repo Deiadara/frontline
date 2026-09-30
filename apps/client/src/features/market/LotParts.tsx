@@ -4,6 +4,7 @@ import { ResourceIcon } from '../../components/Resources';
 import { Button } from '../../components/ui/Button';
 import { Icon } from '../../components/ui/Icon';
 import { NumberField } from '../../components/ui/NumberField';
+import { YouPay } from '../../components/ui/YouPay';
 import { cn } from '../../lib/cn';
 import { countdownText, LAST_CALL_MS } from '../bar/AuctionParts';
 import { ErrorNote } from '../../components/ui/ErrorNote';
@@ -258,6 +259,7 @@ export function LotBidPanel({
   error,
   shortMessage,
   atLotCap = false,
+  payFor,
   onPlace,
 }: {
   auction: LotAuction;
@@ -274,10 +276,19 @@ export function LotBidPanel({
   now: Date;
   pending: boolean;
   error: Error | null;
-  /** What to say when the figure is past what the crew holds. Each counter names its own purse. */
-  shortMessage: (purse: number) => string;
+  /**
+   * What to say when the figure is past what the crew can bid. Each counter names its own purse.
+   * Handed the ceiling as well: past the purse it is the crew's own discount doing the talking, and
+   * "he will want the whole figure" is then false.
+   */
+  shortMessage: (purse: number, most: number) => string;
   /** {@link pastLotCap}: the crew already has money on every lot it may hold here. */
   atLotCap?: boolean;
+  /**
+   * What this crew would actually pay for a bid, after its own discount. Drawn beside the figure
+   * as "bid / you pay" when the two differ (maintainer, 2026-09-29), and not at all otherwise.
+   */
+  payFor?: (bid: number) => number;
   onPlace: (amount: number) => void;
 }) {
   const [amount, setAmount] = useState(auction.nextBid);
@@ -321,6 +332,7 @@ export function LotBidPanel({
           className="min-w-0 flex-1"
           data-testid="lot-amount"
         />
+        <YouPay bid={amount} pay={payFor?.(amount)} testId="lot-you-pay" />
         <CurrencyIcon currency={currency} className="h-5 w-5 shrink-0" />
       </div>
       {/* Four quick raises; the "+ 1 step" button went at the maintainer's request (2026-09-11),
@@ -364,7 +376,7 @@ export function LotBidPanel({
           className="font-body text-[12px] leading-relaxed text-oxblood-300"
           data-testid="lot-refusal"
         >
-          {shortMessage(purse)}
+          {shortMessage(purse, most)}
         </p>
       )}
       {refusal === null && !short && amount < auction.nextBid && (

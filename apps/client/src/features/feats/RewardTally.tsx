@@ -14,7 +14,7 @@ import { cn } from '../../lib/cn';
 /**
  * What a feat pays, as a row of small drawn tokens.
  *
- * Six channels, one vocabulary. The alternative the first draft had was a sentence per channel
+ * Five channels, one vocabulary. The alternative the first draft had was a sentence per channel
  * ("600 caps, 200 scrap and 120 planks, plus 150 experience"), which is unreadable at a hundred
  * and sixty entries and impossible to scan for the one thing a player is short of. A token with
  * the game's own glyph on it is the same information at a glance, and it is the same glyph the
@@ -104,16 +104,6 @@ export function rewardTokens(reward: FeatReward): Token[] {
       // out of a row of six was the same colour as the row. Matching the HUD means the glyph a
       // reward promises and the meter it pays into are recognisably the same thing.
       tone: 'text-hextech-100',
-    });
-  }
-
-  if (reward.infamy !== undefined) {
-    tokens.push({
-      key: 'infamy',
-      glyph: <Icon name="infamy" className="h-4 w-4" />,
-      amount: `+${reward.infamy.toLocaleString()}`,
-      name: 'Infamy',
-      tone: 'text-oxblood-100',
     });
   }
 

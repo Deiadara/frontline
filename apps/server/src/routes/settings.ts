@@ -1,9 +1,13 @@
 import {
   ChangePasswordRequestSchema,
+  DISPLAY_NAME_TAKEN_MESSAGE,
   GAME_TIMEZONE,
+  RESERVED_NAME_MESSAGE,
   TutorialSeenRequestSchema,
   UpdateProfileRequestSchema,
   UserSchema,
+  isReservedName,
+  sameDisplayName,
   type SettingsResponse,
 } from '@frontline/shared';
 import bcrypt from 'bcryptjs';
@@ -34,6 +38,24 @@ function settingsFor(record: UserRecord): SettingsResponse {
     serverNow: new Date().toISOString(),
     gameTimezone: GAME_TIMEZONE,
   };
+}
+
+/**
+ * A display name somebody else already answers to, as their username or their display name (bug
+ * pass, 2026-09-29): `bobby` set his to `Alice`, another player's username, and his trade offers
+ * and letters arrived under her name. Ignoring case, because the screens print both as typed.
+ * The caller's own username is not a clash: `alice` may call herself `Alice`.
+ */
+function refuseTakenDisplayName(app: FastifyInstance, userId: string, displayName: string): void {
+  const clash = app.repos.users
+    .names()
+    .some(
+      (other) =>
+        other.id !== userId &&
+        (sameDisplayName(other.username, displayName) ||
+          (other.displayName !== null && sameDisplayName(other.displayName, displayName))),
+    );
+  if (clash) throw new AppError('DISPLAY_NAME_TAKEN', DISPLAY_NAME_TAKEN_MESSAGE);
 }
 
 export function registerSettingsRoutes(app: FastifyInstance): void {
@@ -76,11 +98,24 @@ export function registerSettingsRoutes(app: FastifyInstance): void {
     const userId = request.currentUser.id;
 
     return app.db.transaction(() => {
+      /*
+       * Only a change is refused here: the form resends both names with every save, and an
+       * account that took a username before the reserved list existed, or whose display name
+       * somebody registered as a username afterwards, must still be able to save the other field.
+       * A reserved display name is the schema's refusal (`DisplayNameSchema`), changed or not.
+       */
+      const current = app.repos.users.findById(userId);
       if (body.username !== undefined) {
         const holder = app.repos.users.findByUsername(body.username);
         if (holder && holder.id !== userId) {
           throw new AppError('USERNAME_TAKEN', 'That username is already taken');
         }
+        if (current?.username !== body.username && isReservedName(body.username)) {
+          throw new AppError('USERNAME_RESERVED', RESERVED_NAME_MESSAGE);
+        }
+      }
+      if (typeof body.displayName === 'string' && current?.displayName !== body.displayName) {
+        refuseTakenDisplayName(app, userId, body.displayName);
       }
 
       app.repos.users.updateProfile(userId, body);

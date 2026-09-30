@@ -28,8 +28,10 @@ import {
   missionOdds,
   composeProfile,
   leaningsFor,
+  NO_RIGHT_HAND_TEXT,
   type Automation,
   type Base,
+  type Commander,
 } from '@frontline/shared';
 import { randomUUID } from 'node:crypto';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -40,7 +42,7 @@ import { enemyForce } from '../missions/enemy.js';
 import { areaStatesFor } from '../missions/board.js';
 import { tickWorld } from '../live/clock.js';
 import { fightChanceFor } from '../missions/fight-leaders.js';
-import { standingEffectsFor } from '../crew/standing.js';
+import { liftedOfficerSheet, officerLiftRoom, standingEffectsFor } from '../crew/standing.js';
 import { settleWorld } from '../world/settle.js';
 import { skirmishOutcome, type SkirmishEngine } from '@frontline/shared';
 
@@ -60,7 +62,10 @@ afterEach(() => {
 
 function stack(
   rungs: readonly string[] = [AUTOMATION_RUNGS.open],
-  scouted: readonly string[] = CITY_DISTRICTS.map((one) => one.id),
+  /** Districts the crew holds a location in. Every contested one of Ashfall, unless told less. */
+  footholds: readonly string[] = CITY_DISTRICTS.filter((one) => one.kind === 'contested').map(
+    (one) => one.id,
+  ),
 ): {
   repos: Repositories;
   base: Base;
@@ -103,9 +108,18 @@ function stack(
     createdAt: now,
   };
   repos.bases.insert(base);
-  // Eyes on the whole map, so a stall is never simply "you have not looked there".
-  for (const districtId of scouted) repos.city.markScouted(base.id, districtId, now);
+  // A place in every district asked for, so every board is open and a stall is never simply "you
+  // hold nothing there" (`areaIsOpen`, maintainer 2026-09-29).
+  for (const districtId of footholds) holdOneIn(repos, base.id, districtId);
   return { repos, base };
+}
+
+/** The crew takes the first location of a district, which is what opens its board. */
+function holdOneIn(repos: Repositories, baseId: string, districtId: string): void {
+  const location = CITY_DISTRICTS.find((one) => one.id === districtId)?.locations[0];
+  const control = location ? repos.city.control(location.id) : undefined;
+  if (!control) throw new Error(`fixture: ${districtId} has no location to hold`);
+  repos.city.put({ ...control, holder: { kind: 'crew', baseId } });
 }
 
 function slot(repos: Repositories, base: Base, over: Partial<Automation> = {}): Automation {
@@ -148,6 +162,37 @@ function openAreas(repos: Repositories, base: Base): string[] {
       .map((district) => district.id),
   ];
 }
+
+/**
+ * "Need the officer seated" (maintainer, 2026-09-29): standing orders are the Right Hand's work, so
+ * every slot stalls while that chair is empty, its officer benched or in a hospital bed, and runs
+ * again the moment somebody fit sits back down. The slot names the Field Commander as its leader,
+ * so the leader is never the reason it stalls.
+ */
+describe("the Right Hand's chair", () => {
+  const tomorrow = new Date(NOW.getTime() + 86_400_000).toISOString();
+  const without: Record<string, (officers: readonly Commander[]) => Commander[]> = {
+    empty: (officers) => officers.filter((one) => one.role !== 'right_hand'),
+    benched: (officers) =>
+      officers.map((one) => (one.role === 'right_hand' ? { ...one, role: null } : one)),
+    hurt: (officers) =>
+      officers.map((one) => (one.role === 'right_hand' ? { ...one, injuredUntil: tomorrow } : one)),
+  };
+
+  for (const [how, strip] of Object.entries(without)) {
+    it(`stalls every order with the chair ${how}, and runs again once it is filled`, () => {
+      const { repos, base } = stack();
+      repos.bases.updateCommanders(base.id, strip(base.commanders));
+      slot(repos, base, { officerId: 'off-2' });
+      expect(settleAutomations(repos, NOW)).toBe(0);
+      expect(repos.missions.listActiveByBaseId(base.id)).toHaveLength(0);
+      expect(repos.automations.get(base.id, 0)?.stalled).toBe(NO_RIGHT_HAND_TEXT);
+
+      repos.bases.updateCommanders(base.id, base.commanders);
+      expect(settleAutomations(repos, new Date(NOW.getTime() + STALL_RETRY_MS + 1_000))).toBe(1);
+    });
+  }
+});
 
 describe('a standing order on the world clock', () => {
   it('sends a party without anybody being logged in', () => {
@@ -471,15 +516,17 @@ describe('a standing order on the world clock', () => {
    * the recovered case would pass if injury were ignored altogether.
    */
   it('sends an officer whose injury has passed, and not one who is still laid up', () => {
+    // The Field Commander rather than the Right Hand: a Right Hand laid up stalls every order for
+    // a reason of its own (see "the Right Hand's chair" below).
     const healed = stack();
     const yesterday = new Date(NOW.getTime() - 24 * 3_600_000).toISOString();
     healed.repos.bases.updateCommanders(
       healed.base.id,
       healed.base.commanders.map((one) =>
-        one.id === 'off-1' ? { ...one, injuredUntil: yesterday } : one,
+        one.id === 'off-2' ? { ...one, injuredUntil: yesterday } : one,
       ),
     );
-    slot(healed.repos, healed.base);
+    slot(healed.repos, healed.base, { officerId: 'off-2' });
     expect(settleAutomations(healed.repos, NOW)).toBe(1);
 
     const hurt = stack();
@@ -487,10 +534,10 @@ describe('a standing order on the world clock', () => {
     hurt.repos.bases.updateCommanders(
       hurt.base.id,
       hurt.base.commanders.map((one) =>
-        one.id === 'off-1' ? { ...one, injuredUntil: tomorrow } : one,
+        one.id === 'off-2' ? { ...one, injuredUntil: tomorrow } : one,
       ),
     );
-    slot(hurt.repos, hurt.base);
+    slot(hurt.repos, hurt.base, { officerId: 'off-2' });
     expect(settleAutomations(hurt.repos, NOW)).toBe(0);
     expect(hurt.repos.automations.get(hurt.base.id, 0)?.stalled).toMatch(/is still laid up$/);
   });
@@ -499,24 +546,40 @@ describe('a standing order on the world clock', () => {
    * The board the Right Hand reads is the board the player reads, and no other.
    *
    * Found in review: the runner walked `areaStatesFor`, which lists districts only, so a crew
-   * with nothing scouted had no board at all even though the misc board is always open to it,
-   * and a residential district (which the screen never draws) was fair game once scouted.
+   * with no district open had no board at all even though the misc board is always open to it.
    */
-  it('reads the misc board with nothing scouted, and never a residential district', () => {
-    // Eyes on the residential districts only, which the screen never offers work in.
-    const residential = CITY_DISTRICTS.filter((one) => one.kind === 'residential');
-    expect(residential.length).toBeGreaterThan(0);
-    const { repos, base } = stack(
-      [AUTOMATION_RUNGS.open, AUTOMATION_RUNGS.optimise],
-      residential.map((one) => one.id),
-    );
-    // Chasing scrap makes the pick deterministic, and on this day a residential board pays it
-    // twenty times better than the misc board does: the only way misc wins is by being the
-    // only board there is.
+  it('reads the misc board when the crew holds nothing anywhere', () => {
+    const { repos, base } = stack([AUTOMATION_RUNGS.open, AUTOMATION_RUNGS.optimise], []);
+    expect(openAreas(repos, base)).toEqual([MISC_AREA_ID]);
     slot(repos, base, { optimiseFor: 'scrap' });
     expect(settleAutomations(repos, NOW)).toBe(1);
     const sent = repos.missions.listActiveByBaseId(base.id)[0]?.mission;
     expect(sent?.areaId).toBe(MISC_AREA_ID);
+  });
+
+  /**
+   * A district the crew has lost its last place in drops off the Right Hand's boards on the next
+   * tick, the way it drops off the screen (maintainer, 2026-09-29), and the stall says what to do.
+   */
+  it('stalls with the foothold rule when misc is taken and no district is held', () => {
+    const district = CITY_DISTRICTS.find((one) => one.kind === 'contested')!;
+    const { repos, base } = stack(
+      [AUTOMATION_RUNGS.open, AUTOMATION_RUNGS.secondSlot],
+      [district.id],
+    );
+    expect(openAreas(repos, base)).toEqual([MISC_AREA_ID, district.id]);
+    // The place is lost: the district's board goes with it.
+    const control = repos.city.control(district.locations[0]!.id)!;
+    repos.city.put({ ...control, holder: { kind: 'looters' } });
+    expect(openAreas(repos, base)).toEqual([MISC_AREA_ID]);
+
+    slot(repos, base);
+    slot(repos, base, { slot: 1 });
+    expect(settleAutomations(repos, NOW)).toBe(1);
+    expect(repos.missions.listActiveByBaseId(base.id)[0]?.mission.areaId).toBe(MISC_AREA_ID);
+    expect(repos.automations.get(base.id, 1)?.stalled).toMatch(
+      /^No open board has (work|a fight)\. A district hires only crews that hold a place in it$/,
+    );
   });
 
   /** The feat that measures this mechanic is bumped where the party leaves, and only there. */
@@ -567,8 +630,8 @@ describe('a standing order on the world clock', () => {
       AUTOMATION_RUNGS.bestFit,
       AUTOMATION_RUNGS.optimise,
     ]);
-    // Every board this crew can see (the fixture scouts the whole map), so the expectation is
-    // computed over the same set the runner reads.
+    // Every board this crew can read (the fixture holds a place in every district), so the
+    // expectation is computed over the same set the runner reads.
     const offersOn = (at: Date) =>
       openAreas(repos, base).flatMap((areaId) =>
         missionOffers(areaId, missionBoardKey(areaId, at), base.level).filter(
@@ -700,14 +763,28 @@ describe('choosing on what actually happens', () => {
     expect(repos.missions.listActiveByBaseId(base.id)[0]?.mission.templateId).toBe(expected);
   });
 
+  /** Everybody but the Right Hand, who has to stay fit or every order stalls on the chair. */
   const laidUp = (repos: Repositories, base: Base) =>
     repos.bases.updateCommanders(
       base.id,
-      base.commanders.map((one) => ({
-        ...one,
-        injuredUntil: new Date(NOW.getTime() + 86_400_000).toISOString(),
-      })),
+      base.commanders.map((one) =>
+        one.role === 'right_hand'
+          ? one
+          : { ...one, injuredUntil: new Date(NOW.getTime() + 86_400_000).toISOString() },
+      ),
     );
+
+  /**
+   * The Right Hand at work and out leading slot 0's run, so slot 1 has nobody free to send.
+   *
+   * Since the orders need the chair (2026-09-29), this is the one way left to reach "nobody free to
+   * lead" with the orders still running: the chair is filled and busy.
+   */
+  const rightHandOut = (repos: Repositories, base: Base): Date => {
+    slot(repos, base, { officerId: 'off-1' });
+    expect(settleAutomations(repos, NOW)).toBe(1);
+    return new Date(NOW.getTime() + 1_000);
+  };
 
   /*
    * Every run has a leader (maintainer, 2026-09-28), and the Overseer is the player rather than a
@@ -717,22 +794,25 @@ describe('choosing on what actually happens', () => {
   it('stalls rather than sending nobody at the head of a run, whatever the research', () => {
     const { repos, base } = stack([
       AUTOMATION_RUNGS.open,
+      AUTOMATION_RUNGS.secondSlot,
       'tech_unled_runs',
       'tech_unled_runs_free',
     ]);
-    laidUp(repos, base);
-    slot(repos, base, { officerId: null });
-    expect(settleAutomations(repos, NOW)).toBe(0);
-    expect(repos.missions.listActiveByBaseId(base.id)).toHaveLength(0);
-    expect(repos.automations.get(base.id, 0)?.stalled).toBe('No officer is free to lead');
+    const later = rightHandOut(repos, base);
+    laidUp(repos, repos.bases.findById(base.id)!);
+    slot(repos, base, { slot: 1, officerId: null });
+    expect(settleAutomations(repos, later)).toBe(0);
+    expect(repos.missions.listActiveByBaseId(base.id)).toHaveLength(1);
+    expect(repos.automations.get(base.id, 1)?.stalled).toBe('No officer is free to lead');
   });
 
   it('stalls for want of an officer with nothing researched', () => {
-    const { repos, base } = stack();
-    laidUp(repos, base);
-    slot(repos, base, { officerId: null });
-    expect(settleAutomations(repos, NOW)).toBe(0);
-    expect(repos.automations.get(base.id, 0)?.stalled).toBe('No officer is free to lead');
+    const { repos, base } = stack([AUTOMATION_RUNGS.open, AUTOMATION_RUNGS.secondSlot]);
+    const later = rightHandOut(repos, base);
+    laidUp(repos, repos.bases.findById(base.id)!);
+    slot(repos, base, { slot: 1, officerId: null });
+    expect(settleAutomations(repos, later)).toBe(0);
+    expect(repos.automations.get(base.id, 1)?.stalled).toBe('No officer is free to lead');
   });
 
   it('never sends a named officer’s run without them, whatever the research', () => {
@@ -742,7 +822,7 @@ describe('choosing on what actually happens', () => {
       'tech_unled_runs_free',
     ]);
     laidUp(repos, base);
-    slot(repos, base, { officerId: 'off-1' });
+    slot(repos, base, { officerId: 'off-2' });
     expect(settleAutomations(repos, NOW)).toBe(0);
     expect(repos.automations.get(base.id, 0)?.stalled).toMatch(/is still laid up$/);
   });
@@ -794,29 +874,31 @@ describe('choosing on what actually happens', () => {
     expect(repos.missions.listActiveByBaseId(base.id)[0]?.mission.officerId).toBe('off-1');
   });
 
-  it('stalls with everybody on the bench', () => {
-    const { repos, base } = stack();
+  it('stalls with everybody else on the bench', () => {
+    const { repos, base } = stack([AUTOMATION_RUNGS.open, AUTOMATION_RUNGS.secondSlot]);
+    const later = rightHandOut(repos, base);
+    const sent = repos.bases.findById(base.id)!;
     repos.bases.updateCommanders(
       base.id,
-      base.commanders.map((one) => ({ ...one, role: null })),
+      sent.commanders.map((one) => (one.role === 'right_hand' ? one : { ...one, role: null })),
     );
-    slot(repos, base, { officerId: null });
-    expect(settleAutomations(repos, NOW)).toBe(0);
-    expect(repos.missions.listActiveByBaseId(base.id)).toHaveLength(0);
-    expect(repos.automations.get(base.id, 0)?.stalled).toBe('No officer is free to lead');
+    slot(repos, base, { slot: 1, officerId: null });
+    expect(settleAutomations(repos, later)).toBe(0);
+    expect(repos.missions.listActiveByBaseId(base.id)).toHaveLength(1);
+    expect(repos.automations.get(base.id, 1)?.stalled).toBe('No officer is free to lead');
   });
 
   it('stalls a slot that names somebody on the bench rather than sending them', () => {
     const { repos, base } = stack();
     repos.bases.updateCommanders(base.id, [
-      { ...base.commanders[0]!, role: null },
-      base.commanders[1]!,
+      base.commanders[0]!,
+      { ...base.commanders[1]!, role: null },
     ]);
-    slot(repos, base, { officerId: 'off-1' });
+    slot(repos, base, { officerId: 'off-2' });
     expect(settleAutomations(repos, NOW)).toBe(0);
     // Named, and told what to fix: the order stalls every tick until somebody gives them a chair.
     expect(repos.automations.get(base.id, 0)?.stalled).toBe(
-      `${base.commanders[0]!.name} is on the bench. Give them a chair first`,
+      `${base.commanders[1]!.name} is on the bench. Give them a chair first`,
     );
   });
 
@@ -940,5 +1022,53 @@ describe('the crew a standing order sends', () => {
     }).chance;
     expect(expected).not.toBe(graded);
     expect(sent.successChance).toBe(expected);
+  });
+
+  /**
+   * On the lifted sheet, as the hand-sent launch is (maintainer, 2026-09-29). The Field Commander
+   * is lifted by the Right Hand beside them, so their card and the sheet they lead on differ.
+   */
+  it('prices a standing order on the leader’s lifted sheet', () => {
+    const { repos, base } = stack();
+    // A middling card, so the odds sit between the floor and the ceiling and a lift shows.
+    const officer = { ...base.commanders[1]!, attributes: makeAttributes(20) };
+    repos.bases.updateCommanders(base.id, [base.commanders[0]!, officer]);
+    slot(repos, base, { officerId: officer.id });
+    expect(settleAutomations(repos, NOW)).toBe(1);
+    const sent = repos.missions.listActiveByBaseId(base.id)[0]!;
+    const template = findMissionTemplate(sent.mission.templateId)!;
+    expect(template.kind).toBe('standard');
+    const oddsOn = (sheet: Commander['attributes']) =>
+      missionOdds({
+        grade: sent.mission.grade!,
+        leader: sheet,
+        profile: composeProfile(leaningsFor(template)),
+      }).chance;
+    const room = officerLiftRoom(repos, repos.bases.findById(base.id)!, NOW);
+    const lifted = liftedOfficerSheet(officer, room).attributes;
+    expect(sent.successChance).toBe(oddsOn(lifted));
+    expect(sent.successChance).not.toBe(oddsOn(officer.attributes));
+  });
+
+  /**
+   * The same door as the hand-sent launch (bug pass, 2026-09-29): a crew that puts its porters in
+   * the line (`carriers_fight`) may name a party of them for a fight, and one that does not is
+   * told that porters do not go in alone.
+   */
+  it('sends a named party of porters to a fight only for a crew that fields them', () => {
+    const rungs = [AUTOMATION_RUNGS.open, AUTOMATION_RUNGS.battles];
+    const strict = stack(rungs);
+    strict.repos.bases.updateArmy(strict.base.id, { haulers: 12 }, []);
+    slot(strict.repos, strict.base, { order: 'battles', force: { haulers: 12 } });
+    expect(settleAutomations(strict.repos, NOW)).toBe(0);
+    expect(strict.repos.missions.listActiveByBaseId(strict.base.id)).toHaveLength(0);
+
+    const fielded = stack([...rungs, 'tech_everybody_fights']);
+    fielded.repos.bases.updateArmy(fielded.base.id, { haulers: 12 }, []);
+    slot(fielded.repos, fielded.base, { order: 'battles', force: { haulers: 12 } });
+    expect(settleAutomations(fielded.repos, NOW)).toBe(1);
+    expect(fielded.repos.missions.listActiveByBaseId(fielded.base.id)[0]?.mission.force).toEqual({
+      haulers: 12,
+    });
   });
 });

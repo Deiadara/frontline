@@ -8,7 +8,7 @@
     "node": ">=24"
   },
   "scripts": {
-    "dev": "pnpm --filter @frontline/shared build && pnpm --parallel --filter @frontline/server --filter @frontline/client dev",
+    "dev": "pnpm --filter @frontline/shared build && node scripts/dev.mjs",
     "build": "pnpm -r build",
     "typecheck": "pnpm -r typecheck",
     "lint": "pnpm -r lint",

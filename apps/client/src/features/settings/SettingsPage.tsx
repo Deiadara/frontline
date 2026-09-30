@@ -1,11 +1,19 @@
 import {
+  DisplayNameSchema,
   GAME_TIMEZONE,
   OFFERED_TIMEZONES,
+  PASSWORD_MAX_BYTES,
+  PASSWORD_MIN_CHARACTERS,
+  PASSWORD_TOO_LONG_MESSAGE,
+  PasswordSchema,
+  RESERVED_NAME_MESSAGE,
   SOUND_VOLUME_MAX,
   SOUND_VOLUME_MIN,
   UsernameSchema,
   formatDayClock,
+  isReservedName,
   isValidTimezone,
+  utf8Length,
   zoneCity,
   zoneLabel,
 } from '@frontline/shared';
@@ -122,13 +130,22 @@ function ProfilePanel({ username, displayName }: { username: string; displayName
     setShown(displayName ?? '');
   }, [username, displayName]);
 
-  const nameError = UsernameSchema.safeParse(name).success
-    ? null
-    : 'Three to twenty-four letters, digits or underscores.';
+  const nameError = !UsernameSchema.safeParse(name).success
+    ? 'Three to twenty-four letters, digits or underscores.'
+    : // Only a change: an account that held a reserved name before the list existed keeps it.
+      name.trim() !== username && isReservedName(name)
+      ? RESERVED_NAME_MESSAGE
+      : null;
+  // Blank is allowed (it means "call me by my Overseer ID"); anything else has to pass the schema.
+  const shownCheck = shown.trim() === '' ? null : DisplayNameSchema.safeParse(shown);
+  const shownError =
+    shownCheck === null || shownCheck.success
+      ? null
+      : (shownCheck.error.issues[0]?.message ?? 'That name cannot be used.');
 
   const onSubmit = (event: FormEvent) => {
     event.preventDefault();
-    if (nameError) return;
+    if (nameError || shownError) return;
     setDone(null);
     save.mutate(
       {
@@ -161,7 +178,7 @@ function ProfilePanel({ username, displayName }: { username: string; displayName
               onChange={(event) => setShown(event.target.value)}
               placeholder={username}
               data-testid="settings-display-name"
-              className={INPUT}
+              className={cn(INPUT, shownError !== null && INPUT_BAD)}
             />
           </Field>
         </div>
@@ -171,9 +188,14 @@ function ProfilePanel({ username, displayName }: { username: string; displayName
           // the keystroke that made the name invalid.
           <ErrorNote role="status">{nameError}</ErrorNote>
         )}
+        {shownError !== null && <ErrorNote role="status">{shownError}</ErrorNote>}
 
         <div className="flex flex-wrap items-center gap-3">
-          <DrawnButton type="submit" size="sm" disabled={save.isPending || nameError !== null}>
+          <DrawnButton
+            type="submit"
+            size="sm"
+            disabled={save.isPending || nameError !== null || shownError !== null}
+          >
             {save.isPending ? 'Saving…' : 'Save'}
           </DrawnButton>
           <Result error={save.error} done={done} />
@@ -500,8 +522,9 @@ function PasswordPanel() {
   const [done, setDone] = useState<string | null>(null);
 
   const mismatch = again !== '' && next !== again;
-  const tooShort = next !== '' && next.length < 8;
-  const blocked = next.length < 8 || next !== again;
+  const tooShort = next !== '' && next.length < PASSWORD_MIN_CHARACTERS;
+  const tooLong = utf8Length(next) > PASSWORD_MAX_BYTES;
+  const blocked = !PasswordSchema.safeParse(next).success || next !== again;
 
   return (
     <Panel title="Password" tone="paper">
@@ -525,14 +548,17 @@ function PasswordPanel() {
         }}
       >
         <div className="grid gap-4 sm:grid-cols-2">
-          <Field label="New" hint="Eight characters at least.">
+          <Field
+            label="New"
+            hint={`Eight characters at least, ${String(PASSWORD_MAX_BYTES)} bytes at most. Accents and symbols take two to four.`}
+          >
             <input
               type="password"
               value={next}
               autoComplete="new-password"
               onChange={(event) => setNext(event.target.value)}
               data-testid="settings-new-password"
-              className={cn(INPUT, tooShort && INPUT_BAD)}
+              className={cn(INPUT, (tooShort || tooLong) && INPUT_BAD)}
             />
           </Field>
           <Field label="Again">
@@ -547,6 +573,7 @@ function PasswordPanel() {
           </Field>
         </div>
 
+        {tooLong && <ErrorNote role="status">{PASSWORD_TOO_LONG_MESSAGE}</ErrorNote>}
         {mismatch && <ErrorNote role="status">Those two do not match.</ErrorNote>}
 
         <div className="flex flex-wrap items-center gap-3">

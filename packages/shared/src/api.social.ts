@@ -147,7 +147,7 @@ export type ReinforceRequest = z.infer<typeof ReinforceRequestSchema>;
  * and each member's own file prints their level, their infamy and their rank. What is not here is
  * everything the faction screen adds for the people sitting at it: the ally armies, the ally
  * battles, the open invitations. Those are the point of being a member, and a rival reading the
- * roster's army sizes and battle marks would be a free scout of five crews at once.
+ * roster's army sizes and battle marks would be a free spy report on five crews at once.
  */
 export const FactionProfileMemberSchema = z.object({
   userId: IdSchema,

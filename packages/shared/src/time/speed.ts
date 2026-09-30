@@ -71,7 +71,7 @@ export function effectiveSpeed(
  *
  * `speed` is the pace of the slowest group in the column (`building/vehicles.ts`, `columnSpeed`),
  * and it divides. `reductionPercent` is what the ground and the crew take off the result, and it
- * multiplies. Both roads use this: `travelMinutesBetween` for a march or a scouting run, and
+ * multiplies. Both roads use this: `travelMinutesBetween` for a march or a spy job, and
  * `hastenedRoadMinutes` for a mission's travel leg.
  *
  * Nobody walking at nothing with no holdings gets the base back, which is the property that makes

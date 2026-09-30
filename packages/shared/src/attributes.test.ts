@@ -105,7 +105,7 @@ describe('PERK_CATALOG', () => {
       // magnitude is zero is a keyword that reads as a bonus and does nothing.
       const magnitude = Object.entries(entry.bonus)
         .filter(([key]) => key !== 'kind')
-        .map(([, value]) => value)
+        .map(([, value]): unknown => value)
         .find((value) => typeof value === 'number');
       expect(magnitude, `${entry.id} grants nothing`).toBeGreaterThan(0);
     }

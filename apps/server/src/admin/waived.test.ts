@@ -3,6 +3,7 @@ import {
   BUILD_QUEUE_RESEARCH_ID,
   MAX_BUILD_QUEUE,
   MAX_OPEN_AUCTIONS,
+  committedWage,
   type BarResponse,
 } from '@frontline/shared';
 import type { FastifyInstance } from 'fastify';
@@ -11,7 +12,6 @@ import { buildApp } from '../app.js';
 import { loadConfig } from '../config.js';
 import { openDatabase, runMigrations, type AppDatabase } from '../db/index.js';
 import { WAIVED_REFUSALS } from './mode.js';
-import { committedWage } from '../bar/hire.js';
 import { crewEffectsFor } from '../crew/standing.js';
 import { chooseOverseer } from '../testing/overseer.js';
 import { openDoors } from '../testing/doors.js';

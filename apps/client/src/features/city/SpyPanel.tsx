@@ -2,8 +2,9 @@ import type { ReactNode } from 'react';
 import {
   SPY_TIERS,
   SPY_TIER_SPECS,
-  armySize,
+  findResearchItem,
   spyRecallWindowMs,
+  spyReportSummary,
   type DistrictDetailResponse,
   type SpyReport,
   type SpyRunView,
@@ -25,19 +26,40 @@ import { ErrorNote } from '../../components/ui/ErrorNote';
  * Spying, from the player's side (maintainer ruling, 2026-09-22).
  *
  * One panel for both things a job can point at: a location on open ground, and a district read
- * at its gate. It has the same three states the scout panel has, and for the same reason: the
- * two ways the route can refuse are said here in the route's own words, a job already out is
- * shown rather than discovered on the press, and otherwise the tier is the choice.
+ * at its gate. The two ways the route can refuse are said here in the route's own words, the jobs
+ * already out are shown rather than discovered on the press, and while a party is free the tier
+ * is the choice. One party, or two with Two Sets of Eyes (2026-09-28).
  *
  * The tiers are cards rather than a dropdown because the price is the decision: a player picking
- * between a hundred caps and ten thousand wants both numbers in front of them, and the blurb
- * under the chosen one says what the caps buy in words rather than points.
+ * between a hundred caps and twelve thousand wants both numbers in front of them, and the blurb
+ * under the chosen one says what the caps buy in words rather than points. A tier the track has
+ * not opened is drawn shut with the rung that opens it, so the ladder is visible before it is
+ * climbed.
  */
 
 export interface SpyingProps {
-  run: SpyRunView | null;
+  runs: readonly SpyRunView[];
+  /** How many jobs may be out at once. */
+  parties: number;
+  tiersOpen: readonly SpyTier[];
   quote: DistrictDetailResponse['spyQuote'];
   blocker: DistrictDetailResponse['spyBlocker'];
+}
+
+/** The panel's slice of a district read, in one place for the five doors that open it. */
+export function spyingOf(
+  data: Pick<
+    DistrictDetailResponse,
+    'spyRuns' | 'spyParties' | 'spyTiersOpen' | 'spyQuote' | 'spyBlocker'
+  >,
+): SpyingProps {
+  return {
+    runs: data.spyRuns,
+    parties: data.spyParties,
+    tiersOpen: data.spyTiersOpen,
+    quote: data.spyQuote,
+    blocker: data.spyBlocker,
+  };
 }
 
 export function SpyPanel({
@@ -68,8 +90,9 @@ export function SpyPanel({
 }) {
   const [tier, setTier] = useState<SpyTier>('loose_ears');
   const spy = useSpy(baseId, districtId);
-  const recall = useRecallSpy(spying.run?.districtId);
-  const { run, quote, blocker } = spying;
+  const recall = useRecallSpy();
+  const { runs, parties, tiersOpen, quote, blocker } = spying;
+  const free = runs.length < parties;
 
   return (
     <div className="flex flex-col gap-2.5" data-testid={testId}>
@@ -83,23 +106,30 @@ export function SpyPanel({
           Nobody is in the Master of Whispers chair. Spying is their work: sign one at the Bar and
           seat them. Nothing else is needed, and the caps are the price.
         </p>
-      ) : run !== null ? (
-        <RunUnderway
-          run={run}
-          now={now}
-          here={sameTarget(run.target, target)}
-          pending={recall.isPending}
-          onRecall={() => recall.mutate({})}
-          testId={testId}
-          actions={actions}
-        />
-      ) : quote === null ? (
+      ) : (
+        runs.map((run, index) => (
+          <RunUnderway
+            key={run.id}
+            run={run}
+            now={now}
+            here={sameTarget(run.target, target)}
+            full={!free}
+            pending={recall.isPending}
+            onRecall={() => recall.mutate({ runId: run.id, districtId: run.districtId })}
+            testId={testId}
+            // The way out goes on the last line the panel draws, which is this one when no party
+            // is free to send.
+            actions={!free && index === runs.length - 1 ? actions : undefined}
+          />
+        ))
+      )}
+      {blocker !== null || !free ? null : quote === null ? (
         <p className="font-body text-xs leading-relaxed text-ink-300">
           There is no road between here and home for the runners to walk.
         </p>
       ) : (
         <>
-          <TierPicker tier={tier} caps={caps} onPick={setTier} testId={testId} />
+          <TierPicker tier={tier} caps={caps} open={tiersOpen} onPick={setTier} testId={testId} />
           <p className="font-display text-[11px] uppercase tracking-[0.14em] text-ink-400">
             <span className="text-brass-300">The runners</span> would be gone{' '}
             <span className="tabular-nums text-brass-300">
@@ -111,7 +141,9 @@ export function SpyPanel({
           <div className="flex flex-wrap items-center justify-between gap-3">
             <Button
               size="sm"
-              disabled={spy.isPending || caps < SPY_TIER_SPECS[tier].caps}
+              disabled={
+                spy.isPending || caps < SPY_TIER_SPECS[tier].caps || !tiersOpen.includes(tier)
+              }
               onClick={() => spy.mutate({ target, tier })}
               data-testid={`${testId}-send`}
             >
@@ -130,7 +162,7 @@ export function SpyPanel({
        * the two are siblings in one flex row; every branch above that draws no send button falls
        * through to this, which is why the blocked and already-out states still have a Close.
        */}
-      {blocker !== null || (run === null && quote === null) ? (
+      {blocker !== null || (free && quote === null) ? (
         <div className="flex justify-end">{actions}</div>
       ) : null}
     </div>
@@ -146,11 +178,13 @@ function sameTarget(a: SpyTarget, b: SpyTarget): boolean {
 function TierPicker({
   tier,
   caps,
+  open,
   onPick,
   testId,
 }: {
   tier: SpyTier;
   caps: number;
+  open: readonly SpyTier[];
   onPick: (tier: SpyTier) => void;
   testId: string;
 }) {
@@ -165,20 +199,25 @@ function TierPicker({
           const spec = SPY_TIER_SPECS[id];
           const picked = id === tier;
           const short = caps < spec.caps;
+          const shut = !open.includes(id);
+          const rung = spec.opensWith === null ? undefined : findResearchItem(spec.opensWith);
           return (
             <button
               key={id}
               type="button"
               role="radio"
               aria-checked={picked}
+              disabled={shut}
               onClick={() => onPick(id)}
               data-testid={`${testId}-tier-${id}`}
               className={cn(
                 'flex min-w-0 flex-col items-start gap-0.5 rounded-sm border px-2 py-1.5 text-left transition-colors',
-                picked
-                  ? 'border-brass-300 bg-brass-300/10'
-                  : 'border-surface-600 bg-surface-950/40 hover:border-brass-500/60',
-                short && 'opacity-60',
+                shut
+                  ? 'cursor-not-allowed border-dashed border-surface-600 bg-surface-950/20'
+                  : picked
+                    ? 'border-brass-300 bg-brass-300/10'
+                    : 'border-surface-600 bg-surface-950/40 hover:border-brass-500/60',
+                short && !shut && 'opacity-60',
               )}
             >
               <span
@@ -189,14 +228,23 @@ function TierPicker({
               >
                 {spec.label}
               </span>
-              <span
-                className={cn(
-                  'font-display text-[12px] font-bold tabular-nums',
-                  short ? 'text-oxblood-300' : 'text-brass-300',
-                )}
-              >
-                {spec.caps.toLocaleString()} caps
-              </span>
+              {shut ? (
+                <span
+                  className="block w-full font-body text-[11px] leading-snug text-ink-300"
+                  data-testid={`${testId}-tier-${id}-shut`}
+                >
+                  Opens with {rung?.name ?? 'a later rung'}
+                </span>
+              ) : (
+                <span
+                  className={cn(
+                    'font-display text-[12px] font-bold tabular-nums',
+                    short ? 'text-oxblood-300' : 'text-brass-300',
+                  )}
+                >
+                  {spec.caps.toLocaleString()} caps
+                </span>
+              )}
             </button>
           );
         })}
@@ -215,6 +263,7 @@ function RunUnderway({
   run,
   now,
   here,
+  full,
   pending,
   onRecall,
   testId,
@@ -224,6 +273,8 @@ function RunUnderway({
   now: Date;
   /** Whether the job out is on this very place, or somewhere else. */
   here: boolean;
+  /** Whether every party is out, so the line says why no job can be sent. */
+  full: boolean;
   pending: boolean;
   onRecall: () => void;
   testId: string;
@@ -249,11 +300,11 @@ function RunUnderway({
           </>
         ) : (
           <>
-            Your runners are already out at{' '}
+            Your runners are out at{' '}
             <span className="text-ink-100">
               {run.placeName}, {run.districtName}
             </span>
-            . One job at a time.
+            .{full ? ' Every party you have is out.' : null}
           </>
         )}
       </p>
@@ -293,7 +344,7 @@ function LastReport({ report }: { report: SpyReport }) {
       <span>
         {report.failed
           ? 'Last look: nothing they would put their name to.'
-          : `Last look: ${armySize(report.exposed)} seen, ${report.writtenAt.slice(0, 10)}.`}
+          : `Last look: ${spyReportSummary(report)}, ${report.writtenAt.slice(0, 10)}.`}
       </span>
       <Link
         to={`/game/battles?spy=${encodeURIComponent(report.id)}`}

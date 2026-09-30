@@ -39,6 +39,9 @@ import {
   OFFICER_ROLES,
   createCommander,
   makeAttributes,
+  modificationRequirement,
+  notorietyTier,
+  unitModificationRequirement,
 } from '@frontline/shared';
 import { afterEach, describe, expect, it } from 'vitest';
 import { openDatabase, runMigrations, type AppDatabase } from '../db/index.js';
@@ -359,6 +362,58 @@ describe('§B9: the Scrapyard builds add-ons', () => {
     ).toEqual({
       kind: 'refused',
       reason: 'No such add-on',
+    });
+  });
+
+  /**
+   * §D7 on the unit bench: a card the street has not heard of this crew for says so (bug pass,
+   * 2026-09-29).
+   *
+   * The unit bench words its refusals in a table of its own, and that table had no line for
+   * `crew_unknown`, so the rank gate fell through to the money sentence: a crew sitting on half a
+   * million scrap was told it could not cover an Advanced card, and went away to earn a number
+   * that was never the reason. The structure bench already said "The street has to know you as".
+   * Checked on the write and on the row the page draws, because both read the same table.
+   */
+  it('tells a crew below the rank a card asks for that, and not that it is short of money', () => {
+    const repos = openStack();
+    const spec = findUnitModification('composite_carapace')!;
+    const document = blueprintForUnitUpgrade(spec.id)!;
+    const base = seedBase(repos, {
+      resources: RICH,
+      economy: { ...startingEconomy(NOW.toISOString()), notoriety: 0 },
+      buildings: [build('nexus', 6), build('scrapyard', 20), build('gauntlet', 20)],
+      inventory: { [document.id]: 1, ...spec.parts },
+    });
+    const rank = unitModificationRequirement(spec).notoriety;
+    expect(rank, 'the card asks for no rank, so this test reads nothing').toBeGreaterThan(0);
+    const said = `The street has to know you as ${notorietyTier(rank)}`;
+
+    expect(buildAddon(repos, base, 'upgrade', spec.id, undefined, 'razors')).toEqual({
+      kind: 'refused',
+      reason: said,
+    });
+    const row = projectScrapyard(repos, base).entries.find((entry) => entry.id === spec.id);
+    expect(row?.targets.find((target) => target.id === 'razors')?.blocker).toBe(said);
+
+    // The control: the same crew with the rank builds it, so the rank was the only thing missing.
+    const known: Base = { ...base, economy: { ...base.economy, notoriety: MAX_NOTORIETY } };
+    const built = buildAddon(repos, known, 'upgrade', spec.id, undefined, 'razors');
+    expect(built.kind, built.kind === 'refused' ? built.reason : '').toBe('built');
+
+    // And the structure bench, which says it in the same words. Nothing pinned this half either.
+    const card = findModification('nexus_encrypted_core')!;
+    const retrofit = blueprintForModification(card)!;
+    const bench: Base = {
+      ...base,
+      buildings: [build('nexus', 20), build('scrapyard', 20), build('gauntlet', 20)],
+      inventory: { [retrofit.id]: 1 },
+    };
+    const structureRank = modificationRequirement(card, 'nexus').notoriety;
+    expect(structureRank).toBeGreaterThan(0);
+    expect(buildAddon(repos, bench, 'modification', card.id, undefined, 'nexus')).toEqual({
+      kind: 'refused',
+      reason: `The street has to know you as ${notorietyTier(structureRank)}`,
     });
   });
 });
@@ -928,6 +983,72 @@ describe('the Fabricator cuts what the yard charges', () => {
       const price = quoted.cost[key];
       if (price === undefined) continue;
       expect(before[key] - built.base.resources[key], key).toBe(price);
+    }
+  });
+});
+
+/**
+ * Admin mode takes nothing at the yard (bug pass, 2026-09-29).
+ *
+ * Every other bench in the testing build quotes its bill and does not take it (`admin/mode.ts`).
+ * The yard took it: a trap, a bracket and a unit card each came off the stockpile in full, and the
+ * card's parts came out of the inventory, so a reviewer testing the yard spent the stockpile the
+ * rest of the Console had just filled.
+ */
+describe('admin mode takes nothing at the yard', () => {
+  const EMPTY: Resources = {
+    caps: 0,
+    supplies: 0,
+    oil: 0,
+    scrap: 0,
+    highQualityMetal: 0,
+    planks: 0,
+  };
+  const everything = (): Partial<Base> => ({
+    resources: EMPTY,
+    buildings: [build('nexus', 20), build('scrapyard', 20), build('gauntlet', 20)],
+    inventory: Object.fromEntries(
+      [
+        ...MODIFICATIONS.map(blueprintForModification),
+        ...UNIT_MODIFICATIONS.map((spec) => blueprintForUnitUpgrade(spec.id)),
+        ...TRAP_CATALOG.map((spec) => blueprintForTrap(spec.id)),
+      ]
+        .filter((document) => document !== undefined)
+        .map((document) => [document.id, 1]),
+    ),
+    research: {
+      ...startingResearch(),
+      technologies: TRAP_CATALOG.map((spec) => spec.requiresTech),
+    },
+  });
+  const trap = TRAP_CATALOG[0]!;
+  const card = UNIT_MODIFICATIONS.find((spec) => Object.keys(spec.parts).length > 0)!;
+  const bracket = MODIFICATIONS.find((spec) => spec.rarity === 'basic')!;
+  const orders = [
+    ['trap', trap.id, undefined],
+    ['modification', bracket.id, bracket.building],
+    ['upgrade', card.id, 'razors'],
+  ] as const;
+
+  it('refuses a broke crew outside the testing build', () => {
+    for (const [kind, id, target] of orders) {
+      const repos = openStack();
+      const base = seedBase(repos, everything());
+      expect(buildAddon(repos, base, kind, id, undefined, target).kind, id).toBe('refused');
+    }
+  });
+
+  it('builds for a broke crew in it, and leaves the stockpile and the parts where they were', () => {
+    for (const [kind, id, target] of orders) {
+      const repos = openStack();
+      const base = seedBase(repos, everything());
+      const built = buildAddon(repos, base, kind, id, undefined, target, true);
+      expect(built.kind, built.kind === 'refused' ? `${id}: ${built.reason}` : id).toBe('built');
+      const after = repos.bases.findById(base.id)!;
+      expect(after.resources, id).toEqual(EMPTY);
+      for (const [document, held] of Object.entries(base.inventory)) {
+        expect(after.inventory[document as keyof typeof after.inventory], document).toBe(held);
+      }
     }
   });
 });

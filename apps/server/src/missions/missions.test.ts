@@ -35,6 +35,7 @@ import {
   leading,
   makeAttributes,
   TRAVEL_BAND_MINUTES,
+  GRADES,
   missionTimings,
   pricedTotalMinutes,
   playerLevelGrants,
@@ -71,7 +72,9 @@ import { tickWorld } from '../live/clock.js';
 import { MISSION_HISTORY_LIMIT } from '../db/repos/missions.js';
 import { standingEffectsFor } from '../crew/standing.js';
 import { infirmaryRecoveryPercent } from '@frontline/shared';
+import { cardFor, cardOn } from '../testing/card.js';
 import { chooseOverseer, pinOverseer } from '../testing/overseer.js';
+import { holdEveryBoard } from '../testing/footholds.js';
 import { sureLeader } from '../testing/leader.js';
 
 /**
@@ -154,8 +157,14 @@ function theLongestRoadToday(level: number): {
 
 /** `aJobToday` as a launch payload. */
 function launchAnyJobToday(extra: Record<string, unknown> = {}, level = 1) {
-  const { template, areaId } = aJobToday(level);
-  return { templateId: template.id, areaId, force: { razors: 1 }, ...extra };
+  const { template, grade, areaId } = aJobToday(level);
+  return {
+    templateId: template.id,
+    areaId,
+    ...cardOn(areaId, grade),
+    force: { razors: 1 },
+    ...extra,
+  };
 }
 
 /**
@@ -178,7 +187,13 @@ function launchInArea(nth: number, extra: Record<string, unknown> = {}, level = 
   if (areaId === undefined) throw new Error(`no board number ${nth}`);
   const offer = missionOffers(areaId, missionBoardKey(areaId, new Date()), level)[0];
   if (!offer) throw new Error(`board ${areaId} offers nothing`);
-  return { templateId: offer.template.id, areaId, force: { razors: 1 }, ...extra };
+  return {
+    templateId: offer.template.id,
+    areaId,
+    ...cardOn(areaId, offer.grade),
+    force: { razors: 1 },
+    ...extra,
+  };
 }
 
 /**
@@ -264,25 +279,6 @@ interface Stack {
   db: AppDatabase;
 }
 
-/**
- * Nobody holds a whole district, so every board is open (maintainer's rule, 2026-09-21).
- *
- * The same argument as the scouting loop below it. Work is offered only where no single party
- * holds every location, and the city starts with five Combine districts and the Undergrid shut,
- * so a stack that left them shut would refuse most of the launches in this file for a reason none
- * of these tests is about. One plot per district emptied is the least that opens a gate, and the
- * rule itself is tested on its own in `board.test.ts` rather than here.
- */
-function openEveryGate(repos: Repositories): void {
-  for (const district of CITY_DISTRICTS) {
-    const first = district.locations[0];
-    if (!first) continue;
-    const control = repos.city.control(first.id);
-    if (!control) continue;
-    repos.city.put({ ...control, holder: { kind: 'unoccupied' }, garrison: {} });
-  }
-}
-
 async function makeStack(username = 'runner'): Promise<Stack> {
   const config = loadConfig({ DATABASE_PATH: ':memory:', JWT_SECRET: 'test-secret' });
   const db = openDatabase(config.databasePath);
@@ -311,13 +307,10 @@ async function makeStack(username = 'runner'): Promise<Stack> {
   // Somebody to send. A mission takes actual units now, so a stack with an empty roster refuses
   // every launch below for the right reason and tells us nothing about the thing under test.
   repos.bases.updateArmy(minted.id, { razors: 20, haulers: 20 }, minted.trainingQueue);
-  // Eyes on the whole map. Work is offered per district now and only where a crew has been, so a
-  // stack that has scouted nothing refuses every launch for a reason none of these tests are
-  // about. Scouting itself is `city.test.ts`.
-  for (const district of CITY_DISTRICTS) {
-    repos.city.markScouted(minted.id, district.id, new Date().toISOString());
-  }
-  openEveryGate(repos);
+  // A place in every district. Work is offered per district only to a crew that holds a place in
+  // it, so a stack that holds nothing refuses most launches for a reason none of these tests are
+  // about. The rule itself is `board.test.ts`.
+  holdEveryBoard(repos, minted.id);
   const base = repos.bases.findByOwnerId(user.id);
   if (!base) throw new Error('base vanished after arming it');
   return { app, repos, base, token, db, overseerId };
@@ -975,6 +968,7 @@ describe('the mission routes', () => {
       payload: {
         templateId: going.template.id,
         areaId: going.areaId,
+        ...cardOn(going.areaId, going.grade),
         force: { razors: 1 },
         leaderId,
       },
@@ -1020,6 +1014,7 @@ describe('the mission routes', () => {
       payload: {
         templateId: going.template.id,
         areaId: going.areaId,
+        ...cardOn(going.areaId, going.grade),
         force: { [heavy.id]: 1 },
         leaderId,
       },
@@ -1039,7 +1034,13 @@ describe('the mission routes', () => {
       method: 'POST',
       url: '/api/missions',
       headers: auth(token),
-      payload: { templateId: template.id, areaId, force: { razors: 1 }, leaderId },
+      payload: {
+        templateId: template.id,
+        areaId,
+        ...cardOn(areaId, grade),
+        force: { razors: 1 },
+        leaderId,
+      },
     });
     expect(res.statusCode, res.body).toBe(200);
 
@@ -1068,12 +1069,43 @@ describe('the mission routes', () => {
       payload: {
         templateId: 'not-a-mission',
         areaId: MISC_AREA_ID,
+        ...cardOn(MISC_AREA_ID, 'F'),
         force: { razors: 1 },
         leaderId: overseerId,
       },
     });
     expect(res.statusCode).toBe(404);
     expect(res.json<{ error: { code: string } }>().error.code).toBe('NOT_FOUND');
+  });
+
+  /*
+   * Exact card only (maintainer, 2026-09-29). The deal ships in the client bundle, so a request can
+   * name any job and grade it likes; the launch takes only the card the board is showing.
+   */
+  it('refuses a crafted request for a card the board never showed', async () => {
+    const { app, token, overseerId } = await makeStack();
+    const { template, grade, areaId } = aJobToday();
+    const hidden = GRADES.find((one) => one !== grade)!;
+    const send = (payload: Record<string, unknown>) =>
+      app.inject({ method: 'POST', url: '/api/missions', headers: auth(token), payload });
+    const card = {
+      templateId: template.id,
+      areaId,
+      ...cardOn(areaId, grade),
+      force: { razors: 1 },
+      leaderId: overseerId,
+    };
+
+    const atAnotherGrade = await send({ ...card, grade: hidden });
+    expect(atAnotherGrade.statusCode, atAnotherGrade.body.slice(0, 200)).toBe(404);
+    expect(atAnotherGrade.body).toContain('That job is not on offer there');
+    const offAnotherBoard = await send({ ...card, boardKey: '2020-01-01' });
+    expect(offAnotherBoard.statusCode, offAnotherBoard.body.slice(0, 200)).toBe(404);
+    const unnamed = await send({ ...card, boardKey: undefined, grade: undefined });
+    expect(unnamed.statusCode, unnamed.body.slice(0, 200)).toBe(400);
+    // The control: the card as it was dealt goes out.
+    const shown = await send(card);
+    expect(shown.statusCode, shown.body.slice(0, 200)).toBe(200);
   });
 
   it('refuses to launch once every crew is out, and frees a slot when one comes home', async () => {
@@ -1990,12 +2022,19 @@ describe('vehicles on a mission (§C3)', () => {
     );
     expect(effects.unitSpeedPercent).toBeGreaterThan(0);
 
-    const { template, areaId } = theLongestRoadToday(7);
+    const { template, grade, areaId } = theLongestRoadToday(7);
     const res = await stack.app.inject({
       method: 'POST',
       url: '/api/missions',
       headers: { authorization: `Bearer ${stack.token}` },
-      payload: { templateId: template.id, areaId, force: { razors: 4 }, vehicles: {}, leaderId },
+      payload: {
+        templateId: template.id,
+        areaId,
+        ...cardOn(areaId, grade),
+        force: { razors: 4 },
+        vehicles: {},
+        leaderId,
+      },
     });
     expect(res.statusCode, res.body.slice(0, 200)).toBe(200);
 
@@ -2034,12 +2073,19 @@ describe('vehicles on a mission (§C3)', () => {
       standingEffectsFor(stack.repos, stack.repos.bases.findById(stack.base.id)!),
     );
 
-    const { template, areaId } = theLongestRoadToday(7);
+    const { template, grade, areaId } = theLongestRoadToday(7);
     const res = await stack.app.inject({
       method: 'POST',
       url: '/api/missions',
       headers: { authorization: `Bearer ${stack.token}` },
-      payload: { templateId: template.id, areaId, force: { razors: 4 }, vehicles: {}, leaderId },
+      payload: {
+        templateId: template.id,
+        areaId,
+        ...cardOn(areaId, grade),
+        force: { razors: 4 },
+        vehicles: {},
+        leaderId,
+      },
     });
     expect(res.statusCode, res.body.slice(0, 200)).toBe(200);
 
@@ -2162,10 +2208,52 @@ describe('the board a recall answers with', () => {
       CITY_DISTRICTS,
       areaStatesFor(stack.repos, stack.base),
       [],
-      stack.base.level,
+      stack.base,
       new Date(),
     );
     expect(after).not.toEqual(bare);
+  });
+});
+
+/**
+ * A recall that comes too late says why (bug pass, 2026-09-29).
+ *
+ * Every refusal read "They are already at the gate". The window is the first tenth of the run, so
+ * the refusal a player actually meets, a press in its last second, is about a crew hours from the
+ * gate; and a second press on a crew already walking back is not about the gate either.
+ */
+describe('a recall the crew cannot take', () => {
+  const auth = (token: string) => ({ authorization: `Bearer ${token}` });
+  const recall = (stack: Stack, missionId: string) =>
+    stack.app.inject({
+      method: 'POST',
+      url: '/api/missions/recall',
+      headers: auth(stack.token),
+      payload: { missionId },
+    });
+  const expedition = findMissionTemplate('deep-expedition') as MissionTemplate;
+
+  it('says the crew is committed once the window has shut and they are still out', async () => {
+    const stack = await makeStack('too_late');
+    // A fifth of the way in: past the tenth, nowhere near home.
+    const fifth = templateTimings(expedition).totalMinutes / 5;
+    const running = planted(stack, expedition, ALWAYS_SUCCEEDS, after(-fifth, new Date()));
+
+    const refused = await recall(stack, running.id);
+    expect(refused.statusCode).toBe(409);
+    expect(refused.body).toContain('Too late to call them back');
+    expect(refused.body).not.toContain('at the gate');
+  });
+
+  it('says they are already on their way back when asked twice', async () => {
+    const stack = await makeStack('asked_twice');
+    // A minute out, so the walk back is a minute long and the crew is still on it when asked again.
+    const running = planted(stack, expedition, ALWAYS_SUCCEEDS, after(-1, new Date()));
+
+    expect((await recall(stack, running.id)).statusCode).toBe(200);
+    const again = await recall(stack, running.id);
+    expect(again.statusCode).toBe(409);
+    expect(again.body).toContain('already on their way back');
   });
 });
 
@@ -2281,6 +2369,7 @@ describe('§D5: a leader shortens the road and not the cheque', () => {
       payload: {
         templateId: template.id,
         areaId,
+        ...cardFor(areaId, template.id, 7),
         force: { razors: 4 },
         vehicles: {},
         ...(leaderId === undefined ? {} : { leaderId }),

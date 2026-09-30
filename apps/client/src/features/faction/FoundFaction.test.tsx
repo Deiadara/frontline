@@ -1,9 +1,16 @@
-import type { FactionResponse } from '@frontline/shared';
+import {
+  FACTION_REFUSAL_TEXT,
+  FOUND_FACTION_NEXUS_LEVEL,
+  FOUND_FACTION_PLAYER_LEVEL,
+  type FactionResponse,
+  type MeResponse,
+} from '@frontline/shared';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import * as F from '../../../e2e/fixtures';
+import { queryKeys } from '../../lib/queries';
 import { useSession } from '../../store/session';
 import { FoundFaction } from './FoundFaction';
 
@@ -41,11 +48,11 @@ function Landed() {
   return <p data-testid="landed">{`${location.pathname}${location.search}`}</p>;
 }
 
-function open(data: FactionResponse) {
+function open(data: FactionResponse, me?: MeResponse) {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  if (me) client.setQueryData(queryKeys.me, me);
   render(
-    <QueryClientProvider
-      client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
-    >
+    <QueryClientProvider client={client}>
       <MemoryRouter initialEntries={['/game/faction']}>
         <Routes>
           <Route path="/game/faction" element={<FoundFaction data={data} />} />
@@ -102,5 +109,43 @@ describe('the join sheet', () => {
     expect(sheet).not.toHaveTextContent('An invitation is the only way in');
     // The way to the mailbox is still on the sheet, with nothing specific to point at.
     expect(screen.getByTestId('to-messages')).toHaveAttribute('href', '/game/messages');
+  });
+});
+
+describe('the create sheet', () => {
+  const base = F.me.base!;
+  const established: MeResponse = {
+    ...F.me,
+    base: {
+      ...base,
+      level: FOUND_FACTION_PLAYER_LEVEL,
+      buildings: base.buildings.map((building) =>
+        building.kind === 'nexus' ? { ...building, level: FOUND_FACTION_NEXUS_LEVEL } : building,
+      ),
+    },
+  };
+  const named = (me: MeResponse) => {
+    open(holding(), me);
+    fireEvent.click(screen.getByTestId('start-faction'));
+    fireEvent.change(screen.getByTestId('faction-name'), {
+      target: { value: 'The Rust Assembly' },
+    });
+  };
+
+  // The route refuses founding below Nexus 3; the form says so before it is filled in, not after.
+  it('names the Nexus it wants and holds Create shut below it', () => {
+    named({ ...established, base: { ...established.base!, buildings: base.buildings } });
+    expect(screen.getByTestId('found-faction')).toBeDisabled();
+    expect(screen.getByTestId('found-faction-note')).toHaveTextContent(
+      FACTION_REFUSAL_TEXT.not_established,
+    );
+  });
+
+  it('opens Create once the crew and the Nexus are both there', () => {
+    named(established);
+    expect(screen.getByTestId('found-faction')).toBeEnabled();
+    expect(screen.getByTestId('found-faction-note')).not.toHaveTextContent(
+      FACTION_REFUSAL_TEXT.not_established,
+    );
   });
 });

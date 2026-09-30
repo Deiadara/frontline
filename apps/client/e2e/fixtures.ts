@@ -65,6 +65,7 @@ import {
   describeBoostEffect,
   describeBoostUnlock,
   TRAP_CATALOG,
+  trapEffectLine,
   declarableSlots,
   type BattleAnalysis,
   type BattlesResponse,
@@ -134,6 +135,7 @@ import {
   type Location,
   BASE_CONCURRENT_MISSIONS,
   MISC_AREA_ID,
+  areaDifficulty,
   RESOURCE_KG,
   UNIT_MODIFICATIONS,
   areaPayPercent,
@@ -561,53 +563,6 @@ export const notorious: MeResponse = { ...lateGame, base: notoriousBase };
  */
 export const adminGame: MeResponse = { ...lateGame, admin: true };
 
-/**
- * §A4: the map as one crew sees it.
- *
- * Three districts are deliberately left **unscouted**, because the fog is the thing most worth
- * having a fixture for: a screen that renders `held: null` as "0 / 0" is a screen that tells a
- * player something they have not earned, and it only shows up when something is actually unseen.
- */
-/**
- * Somewhere this crew has not walked, so the scouting panel has something to draw.
- *
- * §A4: opening ground is a journey now, and the panel that offers it has three states. A fixture
- * where every district is already scouted can only ever render the fourth, which is nothing.
- */
-/*
- * `ccs` specifically, and the choice is load-bearing.
- *
- * Marking a district unscouted puts fog over everything on it, so any other spec that reads that
- * ground goes red for a reason that has nothing to do with it. This took two goes to get right:
- * `undergrid` is the district `government.spec.ts` picks as its "outpost" case, and `blacksite`
- * is the one it picks as the seat of Combine power. Neither is named as a string anywhere, which is
- * why grepping for the id found nothing both times: they are *selected*, by
- * `isSeatOfGovernmentPower` and by allegiance.
- *
- * Claimed elsewhere, and therefore unavailable: `kettle-row` (where a new crew is planted),
- * `upper-roofs` (the AI rival), `blacksite` and `undergrid` (government.spec's two Combine
- * cases), `neon-docks` (its independent case), and `steelbelt`, `chrome-row`, `ashen-terraces` and
- * `glasshouse-fields` (named by other specs). This one is claimed by nothing.
- *
- * It has to be a district with **no painting**, which is why it moved off `annexes` when
- * the Annexes plate landed (2026-09-11): an unscouted district never draws its picture, so the
- * one the fixture keeps in the fog is the one `painting.spec.ts` can never sweep. The Spire is
- * procedural and the only spec that names it reads its heading, which the fog panel still prints.
- */
-export const UNSCOUTED_DISTRICT_ID = 'ccs';
-
-/**
- * Named rather than positional, so reordering the map cannot silently reveal the fog case.
- *
- * `UNSCOUTED_DISTRICT_ID` is in here because the map and the district read have to agree about
- * it: the map decides at click time whether a tag opens the district or the scouting sheet, so a
- * district the city payload calls open while `districtDetailFor` calls it fogged is a fixture
- * describing two different worlds. Chrome Row and Glasshouse Fields are fogged on the map only,
- * because `battles.spec.ts` and `painting.spec.ts` open both of their pages and read the gate,
- * the sites and the painting that fog would take away.
- */
-const UNSCOUTED = new Set([UNSCOUTED_DISTRICT_ID, 'chrome-row', 'glasshouse-fields']);
-
 /*
  * The city, with somebody living on two of the four plots.
  *
@@ -643,17 +598,13 @@ export const city: CityResponse = {
   homeDistrictId: STARTER_DISTRICT_ID,
   serverNow: NOW,
   districts: CITY_DISTRICTS.map((district, index) => {
-    const scouted = !UNSCOUTED.has(district.id);
     const isHome = district.id === STARTER_DISTRICT_ID;
     return {
       district,
-      scouted: scouted || isHome,
       travelMinutes: 8 + index * 7,
       holder: null,
-      held:
-        scouted && district.kind === 'contested'
-          ? { mine: index === 3 ? 1 : 0, total: district.locations.length }
-          : null,
+      // The whole city is visible (maintainer, 2026-09-29), so every row carries its counts.
+      held: { mine: index === 3 ? 1 : 0, total: district.locations.length },
       base:
         district.id === STARTER_DISTRICT_ID
           ? {
@@ -682,24 +633,16 @@ export const city: CityResponse = {
 /**
  * The map of a city this crew does not live in (2026-09-24).
  *
- * `GET /city` answers for a named city now, so the harness has a second map to serve and the fog
- * on it is the point: a crew that has been abroad once has walked into exactly one district and
- * knows nothing about the rest. Everything a player can do with an away map depends on which of
- * those two a tag is, and before the read was keyed by city the map had *neither*, so every tag
- * behaved like the unknown case.
+ * `GET /city` answers for a named city now, so the harness has a second map to serve: every
+ * district of it, with the one place this crew has taken abroad counted on its row.
  *
  * Built from the atlas rather than typed, so it follows the map when the map moves.
  */
 const AWAY_DISTRICTS = districtsOfCity(TERMINUS_CITY_ID);
 
-/** The one district abroad this crew has walked into. Its tag opens the district page. */
-export const AWAY_SCOUTED_DISTRICT_ID = AWAY_DISTRICTS.find(
+/** The one district abroad this crew holds a place in. */
+export const AWAY_HELD_DISTRICT_ID = AWAY_DISTRICTS.find(
   (district) => district.kind === 'contested',
-)!.id;
-
-/** And one it has not. Its tag opens the scout sheet, over the map, with no navigation. */
-export const AWAY_UNSCOUTED_DISTRICT_ID = AWAY_DISTRICTS.find(
-  (district) => district.id !== AWAY_SCOUTED_DISTRICT_ID,
 )!.id;
 
 export const awayCity: CityResponse = {
@@ -709,14 +652,15 @@ export const awayCity: CityResponse = {
   capturedGates: [],
   serverNow: NOW,
   districts: AWAY_DISTRICTS.map((district, index) => {
-    const scouted = district.id === AWAY_SCOUTED_DISTRICT_ID;
     return {
       district,
-      scouted,
       // A real road, and a long one: crossing the frontier is two hours before anything else.
       travelMinutes: 130 + index * 7,
       holder: null,
-      held: scouted ? { mine: 1, total: district.locations.length } : null,
+      held: {
+        mine: district.id === AWAY_HELD_DISTRICT_ID ? 1 : 0,
+        total: district.locations.length,
+      },
       base: null,
       isHome: false,
     };
@@ -760,7 +704,7 @@ export const RIVAL_HOLD = {
 const rewards = { scrap: 120, caps: 60 };
 
 /**
- * §A4: one contested district, scouted, with one location already taken.
+ * §A4: one contested district, with one location already taken.
  *
  * The Rustyard because it is where a new crew actually goes: easy ground, looters holding it, and
  * a war machine graveyard at the back worth a campaign.
@@ -772,13 +716,11 @@ export const districtDetail: DistrictDetailResponse = {
   district: steelbelt,
   // Looters' ground: no legendary commands it. `districtDetailFor` fills this for the three that have one.
   combineLeader: null,
-  scouted: true,
-  // Nobody out, and no quote: this ground is already open, so there is nothing to send anybody for.
-  scoutingRun: null,
-  scoutPlan: null,
-  scoutBlocker: null,
-  // Spying (2026-09-22): nobody out, a job quoted, the chair filled and the rung finished.
-  spyRun: null,
+  // Spying (2026-09-22): nobody out, a job quoted and the chair filled. The track has opened the
+  // two paid tiers (Paid Informants) and nothing past them, so the picker draws two shut.
+  spyRuns: [],
+  spyParties: 1,
+  spyTiersOpen: ['loose_ears', 'paid_whisper', 'bought_eyes'],
   spyQuote: { minutes: 96 },
   spyBlocker: null,
   spyGateReport: null,
@@ -828,6 +770,10 @@ function spyReportOnRivals(locationId: string, placeName: string): SpyReport {
     writtenAt: '2026-08-15T21:10:00.000Z',
     failed: false,
     exposed: { razors: 14, scrapers: 6, ghosts: 3 },
+    exposedSlots: unitSlotsUsed({ razors: 14, scrapers: 6, ghosts: 3 }),
+    unitsShown: true,
+    totalSlots: null,
+    foundOut: false,
     accuracy: 0.82,
     unseen: 5,
     accuracyShown: true,
@@ -920,30 +866,6 @@ export function districtDetailFor(id: string): DistrictDetailResponse {
    */
   const district = findDistrict(id);
   if (!district || district.id === districtDetail.district.id) return districtDetail;
-  /*
-   * The away city's fogged district reads as fogged here too.
-   *
-   * `awayCity` above says this crew has never walked into it, and the district read has to agree
-   * or the two fixtures are describing different worlds: the map would offer the scout sheet while
-   * the sheet behind it quoted somebody else's ground as already open.
-   */
-  if (district.id === UNSCOUTED_DISTRICT_ID || district.id === AWAY_UNSCOUTED_DISTRICT_ID) {
-    return {
-      ...districtDetail,
-      district,
-      // His existence is public: the fog hides what he has under him, not that he is there.
-      combineLeader: combineLeaderFor(district),
-      scouted: false,
-      unified: null,
-      locations: [],
-      residentBuildings: [],
-      base: null,
-      holder: null,
-      scoutingRun: null,
-      // The quote a player reads before committing an evening to it.
-      scoutPlan: { minutes: 214 },
-    };
-  }
   const lived = district.kind === 'residential';
   return {
     ...districtDetail,
@@ -1059,11 +981,9 @@ export const ownProfile: CrewProfileResponse = {
   home: {
     districtId: base.districtId,
     districtName: findDistrict(base.districtId)?.name ?? base.districtId,
-    seen: true,
     buildings: base.buildings.map((building) => ({ kind: building.kind, level: building.level })),
   },
   holdings: RUSTYARD_LOCATIONS[0] ? [holdingOf(RUSTYARD_LOCATIONS[0], 2)] : [],
-  hiddenHoldings: 0,
   districtsHeldWhole: [],
   serverNow: NOW,
 };
@@ -1107,7 +1027,6 @@ export const rivalProfile: CrewProfileResponse = {
   home: {
     districtId: 'ashen-terraces',
     districtName: findDistrict('ashen-terraces')?.name ?? 'Ashen Terraces',
-    seen: true,
     buildings: [
       { kind: 'nexus', level: 6 },
       { kind: 'generator', level: 4 },
@@ -1121,7 +1040,6 @@ export const rivalProfile: CrewProfileResponse = {
     ...(RUSTYARD_LOCATIONS[2] ? [holdingOf(RUSTYARD_LOCATIONS[2], 1)] : []),
     ...CHROME_ROW.locations.map((location) => holdingOf(location, 1)),
   ],
-  hiddenHoldings: 2,
   districtsHeldWhole: [{ districtId: CHROME_ROW.id, name: CHROME_ROW.name }],
   serverNow: NOW,
 };
@@ -1251,16 +1169,16 @@ export const unitsResponse: UnitsResponse = {
    * Where those three come from, which is what the chips' hover pages print.
    *
    * Deliberately one of each kind of payer on the two lists that have a choice about it: a named
-   * officer, a block of ground, a finished programme, a structure, a fitted card and, on the
-   * speed list, a raid taking its cut back off the crew's half. A fixture with one line on each
-   * would screenshot a page that cannot show a wrapped name, a long note or a negative figure.
+   * officer, a block of ground, a finished programme, a structure and a fitted card, with the
+   * supplies list running past its ceiling. A fixture with one line on each would screenshot a
+   * page that cannot show a wrapped name, a long note or a negative figure. A raid used to take a
+   * line here too; since 2026-09-29 it cuts the structures' output and nothing else.
    */
   trainingBreakdown: {
     cost: [
-      { source: 'Wenqing Adebayo-Lindqvist', note: 'Chemistry 74', percent: 7 },
-      { source: 'Unit Costing', note: 'The Lab', percent: 8 },
-      { source: 'The Foundry Arcade', note: 'Level 4', percent: 5 },
-      { source: 'Raided', note: '25% off everything your crew holds', percent: -10 },
+      { source: 'Wenqing Adebayo-Lindqvist', note: 'Chemistry 74', percent: 3 },
+      { source: 'Unit Costing', note: 'The Lab', percent: 4 },
+      { source: 'The Foundry Arcade', note: 'Level 4', percent: 3 },
     ],
     supplies: [
       { source: 'The Greenhouse', note: 'Level 7', percent: 14 },
@@ -1268,11 +1186,10 @@ export const unitsResponse: UnitsResponse = {
       { source: 'Past what a district can take', note: 'Modifications stop at 70%', percent: -6 },
     ],
     speed: [
-      { source: 'Ola Nkemdirim', note: 'Cybernetics 61', percent: 6 },
-      { source: 'Hard School', note: 'Instructor', percent: 9 },
+      { source: 'Ola Nkemdirim', note: 'Cybernetics 61', percent: 3 },
+      { source: 'Hard School', note: 'Instructor', percent: 2 },
       { source: 'The Gauntlet', note: 'Level 12', percent: 24 },
-      { source: 'Night Course', note: 'The Gauntlet', percent: 16 },
-      { source: 'Raided', note: '25% off everything your crew holds', percent: -22 },
+      { source: 'Night Course', note: 'The Gauntlet', percent: 4 },
     ],
   },
   // A stock with something in it, and a bracket that is filled. An empty stock screenshots three
@@ -1625,6 +1542,7 @@ export const bar: BarResponse = {
   auctionsAllowed: MAX_OPEN_AUCTIONS,
   // What the book holds after the fixture crew's negotiators: a little past `payroll.available`.
   bidCeiling: 780,
+  wageDiscountPercent: 0,
   /** One of each outcome, because the four read differently and three of them are consolations. */
   results: [
     {
@@ -1679,14 +1597,16 @@ function areaFixture(id: string, name: string, payPercent: number, activeMission
     name,
     blurb:
       id === MISC_AREA_ID
-        ? 'Work that belongs to nobody. Somebody always needs a wall stripped or a bay emptied.'
+        ? 'Work that belongs to nobody. Hold a place in a district and its board opens too.'
         : (findDistrict(id)?.blurb ?? 'Ground somebody is paying to have worked.'),
-    difficulty: findDistrict(id)?.difficulty ?? 1,
+    difficulty: areaDifficulty(id),
     payPercent,
     offers:
       activeMissionId === null
         ? missionOffers(id, '', lateGameBase.level).map(({ template, grade }) => ({
             templateId: template.id,
+            // Dealt off the empty key above; the mocked server never reads it back.
+            boardKey: 'fixture-board',
             name: template.name,
             brief: template.brief,
             kind: template.kind,
@@ -1772,7 +1692,7 @@ function launchedMission(
     baseId: base.id,
     templateId,
     // The board these came off, and who went. Every fixture crew is sent from the miscellaneous
-    // board so the screenshots do not depend on which districts happen to be scouted.
+    // board so the screenshots do not depend on which districts happen to be held.
     areaId: MISC_AREA_ID,
     payPercent: 0,
     xp: 240,
@@ -2216,7 +2136,7 @@ const fixtureTracks: ResearchTrackStatus[] = OFFICER_ROLES.map((role) => {
 const researchBase = {
   serverNow: NOW,
   caps: 125000,
-  // §C: nineteen tracks, each with finished rungs, one startable rung and locked ones above it.
+  // §C: eighteen tracks, each with finished rungs, one startable rung and locked ones above it.
   technologies: fixtureTechnologies,
   tracks: fixtureTracks,
   head: fixtureHead,
@@ -2611,7 +2531,7 @@ export const market: MarketResponse = {
         ]),
       },
       {
-        line: { id: 'l3', item: 'gyro_assembly', stock: 4, price: 410 },
+        line: { id: 'l3', item: 'gyro_assembly', stock: 2, price: 410 },
         auction: lotOn('l3', 410, []),
       },
       { line: { id: 'l4', item: 'ceramic_plate', stock: 0, price: 360 }, auction: null },
@@ -2620,7 +2540,7 @@ export const market: MarketResponse = {
         auction: lotOn('l5', 3300, []),
       },
       {
-        line: { id: 'l6', item: 'neural_shunt', stock: 3, price: 190 },
+        line: { id: 'l6', item: 'neural_shunt', stock: 2, price: 190 },
         auction: lotOn('l6', 190, [
           { username: 'The Kettle Row Combine', amount: 190, minutesAgo: 11, yours: false },
         ]),
@@ -2661,6 +2581,7 @@ export const market: MarketResponse = {
       createdAt: new Date(Date.parse(NOW) - 3 * 3600 * 1000).toISOString(),
       counterTo: null,
       directedAt: null,
+      cityId: 'ashfall',
     },
     {
       id: 'offer-2',
@@ -2672,6 +2593,7 @@ export const market: MarketResponse = {
       createdAt: new Date(Date.parse(NOW) - 20 * 60 * 1000).toISOString(),
       counterTo: null,
       directedAt: null,
+      cityId: 'ashfall',
     },
   ],
   mine: [
@@ -2685,6 +2607,7 @@ export const market: MarketResponse = {
       createdAt: new Date(Date.parse(NOW) - 90 * 60 * 1000).toISOString(),
       counterTo: null,
       directedAt: null,
+      cityId: 'ashfall',
     },
   ],
   /**
@@ -2704,6 +2627,7 @@ export const market: MarketResponse = {
         createdAt: new Date(Date.parse(NOW) - 30 * 3600 * 1000).toISOString(),
         counterTo: null,
         directedAt: null,
+        cityId: 'ashfall',
       },
       reason: 'taken',
       goods: { resources: { highQualityMetal: 120, caps: 2500 }, items: {} },
@@ -2723,6 +2647,7 @@ export const market: MarketResponse = {
         createdAt: new Date(Date.parse(NOW) - 60 * 3600 * 1000).toISOString(),
         counterTo: null,
         directedAt: null,
+        cityId: 'ashfall',
       },
       reason: 'expired',
       goods: { resources: { planks: 800 }, items: { rotor_hub: 1 } },
@@ -2751,6 +2676,7 @@ export const market: MarketResponse = {
     );
   })(),
   barterRate: barterRateFor(lateGameBase.level),
+  marketDiscountPercent: 0,
 };
 
 /**
@@ -2899,12 +2825,14 @@ export const blackMarket: BlackMarketResponse = {
       affordable: index < 3,
       price,
       minNotoriety: spec?.minNotoriety ?? 0,
-      effect: spec ? blackMarketEffect(spec, BLACK_MARKET_CITY_LEVEL) : '',
+      alreadyKnown: false,
+      effect: spec ? blackMarketEffect(spec) : '',
       lot: blackLotFor(slot, Math.max(1, price), bids),
     };
   }),
   infamy: 460,
   takenToday: 0,
+  discountPercent: 0,
   takesPerDay: 1,
   cityLevel: BLACK_MARKET_CITY_LEVEL,
   // One room, matching the Bar's fixture above: a crew with no ground outside their own city has
@@ -2949,13 +2877,6 @@ export const adminSnapshot: AdminSnapshot = {
     { kind: 'infirmary', level: 4 },
     { kind: 'garage', level: 0 },
   ],
-  // Everything scouted, which is what admin mode does by default; the console's knob un-ticks one.
-  fog: CITY_DISTRICTS.map((district) => ({
-    districtId: district.id,
-    name: district.name,
-    visible: true,
-    home: district.id === lateGameBase.districtId,
-  })),
   backups: [
     {
       file: 'frontline-2026-08-12T09-50-00-000Z.sqlite',
@@ -3187,7 +3108,7 @@ const comingBattle = (
       name: BLACK_MARKET_GOODS['adrenaline_syringes']?.name ?? 'Adrenaline Syringes',
       description: BLACK_MARKET_GOODS['adrenaline_syringes']?.description ?? '',
       cost: 0,
-      effect: blackMarketEffect(BLACK_MARKET_GOODS['adrenaline_syringes']!, 12),
+      effect: blackMarketEffect(BLACK_MARKET_GOODS['adrenaline_syringes']!),
       source: '2 in the bag',
       reach: 100,
       affordable: true,
@@ -3236,6 +3157,7 @@ const comingBattle = (
           trapId: spec.id,
           name: spec.name,
           description: spec.description,
+          effect: trapEffectLine(spec),
           held: index === 0 ? 2 : 0,
           available: index === 0,
           blocker: index === 0 ? '' : 'None in the bag. The Scrapyard cuts them',
@@ -3275,9 +3197,9 @@ export const battles: BattlesResponse = {
     {
       id: 'spy-report-2',
       baseId: base.id,
-      target: { kind: 'gate', districtId: UNSCOUTED_DISTRICT_ID },
-      districtId: UNSCOUTED_DISTRICT_ID,
-      districtName: findDistrict(UNSCOUTED_DISTRICT_ID)?.name ?? 'the Spire',
+      target: { kind: 'gate', districtId: 'ccs' },
+      districtId: 'ccs',
+      districtName: findDistrict('ccs')?.name ?? 'the Spire',
       placeName: 'The gate',
       holder: { kind: 'government', name: 'The Combine', player: null, faction: null },
       tier: 'loose_ears',
@@ -3285,9 +3207,65 @@ export const battles: BattlesResponse = {
       writtenAt: '2026-08-14T19:30:00.000Z',
       failed: true,
       exposed: {},
-      accuracy: 0.1,
+      exposedSlots: 0,
+      unitsShown: true,
+      totalSlots: null,
+      foundOut: true,
+      accuracy: null,
       unseen: null,
       accuracyShown: false,
+    },
+    /*
+     * The two the Master of Whispers' track changed (2026-09-28): a report from before Written
+     * Reports, which counts unit slots and names nobody, and the Turned Runners courier's, which
+     * nobody paid for, reads everything and carries The Whole Wire's exact figure.
+     */
+    {
+      id: 'spy-report-3',
+      baseId: base.id,
+      target: { kind: 'location', locationId: steelbelt.locations[1]?.id ?? 'steelbelt-yard' },
+      districtId: 'steelbelt',
+      districtName: steelbelt.name,
+      placeName: steelbelt.locations[1]?.name ?? 'The Yard',
+      holder: { kind: 'looters', name: 'Looters', player: null, faction: null },
+      tier: 'loose_ears',
+      capsPaid: 100,
+      writtenAt: '2026-08-13T18:45:00.000Z',
+      failed: false,
+      exposed: {},
+      exposedSlots: 18,
+      unitsShown: false,
+      totalSlots: null,
+      foundOut: false,
+      accuracy: null,
+      unseen: null,
+      accuracyShown: false,
+    },
+    {
+      id: 'spy-report-4',
+      baseId: base.id,
+      target: { kind: 'gate', districtId: 'kettle-row' },
+      districtId: 'kettle-row',
+      districtName: findDistrict('kettle-row')?.name ?? 'Kettle Row',
+      placeName: 'The gate',
+      holder: {
+        kind: 'crew',
+        name: RIVAL_HOLD.crewName,
+        player: RIVAL_HOLD.player,
+        faction: 'The Ashen Compact',
+      },
+      tier: null,
+      capsPaid: 0,
+      writtenAt: '2026-08-12T21:00:00.000Z',
+      failed: false,
+      exposed: { razors: 22, ghosts: 4, sleepers: 2 },
+      exposedSlots: unitSlotsUsed({ razors: 22, ghosts: 4, sleepers: 2 }),
+      unitsShown: true,
+      totalSlots: unitSlotsUsed({ razors: 22, ghosts: 4, sleepers: 2 }),
+      foundOut: false,
+      accuracy: 1,
+      unseen: null,
+      accuracyShown: true,
     },
   ],
   reports: [
@@ -3299,6 +3277,8 @@ export const battles: BattlesResponse = {
       won: true,
       analysis: boardAnalysis,
       redacted: false,
+      // The analysis's defender is the looters (`boardAnalysis`), and the kind says so.
+      defenderKind: 'looters',
     },
     {
       battleId: 'fight-4',
@@ -3308,6 +3288,7 @@ export const battles: BattlesResponse = {
       won: false,
       analysis: null,
       redacted: true,
+      defenderKind: 'government',
     },
   ],
   slots: boardSlots,
@@ -3478,30 +3459,21 @@ export const actionsResponse: ActionsResponse = {
     },
   ],
   // Runners out on a job (2026-09-22): a quarter of an hour into a two-hour look at the Press.
-  spyRun: {
-    id: 'spy-run-1',
-    target: { kind: 'location', locationId: 'steelbelt-press' },
-    districtId: 'steelbelt',
-    districtName: 'The Rustyard',
-    placeName: 'No. 4 Press House',
-    tier: 'paid_whisper',
-    capsPaid: 500,
-    departedAt: new Date(Date.parse(BOARD_NOW) - 15 * 60_000).toISOString(),
-    returnsAt: new Date(Date.parse(BOARD_NOW) + 105 * 60_000).toISOString(),
-    travelMinutes: 40,
-    recalledAt: null,
-  },
-  scoutingRun: {
-    districtId: 'steelbelt',
-    districtName: 'The Rustyard',
-    // A party, not a person, since 2026-09-22: the Master of Whispers stays in the chair.
-    officerId: null,
-    officerName: 'Scout Party',
-    departedAt: new Date(Date.parse(BOARD_NOW) - 10 * 60_000).toISOString(),
-    returnsAt: new Date(Date.parse(BOARD_NOW) + 50 * 60_000).toISOString(),
-    travelMinutes: 20,
-    recalledAt: null,
-  },
+  spyRuns: [
+    {
+      id: 'spy-run-1',
+      target: { kind: 'location', locationId: 'steelbelt-press' },
+      districtId: 'steelbelt',
+      districtName: 'The Rustyard',
+      placeName: 'No. 4 Press House',
+      tier: 'paid_whisper',
+      capsPaid: 500,
+      departedAt: new Date(Date.parse(BOARD_NOW) - 15 * 60_000).toISOString(),
+      returnsAt: new Date(Date.parse(BOARD_NOW) + 105 * 60_000).toISOString(),
+      travelMinutes: 40,
+      recalledAt: null,
+    },
+  ],
 };
 
 // --- factions, messages and notifications (maintainer request) ---
@@ -3709,6 +3681,7 @@ export const messagesScreen: MessagesResponse = {
       threadId: 'thread-1',
       senderUserId: ALLY_ID,
       senderName: 'Sable_Ninth',
+      replyTo: 'Sable_Ninth',
       senderFaction: 'The Ninth Circle',
       audience: 'faction',
       addressedTo: 'The Ninth Circle',
@@ -3723,6 +3696,7 @@ export const messagesScreen: MessagesResponse = {
       threadId: 'thread-2',
       senderUserId: 'other-user',
       senderName: 'Vex_Combine',
+      replyTo: 'Vex_Combine',
       senderFaction: null,
       audience: 'player',
       addressedTo: 'Nikos',
@@ -3738,6 +3712,7 @@ export const messagesScreen: MessagesResponse = {
       threadId: 'thread-4',
       senderUserId: ALLY_ID,
       senderName: 'Sable_Ninth',
+      replyTo: 'Sable_Ninth',
       senderFaction: 'The Ninth Circle',
       audience: 'player',
       addressedTo: 'Nikos',
@@ -4103,7 +4078,7 @@ const trapEntries: ScrapyardEntry[] = TRAP_CATALOG.map((spec, index) => ({
   name: spec.name,
   description: spec.description,
   building: null,
-  effect: `Takes ${Math.round(spec.killShare * 100)}% off the attack, up to ${spec.maxKills} units`,
+  effect: trapEffectLine(spec),
   cost: scrapyardPrice(spec.cost, SCRAPYARD_FIXTURE_LEVEL),
   advanced: (spec.cost.highQualityMetal ?? 0) > 0,
   rarity: null,
@@ -4169,6 +4144,9 @@ export const hudExtremes: MeResponse = {
   },
 };
 
+/** The same worst case in an admin build, which puts the admin plate on the bar (2026-09-29). */
+export const hudExtremesAdmin: MeResponse = { ...hudExtremes, admin: true };
+
 /**
  * The feats board (maintainer request, 2026-09-13).
  *
@@ -4192,7 +4170,7 @@ const FEATS_CLAIMED = new Set([
   'fights_1',
   'clean_1',
   'level_1',
-  'scouting_1',
+  'spy_jobs_1',
   'seats_1',
   'seats_2',
 ]);

@@ -281,43 +281,19 @@ test('live: Nikos logs in, meets the AI rival and raids it against the real back
   await expect(page.getByTestId('city-room')).toBeVisible();
 
   /*
-   * Fog first: a district nobody has been to says nothing about what is inside it.
-   *
-   * Both the fog and the scouts are read on the **scout sheet** now (maintainer, 2026-09-23):
-   * unscouted ground does not open at all, and its tag puts a hand-drawn card over the map
-   * instead of walking the player into a screen with nothing on it.
+   * The whole city is visible (maintainer, 2026-09-29): a district nobody of this crew's has been
+   * to opens as its page, with who holds each place on it.
    */
-  const dark = findDistrict('undergrid');
-  if (!dark) throw new Error('fixture error: the Undergrid is missing from the city');
-  await page.getByTestId(`district-tag-${dark.id}`).click();
-  await expect(page.getByTestId('scout-menu-title')).toHaveText(dark.name);
-  await expect(page.getByTestId('locations')).toHaveCount(0);
-  await shootEveryViewport(page, 'city-fog');
+  const far = findDistrict('undergrid');
+  if (!far) throw new Error('fixture error: the Undergrid is missing from the city');
+  await page.getByTestId(`district-tag-${far.id}`).click();
+  await expect(page).toHaveURL(new RegExp(`/game/city/${far.id}$`));
+  await expect(page.getByRole('heading', { name: far.name })).toBeVisible();
+  await shootEveryViewport(page, 'city-district-unheld');
 
   /*
-   * §A4: opening ground is a journey, and this account cannot make it yet.
-   *
-   * Scouting sends one officer who walks there, looks, and walks back, and a crew on its first
-   * evening has nobody on the books to send. That refusal is the thing a live session can prove
-   * about the rework: pressing used to lift the fog on the spot, and there is now no press at all
-   * until somebody has been signed. Waiting out a real run is hours, so the clock itself is pinned
-   * on the server (`scouting/scouting.test.ts`) rather than here.
-   */
-  await expect(page.getByTestId('scout-nobody')).toBeVisible();
-  await expect(page.getByTestId('send-scout')).toHaveCount(0);
-  // Both requirements are drawn unmet, which is the whole of what this account can be told.
-  await expect(page.getByTestId('scout-need-whispers')).toHaveAttribute('data-met', 'no');
-  await expect(page.getByTestId('scout-need-research')).toHaveAttribute('data-met', 'no');
-  // The sheet is a window over the map, so it has to be shut before the nav is reachable again.
-  await page.keyboard.press('Escape');
-  await expect(page.getByTestId('scout-menu')).toHaveCount(0);
-
-  /*
-   * So the fight happens on the ground the game hands a new crew.
-   *
-   * A new district opens with its nearest unoccupied neighbour already walked, precisely so a first
-   * session has somewhere to work before it has anybody to send. Read off the city rather than
-   * hard-coded, because which district that is depends on where this account was planted.
+   * So the fight happens on the nearest ground a call can be made on. Read off the city rather
+   * than hard-coded, because which district that is depends on where this account was planted.
    */
   await page.getByRole('link', { name: 'City', exact: true }).click();
   await expect(page.getByTestId('city-room')).toBeVisible();
@@ -399,11 +375,10 @@ test('live: Nikos logs in, meets the AI rival and raids it against the real back
 });
 
 /**
- * The district a new crew starts with open, read off the running server.
+ * The nearest contested district a fight can be called on, read off the running server.
  *
- * `openTheNearestGround` gives a fresh account its nearest unoccupied neighbour, and which one that
- * is depends on the district the account was planted in, so it cannot be written down here. Found
- * by asking the city which ground is already walked and is not home.
+ * Which one that is depends on the district the account was planted in, so it cannot be written
+ * down here. Found by asking the city for its roads and the board for its shut gates.
  */
 async function openGround(page: Page): Promise<District> {
   const { city, gates } = await page.evaluate(async () => {
@@ -420,7 +395,7 @@ async function openGround(page: Page): Promise<District> {
     return {
       city: (await res.json()) as {
         homeDistrictId: string;
-        districts: { district: { id: string }; scouted: boolean }[];
+        districts: { district: { id: string; kind: string }; travelMinutes: number }[];
       },
       // `shut` lives on the battle board's gate rows rather than on the city, because it is a fact
       // about who holds the ground rather than about what this crew can see.
@@ -428,27 +403,27 @@ async function openGround(page: Page): Promise<District> {
     };
   });
   /*
-   * Scouted, not home, and **not behind an armed gate**.
+   * Contested, and **not behind an armed gate**.
    *
-   * The last clause is the one this was missing. A district is shut exactly when one party holds
-   * all of it, and nothing inside a shut district can be called: the card says "The gate is armed"
-   * and offers a dead "Behind the gate" button where "Call a fight" would be. This took the first
-   * scouted district it found, which on 2026-09-18 was `annexes`, held end to end by the
-   * Combine, so step five waited six minutes for a button the game was correctly refusing to draw.
-   *
-   * Home is always "scouted" because you live there, and clicking its tag opens your own district
-   * rather than the city's view of somebody else's ground, which is what `homeDistrictId` excludes.
+   * A district is shut exactly when one party holds all of it, and nothing inside a shut district
+   * can be called: the card says "The gate is armed" and offers a dead "Behind the gate" button
+   * where "Call a fight" would be. On 2026-09-18 this picked `annexes`, held end to end by the
+   * Combine, and step five waited six minutes for a button the game was correctly refusing to draw.
+   * Home is left out because clicking its tag opens your own district, not somebody else's ground.
    */
   const shut = new Set(gates.filter((gate) => gate.shut).map((gate) => gate.districtId));
-  const open = city.districts.find(
-    (entry) =>
-      entry.scouted && entry.district.id !== city.homeDistrictId && !shut.has(entry.district.id),
-  );
+  const open = [...city.districts]
+    .filter(
+      (entry) =>
+        entry.district.kind === 'contested' &&
+        entry.district.id !== city.homeDistrictId &&
+        !shut.has(entry.district.id),
+    )
+    .sort((a, b) => a.travelMinutes - b.travelMinutes)[0];
   const district = open ? findDistrict(open.district.id) : undefined;
   if (!district) {
     throw new Error(
-      `no scouted district this crew can call on: ${city.districts
-        .filter((entry) => entry.scouted)
+      `no district this crew can call on: ${city.districts
         .map((entry) => `${entry.district.id}${shut.has(entry.district.id) ? ' (shut)' : ''}`)
         .join(', ')}`,
     );

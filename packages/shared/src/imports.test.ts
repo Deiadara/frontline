@@ -17,9 +17,9 @@ import { describe, expect, it } from 'vitest';
  * a named sibling. All three were fixed by importing from the module that defines the symbol, which
  * is the rule this file now holds.
  *
- * The two loops that remain are genuine mutual dependencies between siblings and are listed by
- * name below. Neither reads across itself at module scope, which is what makes them survivable, and
- * the list is a ratchet: it may shrink, and a new entry has to be argued for.
+ * The loop that remains is a genuine mutual dependency between siblings and is listed by name
+ * below. Nothing in it reads across the loop at module scope, which is what makes it survivable,
+ * and the list is a ratchet: it may shrink, and a new entry has to be argued for.
  *
  * Reaching a *sibling* folder through its barrel is not banned, and a first cut of this file did
  * ban it: twenty-seven modules do it, it is the house convention, and it is harmless right up until
@@ -32,7 +32,6 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 
 /** Cycles that exist, are understood, and are read only from inside function bodies. */
 const KNOWN_CYCLES: readonly string[][] = [
-  ['building/addons.ts', 'building/scrapyard.ts'],
   ['units/catalog.ts', 'units/upgrades.ts', 'units/modifications.ts'],
 ];
 

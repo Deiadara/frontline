@@ -1,4 +1,5 @@
 import {
+  ADMIN_MAX_PLAYER_LEVEL,
   BUILDING_KINDS,
   levelCeilingFor,
   RESOURCE_KEYS,
@@ -39,8 +40,14 @@ import {
  * bench, and granting the rungs outright would be inventing a state the mechanic does not have.
  */
 
-/** Level 20 is the ceiling the game actually has, so "end-game" means exactly this. */
-export const UNLOCKED_LEVEL = 20;
+/**
+ * The deepest level the game authors content at, so "end-game" means every rung of the §I3 ladder.
+ *
+ * It was 20, under a note calling that "the ceiling the game actually has", while the ladder had
+ * grown rungs at 40 to 90 (Deep Pockets, A Third Crew, Mayhem) that the sandbox never showed (bug
+ * pass, 2026-09-29). Read off the ladder, as the Console's level knob is, so it cannot go stale again.
+ */
+export const UNLOCKED_LEVEL = ADMIN_MAX_PLAYER_LEVEL;
 
 /**
  * Every structure standing at its ceiling, so no plot is empty and none is mid-curve.
@@ -49,14 +56,25 @@ export const UNLOCKED_LEVEL = 20;
  * seeding them at 20 would put a level in the database that no build queue could ever produce,
  * which is the one thing this seed's own doc comment promises not to do: the plot dialog would
  * read "MAXED AT LEVEL 10" over a structure standing at 20.
+ *
+ * Raised in place (bug pass, 2026-09-29): a structure already standing keeps its id and the cards
+ * fitted to it, and only a kind the district lacks is put up new. It used to be replaced every boot
+ * with a fresh id and nothing fitted, so cards paid for since the last boot were gone.
  */
-export function maxedBuildings(): Building[] {
-  return BUILDING_KINDS.map((kind) => ({
-    id: `unlocked-${kind}`,
-    kind,
-    level: levelCeilingFor(kind),
-    modifications: [],
+export function maxedBuildings(standing: readonly Building[] = []): Building[] {
+  const raised = standing.map((building) => ({
+    ...building,
+    level: Math.max(building.level, levelCeilingFor(building.kind)),
   }));
+  const missing = BUILDING_KINDS.filter((kind) => !standing.some((one) => one.kind === kind)).map(
+    (kind): Building => ({
+      id: `unlocked-${kind}`,
+      kind,
+      level: levelCeilingFor(kind),
+      modifications: [],
+    }),
+  );
+  return [...raised, ...missing];
 }
 
 /**
@@ -106,13 +124,32 @@ export interface SandboxSummary {
   baseId?: string;
 }
 
+/** Each key at the higher of the two figures: the sandbox tops up and never takes away. */
+function atLeast<Key extends string>(
+  current: Readonly<Partial<Record<Key, number>>>,
+  floor: Readonly<Partial<Record<Key, number>>>,
+): Record<Key, number> {
+  const raised = { ...current } as Record<Key, number>;
+  for (const [key, value] of Object.entries(floor) as [Key, number][]) {
+    raised[key] = Math.max(raised[key] ?? 0, value);
+  }
+  return raised;
+}
+
 /**
- * Raises the seeded dev account to the end-game state, in place.
+ * Raises the seeded dev account to the end-game state, in place, and never lowers anything (bug
+ * pass, 2026-09-29, maintainer: make it raise only).
  *
- * Idempotent: it writes the same values every boot, so restarting with the flag on is a no-op after
- * the first time, and turning the flag *off* leaves the account where the switch left it rather
- * than rolling progress back, because an unlock that un-unlocks is a data-loss bug wearing a
- * feature's clothes.
+ * Every figure is the higher of what the account has and what the sandbox sets: the level, each
+ * structure's level, each shelf of the stockpile and each unit on the roster. Structure ids and
+ * fitted cards stay. It used to *set* them all, every boot, so a restart undid the session: cards
+ * fitted and paid for, units trained, a level above the sandbox's, both queues. So restarting with
+ * the flag on is a no-op after the first time, and turning the flag *off* leaves the account where
+ * the switch left it, because an unlock that un-unlocks is a data-loss bug wearing a feature's
+ * clothes.
+ *
+ * A build order for a level the structure now stands at or past builds nothing, so it goes; any
+ * other order, and the training queue, are left to land.
  */
 export function applyUnlockedSandbox(repos: Repositories, username: string): SandboxSummary {
   const user = repos.users.findByUsername(username);
@@ -120,11 +157,21 @@ export function applyUnlockedSandbox(repos: Repositories, username: string): San
   const base = repos.bases.findByOwnerId(user.id);
   if (!base) return { applied: false };
 
-  const buildings = maxedBuildings();
-  repos.bases.updateProgression(base.id, UNLOCKED_LEVEL, { xpIntoLevel: 0 });
-  repos.bases.updateResources(base.id, unlockedResources(buildings));
-  repos.bases.updateDistrict(base.id, buildings, []);
-  repos.bases.updateArmy(base.id, fullArmy(), []);
+  const buildings = maxedBuildings(base.buildings);
+  const levelOf = (kind: Building['kind']) =>
+    Math.max(0, ...buildings.filter((one) => one.kind === kind).map((one) => one.level));
+  const queue = base.buildQueue.filter((order) => order.level > levelOf(order.kind));
+
+  if (base.level < UNLOCKED_LEVEL) {
+    repos.bases.updateProgression(base.id, UNLOCKED_LEVEL, { xpIntoLevel: 0 });
+  }
+  repos.bases.updateResources(base.id, atLeast(base.resources, unlockedResources(buildings)));
+  repos.bases.updateDistrict(base.id, buildings, queue);
+  repos.bases.updateArmy(
+    base.id,
+    capLegendaries(atLeast(base.army, fullArmy())),
+    base.trainingQueue,
+  );
   seedMailbox(repos, user.id, new Date());
   return { applied: true, baseId: base.id };
 }

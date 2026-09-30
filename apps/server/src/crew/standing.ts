@@ -22,8 +22,6 @@ import {
   officerIsWorking,
   FACTION_CARD_SPECS,
   cardBonusPercent,
-  disrupted,
-  disruptionPercentAt,
   type AttributeLift,
   type Attributes,
   type Commander,
@@ -53,14 +51,9 @@ import { roleFit } from '../roles/requirements.js';
  * Bot bases have no Overseer and usually no officers; they get their territory and nothing else,
  * which is correct rather than a gap. An AI rival is the ground it stands on.
  *
- * §A4: **the fold is the last thing a raid takes off you.** Both folds end in `disrupted`, so for
- * the hours a raid's disruption lasts every positive percentage this crew holds is worth a quarter
- * less, whatever paid it: the ground, the people, the Lab, the table, the Gate. Applied here rather
- * than at each consumer for the reason everything else is folded here: a consumer that read the raw
- * fold would be a system a raid quietly did not reach, and there are two dozen of them.
- * `productionPercent` is the one channel the cut skips, because the walk has already charged for it
- * once as hours off the window: see `DISRUPTION_EXEMPT_CHANNELS` for why cutting it here as well
- * would bill a raided crew twice for one raid.
+ * §A4: a raid does not reach this fold. Its cut is on what the district's structures make and
+ * nothing else (maintainer ruling, 2026-09-29), and the production walk charges it
+ * (`district/settle.ts`); the crew's bonuses run whole through a raid.
  */
 export function standingEffectsFor(
   repos: Repositories,
@@ -133,7 +126,7 @@ export function standingEffectsFor(
    * in one place is a bonus the other two dozen consumers do not see.
    */
   Object.assign(total, combineEffects(notorietyEffects(base.economy.notoriety), total));
-  return disrupted(total, disruptionPercentAt(base.economy.disruption, now));
+  return total;
 }
 
 /** Just the people: the same fold without the ground, for anything that is not about territory. */
@@ -148,8 +141,7 @@ export function crewEffectsFor(
   // the Lab has to land here too or half its tech tree would do nothing at all.
   const total = mergeCrewEffects(people, researchEffects(base.research.technologies));
   // §D7: a rank is a fact about the crew, not about the ground, so it belongs in this fold too.
-  const withRank = combineEffects(notorietyEffects(base.economy.notoriety), total);
-  return disrupted(withRank, disruptionPercentAt(base.economy.disruption, now));
+  return combineEffects(notorietyEffects(base.economy.notoriety), total);
 }
 
 /**
@@ -276,6 +268,8 @@ export function liftedOfficerSheet(
     });
   }
 
+  sources.push(...chairLessonsFor(officer, room));
+
   sources.push({
     from: 'the Lab',
     groupFlat: room.fromTheLab.officerGroupFlat,
@@ -284,6 +278,24 @@ export function liftedOfficerSheet(
   });
 
   return liftedSheet(officer.attributes, sources);
+}
+
+/**
+ * What a chair's teaching rungs put on this officer (`chair_teaches`: Shared Knowledge, maintainer
+ * 2026-09-28): "all other officers", from whoever is working the chair that researched it.
+ *
+ * Seated and working only, on both ends. A teacher in bed or on the bench teaches nobody, and an
+ * officer on the bench is taught nothing: the ruling is about the room, and the bench is not in
+ * it. Named for the teacher on the receipt, the way a teaching perk is, because it is that person
+ * the lesson comes from and the crew screen should say so.
+ */
+function chairLessonsFor(officer: Commander, room: LiftRoom): LiftSource[] {
+  if (!room.fit.some((working) => working.id === officer.id)) return [];
+  return room.fromTheLab.chairTeaches.flatMap((lesson) => {
+    const teacher = room.fit.find((working) => working.role === lesson.role);
+    if (!teacher || teacher.id === officer.id) return [];
+    return [{ from: teacher.name, attributeFlat: lesson.attributes }];
+  });
 }
 
 /**

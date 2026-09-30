@@ -1,6 +1,7 @@
 import {
   BLACK_MARKET_KIND_LABELS,
   GAME_TIMEZONE,
+  discountedInfamy,
   findBlackMarketGood,
   type BlackMarketGoodSpec,
   type BlackMarketKind,
@@ -217,8 +218,8 @@ function SlotCard({
       <p className="font-body text-[13px] italic leading-relaxed text-ink-300">
         {spec.description}
       </p>
-      {/* The server's line, not the catalogue's: a shelf stocked for a veteran street hands out
-          bigger numbers, and a card quoting the catalogue's would be the card lying. */}
+      {/* The server's line, written from the figures a fight applies. The same in every city since
+          2026-09-29, so it matches the stash tab's authored line word for word. */}
       <p className="font-body text-[13px] leading-snug text-ink-100">{offer.effect}</p>
 
       <span className="mt-auto flex flex-wrap items-center justify-between gap-2 pt-1">
@@ -234,13 +235,15 @@ function SlotCard({
           data-tip={
             lot === null
               ? 'He is not taking offers on this'
-              : beyond && offer.minNotoriety > 0
-                ? `He keeps this for rank ${offer.minNotoriety} and better`
-                : beyond
-                  ? 'More than you have to say'
-                  : lot.leading === null
-                    ? 'Where the lot opens. Nobody has bid.'
-                    : `${lot.bidders} ${lot.bidders === 1 ? 'crew is' : 'crews are'} in`
+              : offer.alreadyKnown
+                ? 'You already have these plans'
+                : beyond && offer.minNotoriety > 0
+                  ? `He keeps this for rank ${offer.minNotoriety} and better`
+                  : beyond
+                    ? 'More than you have to say'
+                    : lot.leading === null
+                      ? 'Where the lot opens. Nobody has bid.'
+                      : `${lot.bidders} ${lot.bidders === 1 ? 'crew is' : 'crews are'} in`
           }
           data-testid={`black-lot-tag-${offer.slot.index}`}
         >
@@ -305,6 +308,7 @@ function BlackLotWindow({
   lot,
   infamy,
   bidCeiling,
+  discountPercent,
   now,
   cityId,
   atLotCap,
@@ -316,6 +320,8 @@ function BlackLotWindow({
   infamy: number;
   /** `BlackMarketResponse.bidCeiling`: the infamy stretched by the crew's standing discount. */
   bidCeiling: number | undefined;
+  /** `BlackMarketResponse.discountPercent`: what comes off a won lot's infamy. */
+  discountPercent: number;
   now: Date;
   /** Which back room the bid is placed in: a slot index is 0 to 4 in every city. */
   cityId: string;
@@ -379,10 +385,16 @@ function BlackLotWindow({
             {spec.description}
           </p>
           <p className="font-body text-[14px] leading-relaxed text-ink-100">{offer.effect}</p>
-          {offer.minNotoriety > 0 && (
+          {offer.alreadyKnown ? (
             <p className="font-body text-[12px] leading-relaxed text-tangerine-300">
-              He keeps this for people with a name: rank {offer.minNotoriety} or better.
+              You already have these plans. He does not sell the same set twice.
             </p>
+          ) : (
+            offer.minNotoriety > 0 && (
+              <p className="font-body text-[12px] leading-relaxed text-tangerine-300">
+                He keeps this for people with a name: rank {offer.minNotoriety} or better.
+              </p>
+            )
           )}
           <p className="font-body text-[12px] leading-relaxed text-ink-300">
             It goes to the highest bid at midnight, at what they bid, and the infamy leaves your
@@ -405,10 +417,13 @@ function BlackLotWindow({
             now={now}
             pending={bid.isPending}
             error={bid.error}
-            shortMessage={(purse) =>
-              `You have ${purse.toLocaleString()} infamy. He will want the whole figure at midnight.`
+            shortMessage={(purse, most) =>
+              most > purse
+                ? `You have ${purse.toLocaleString()} infamy, which covers a bid of up to ${most.toLocaleString()} once your standing comes off.`
+                : `You have ${purse.toLocaleString()} infamy. He will want the whole figure at midnight.`
             }
             atLotCap={atLotCap}
+            payFor={(amount) => discountedInfamy(amount, discountPercent)}
             onPlace={(amount) =>
               bid.mutate({
                 slotIndex: offer.slot.index,
@@ -533,6 +548,7 @@ export function BlackMarketPage() {
           lot={open.lot}
           infamy={data.infamy}
           bidCeiling={data.bidCeiling}
+          discountPercent={data.discountPercent}
           now={now}
           // The room the shelf was read from, not the crew's own: a bid is placed where the reader
           // is standing.

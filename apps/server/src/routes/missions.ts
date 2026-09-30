@@ -6,16 +6,17 @@ import {
   LaunchMissionRequestSchema,
   MISC_AREA_ID,
   RecallMissionRequestSchema,
+  areaIsOpen,
   canRecall,
+  isMissionDue,
   concurrentMissionSlots,
   findDistrict,
+  missionSpeedPercentIn,
   findMissionTemplate,
   FightLeaderQuoteRequestSchema,
   type FightLeaderQuoteResponse,
   missionForceRefusal,
   unitsBeyondNotoriety,
-  launchableBoardKeys,
-  missionOffers,
   boardIsAutomated,
   type Base,
   type Fleet,
@@ -25,17 +26,17 @@ import {
   type MissionForceRefusal,
   type MissionRoad,
   type MissionsResponse,
-  type LocationHolder,
 } from '@frontline/shared';
 import type { FastifyInstance } from 'fastify';
 import { removeForce } from '../battle/forces.js';
 import { AppError, cityQuery, parseBody, type ErrorCode } from '../errors.js';
 import { areaStatesFor, projectAreas } from '../missions/board.js';
-import { benchFor, leadersFor, runLedBy } from '../missions/leaders.js';
+import { leadersFor, liftedBenchFor, runLedBy } from '../missions/leaders.js';
 import { launchMission } from '../missions/launch.js';
+import { namedCard } from '../missions/dealt.js';
 import { chairOf, fightChanceFor, rankFightLeaders } from '../missions/fight-leaders.js';
 import { standingEffectsFor } from '../crew/standing.js';
-import { cityAsked, citiesFor, mayEnter } from '../city/stakes.js';
+import { cityAsked, citiesFor } from '../city/stakes.js';
 import { officerDuty } from '../crew/duty.js';
 import { settleAndResolveMissions } from '../missions/resolve.js';
 import { takeLevelUp } from '../progression/award.js';
@@ -71,27 +72,6 @@ function missionSlotsFor(app: FastifyInstance, base: Base, now: Date): number {
   return (
     concurrentMissionSlots(base.level) + standingEffectsFor(app.repos, base, now).missionSlotsFlat
   );
-}
-
-/**
- * Why a district behind an armed gate has no work in it, worded for whoever armed it.
- *
- * One sentence per holder rather than one for all of them: the rule is the same in every case
- * (one party holds every location, so the gate is shut and there is nobody inside hiring), but a
- * player who has just taken a district wants to be told they own it, and a player looking at the
- * Combine Spire wants to be told what is in their way.
- */
-function shutAreaRefusal(holder: LocationHolder | null): string {
-  switch (holder?.kind) {
-    case 'crew':
-      return 'You own every inch of it. Nobody is paying you to go back';
-    case 'government':
-      return 'The Combine holds every inch of it. Break the gate before anybody in there hires you';
-    case 'looters':
-      return 'The looters hold every inch of it. Break the gate before there is work in there';
-    default:
-      return 'One crew holds every inch of it. Nothing gets handed out behind a shut gate';
-  }
 }
 
 /**
@@ -205,10 +185,11 @@ export function registerMissionRoutes(app: FastifyInstance): void {
         districtsOfCity(boardCity(app, settlement.base, askedCity(request))),
         areaStatesFor(app.repos, settlement.base),
         active,
-        settlement.base.level,
+        settlement.base,
         now,
-        (({ missionSpeedPercent, missionSpoilsPercent }) => ({
+        (({ missionSpeedPercent, missionSpeedPercentByCity, missionSpoilsPercent }) => ({
           speedPercent: missionSpeedPercent,
+          citySpeedPercent: missionSpeedPercentByCity,
           spoilsPercent: missionSpoilsPercent,
           // The opening band, which shortens the first runs and pays the premium that keeps them
           // worth taking (`missions.ramp.ts`).
@@ -223,7 +204,7 @@ export function registerMissionRoutes(app: FastifyInstance): void {
   });
 
   app.post('/missions', { preHandler: app.authenticate }, (request): LaunchMissionResponse => {
-    const { templateId, areaId, force, leaderId, vehicles } = parseBody(
+    const { templateId, areaId, boardKey, grade, force, leaderId, vehicles } = parseBody(
       LaunchMissionRequestSchema,
       request.body,
     );
@@ -233,42 +214,30 @@ export function registerMissionRoutes(app: FastifyInstance): void {
     }
     const now = new Date();
     /*
-     * The offer has to be one this area is making now, or was one slot ago.
+     * Exactly the card the player read, or nothing (`namedCard`, maintainer 2026-09-29).
      *
-     * A district's board turns over at midnight, Athens, so a tab left open overnight is posting
-     * a job that is no longer on the wall. `misc` turns over hourly now
-     * (`MISC_BOARD_ROTATION_MINUTES`), and one slot of grace is what stops a player who opened
-     * the send window at 10:59 and pressed the button at 11:00 being refused a card that was on
-     * the wall when they read it. `launchableBoardKeys` is one key for a district and two for
-     * misc, so nothing about the daily boards changed.
-     *
-     * The matching key is kept rather than only asked about, because it is what the run's page
-     * prize is drawn from and `launchMission` freezes that prize onto the row. The current slot
-     * is first in the list, so a job standing on both boards is launched on the terms the player
-     * is looking at now.
+     * The request names the board's key and the grade off the offer. A district's board turns
+     * over at midnight, Athens, and `misc` hourly, so a tab left open is posting a card that is
+     * no longer on the wall; the misc board's previous slot stays good, for a card read at 10:59
+     * and sent at 11:00.
      *
      * Dealt at the crew's level before the settle, which is the board the player was reading: a
      * level banked by this very request must not swap the card they pressed for another one. The
-     * grade comes with it, and is what the run is frozen at.
+     * board a level below stays open as well, announced or not (maintainer, 2026-09-29: "always
+     * allow previous"), for a tab still showing the board from before a level-up.
      */
     const own = requireOwnBase(app, request.currentUser.id);
-    // ...or the level before it: the world clock can bank a level-up between the player reading
-    // the board and pressing Send, and the card they pressed must not vanish under them. The
-    // current level first, so a card on both boards goes out as it reads now.
-    const dealt = [own.level, own.level - 1]
-      .filter((level) => level >= 1)
-      .flatMap((level) =>
-        launchableBoardKeys(areaId, now).map((key) => ({
-          key,
-          job: missionOffers(areaId, key, level).find((job) => job.template.id === templateId),
-        })),
-      )
-      .find((entry) => entry.job !== undefined);
-    if (dealt?.job === undefined) {
+    const dealt = namedCard({
+      areaId,
+      templateId,
+      boardKey,
+      grade,
+      level: own.level,
+      now,
+    });
+    if (dealt === null) {
       throw new AppError('NOT_FOUND', 'That job is not on offer there');
     }
-    const boardKey = dealt.key;
-    const grade = dealt.job.grade;
 
     /*
      * Who is leading it (maintainer, 2026-09-10).
@@ -283,22 +252,29 @@ export function registerMissionRoutes(app: FastifyInstance): void {
      * touches, so hoisting it changes no answer. Whether that leader is *free* cannot follow it
      * up: the crew they are out with may be walking through the gate on this very request.
      */
-    const bench = benchFor(
-      request.currentUser.overseerId
-        ? app.repos.overseers.findById(request.currentUser.overseerId)
-        : undefined,
-      own.commanders,
-    );
-    const leader = bench.find((candidate) => candidate.id === leaderId);
-    if (!leader) {
+    const overseer = request.currentUser.overseerId
+      ? app.repos.overseers.findById(request.currentUser.overseerId)
+      : undefined;
+    if (!liftedBenchFor(app.repos, own, overseer, now).some((one) => one.id === leaderId)) {
       throw new AppError('NOT_FOUND', 'Nobody on your bench by that id');
     }
 
     // Settle first: a mission that came home while the player was reading the board frees a slot
     // they should be allowed to use on this very request.
     const { base } = settleAndResolveMissions(app.repos, own, now);
+    /*
+     * The leader as the settled crew fields them, lifted sheet and all (`benchFor`). Read after the
+     * settle because the board quoted its odds off a settled crew too: a Lab rung that finished in
+     * this settle lifts the sheet the odds are frozen on exactly as it lifted the one on screen.
+     */
     // Drained here, before any refusal below, because every exit from this handler carries it.
     const levelUp = takeLevelUp(app.repos, base.id);
+    const leader = liftedBenchFor(app.repos, base, overseer, now).find(
+      (candidate) => candidate.id === leaderId,
+    );
+    if (!leader) {
+      throw new AppError('NOT_FOUND', 'Nobody on your bench by that id', levelUp);
+    }
     // The active runs, not the whole history filtered down to them: the repo has a query for this
     // and the launch path was loading a month of finished work to count what is out.
     const active = app.repos.missions.listActiveByBaseId(base.id);
@@ -339,32 +315,15 @@ export function registerMissionRoutes(app: FastifyInstance): void {
     if (active.some((entry) => entry.mission.areaId === areaId)) {
       throw new AppError('MISSION_REFUSED', 'You already have a crew working that area', levelUp);
     }
-    // §A4: work is only offered where the crew has been and where there is still something to do.
+    /*
+     * §A4: a district's work is for crews with a foothold in it (maintainer, 2026-09-29), the same
+     * rule the board draws with (`areaIsOpen`). Checked here as well as there because the screen is
+     * not the only way to post: a crew that lost its last place in a district still has yesterday's
+     * card in an open tab. A foothold is also a stake in that city, so it answers the city's own
+     * door (`mayEnter` in `city/stakes.ts`) too.
+     */
     if (areaId !== MISC_AREA_ID) {
       const district = findDistrict(areaId);
-      const state = areaStatesFor(app.repos, base).get(areaId);
-      if (!state?.scouted) {
-        throw new AppError('DISTRICT_UNSCOUTED', 'You have not had eyes on that ground', levelUp);
-      }
-      /*
-       * The city's own door, the same one the read draws the board through (see `boardCity`).
-       *
-       * Checked here as well as there because the screen is not the only way to post: a crew that
-       * has lost its last plot in Terminus still has yesterday's card in an open tab, and the read
-       * would refuse them while the launch waved them through. The wording names the stake rather
-       * than the ground, because the fix is a place in that city rather than another scout.
-       */
-      if (district && !mayEnter(app.repos, base, district.cityId)) {
-        throw new AppError(
-          'CITY_SHUT',
-          'Nobody in that city hires a crew that holds nothing in it. Take a place there first',
-          levelUp,
-        );
-      }
-      // The same rule the board draws with, worded for whoever is actually behind the gate.
-      if (state.heldWhole) {
-        throw new AppError('MISSION_REFUSED', shutAreaRefusal(state.wholeHolder), levelUp);
-      }
       // Worded without a possessive: the plot may be the reader's own, and "somebody's plot" read
       // oddly against a player's own hideout.
       if (district?.kind !== 'contested') {
@@ -374,11 +333,22 @@ export function registerMissionRoutes(app: FastifyInstance): void {
           levelUp,
         );
       }
+      const state = areaStatesFor(app.repos, base).get(areaId);
+      if (!state || !areaIsOpen(district, state)) {
+        throw new AppError(
+          'MISSION_REFUSED',
+          'Nobody there hires a crew that holds nothing in it. Take a place in that district first',
+          levelUp,
+        );
+      }
     }
 
+    // Read once: two calls would be two settles of the same effects.
+    const book = standingEffectsFor(app.repos, base, now);
     // §A5: who is going. Checked against the roster as the settle left it, so a crew that walked
-    // back through the gate on this very request can be sent straight out again.
-    const forceRefusal = missionForceRefusal(force, base.army, template.kind);
+    // back through the gate on this very request can be sent straight out again. The crew's line
+    // rules come with it: under `carriers_fight` a porter is somebody who can fight.
+    const forceRefusal = missionForceRefusal(force, base.army, template.kind, book);
     if (forceRefusal) {
       const { code, message } = FORCE_ERRORS[forceRefusal];
       throw new AppError(code, message, levelUp);
@@ -430,14 +400,11 @@ export function registerMissionRoutes(app: FastifyInstance): void {
     // §C3: the machines leave the yard with the crew, checked like the force above.
     refuseVehiclesNotHeld(base, vehicles, levelUp);
 
-    // Read once: two calls would be two settles of the same effects.
-    const book = standingEffectsFor(app.repos, base, now);
     const stored = launchMission({
       id: randomUUID(),
       base,
       template,
       areaId,
-      boardKey,
       // A fight's chance is what the practice fights say this leader is worth with this force
       // (`fight-leaders.ts`), frozen for the report; a plain job keeps its attribute grade.
       ...(template.kind === 'battle'
@@ -480,6 +447,7 @@ export function registerMissionRoutes(app: FastifyInstance): void {
        */
       ...(({
         missionSpeedPercent,
+        missionSpeedPercentByCity,
         missionSpoilsPercent,
         leadLootPercent,
         leadArrivalPercent,
@@ -488,7 +456,11 @@ export function registerMissionRoutes(app: FastifyInstance): void {
         roadMinutesOff,
         anyRide,
       }) => ({
-        missionSpeedPercent,
+        // The Blockhouse's cut pays on its own city's jobs only (maintainer, 2026-09-30).
+        missionSpeedPercent: missionSpeedPercentIn(
+          { missionSpeedPercent, missionSpeedPercentByCity },
+          areaId,
+        ),
         // §C3: every walk in the game reads these, and a mission's road is a walk (maintainer,
         // 2026-09-23). Off the **unled** fold, so the leader's own Short Way is not counted twice:
         // `leading()` folds `leadArrivalPercent` into this channel, and it is spent separately
@@ -567,11 +539,13 @@ export function registerMissionRoutes(app: FastifyInstance): void {
         throw new AppError(code, message);
       }
       refuseVehiclesNotHeld(base, vehicles ?? {});
-      const bench = benchFor(
+      const bench = liftedBenchFor(
+        app.repos,
+        base,
         request.currentUser.overseerId
           ? app.repos.overseers.findById(request.currentUser.overseerId)
           : undefined,
-        base.commanders,
+        now,
       );
       return {
         leaders: rankFightLeaders({
@@ -599,7 +573,7 @@ export function registerMissionRoutes(app: FastifyInstance): void {
         throw new AppError('NOT_FOUND', 'No mission of yours by that id');
       }
       if (!canRecall(stored.mission, now)) {
-        throw new AppError('MISSION_REFUSED', 'They are already at the gate');
+        throw new AppError('MISSION_REFUSED', whyNoRecall(stored.mission, now));
       }
       app.repos.missions.markRecalled(missionId, now.toISOString());
       // Settled first, as the read is, so the board this answers with is the board the next read
@@ -640,10 +614,11 @@ export function registerMissionRoutes(app: FastifyInstance): void {
           districtsOfCity(boardCity(app, settled, askedCity(request))),
           areaStatesFor(app.repos, settled),
           active,
-          settled.level,
+          settled,
           now,
-          (({ missionSpeedPercent, missionSpoilsPercent }) => ({
+          (({ missionSpeedPercent, missionSpeedPercentByCity, missionSpoilsPercent }) => ({
             speedPercent: missionSpeedPercent,
+            citySpeedPercent: missionSpeedPercentByCity,
             spoilsPercent: missionSpoilsPercent,
             ramp: rampFor(app.repos, settled),
           }))(standingEffectsFor(app.repos, settled, now)),
@@ -655,6 +630,22 @@ export function registerMissionRoutes(app: FastifyInstance): void {
       };
     })();
   });
+}
+
+/**
+ * Why a crew cannot be turned round, in the player's words (bug pass, 2026-09-29).
+ *
+ * Every refusal said "They are already at the gate", and the one a player actually meets is a
+ * press in the last second of the window, on a crew that is nowhere near the gate: the window is
+ * the first tenth of the run, and the rest of it they are committed. A second press on a crew
+ * already walking back read the same way.
+ */
+function whyNoRecall(mission: Mission, now: Date): string {
+  if (mission.status !== 'active' || isMissionDue(mission, now)) {
+    return 'They are already at the gate';
+  }
+  if (mission.recalledAt !== null) return 'They are already on their way back';
+  return 'Too late to call them back. They are committed to the job now';
 }
 
 /**

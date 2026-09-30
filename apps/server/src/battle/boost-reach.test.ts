@@ -83,7 +83,6 @@ describe('what a boost card promises the defender', () => {
       holder: { kind: 'crew', baseId: defender.baseId },
       garrison,
     });
-    app.repos.city.markScouted(attacker.baseId, 'steelbelt', new Date().toISOString());
 
     const declared = await app.inject({
       method: 'POST',

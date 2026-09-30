@@ -50,6 +50,7 @@ const CARD_DURATION = hastenedMinutes(RAW_DURATION, GROUND_PERCENT);
 
 const offer: MissionOffer = {
   templateId: 'scrap-run',
+  boardKey: '2026-09-13',
   name: 'Long Haul',
   brief: 'A long way out and a long way back.',
   kind: 'standard',

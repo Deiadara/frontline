@@ -4,7 +4,6 @@
  * once from two tabs.
  */
 import {
-  findLocation,
   findUnit,
   type ActionsResponse,
   type BattlesResponse,
@@ -20,12 +19,11 @@ import {
 } from '@frontline/shared';
 import type { Harness, Player, Reply } from './playthrough-harness.js';
 import { player, type Cast } from './playthrough-cast.js';
-import { baseOf, conservingUnits, expectDelta, HOUR, MINUTE } from './playthrough-helpers.js';
+import { baseOf, expectDelta, HOUR, MINUTE } from './playthrough-helpers.js';
 import {
   addItems,
   addUnits,
   grantResources,
-  markScouted,
   setInfamy,
   addTechnologies,
 } from './playthrough-bench.js';
@@ -165,6 +163,8 @@ async function missionCapacity(h: Harness, a: Player): Promise<void> {
       body: {
         templateId: spareJob.offer.templateId,
         areaId: spareJob.area.id,
+        boardKey: spareJob.offer.boardKey,
+        grade: spareJob.offer.grade,
         force: { scavengers: 1 },
         leaderId: spareLeader.id,
       },
@@ -269,14 +269,7 @@ async function allyPosting(h: Harness, a: Player, b: Player): Promise<void> {
     body: moveBody,
     expect: 200,
   });
-  let sent = offered.status === 200 ? offered.body : undefined;
-  if (!sent && allyPlace.place.kind === 'location') {
-    const locationId = allyPlace.place.locationId;
-    markScouted(h, b, findLocation(locationId)?.districtId ?? '');
-    sent = await conservingUnits(h, b, "posting units on an ally's ground", () =>
-      h.ok<ActionsResponse>({ as: b, method: 'POST', route: '/api/actions/move', body: moveBody }),
-    );
-  }
+  const sent = offered.status === 200 ? offered.body : undefined;
   const move = sent?.moves[sent.moves.length - 1];
   if (move) h.advanceTo(new Date(move.arrivesAt).getTime() + MINUTE);
   h.advance(10 * MINUTE);
@@ -501,6 +494,8 @@ async function races(h: Harness, a: Player, b: Player, c: Player, d: Player): Pr
           body: {
             templateId: job.offer.templateId,
             areaId: job.area.id,
+            boardKey: job.offer.boardKey,
+            grade: job.offer.grade,
             force: { scavengers: 1 },
             leaderId: overseer.id,
           },

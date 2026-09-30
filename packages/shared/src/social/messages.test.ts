@@ -5,6 +5,7 @@ import {
   MessageBodySchema,
   MessageSubjectSchema,
   QUOTE_MAX,
+  hasVisibleText,
   quoted,
   replySubject,
 } from './messages.js';
@@ -68,5 +69,28 @@ describe('the body a reply opens with', () => {
     expect(draft).toContain('> Meet me at the docks.');
     expect(draft).toContain('> Bring the truck.');
     expect(draft).not.toContain('...');
+  });
+});
+
+describe('a letter that shows nothing', () => {
+  it('is blank however it is made of whitespace, separators and format characters', () => {
+    for (const blank of [
+      '',
+      ' ',
+      '\u200b',
+      '\u200b\u200c\u200d',
+      '\ufeff\u2060',
+      '\u00a0\u3000',
+      '\t\n\u2028',
+      '\u00ad',
+    ]) {
+      expect(hasVisibleText(blank), JSON.stringify(blank)).toBe(false);
+    }
+  });
+
+  it('is not blank with one character that draws', () => {
+    for (const text of ['a', '\u200bx', '.', '\u00e9', '\u{1f525}']) {
+      expect(hasVisibleText(text), JSON.stringify(text)).toBe(true);
+    }
   });
 });

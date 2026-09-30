@@ -48,7 +48,8 @@ export interface PagesFoundInput {
   before: Inventory;
   after: Inventory;
   source: PageSource;
-  now: Date;
+  /** When the page landed: the mission's return, the lot's close, the moment of the trade. */
+  at: Date;
 }
 
 /**
@@ -78,7 +79,7 @@ export function tellPagesFound(repos: Repositories, input: PagesFoundInput): num
       body: page.description,
       link: '/game/research/blueprints',
       subjectId: pageId,
-      now: input.now,
+      at: input.at,
     });
     if (written) rung += 1;
   }

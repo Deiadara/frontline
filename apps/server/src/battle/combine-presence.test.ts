@@ -588,9 +588,9 @@ describe('the ledger and the ground agree about whether he died', () => {
  * What the report tells the crew, through the real engine and the real settler.
  *
  * Two lines on the report are the only place a power's *effect* is ever named to the loser:
- * `BattleReportModal` prints "N units changed sides and are his now" off `analysis.turned` and
- * "The Executioner finished N" off `analysis.executed`, and both are zero on a fight nobody
- * commanded. So they agree with whether the power applied exactly when the settler's reading of
+ * `BattleReportModal` prints "N units changed sides, fought for him and are gone" off
+ * `analysis.turned` and "The Executioner finished N" off `analysis.executed`, and both are zero on
+ * a fight nobody commanded. So they agree with whether the power applied exactly when the settler's reading of
  * the control rows reaches the engine, which is what these measure end to end.
  *
  * The powers above are measured against a recording stub, deliberately: a stub cannot prove the
@@ -648,6 +648,8 @@ describe('the report carries the toll the power actually took', () => {
     const crossed = Object.values(under?.analysis.turned ?? {}).reduce((n, c) => n + c, 0);
     expect(crossed).toBeGreaterThan(0);
     expect(under?.analysis.attacker.intimidated).toBe(0);
+    // Counted as dead (maintainer, 2026-09-29): everybody who did not walk home is in "Died".
+    expect(under?.analysis.attacker.lost).toBe(12 - (under?.analysis.attacker.fled ?? 0));
 
     killLeader(XERO);
     callFight(at('ccs-broadcast'), { army: { razors: 12 } });
@@ -655,5 +657,81 @@ describe('the report carries the toll the power actually took', () => {
     const after = settled.at(-1)?.analysis;
     expect(after?.turned).toEqual({});
     expect(after?.attacker.intimidated).toBe(crossed);
+  });
+});
+
+/**
+ * Where Directive Xero's turncoats end up: nowhere (maintainer, 2026-09-29).
+ *
+ * "Whatever units are taken, they are taken over for this fight only and then are dead." They used
+ * to stand on the plot they fought for until the Monday regrowth, and vanish at a gate, which made
+ * the card true on one target and false on the other. Now both targets agree: no Razor is left on
+ * any CCS plot.
+ */
+describe('a turncoat fights one fight and is gone', () => {
+  const ccsPlots = () => (findDistrict(XERO.districtId)?.locations ?? []).map((one) => one.id);
+  const razorsOnCcs = () =>
+    ccsPlots().reduce((total, plot) => total + (garrisonAt(plot)['razors'] ?? 0), 0);
+
+  it.each([
+    ['a plot', (): BattleTarget => at('ccs-broadcast')],
+    ['the gate', (): BattleTarget => ({ kind: 'gate', districtId: XERO.districtId })],
+  ])('stands none of them anywhere after a fight on %s', (_, target) => {
+    expect(razorsOnCcs(), 'fixture error: the regime fields Razors').toBe(0);
+    callFight(target(), { army: { razors: 30 }, defender: { kind: 'government' } });
+    const [resolved] = settleBattles(repos, defaultSkirmishEngine, SETTLE);
+    const crossed = Object.values(resolved?.analysis.turned ?? {}).reduce((n, c) => n + c, 0);
+    expect(crossed, 'nobody crossed, so there is nothing to measure').toBeGreaterThan(0);
+    expect(resolved?.analysis.winner).toBe('defender');
+
+    expect(razorsOnCcs()).toBe(0);
+  });
+});
+
+/**
+ * A turncoat is a dead unit to every ledger that counts the dead (maintainer, 2026-09-29: "Count
+ * them as dead").
+ *
+ * Stubbed, so the only thing that differs between the two fights in each test is `turned`: the
+ * real engine never produces a fight where Xero took three men and the fire took nobody, and that
+ * is the fight that isolates the rule.
+ */
+describe('a turncoat counts as dead', () => {
+  const tally = (measure: 'battles_won_flawless' | 'combine_fights_won_flawless') =>
+    repos.feats.tallies(ATTACKER)[featMeasureKey(measure)] ?? 0;
+  const caps = () => repos.bases.findById(ATTACKER)!.resources.caps;
+
+  it('pays the Bone Market refund on them', () => {
+    // The refund needs somewhere to pay it from.
+    const bones = repos.city.control('steelbelt-bones')!;
+    repos.city.put({ ...bones, holder: { kind: 'crew', baseId: ATTACKER }, garrison: {} });
+
+    const lostFight = (turned: Record<string, number>) => {
+      const before = caps();
+      callFight(at('ccs-broadcast'), { army: { razors: 20 } });
+      const fled = { razors: 20 - (turned['razors'] ?? 0) };
+      const [resolved] = settleBattles(repos, recorder({ fled, turned }), SETTLE);
+      return { paid: caps() - before, spoils: resolved?.analysis.spoils.caps ?? 0 };
+    };
+
+    const control = lostFight({});
+    expect(control.spoils, 'nobody died, so nothing is owed').toBe(0);
+    const turned = lostFight({ razors: 3 });
+    expect(turned.spoils, 'the three who crossed refunded nothing').toBeGreaterThan(0);
+    expect(turned.paid - control.paid).toBe(turned.spoils);
+  });
+
+  it('breaks a flawless win, the general ladder and the Combine one alike', () => {
+    callFight(at('ccs-broadcast'));
+    settleBattles(repos, recorder({ winner: 'attacker' }), SETTLE);
+    expect(tally('battles_won_flawless'), 'fixture error: the control was not flawless').toBe(1);
+    expect(tally('combine_fights_won_flawless')).toBe(1);
+
+    const plots = (findDistrict(XERO.districtId)?.locations ?? []).map((one) => one.id);
+    const other = plots.find((id) => id !== 'ccs-broadcast' && id !== XERO.locationId)!;
+    callFight(at(other));
+    settleBattles(repos, recorder({ winner: 'attacker', turned: { razors: 3 } }), SETTLE);
+    expect(tally('battles_won_flawless')).toBe(1);
+    expect(tally('combine_fights_won_flawless')).toBe(1);
   });
 });

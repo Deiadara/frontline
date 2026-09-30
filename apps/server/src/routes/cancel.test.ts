@@ -24,7 +24,7 @@ import { createRepositories, type Repositories } from '../db/repos/index.js';
 import { openDatabase, runMigrations, type AppDatabase } from '../db/index.js';
 import { cancelBuild, queueBuild } from '../district/build.js';
 import { cancelResearch } from '../research/start.js';
-import { recallScout, settleScouting } from '../scouting/scouting.js';
+import { recallSpy, settleSpying } from '../spying/spying.js';
 import { chooseOverseer } from '../testing/overseer.js';
 import { AppError } from '../errors.js';
 
@@ -232,52 +232,45 @@ describe("a location's work", () => {
   });
 });
 
-describe('a scout', () => {
-  it('turns round in the first tenth of the whole run, walks home as far as they came, and opens nothing', () => {
+describe('a spy job', () => {
+  it('turns round in the first tenth of the whole job, walks home as far as it came, and reports nothing', () => {
     const { repos, base } = stack();
     /*
      * Two hours out, an hour looking and two hours home: 300 minutes, so the window is 30
-     * (maintainer, 2026-09-22). It was a tenth of the *walk* until then, which is 12, and the
-     * hour on the ground bought none of it.
+     * (maintainer, 2026-09-22), not a tenth of the walk.
      */
-    repos.scouting.insert({
-      id: 's1',
-      baseId: base.id,
-      districtId: 'blacksite',
-      officerId: 'nobody',
+    const run = (id: string, baseId: string) => ({
+      id,
+      baseId,
+      target: { kind: 'gate' as const, districtId: 'blacksite' },
+      tier: 'loose_ears' as const,
+      capsPaid: 100,
       departedAt: HOUR,
       returnsAt: at(300).toISOString(),
       travelMinutes: 120,
       recalledAt: null,
     });
-    expect(recallScout(repos, base, at(31))).toEqual({ kind: 'refused', reason: 'window_closed' });
-    // ...and twelve minutes, which used to be past the window, is inside it now.
-    expect(recallScout(repos, base, at(12)).kind).toBe('recalled');
+    repos.spying.insert(run('j1', base.id));
+    expect(recallSpy(repos, base, at(31))).toEqual({ kind: 'refused', reason: 'window_closed' });
+    expect(recallSpy(repos, base, at(12)).kind).toBe('recalled');
 
     const { repos: second, base: other } = stack();
-    second.scouting.insert({
-      id: 's2',
-      baseId: other.id,
-      districtId: 'blacksite',
-      officerId: 'nobody',
-      departedAt: HOUR,
-      returnsAt: at(300).toISOString(),
-      travelMinutes: 120,
-      recalledAt: null,
-    });
-    const recalled = recallScout(second, other, at(8));
+    second.spying.insert(run('j2', other.id));
+    const recalled = recallSpy(second, other, at(8));
     expect(recalled.kind).toBe('recalled');
     if (recalled.kind !== 'recalled') return;
-    // Eight minutes out, eight minutes home: still the distance covered, because the cap at the
-    // two-hour walk out does not bind this early.
+    // Eight minutes out, eight minutes home: the distance covered, since the cap at the two-hour
+    // walk out does not bind this early.
     expect(recalled.run.returnsAt).toBe(at(16).toISOString());
     expect(recalled.run.recalledAt).toBe(at(8).toISOString());
-    expect(recallScout(second, other, at(9))).toEqual({ kind: 'refused', reason: 'nobody_out' });
+    expect(recallSpy(second, other, at(9))).toEqual({ kind: 'refused', reason: 'nobody_out' });
 
-    // Home, settled, and the ground stays shut: they never got there.
-    settleScouting(second, at(16));
-    expect(second.scouting.activeFor(other.id)).toEqual([]);
-    expect(second.city.scouted(other.id).has('blacksite')).toBe(false);
+    // Home and settled, with no report: they never got there. The caps went at the send.
+    settleSpying(second, at(16));
+    expect(second.spying.activeFor(other.id)).toEqual([]);
+    expect(second.spying.reportsFor(other.id, 10)).toEqual([]);
+    // Nor is it a job home on the feats board: that ladder counts reports written.
+    expect(second.feats.tallies(other.id).spy_jobs_returned ?? 0).toBe(0);
   });
 });
 

@@ -13,7 +13,7 @@ import { ResearchPage } from './ResearchPage';
 import { useSession } from '../../store/session';
 
 /**
- * §C on the screen: three tabs, nineteen trades on a rail, ten rungs on the one you opened.
+ * §C on the screen: three tabs, eighteen trades on a rail, ten rungs on the one you opened.
  *
  * The page reads the server's answer and adds nothing of its own to it, which is the property
  * worth testing: a rung's blocker, its two marks and its price all come off the wire, and a screen
@@ -173,7 +173,7 @@ describe('the archive tabs', () => {
 });
 
 describe('the research tracks', () => {
-  it('is a precondition that the fixture has a full nineteen tracks with rungs on each', () => {
+  it('is a precondition that the fixture has a full eighteen tracks with rungs on each', () => {
     expect(F.research.tracks).toHaveLength(OFFICER_ROLES.length);
     expect(F.research.technologies).toHaveLength(OFFICER_ROLES.length * RESEARCH_TRACK_STEPS);
     // ...and that at least one chair is empty, which is the state with its own drawing.
@@ -207,7 +207,7 @@ describe('the research tracks', () => {
    * §I1d again, one level down: the open trade is the URL too.
    *
    * It was component state, and the shut Reimagining bench needs to send a player to one rung on
-   * one trade. A link that can only reach the tab lands them on the first row of nineteen.
+   * one trade. A link that can only reach the tab lands them on the first row of eighteen.
    */
   it('opens the trade the URL names rather than the first on the rail', async () => {
     stub();
@@ -368,8 +368,8 @@ describe('the running programme, on a fast machine', () => {
  * The rail is in two groups: chairs with somebody in them, then the empty ones (maintainer,
  * 2026-09-22).
  *
- * Nineteen trades in catalogue order scattered the empty chairs through the list, so the question
- * the rail is actually asked, "which trades is nobody covering", meant scanning nineteen rows for
+ * Eighteen trades in catalogue order scattered the empty chairs through the list, so the question
+ * the rail is actually asked, "which trades is nobody covering", meant scanning eighteen rows for
  * a red line. Order is the answer rather than a filter, because every trade still has to be
  * reachable in one press.
  */

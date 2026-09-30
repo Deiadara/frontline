@@ -154,6 +154,57 @@ describe('AuthScreen', () => {
   });
 });
 
+/** The sign-up rules of 2026-09-29, as the form says them before and after a press. */
+describe('AuthScreen sign-up rules', () => {
+  it('says under the password that it stops at 72 bytes, and refuses a longer one', () => {
+    renderAuth();
+    choose('register');
+    expect(screen.getByText(/Up to 72 bytes/)).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText(/Overseer ID/), { target: { value: 'operator' } });
+    fireEvent.change(screen.getByLabelText(/Password/), { target: { value: '\u00e9'.repeat(37) } });
+    fireEvent.click(screen.getByRole('button', { name: 'Enlist' }));
+    expect(screen.getByText(/At most 72 bytes/)).toBeInTheDocument();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('says nothing about bytes when logging in', () => {
+    renderAuth();
+    choose('login');
+    expect(screen.queryByText(/Up to 72 bytes/)).toBeNull();
+  });
+
+  it('refuses one of the game’s own names before asking the server', () => {
+    renderAuth();
+    choose('register');
+    fireEvent.change(screen.getByLabelText(/Overseer ID/), { target: { value: 'Directive_Xero' } });
+    fireEvent.change(screen.getByLabelText(/Password/), { target: { value: 'password123' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Enlist' }));
+    expect(screen.getByText(/belongs to the game/)).toBeInTheDocument();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('shows a full world on the sign-up form', async () => {
+    const message = 'The world is full. Every plot in every open city has a crew on it.';
+    fetchMock.mockResolvedValueOnce({
+      headers: new Headers(),
+      ok: false,
+      status: 409,
+      statusText: 'Conflict',
+      json: () => Promise.resolve({ error: { code: 'WORLD_FULL', message } }),
+    });
+
+    renderAuth();
+    choose('register');
+    fireEvent.change(screen.getByLabelText(/Overseer ID/), { target: { value: 'latecomer' } });
+    fireEvent.change(screen.getByLabelText(/Password/), { target: { value: 'password123' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Enlist' }));
+
+    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent(message));
+    expect(useSession.getState().token).toBeNull();
+  });
+});
+
 /**
  * The prefill is a development convenience, and a deployed build must not carry it.
  *

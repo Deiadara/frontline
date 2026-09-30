@@ -1,5 +1,6 @@
 import { CITY_DISTRICTS, labelText, STARTING_RESOURCES } from '@frontline/shared';
 import { expect, test, type Page } from '@playwright/test';
+import type { MeResponse } from '@frontline/shared';
 import {
   adminGame,
   bar,
@@ -7,7 +8,6 @@ import {
   districtDetail,
   crewStart,
   lateGame,
-  UNSCOUTED_DISTRICT_ID,
   me,
   meNoOverseer,
   overseer,
@@ -550,16 +550,9 @@ test('the city leads to the district screen, except on your own ground', async (
 test('a district named in initials spells itself out on its own screen', async ({ page }) => {
   await installApi(page, lateGame);
 
-  /*
-   * The CCS through the scout sheet, because it is the fixture's *unscouted* district and
-   * unscouted ground no longer opens as a page (maintainer, 2026-09-23): the link bounces to the
-   * map and the sheet names the place. The sheet is where a player meets this district's name, so
-   * it is where the abbreviation has to be spelled out.
-   */
   await page.goto('/game/city/ccs');
-  await expect(page.getByTestId('scout-menu-title')).toHaveText('CCS');
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('CCS');
   await expect(page.getByTestId('district-formal-name')).toHaveText('Civic Command Sector');
-  await page.keyboard.press('Escape');
 
   // Steelbelt is not an abbreviation, so it carries no second line at all.
   await page.goto('/game/city/steelbelt');
@@ -571,7 +564,7 @@ test('a district named in initials spells itself out on its own screen', async (
 const RUSTYARD_LOCATIONS =
   CITY_DISTRICTS.find((district) => district.id === 'steelbelt')?.locations ?? [];
 
-test('the district view shows what is inside a scouted district (§A4)', async ({ page }) => {
+test('the district view shows what is inside a district (§A4)', async ({ page }) => {
   await installApi(page, me);
   await page.goto('/game');
   await enterDistrict(page, 'steelbelt');
@@ -982,6 +975,63 @@ test('a refused launch tells the player why', async ({ page }) => {
 });
 
 /**
+ * The screens whose loading state is drawn before they have a frame of their own.
+ *
+ * Each of these returned its loading line (and its failure) with nothing around it, so the line
+ * went into the shell's outlet at the top of the window, under the opaque standing bar, and the
+ * player got a blurred backdrop for as long as the read took, or for good if it failed. Shared by
+ * the two tests below, so a screen added to one is held to both.
+ */
+const LOADS_WITHOUT_A_FRAME: readonly [route: string, api: string, session?: MeResponse][] = [
+  ['/game/units', '**/api/units'],
+  [`/game/city/${districtDetail.district.id}`, `**/api/city/${districtDetail.district.id}`],
+  ['/game/crews/neighbour-base', '**/api/crews/*'],
+  ['/game/factions/faction-1', '**/api/factions/*/profile'],
+  ['/game/overseer', '**/api/overseer/me'],
+  ['/game/admin', '**/api/admin', adminGame],
+];
+
+/** The message sits below the standing bar and inside the window, where it can be read. */
+async function expectReadable(page: Page, testId: string, route: string): Promise<void> {
+  const said = page.getByTestId(testId);
+  await expect(said, `${route} drew nothing a player can see`).toBeVisible();
+  const hud = await page.locator('header').first().boundingBox();
+  const box = await said.boundingBox();
+  if (!hud || !box) throw new Error(`${route}: no box for the bar or the message`);
+  expect(box.y, `${route} drew its message under the standing bar`).toBeGreaterThanOrEqual(
+    hud.y + hud.height,
+  );
+  await expect(said).toBeInViewport({ ratio: 1 });
+}
+
+/**
+ * A screen still reading says so, where it can be read (bug pass, 2026-09-29).
+ *
+ * The failure test below holds the broken read; this holds the slow one, which is the state every
+ * player sees on every visit. Messages, notifications and the faction room returned `null` while
+ * reading, a blank sheet, and the six in `LOADS_WITHOUT_A_FRAME` put their line under the bar. The
+ * endpoint is held open rather than answered, so the screen stays in exactly that state.
+ */
+test('a screen that is still reading says so where it can be read', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 720 });
+  const screens: readonly [route: string, api: string, session?: MeResponse][] = [
+    ['/game/messages', '**/api/messages'],
+    ['/game/notifications', '**/api/notifications'],
+    ['/game/faction', '**/api/factions'],
+    ...LOADS_WITHOUT_A_FRAME,
+  ];
+
+  for (const [route, api, session] of screens) {
+    await installApi(page, session ?? lateGame);
+    // Never answered: registered after the harness, so it wins for this endpoint.
+    await page.route(api, () => new Promise<void>(() => {}));
+    await page.goto(route);
+    await expectReadable(page, 'screen-loading', route);
+    await page.unroute(api);
+  }
+});
+
+/**
  * A screen whose read fails must **say so**.
  *
  * This is the gate for the bug that cost the most this cycle. `GET /battles` was answering 500 for
@@ -997,7 +1047,7 @@ test('a refused launch tells the player why', async ({ page }) => {
 test('a screen that cannot load says so, rather than spinning or going blank', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 720 });
 
-  const screens: readonly [route: string, api: string][] = [
+  const screens: readonly [route: string, api: string, session?: MeResponse][] = [
     ['/game/battles', '**/api/battles'],
     ['/game/leaderboard', '**/api/leaderboard*'],
     ['/game/crew/effects', '**/api/overseer/me'],
@@ -1012,10 +1062,13 @@ test('a screen that cannot load says so, rather than spinning or going blank', a
     ['/game/market', '**/api/market'],
     ['/game/market/black', '**/api/black-market'],
     ['/game/settings', '**/api/settings'],
+    // Six more, found on the 2026-09-29 bug pass: each returned its line straight into the outlet,
+    // under the bar, for a failed read and a slow one alike.
+    ...LOADS_WITHOUT_A_FRAME,
   ];
 
-  for (const [route, api] of screens) {
-    await installApi(page, lateGame);
+  for (const [route, api, session] of screens) {
+    await installApi(page, session ?? lateGame);
     // Registered after the harness's own handler, so this one wins for the endpoint under test.
     await page.route(api, (route500) =>
       route500.fulfill({
@@ -1039,12 +1092,7 @@ test('a screen that cannot load says so, rather than spinning or going blank', a
      * district with nothing on it. Measured against the bar's own box rather than a constant,
      * because the bar's height is measured at runtime and changes with the chips in it.
      */
-    const hud = await page.locator('header').first().boundingBox();
-    const said = await page.getByTestId('load-failure').boundingBox();
-    if (!hud || !said) throw new Error(`${route}: no box for the bar or the message`);
-    expect(said.y, `${route} drew its failure under the standing bar`).toBeGreaterThanOrEqual(
-      hud.y + hud.height,
-    );
+    await expectReadable(page, 'load-failure', route);
     await expect(page.getByTestId('load-retry')).toBeInViewport();
     await page.unroute(api);
   }
@@ -1203,54 +1251,24 @@ test('an empty chair can be filled from the bench', async ({ page }) => {
 });
 
 /**
- * §A4: opening a district is a journey (maintainer rework).
+ * §A4: every district opens as its page (maintainer, 2026-09-29: "whole city visible").
  *
- * The old scout was a button that lifted the fog on the spot. The three things this pins are the
- * three the rework is for: the price is quoted before the press, the press starts a walk rather
- * than finishing one, and the ground stays dark while somebody is on the road.
+ * The CCS is ground this crew holds nothing in, which is the case a scouting sheet used to stand
+ * over. A link lands on the page with the URL it asked for, and the
+ * tag on the map goes to the same page.
  */
-test('scouting a district sends somebody rather than opening it', async ({ page }) => {
+test('a district the crew holds nothing in opens as its page, from a link and from the map', async ({
+  page,
+}) => {
   await installApi(page, lateGame);
-  await page.goto(`/game/city/${UNSCOUTED_DISTRICT_ID}`);
+  await page.goto('/game/city/ccs');
+  await expect(page).toHaveURL(/\/game\/city\/ccs$/);
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('CCS');
 
-  /*
-   * Unscouted ground does not open (maintainer, 2026-09-23), and it does not **bounce** either
-   * (maintainer, 2026-09-25).
-   *
-   * This used to answer a redirect to the map carrying `?scout=`, which meant a second navigation
-   * on top of the one that got here and a district page flashing past on the way. The sheet is
-   * drawn at this route now, so a link from a crew profile, a notification or a pasted URL all
-   * land on the window without the page underneath ever being drawn, and the URL is the one the
-   * player asked for. Closing it is the one road out, to the map.
-   */
-  const menu = page.getByTestId('scout-menu');
-  await expect(menu).toBeVisible();
-  await expect(page).toHaveURL(new RegExp(`/game/city/${UNSCOUTED_DISTRICT_ID}$`));
-  await expect(menu.getByTestId('scout-menu-title')).toBeVisible();
-  await page.keyboard.press('Escape');
-  await expect(menu).toHaveCount(0);
-  await expect(page).toHaveURL(/\/game$/);
-
-  // And from the map, the tag opens the same sheet without going anywhere at all.
-  await page.getByTestId(`district-tag-${UNSCOUTED_DISTRICT_ID}`).click();
-  await expect(page.getByTestId('scout-menu')).toBeVisible();
-  await expect(page).toHaveURL(/\/game$/);
-
-  // Quoted first: a run is measured in hours, so how long is a decision, not a surprise.
-  const send = page.getByTestId('send-scout');
-  await expect(send).toBeVisible();
-  await expect(page.getByText(/would be gone/i)).toBeVisible();
-
-  const sent = page.waitForRequest(
-    (request) => request.url().includes('/api/city/scout') && request.method() === 'POST',
-  );
-  await send.click();
-  await sent;
-
-  // Somebody is walking, the ground is still dark, and there is nothing left to press.
-  await expect(page.getByTestId('scout-underway')).toBeVisible();
-  await expect(page.getByTestId('scout-countdown')).toBeVisible();
-  await expect(page.getByTestId('send-scout')).toHaveCount(0);
+  await page.goto('/game');
+  await page.getByTestId('district-tag-ccs').click();
+  await expect(page).toHaveURL(/\/game\/city\/ccs$/);
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('CCS');
 });
 
 /**
@@ -1267,7 +1285,7 @@ test('a captured district offers its gate, and raising it reaches the server', a
 
   const panel = page.getByTestId('captured-gate-steelbelt');
   await expect(panel).toBeVisible();
-  // Level 6 at the shared rates: 6 x 2.5 defending, 6 x 1.5 against a scout.
+  // Level 6 at the shared rates: 6 x 2.5 defending, 6 x 1.5 against a spy.
   await expect(panel).toContainText('Lv 6');
   await expect(panel).toContainText('15%');
   // Ten points per level against spies (2026-09-22), and the card says points, not a percent.

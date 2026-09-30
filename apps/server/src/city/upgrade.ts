@@ -11,6 +11,7 @@ import {
   cancelWindowOpen,
   type PartialResources,
 } from '@frontline/shared';
+import { adminCost, adminSeconds, adminWaives } from '../admin/mode.js';
 import type { Repositories } from '../db/repos/index.js';
 import { creditBase, refuseWaste } from '../district/stores.js';
 
@@ -71,9 +72,20 @@ export type UpgradeOutcome =
 
 export function startUpgrade(
   repos: Repositories,
-  args: { base: Base; location: Location; control: LocationControl; now: Date },
+  args: {
+    base: Base;
+    location: Location;
+    control: LocationControl;
+    now: Date;
+    /**
+     * Testing mode: nothing charged and five seconds on the clock (`admin/mode.ts`; maintainer
+     * ruling, 2026-09-29). `upgradingSince` is handed the same flag, so it derives the start off
+     * the same five seconds rather than reading the job as one that began hours ago.
+     */
+    admin?: boolean;
+  },
 ): UpgradeOutcome {
-  const { base, location, control, now } = args;
+  const { base, location, control, now, admin = false } = args;
 
   if (control.holder.kind !== 'crew' || control.holder.baseId !== base.id) {
     return { kind: 'refused', reason: 'not_yours' };
@@ -83,24 +95,45 @@ export function startUpgrade(
   const cost = upgradeCost(location.kind, control.level);
   const note = upgradeNote(location.kind, control.level);
   if (!cost || !note) return { kind: 'refused', reason: 'at_ceiling' };
-  if (!canAfford(base.resources, cost)) return { kind: 'refused', reason: 'cannot_afford' };
+  if (!canAfford(base.resources, cost) && !adminWaives('cannot_afford', admin)) {
+    return { kind: 'refused', reason: 'cannot_afford' };
+  }
 
   const until = new Date(
-    now.getTime() + upgradeSeconds(location.kind, control.level) * 1000,
+    now.getTime() + upgradeClockSeconds(location.kind, control.level, admin) * 1000,
   ).toISOString();
   const upgraded: LocationControl = { ...control, upgradingUntil: until };
-  const paid: Base = { ...base, resources: spendResources(base.resources, cost) };
+  const paid: Base = { ...base, resources: spendResources(base.resources, adminCost(cost, admin)) };
 
   repos.city.put(upgraded);
   repos.bases.updateResources(paid.id, paid.resources);
   return { kind: 'started', control: upgraded, base: paid, note, until };
 }
 
-/** When the running upgrade began: its end, less the clock it was given. Null with none running. */
-export function upgradingSince(location: Location, control: LocationControl): string | null {
+/**
+ * The clock an upgrade actually runs on: the catalogue's, or five seconds in admin mode. The screen
+ * still quotes the catalogue's (`upgradeSeconds`), as every flattened clock does.
+ */
+function upgradeClockSeconds(kind: Location['kind'], level: number, admin: boolean): number {
+  return adminSeconds(upgradeSeconds(kind, level), admin);
+}
+
+/**
+ * When the running upgrade began: its end, less the clock it was given. Null with none running.
+ *
+ * Derived rather than stored, so it needs the mode the job was started under. A server restarted
+ * with the flag flipped mid-job misreads that one job's start, and nothing else: the end, which
+ * is what lands it, is stored.
+ */
+export function upgradingSince(
+  location: Location,
+  control: LocationControl,
+  admin = false,
+): string | null {
   if (control.upgradingUntil === null) return null;
   return new Date(
-    Date.parse(control.upgradingUntil) - upgradeSeconds(location.kind, control.level) * 1000,
+    Date.parse(control.upgradingUntil) -
+      upgradeClockSeconds(location.kind, control.level, admin) * 1000,
   ).toISOString();
 }
 
@@ -122,13 +155,15 @@ export function cancelUpgrade(
     control: LocationControl;
     now: Date;
     acceptWaste?: boolean | undefined;
+    /** Testing mode took nothing for the work, so it hands nothing back. */
+    admin?: boolean;
   },
 ): UpgradeCancelOutcome {
-  const { base, location, control, now } = args;
+  const { base, location, control, now, admin = false } = args;
   if (control.holder.kind !== 'crew' || control.holder.baseId !== base.id) {
     return { kind: 'refused', reason: 'not_yours' };
   }
-  const since = upgradingSince(location, control);
+  const since = upgradingSince(location, control, admin);
   if (control.upgradingUntil === null || since === null) {
     return { kind: 'refused', reason: 'nothing_running' };
   }
@@ -136,7 +171,7 @@ export function cancelUpgrade(
   if (!cancelWindowOpen(Date.parse(since), total, now.getTime())) {
     return { kind: 'refused', reason: 'window_closed' };
   }
-  const refund = cancelRefund(upgradeCost(location.kind, control.level) ?? {});
+  const refund = adminCost(cancelRefund(upgradeCost(location.kind, control.level) ?? {}), admin);
   const credit = creditBase(repos, base, refund, now);
   refuseWaste(credit, args.acceptWaste);
   const cleared: LocationControl = { ...control, upgradingUntil: null };

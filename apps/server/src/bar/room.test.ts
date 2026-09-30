@@ -85,6 +85,19 @@ function growUp(app: FastifyInstance, baseId: string): void {
 const sheets = (bar: BarResponse) => bar.recruits.map((recruit) => recruit.attributes);
 
 describe('the day’s room', () => {
+  // `highestRank` is its own column (0128): read back off `highest`, the audit's room inverts again.
+  it('freezes the highest rank apart from the strongest crew', async () => {
+    const app = await makeApp();
+    const room = {
+      lowest: { level: 20, notoriety: 13 },
+      highest: { level: 80, notoriety: 3 },
+      average: { level: 40, notoriety: 29 / 3 },
+      highestRank: 13,
+    };
+    app.repos.bar.freezeRoom('2026-08-13', DEFAULT_CITY_ID, room);
+    expect(app.repos.bar.room('2026-08-13', DEFAULT_CITY_ID)).toEqual(room);
+  });
+
   it('holds still when a crew levels mid-day, and follows it the next day', async () => {
     const app = await makeApp();
     const one = await makePlayer(app, 'frozen_reader');
@@ -105,7 +118,7 @@ describe('the day’s room', () => {
     const tomorrow = await readBar(app, one.token);
     const live = roomProfileOf(app.repos, DEFAULT_CITY_ID);
     expect(app.repos.bar.room(tomorrow.day, DEFAULT_CITY_ID)).toEqual(live);
-    const poured = barRoster(tomorrow.day, tomorrow.recruits.length, live);
+    const poured = barRoster(tomorrow.day, live);
     expect(sheets(tomorrow)).toEqual(poured.map((recruit) => recruit.attributes));
   });
 
@@ -135,12 +148,7 @@ describe('the day’s room', () => {
 
     growUp(app, one.baseId);
     // The positive control: rebuilt off the live city, seat 1 is somebody else.
-    const live = findBarRecruit(
-      bar.day,
-      id,
-      bar.recruits.length,
-      roomProfileOf(app.repos, DEFAULT_CITY_ID),
-    );
+    const live = findBarRecruit(bar.day, id, roomProfileOf(app.repos, DEFAULT_CITY_ID));
     expect(live?.attributes).not.toEqual(card.attributes);
 
     vi.setSystemTime(AFTER);

@@ -149,14 +149,16 @@ export type HoldBonus =
   | { kind: 'loot_capacity'; percent: number }
   | { kind: 'intimidation'; flat: number }
   | { kind: 'travel_speed'; percent: number }
-  /** Reveals this many of the nearest districts without having to walk into them. */
-  | { kind: 'vision'; districts: number }
   /** A percentage more infamy off everything that earns any (§D8). */
   | { kind: 'infamy_gain'; percent: number }
   /** One resource goes further than it should: the same barrel does more work. */
   | { kind: 'resource_yield'; resource: ResourceKey; percent: number }
-  /** Every crew that is out comes home sooner (§E). */
-  | { kind: 'mission_speed'; percent: number }
+  /**
+   * Every crew that is out comes home sooner (§E). `inOwnCity` narrows it to jobs in the city the
+   * ground paying it stands in: the Blockhouse's "twenty per cent off the time every job in this
+   * city takes" (maintainer, 2026-09-24) is Terminus's work, not the world's.
+   */
+  | { kind: 'mission_speed'; percent: number; inOwnCity?: true }
   | { kind: 'mission_spoils'; percent: number }
   /** Off every price the traders quote. */
   | { kind: 'market_discount'; percent: number }
@@ -172,7 +174,7 @@ export type HoldBonus =
   | { kind: 'battle_stims'; flat: number }
   /** A share of what dies comes back as caps rather than as nothing. */
   | { kind: 'salvage_refund'; percent: number }
-  /** What a scout brings home, and what the city tells you without being asked. */
+  /** Points on every spy job this crew sends: what the runners come home with. */
   | { kind: 'intel'; percent: number }
   /** Flat points on every officer's attributes in one group, training the crew cannot buy. */
   | { kind: 'officer_group'; group: AttributeGroup; flat: number }
@@ -240,15 +242,6 @@ export type HoldBonus =
    */
   | { kind: 'steady_nerve' }
   /**
-   * More than one scouting party out at a time.
-   *
-   * The scouting door has exactly one limit and it is not a price: a crew may have one officer out
-   * casing the city, full stop, so knowing the map is paced by evenings rather than by resources.
-   * This widens that, which is a different kind of thing from a shorter run: a second party is a
-   * second question answered tonight, and no percentage off `scoutRunMinutes` ever buys that.
-   */
-  | { kind: 'scout_parties'; flat: number }
-  /**
    * A platform on Terminus's line (maintainer, 2026-09-24).
    *
    * Hold the Station in two districts and you may **choose** to put a unit move or a battle column
@@ -262,8 +255,8 @@ export type HoldBonus =
    * off per journey, because riding is not always what you want: `vehicles` and the Colossus
    * cannot board, so a column that takes the train leaves them behind.
    *
-   * Missions and scouting runs do not ride it. Those are crews sent out to work the ground rather
-   * than to arrive somewhere, and a mission board that priced half its jobs off a railway would be
+   * Missions and spy jobs do not ride it. Those are crews sent out to work the ground rather than
+   * to arrive somewhere, and a mission board that priced half its jobs off a railway would be
    * pricing the wrong thing.
    */
   | { kind: 'rail_link' };
@@ -678,19 +671,15 @@ export const LOCATION_CATALOG: Record<LocationKind, LocationSpec> = {
     label: 'Watchtower',
     blurb:
       'A lattice mast with a cabin on top, a working pair of glasses, and a line of sight over four districts.',
-    reward: 'Everything your scouts do, they do better: everywhere in the city, not just here.',
+    reward: 'Everything your spies do, they do better: everywhere in the city, not just here.',
     bonuses: [
-      { kind: 'intel', percent: 20 },
-      { kind: 'vision', districts: 1 },
       /*
-       * A second pair of glasses, which is a second question answered tonight.
-       *
-       * The scouting door's only limit is one party out at a time, so knowing the map is paced by
-       * evenings rather than by resources and no percentage off `scoutRunMinutes` widens it. One,
-       * not two: doubling the rate is the whole of what the ground is worth here, and a crew that
-       * holds the tower and the Uplink is already seeing further than anybody.
+       * 38: the tower's own 20, plus the sight of one district and the second scouting party it
+       * paid until scouting left the game (2026-09-29), each converted at what `perkWorth` prices
+       * one whole thing on a `wide` channel, nine points. It scales on `LEVEL_SCALE` like every
+       * percentage, so the tower is still the best intel ground in the city at every level.
        */
-      { kind: 'scout_parties', flat: 1 },
+      { kind: 'intel', percent: 38 },
     ],
     baseDefense: 5,
     labels: [L('elevated', 4), L('open', 2), L('windy', 2), L('crammed', 1)],
@@ -933,8 +922,10 @@ export const LOCATION_CATALOG: Record<LocationKind, LocationSpec> = {
   satellite_uplink: {
     label: 'Satellite Uplink',
     blurb: 'A dish on a mast, aligned by hand, talking to something still in orbit.',
-    reward: 'You can see into districts without walking into them first.',
-    bonuses: [{ kind: 'vision', districts: 2 }],
+    reward: 'What goes over the air in this city, your spies have already read.',
+    // Two districts of sight until the whole city became visible (2026-09-29), converted at nine
+    // points of intel a district, the rate `perkWorth` prices one whole thing on a `wide` channel.
+    bonuses: [{ kind: 'intel', percent: 18 }],
     baseDefense: 5,
     labels: [L('open', 2), L('elevated', 3), L('windy', 2)],
     upgradeCost: 180,
@@ -1278,7 +1269,7 @@ export function scaledBonus(bonus: HoldBonus, level: number): HoldBonus {
   const scale = LEVEL_SCALE[at - 1] as number;
   const grow = (value: number): number => Math.round(value * scale);
   /**
-   * The same, for channels counted in whole small things: sessions, syringes, districts seen.
+   * The same, for channels counted in whole small things: sessions and syringes.
    *
    * `round(1 × 1.5)` and `round(1 × 2)` are both 2, so a Gym at level 3 paid exactly what it paid
    * at level 2 and the player had bought nothing. Floored at one step per level, so every upgrade
@@ -1290,8 +1281,6 @@ export function scaledBonus(bonus: HoldBonus, level: number): HoldBonus {
   switch (bonus.kind) {
     case 'resource':
       return { ...bonus, perHour: grow(bonus.perHour) };
-    case 'vision':
-      return { ...bonus, districts: step(bonus.districts) };
     case 'training_sessions':
     case 'battle_stims':
       return { ...bonus, flat: step(bonus.flat) };
@@ -1302,8 +1291,6 @@ export function scaledBonus(bonus: HoldBonus, level: number): HoldBonus {
       return { ...bonus, flat: grow(bonus.flat) };
     case 'road_shortcut':
       return { ...bonus, minutes: grow(bonus.minutes) };
-    case 'scout_parties':
-      return { ...bonus, flat: step(bonus.flat) };
     /*
      * The rules do not scale, and that is the point of them.
      *
@@ -1436,14 +1423,14 @@ export interface TerritoryEffects {
   lootCapacityPercent: number;
   intimidationFlat: number;
   travelSpeedPercent: number;
-  /** How many of the nearest districts are visible without scouting them.  */
-  visionRange: number;
   /** §D8: a percentage more infamy off everything that earns any. */
   infamyGainPercent: number;
   /** Per resource: the same amount does this much more work than it should. */
   resourceYieldPercent: PartialResources;
   /** §E: every crew that is out is home sooner. */
   missionSpeedPercent: number;
+  /** §E: the same, on jobs in one city only, by city id. See `inOwnCity` on the bonus. */
+  missionSpeedPercentByCity: Record<string, number>;
   /** §E: added to a run's pay premium at launch, so every job on the board is worth more. */
   missionSpoilsPercent: number;
   marketDiscountPercent: number;
@@ -1457,7 +1444,7 @@ export interface TerritoryEffects {
   /** A share of what dies comes back as caps. */
   salvageRefundPercent: number;
   /**
-   * What a scout brings back, and what the city tells you unasked.
+   * Points on every spy job this crew sends, read one point a percent (`spying/spying.ts`).
    *
    * Lives here rather than in `CrewEffects` because ground and people push it *equally*: a
    * Watchtower and a Master of Whispers with a Logic of 80 are two ways of buying the same thing, and the
@@ -1489,8 +1476,6 @@ export interface TerritoryEffects {
   unitMarks: Record<string, readonly UnitRuleId[]>;
   /** Whether a stack that broke can shake the ones beside it. See the `steady_nerve` bonus. */
   steadyNerve: boolean;
-  /** Scouting parties a crew may have out at once, on top of the one everybody gets. */
-  scoutPartiesFlat: number;
   /**
    * Whether this crew holds a Station: a platform on Terminus's line.
    *
@@ -1521,10 +1506,10 @@ export function noTerritoryEffects(): TerritoryEffects {
     lootCapacityPercent: 0,
     intimidationFlat: 0,
     travelSpeedPercent: 0,
-    visionRange: 0,
     infamyGainPercent: 0,
     resourceYieldPercent: {},
     missionSpeedPercent: 0,
+    missionSpeedPercentByCity: {},
     missionSpoilsPercent: 0,
     marketDiscountPercent: 0,
     blackMarketDiscountPercent: 0,
@@ -1541,13 +1526,22 @@ export function noTerritoryEffects(): TerritoryEffects {
     anyRide: false,
     unitMarks: {},
     steadyNerve: false,
-    scoutPartiesFlat: 0,
     railLink: false,
   };
 }
 
-/** Folds one bonus into a running total. Mutates `into`. It is the accumulator of a reduce. */
-export function applyHoldBonus(into: TerritoryEffects, bonus: HoldBonus): TerritoryEffects {
+/**
+ * Folds one bonus into a running total. Mutates `into`. It is the accumulator of a reduce.
+ *
+ * `cityId` is the city of the ground paying it, which only a city-scoped bonus reads. One with no
+ * city to belong to pays nothing rather than paying everywhere. Reduce through a lambda: handed
+ * over point-free, the reduce's index would arrive as the city.
+ */
+export function applyHoldBonus(
+  into: TerritoryEffects,
+  bonus: HoldBonus,
+  cityId?: string,
+): TerritoryEffects {
   switch (bonus.kind) {
     case 'resource':
       into.perHour = {
@@ -1605,9 +1599,6 @@ export function applyHoldBonus(into: TerritoryEffects, bonus: HoldBonus): Territ
     case 'travel_speed':
       into.travelSpeedPercent += bonus.percent;
       return into;
-    case 'vision':
-      into.visionRange = Math.max(into.visionRange, bonus.districts);
-      return into;
     case 'infamy_gain':
       into.infamyGainPercent += bonus.percent;
       return into;
@@ -1618,7 +1609,14 @@ export function applyHoldBonus(into: TerritoryEffects, bonus: HoldBonus): Territ
       };
       return into;
     case 'mission_speed':
-      into.missionSpeedPercent += bonus.percent;
+      if (!bonus.inOwnCity) {
+        into.missionSpeedPercent += bonus.percent;
+      } else if (cityId !== undefined) {
+        into.missionSpeedPercentByCity = {
+          ...into.missionSpeedPercentByCity,
+          [cityId]: (into.missionSpeedPercentByCity[cityId] ?? 0) + bonus.percent,
+        };
+      }
       return into;
     case 'mission_spoils':
       into.missionSpoilsPercent += bonus.percent;
@@ -1680,9 +1678,6 @@ export function applyHoldBonus(into: TerritoryEffects, bonus: HoldBonus): Territ
         : { ...into.unitMarks, [bonus.unitId]: [...held, bonus.mark] };
       return into;
     }
-    case 'scout_parties':
-      into.scoutPartiesFlat += bonus.flat;
-      return into;
     case 'rail_link':
       into.railLink = true;
       return into;
@@ -1741,14 +1736,12 @@ export function describeHoldBonus(bonus: HoldBonus): string {
       // A cut off the clock, not a rise in speed: the road is `roadMinutes`, where the ground's
       // percent multiplies what the column's own speed left. Said the way the vehicle discount is.
       return `-${bonus.percent}% off the road`;
-    case 'vision':
-      return `sees ${bonus.districts} district${bonus.districts === 1 ? '' : 's'}`;
     case 'infamy_gain':
       return `+${bonus.percent}% infamy earned`;
     case 'resource_yield':
       return `${RESOURCE_LABELS[bonus.resource]} goes ${bonus.percent}% further`;
     case 'mission_speed':
-      return `-${timeSavingPercent(bonus.percent, MAX_MISSION_SPEED_BONUS)}% mission time`;
+      return `-${timeSavingPercent(bonus.percent, MAX_MISSION_SPEED_BONUS)}% mission time${bonus.inOwnCity ? ' in this city' : ''}`;
     case 'market_discount':
       return `-${bonus.percent}% market prices`;
     case 'black_market_discount':
@@ -1763,8 +1756,9 @@ export function describeHoldBonus(bonus: HoldBonus): string {
       return `+${bonus.flat} battle stim${bonus.flat === 1 ? '' : 's'}`;
     case 'salvage_refund':
       return `${bonus.percent}% of losses refunded`;
+    // Points on the spy contest's scale, not a percentage (bug pass, 2026-09-29).
     case 'intel':
-      return `+${bonus.percent}% intel`;
+      return `+${bonus.percent} spy points`;
     case 'mission_spoils':
       return `+${bonus.percent}% mission pay`;
     case 'unit_armor':
@@ -1787,8 +1781,6 @@ export function describeHoldBonus(bonus: HoldBonus): string {
       return `${UNIT_RULES[bonus.mark].label} for one unit`;
     case 'steady_nerve':
       return 'a stack that breaks shakes nobody';
-    case 'scout_parties':
-      return `+${bonus.flat} scouting part${bonus.flat === 1 ? 'y' : 'ies'} out at once`;
     case 'rail_link':
       return `On the line: ${RAIL_LINK_MINUTES} min to any Station you hold`;
   }

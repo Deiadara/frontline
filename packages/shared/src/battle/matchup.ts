@@ -1,5 +1,6 @@
 import { UNIT_MODIFIERS, type UnitModifierId, type UnitModifierSpec } from '../units/index.js';
 import type { Effective } from './effects.js';
+import { MORALE_THRESHOLDS } from './morale.js';
 
 /**
  * What happens when one stack shoots at another: the interaction layer.
@@ -65,8 +66,26 @@ export const CLOSING_WEIGHT = 1;
  */
 export const PENETRATION_PER_ARMOR = 1;
 
-/** Below this morale a target counts as shaken, and `vs_low_morale` sheets switch on. */
-export const SHAKEN_MORALE = 40;
+/**
+ * Terror's two tiers (maintainer, 2026-09-29), both on the morale ladder's own lines.
+ *
+ * Below {@link SHAKEN_MORALE} a target is shaken, the word the report's standing list uses from
+ * 60 (`MORALE_THRESHOLDS.steady`), and a `vs_low_morale` sheet pays {@link SHAKEN_TERROR_SHARE}
+ * of its percentage. Below {@link BREAKING_MORALE} the report calls it wavering
+ * (`MORALE_THRESHOLDS.shaken`, 35) and it pays all of it. There was one line, at 40, so a target
+ * the report called shaken at 45 took nothing; the full tier then sat at 30, five points inside
+ * the wavering band, until the maintainer moved it onto the band's edge the same day. Read off the
+ * ladder rather than restated, so the card and the report cannot drift apart again.
+ */
+export const SHAKEN_MORALE = MORALE_THRESHOLDS.steady;
+export const BREAKING_MORALE = MORALE_THRESHOLDS.shaken;
+export const SHAKEN_TERROR_SHARE = 0.4;
+
+/** The share of a `vs_low_morale` sheet's percentage a target at this morale pays. */
+export function terrorShare(morale: number): number {
+  if (morale < BREAKING_MORALE) return 1;
+  return morale < SHAKEN_MORALE ? SHAKEN_TERROR_SHARE : 0;
+}
 
 /** At or above this armour a target counts as armoured, and `vs_armor` sheets switch on. */
 export const ARMORED_THRESHOLD = 25;
@@ -180,7 +199,8 @@ export function engagementMultiplier(attacker: Effective, defender: Effective): 
  * The percentage a unit's target-dependent modifiers are worth against *this* defender.
  *
  * `vs_low_morale` is the mechanical half of intimidation: a Terror unit is worth nothing against a
- * steady enemy and a third again as much against one already coming apart. Morale is therefore
+ * steady enemy, a little against a shaken one and a third again as much against one about to
+ * break ({@link terrorShare}). Morale is therefore
  * read live, per round, rather than frozen with the rest of the sheet.
  *
  * `tracking` is not here: it takes from the target's dodge rather than adding to this unit's
@@ -197,8 +217,8 @@ export function targetBonusPercent(
     if (modifier.context === 'vs_armor' && defender.armor >= ARMORED_THRESHOLD) {
       percent += modifier.percent;
     }
-    if (modifier.context === 'vs_low_morale' && defenderMorale < SHAKEN_MORALE) {
-      percent += modifier.percent;
+    if (modifier.context === 'vs_low_morale') {
+      percent += modifier.percent * terrorShare(defenderMorale);
     }
   }
   return percent;

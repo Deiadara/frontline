@@ -183,9 +183,9 @@ export type AuctionOutcome = z.infer<typeof AuctionOutcomeSchema>;
 /**
  * How yesterday's table ended for this reader.
  *
- * `won` and `lost` say themselves. `passed` is a crew whose final was highest and who could not
- * take the person at the close (no chair, no payroll), so they went to the next; `unsold` is a
- * table the reader bid on that nobody could take.
+ * `won` and `lost` say themselves. `passed` is a crew whose final was over the winner's and who
+ * could not take the person at the close (no chair, no bed, no payroll), so they went further down;
+ * on a table nobody took, the top crew passed and `unsold` is everybody behind it.
  */
 export const BarAuctionResultSchema = z.object({
   day: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),

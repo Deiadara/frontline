@@ -2,7 +2,6 @@ import type { TrapSpec } from '../battle/traps.js';
 import type { ModificationRarity } from '../modification-rarity.js';
 import { RESOURCE_KEYS, type PartialResources } from '../resources.js';
 import type { UnitModificationSpec } from '../units/modifications.js';
-import { isAdvancedModification } from './addons.js';
 import { OFFICER_MARK_CEILING, OFFICER_MARK_FLOOR } from '../crew/marks.js';
 import type { ModificationSpec } from './modifications.js';
 
@@ -15,10 +14,8 @@ import type { ModificationSpec } from './modifications.js';
  * and both are read here and nowhere else, so the page's info box and the server's bill cannot
  * disagree.
  *
- * **What it can cut.** The plain bolt-ons are open from the first level. The advanced modifications
- * (the ones that want a retrofit document and good metal) open at {@link
- * SCRAPYARD_LEVEL_FOR_ADVANCED_MODIFICATION}; each rarity of unit card
- * ({@link SCRAPYARD_LEVEL_FOR_RARITY}) and each trap has a level of its own. The thresholds sit on
+ * **What it can cut.** Each rarity of modification card, structure and unit alike
+ * ({@link SCRAPYARD_LEVEL_FOR_RARITY}), and each trap has a level of its own. The thresholds sit on
  * the rungs the yard already had, so a crew reaches them by growing the district rather than by
  * grinding one structure.
  *
@@ -88,17 +85,17 @@ export function yardCostCutPercent(points: number): number {
 
 /** The plain bolt-ons: open the day the yard is standing. */
 export const SCRAPYARD_LEVEL_FOR_BASIC = 1;
-/** The advanced entries of a structure's seven: the ones behind a retrofit document. */
+/** The ADVANCED rung of {@link SCRAPYARD_LEVEL_FOR_RARITY}. */
 export const SCRAPYARD_LEVEL_FOR_ADVANCED_MODIFICATION = 4;
 /**
- * Unit modification cards by rarity: BASIC is open with the yard, MASTERPIECE waits for a serious
- * one.
+ * Modification cards by rarity, unit and structure alike: BASIC is open with the yard, MASTERPIECE
+ * waits for a serious one.
  *
  * The four rungs are the ones the yard already opened things at, so the swap from the three refit
  * tiers (1, 3, 7) moved no player's threshold: INTRICATE sits where tier two did, MASTERPIECE where
- * tier three did, and ADVANCED shares the rung the advanced building modifications open at, so the
- * word "advanced" means one yard level on both benches. `scrapyard.test.ts` holds that the ladder
- * climbs strictly with the rarity, in the order `MODIFICATION_RARITIES` lists them.
+ * tier three did, and ADVANCED on the rung the advanced building modifications opened at.
+ * `scrapyard.test.ts` holds that the ladder climbs strictly with the rarity, in the order
+ * `MODIFICATION_RARITIES` lists them.
  */
 export const SCRAPYARD_LEVEL_FOR_RARITY: Readonly<Record<ModificationRarity, number>> = {
   basic: SCRAPYARD_LEVEL_FOR_BASIC,
@@ -127,10 +124,14 @@ export const SCRAPYARD_LEVEL_FOR_TRAP: Readonly<Record<string, number>> = {
   trap_flooded_cellar: 6,
 };
 
+/**
+ * A structure card opens on its grade's rung, the unit cards' ladder (maintainer, 2026-09-29:
+ * "even the yard ladder"). It opened by magnitude before, at 1 or 4, so an INTRICATE structure card
+ * was open two levels before an INTRICATE unit card and a MASTERPIECE one three before, and a player
+ * who had learnt the ladder on one bench had learnt the wrong thing about the other.
+ */
 export function scrapyardLevelForModification(spec: ModificationSpec): number {
-  return isAdvancedModification(spec)
-    ? SCRAPYARD_LEVEL_FOR_ADVANCED_MODIFICATION
-    : SCRAPYARD_LEVEL_FOR_BASIC;
+  return SCRAPYARD_LEVEL_FOR_RARITY[spec.rarity];
 }
 
 export function scrapyardLevelForUpgrade(spec: UnitModificationSpec): number {

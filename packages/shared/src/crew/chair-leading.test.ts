@@ -66,7 +66,7 @@ describe('the two tracks carry the rungs, filed under their chairs', () => {
     }
     // Nobody else's track pays while its officer leads: the nine are the whole list.
     const leading = RESEARCH_ITEMS.filter((spec) =>
-      ['leader_self', 'leader_taunt', 'leader_party'].includes(spec.payout.bonus.kind),
+      ['leader_self', 'leader_taunt', 'leader_party'].includes(spec.payout.bonus?.kind ?? ''),
     );
     expect(leading.map((spec) => spec.id).sort()).toEqual(
       [...RAID_BOSS_RUNGS, ...FIELD_COMMANDER_RUNGS].sort(),

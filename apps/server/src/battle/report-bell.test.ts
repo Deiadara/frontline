@@ -85,7 +85,6 @@ describe('the receipt for a fight the leader did not walk away from', () => {
     app.repos.bases.updateCommanders(baseId, [
       createCommander(OFFICER_ID, 'Vasco Renn', 'field_commander'),
     ]);
-    app.repos.city.markScouted(baseId, 'steelbelt', new Date().toISOString());
     // One plot let go, so the district is not shut and a location is a legal call.
     const ramp = app.repos.city.control('steelbelt-ramp')!;
     app.repos.city.put({ ...ramp, holder: { kind: 'unoccupied' }, garrison: {} });
@@ -119,10 +118,8 @@ describe('the receipt for a fight the leader did not walk away from', () => {
     });
     expect(deployed.statusCode, deployed.body.slice(0, 300)).toBe(200);
 
-    db.prepare('UPDATE scheduled_battles SET scheduled_for = ? WHERE id = ?').run(
-      new Date(Date.now() - 60_000).toISOString(),
-      battleId,
-    );
+    const mark = new Date(Date.now() - 60_000).toISOString();
+    db.prepare('UPDATE scheduled_battles SET scheduled_for = ? WHERE id = ?').run(mark, battleId);
     const [resolved] = settleBattles(app.repos, app.skirmishEngine, new Date());
     if (!resolved) throw new Error('fixture: the fight did not settle');
 
@@ -135,5 +132,7 @@ describe('the receipt for a fight the leader did not walk away from', () => {
       .notifications(userId, 50)
       .filter((row) => row.kind === 'battle_report' && row.subjectId === battleId);
     expect(bells.length, 'the one notification a player cannot mute never arrived').toBe(1);
+    // Dated at the mark, when the fight happened, not at the tick that settled it a minute on.
+    expect(bells[0]?.createdAt).toBe(mark);
   });
 });

@@ -2,6 +2,7 @@ import {
   GAME_TIMEZONE,
   LoginRequestSchema,
   MVP_DEV_CREDENTIALS,
+  PASSWORD_MAX_BYTES,
   RegisterRequestSchema,
   formatClock,
   type AuthResponse,
@@ -64,6 +65,18 @@ const prefillFor = (mode: Mode) =>
   DEV_PREFILL && mode === 'login'
     ? { username: MVP_DEV_CREDENTIALS.username, password: MVP_DEV_CREDENTIALS.password }
     : { username: '', password: '' };
+
+/**
+ * Said before the player types a long passphrase rather than after it is refused (bug pass,
+ * 2026-09-29): the hash reads 72 bytes, so the form stops there and says what a byte is.
+ */
+const PASSWORD_HINT = `Up to ${String(PASSWORD_MAX_BYTES)} bytes. A plain letter is one; accents and symbols take two to four.`;
+
+/** The pitch, broken where its two halves come out the same length. See the paragraph below. */
+const PITCH_LINES = [
+  'The Combine runs the lights, the water and the checkpoints. You run',
+  'six streets and a generator that is one bad week from cutting out.',
+] as const;
 
 /** What the game is, in four marks. Titles only: the pitch above says the rest. */
 const PROMISES: readonly { icon: IconName; title: string }[] = [
@@ -152,11 +165,31 @@ export function AuthScreen() {
             <Wordmark className="w-[26rem] max-w-full" />
           </h1>
 
-          <p className="max-w-lg font-stamp text-[17px] leading-[1.6] text-ink-100">
-            The Combine runs the lights, the water and the checkpoints. You run six streets and a
-            generator {/* Held together so the line breaks before them (maintainer, 2026-09-28). */}
-            <span className="whitespace-nowrap">that is one bad</span> week from cutting out.{' '}
-            <span className="relative inline-block whitespace-nowrap text-brass-100">
+          {/*
+           * Two white lines of one length and a brass line under a blank one (maintainer,
+           * 2026-09-30). The break is placed by hand at the middle of the words, and each line is
+           * justified out to the width of the longer one (`w-max` on the paragraph), so both edges
+           * line up. The size is the largest that fits the longer line in the pitch column: 572px
+           * from 1024 to 1279 takes 16px, and the 604px column from 1280 up takes the 17px the pitch
+           * was set in before. `auth-pitch.spec.ts` measures it at four widths.
+           */}
+          <p
+            className="w-max max-w-full font-stamp text-[16px] leading-[1.6] text-ink-100 xl:text-[17px]"
+            data-testid="auth-pitch"
+          >
+            {PITCH_LINES.map((line) => (
+              <span
+                key={line}
+                className="block whitespace-nowrap [text-align-last:justify] [text-align:justify]"
+                data-testid="auth-pitch-line"
+              >
+                {line}
+              </span>
+            ))}
+            <span
+              className="relative mt-[1.6em] inline-block whitespace-nowrap text-brass-100"
+              data-testid="auth-pitch-call"
+            >
               It&apos;s up to you to change that.
               <InkUnderline />
             </span>
@@ -255,6 +288,7 @@ export function AuthScreen() {
                   onChange={setPassword}
                   autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
                   error={fieldErrors.password}
+                  hint={mode === 'register' ? PASSWORD_HINT : undefined}
                 />
 
                 {DEV_PREFILL && mode === 'login' && (
@@ -383,9 +417,11 @@ interface FieldProps {
   type?: string;
   autoComplete?: string;
   error?: string | undefined;
+  /** A standing line under the box, for a rule worth knowing before it is broken. */
+  hint?: string | undefined;
 }
 
-function Field({ label, value, onChange, type = 'text', autoComplete, error }: FieldProps) {
+function Field({ label, value, onChange, type = 'text', autoComplete, error, hint }: FieldProps) {
   return (
     <label className="flex flex-col gap-1.5">
       <span className="font-display text-[11px] uppercase tracking-[0.25em] text-ink-300">
@@ -402,6 +438,7 @@ function Field({ label, value, onChange, type = 'text', autoComplete, error }: F
           error ? 'border-oxblood-500' : 'border-surface-600',
         )}
       />
+      {hint && <span className="font-body text-[12px] leading-snug text-ink-300">{hint}</span>}
       {error && <ErrorNote>{error}</ErrorNote>}
     </label>
   );

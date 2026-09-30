@@ -64,7 +64,6 @@ import {
   upgradeLocation,
   getDistrict,
   getUnits,
-  scoutDistrict,
   plantSleepers,
   recallSleepers,
   cancelTraining,
@@ -111,7 +110,6 @@ import {
   logoutEverywhere,
   getAdmin,
   mockBattleOnMe,
-  setAdminFog,
   setAdminKnobs,
   grantAdmin,
   resetAdmin,
@@ -135,7 +133,6 @@ import {
   cancelBuild,
   cancelResearch,
   cancelLocationUpgrade,
-  recallScout,
   recallSpy,
   spyOn,
   moveUnits,
@@ -370,13 +367,12 @@ export function useHomeCity(): string | null {
 }
 
 /**
- * City map: districts, their fog and what this crew holds on them.
+ * City map: districts, who holds them and what this crew holds on them.
  *
  * `city` is the city being looked at, `undefined` for the crew's own, and it is part of the key so
  * two maps are two cache entries: the same rule `useMarket`, `useBar` and `useMissions` follow.
- * Without it, switching to a city you do not live in draws the previous city's fog over the new
- * city's districts until the next poll lands, and on a map that decides what a tag does when it is
- * clicked, the wrong fog is a tag that opens the wrong thing.
+ * Without it, switching to a city you do not live in draws the previous city's holdings over the
+ * new city's districts until the next poll lands.
  *
  * The `queryFn` is a call, never the bare fetcher: React Query passes the query's own context
  * object as the first argument, and `getCity` would read that object as the city (`getMissions`
@@ -762,7 +758,7 @@ function useBaseOrder<TArgs>(
  * The city writes (GDD §A4).
  *
  * All five refresh the same three things, because all five can move them: the map (ownership and
- * fog), the district that was touched, and the crew itself (its army, its stockpile, its level).
+ * holdings), the district that was touched, and the crew itself (its army, its stockpile, its level).
  * Said once rather than five times: the reason is identical every time.
  */
 function useCityWrite<Body, Result>(
@@ -796,9 +792,9 @@ function useCityWrite<Body, Result>(
  *
  * Polled on the district cadence, and it is the read with the most standing on it: `GET /city/:id`
  * runs `settleWorld` and `settleBase` on its first two lines, so an upgrade landing, a column
- * arriving and a scout walking back in all happen *on this request*. Without an interval nothing ever made it again, and the screen has four live countdowns drawn
- * off the payload: a scout at zero read "Walking back in" until the player navigated away, and a
- * finished upgrade kept its clock at `0s left` beside a location still at the old level.
+ * arriving and a spy job coming home all happen *on this request*. Without an interval nothing
+ * ever made it again, and the screen draws live countdowns off the payload: a finished upgrade
+ * kept its clock at `0s left` beside a location still at the old level.
  */
 export function useDistrict(districtId: string | undefined) {
   const token = useSession((s) => s.token);
@@ -809,8 +805,6 @@ export function useDistrict(districtId: string | undefined) {
     refetchInterval: DISTRICT_POLL_MS,
   });
 }
-
-export const useScout = () => useCityWrite(scoutDistrict, undefined, (body) => body.districtId);
 
 /**
  * §A4: plant a cell, and pull one back out (`sleepers.ts`).
@@ -853,13 +847,6 @@ export const useCancelLocationUpgrade = (
   baseId: string | undefined,
   districtId: string | undefined,
 ) => useCityWrite(cancelLocationUpgrade, baseId, () => districtId ?? null);
-
-/**
- * Turn the scout round. The unit is empty (a crew has one scout out at a time), so the district
- * to re-read is the one the caller is looking at rather than one named in the request.
- */
-export const useRecallScout = (districtId: string | undefined) =>
-  useCityWrite(recallScout, undefined, () => districtId ?? null);
 
 /**
  * Spying (2026-09-22). The board and the Monitor both draw the job, so both go stale with it;
@@ -928,11 +915,17 @@ export function useDeployQuote(body: DeployRequest | null) {
   });
 }
 
-export const useRecallSpy = (districtId: string | undefined) =>
-  useCityWrite(recallSpy, undefined, () => districtId ?? null, [
-    queryKeys.battles,
-    queryKeys.actions,
-  ]);
+/**
+ * Turn one job round, named by id (a crew may have two out since Two Sets of Eyes). The district
+ * rides along on the call only so the page it is on is the one refetched.
+ */
+export const useRecallSpy = () =>
+  useCityWrite(
+    ({ runId }: { runId: string; districtId: string }) => recallSpy({ runId }),
+    undefined,
+    (body) => body.districtId,
+    [queryKeys.battles, queryKeys.actions],
+  );
 
 /**
  * The unit roster (GDD §A5). Polled for the same reason the district page is: a training batch
@@ -1508,24 +1501,6 @@ export function useAdminMockBattle() {
     mutationFn: mockBattleOnMe,
     onSuccess: (response) => {
       queryClient.setQueryData(queryKeys.admin, response.admin);
-      void queryClient.invalidateQueries();
-    },
-  });
-}
-
-/**
- * The Console's fog of war. Everything is invalidated on success for the same reason the knobs
- * are: what the city, the board and the battles show all follows from what is visible.
- */
-export function useAdminFog() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: setAdminFog,
-    onSuccess: (response) => {
-      queryClient.setQueryData(queryKeys.admin, response.admin);
-      // Deliberately everything. A knob can move the district, the level, the stockpile and the
-      // infamy in one call, and enumerating what each combination touched is a list that would go
-      // stale the first time a knob is added.
       void queryClient.invalidateQueries();
     },
   });

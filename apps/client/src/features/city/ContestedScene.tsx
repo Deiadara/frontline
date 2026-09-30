@@ -3,6 +3,7 @@ import type { ReactNode } from 'react';
 import { deliveredUrl } from '../../assets/delivered';
 import { HoverCard } from '../../components/ui/HoverCard';
 import { Icon } from '../../components/ui/Icon';
+import { Insignia } from '../../components/ui/Insignia';
 import { cn } from '../../lib/cn';
 import { HOLDER_SIGN, holderToneOf, type HolderTone } from './holder';
 import { GATE_MARK, LOCATION_MARKS, type Mark } from './marks';
@@ -105,6 +106,9 @@ export function ContestedScene({ district, locations, baseId, gate, onPick }: Co
                 <span className="font-display text-[10px] uppercase tracking-[0.16em] text-ink-300">
                   Held by
                 </span>
+                {/* The Combine's and the looters' mark beside their name (maintainer, 2026-09-30).
+                    Nothing for a crew or empty ground. */}
+                <Insignia holder={view.holder.kind} className="h-4 w-4 self-center" />
                 <span
                   className={
                     view.holder.kind === 'crew' && view.holder.baseId === baseId

@@ -1,7 +1,5 @@
 import {
   RaiseGateRequestSchema,
-  ScoutRequestSchema,
-  type ScoutRefusal,
   UpgradeLocationRequestSchema,
   cityOfDistrict,
   districtsOfCity,
@@ -12,7 +10,6 @@ import {
   type CityResponse,
   type DistrictDetailResponse,
   CancelLocationWorkRequestSchema,
-  RecallScoutRequestSchema,
   RecallSpyRequestSchema,
   SpyRequestSchema,
   type SpyRefusal,
@@ -32,51 +29,33 @@ import {
 } from '../city/upgrade.js';
 import { settleBase } from '../district/settle.js';
 import { AppError, cityQuery, parseBody, type ErrorCode } from '../errors.js';
-import { recallScout, sendScout } from '../scouting/scouting.js';
 import { recallSpy, sendSpy } from '../spying/spying.js';
 import { cancelGateRaise, raiseCapturedGate } from '../city/gates.js';
 import { settleWorld } from '../world/settle.js';
 
 /**
- * The city (GDD §A4): the map, what is inside a district, and the four things you can do about it.
+ * The city (GDD §A4): the map, what is inside a district, and what you can do about it.
  *
  * Everything settles first: the crew's own district and payroll, then any location upgrade whose
  * clock ran out while nobody was looking. A location that finished its level five minutes ago has
  * to be worth that level *before* somebody looks at it.
  */
 
-/** Why a scouting run was refused, in the player's words. */
-const SCOUT_REFUSAL_ERRORS: Record<ScoutRefusal, { code: ErrorCode; message: string }> = {
-  already_scouted: { code: 'VALIDATION_ERROR', message: 'You have already had eyes on that' },
-  already_out: {
-    code: 'VALIDATION_ERROR',
-    message: 'Somebody is already out. One scout at a time',
-  },
-  no_whispers: {
-    code: 'NO_FORCE',
-    message: 'Nobody is in the Master of Whispers chair. Scouting is their work',
-  },
-  not_researched: {
-    code: 'VALIDATION_ERROR',
-    message:
-      'Your Master of Whispers has not worked Scouting out yet. It is the first thing on their track',
-  },
-  own_district: { code: 'VALIDATION_ERROR', message: 'You live there' },
-  no_road: { code: 'VALIDATION_ERROR', message: 'There is no road to that' },
-  unclaimed: {
-    code: 'VALIDATION_ERROR',
-    message: 'Nobody has claimed that plot. It stays closed until a crew moves in',
-  },
-};
-
 /** Why a spy job was refused, in the player's words (2026-09-22). */
 const SPY_REFUSAL_ERRORS: Record<SpyRefusal, { code: ErrorCode; message: string }> = {
-  no_whispers: SCOUT_REFUSAL_ERRORS.no_whispers,
-  no_road: SCOUT_REFUSAL_ERRORS.no_road,
+  no_whispers: {
+    code: 'NO_FORCE',
+    message: 'Nobody is in the Master of Whispers chair. Spying is their work',
+  },
+  no_road: { code: 'VALIDATION_ERROR', message: 'There is no road to that' },
   cannot_afford: { code: 'INSUFFICIENT_RESOURCES', message: 'You cannot cover the caps' },
   already_out: {
     code: 'VALIDATION_ERROR',
-    message: 'Your runners are already out on a job. One at a time',
+    message: 'Every party of runners you have is already out on a job',
+  },
+  tier_locked: {
+    code: 'VALIDATION_ERROR',
+    message: 'Your Master of Whispers has not opened that tier yet',
   },
   nothing_there: {
     code: 'INVALID_TARGET',
@@ -87,14 +66,8 @@ const SPY_REFUSAL_ERRORS: Record<SpyRefusal, { code: ErrorCode; message: string 
     code: 'INVALID_TARGET',
     message: 'That district is shut. From outside, the gate is the only thing to read',
   },
-  unscouted: { code: 'VALIDATION_ERROR', message: 'Nobody of yours has been there yet' },
+  city_closed: { code: 'INVALID_TARGET', message: 'That city is not open yet. Nobody gets in' },
 };
-
-/** The table above, unless the refusal came with a sentence about the person it turned away. */
-function refuseScout(reason: ScoutRefusal, detail?: string): never {
-  const { code, message } = SCOUT_REFUSAL_ERRORS[reason];
-  throw new AppError(code, detail ?? message);
-}
 
 const WORK_CANCEL_ERRORS: Record<
   'not_yours' | 'nothing_running' | 'window_closed',
@@ -107,7 +80,7 @@ const WORK_CANCEL_ERRORS: Record<
     message: 'The work has gone too far to stop. It finishes now',
   },
 };
-const SCOUT_RECALL_ERRORS: Record<
+const SPY_RECALL_ERRORS: Record<
   'nobody_out' | 'window_closed',
   { code: ErrorCode; message: string }
 > = {
@@ -137,10 +110,10 @@ export function registerCityRoutes(app: FastifyInstance): void {
     // Every clock the shared world runs on, in the one order there is (`world/settle.ts`). A
     // declared fight whose mark has passed runs here too (§A4): a battle that went off an hour ago
     // may have changed who holds half this map, and a city read showing the old answer would be a
-    // screen the rules disagree with. This path used to settle scouting and gates but *not*
+    // screen the rules disagree with. This path used to settle gates but *not*
     // movements, so which screen a player happened to open first decided whether a column that
     // arrived before the mark was in the fight.
-    settleWorld(app.repos, app.skirmishEngine, now);
+    settleWorld(app.repos, app.skirmishEngine, now, undefined, app.config.admin);
     const fresh = app.repos.bases.findByOwnerId(ownerId) ?? owned;
     return settleBase(app.repos, fresh, now).base;
   }
@@ -156,9 +129,8 @@ export function registerCityRoutes(app: FastifyInstance): void {
    * can only be opened from the inside, and the world screen would offer five cities that answer
    * nothing until you are already there.
    *
-   * So looking is free, and the fog does the work instead: a crew that has never been to Terminus
-   * is served its districts with nothing known about any of them. What the map does need is ground
-   * drawn for it. Redline and Deepcut are a name and a blurb with no districts behind them
+   * So looking is free, and the whole city is visible (maintainer, 2026-09-29) whether or not the
+   * crew has ever been there. What the map does need is ground drawn for it. Redline and Deepcut are a name and a blurb with no districts behind them
    * (`city/cities.ts`), and there is no map of a place nobody has drawn.
    */
   function mapCity(base: Base, asked: string | undefined): string {
@@ -184,34 +156,9 @@ export function registerCityRoutes(app: FastifyInstance): void {
       const base = settled(app, request.currentUser.id, now);
       const district = findDistrict(request.params.id);
       if (!district) throw new AppError('NOT_FOUND', 'No such district');
-      return projectDistrict(app.repos, base, district, now);
+      return projectDistrict(app.repos, base, district, now, app.config.admin);
     },
   );
-
-  /**
-   * §A4: send somebody to look at a district (maintainer rework).
-   *
-   * This used to open the ground on the spot. It now puts one officer on the road, and the ground
-   * opens when they walk back in: see `scouting/scouting.ts` for what that costs and why.
-   *
-   * Still answers with the district, unchanged in shape, so the client's existing read path is
-   * untouched. What it will show is fog and a countdown rather than the ground, which is the
-   * honest answer to "I have sent somebody".
-   */
-  app.post('/city/scout', { preHandler: app.authenticate }, (request): CityMutationResponse => {
-    const body = parseBody(ScoutRequestSchema, request.body);
-    const now = new Date();
-    const base = settled(app, request.currentUser.id, now);
-    const district = findDistrict(body.districtId);
-    if (!district) throw new AppError('NOT_FOUND', 'No such district');
-
-    const outcome = app.db.transaction(() =>
-      sendScout(app.repos, { base, districtId: body.districtId, now }),
-    )();
-    if (outcome.kind === 'refused') refuseScout(outcome.reason, outcome.message);
-
-    return { district: projectDistrict(app.repos, base, district, now), base };
-  });
 
   /**
    * §B7: raise the gate on a district this crew has taken whole (maintainer request).
@@ -230,7 +177,9 @@ export function registerCityRoutes(app: FastifyInstance): void {
     const now = new Date();
     const base = settled(app, request.currentUser.id, now);
 
-    const outcome = app.db.transaction(() => raiseCapturedGate(app.repos, base, districtId, now))();
+    const outcome = app.db.transaction(() =>
+      raiseCapturedGate(app.repos, base, districtId, now, app.config.admin),
+    )();
     if (outcome.kind === 'refused') {
       const message: Record<typeof outcome.reason, string> = {
         not_held: 'You do not hold all of that district',
@@ -287,34 +236,23 @@ export function registerCityRoutes(app: FastifyInstance): void {
       if (!location || !district || !control) throw new AppError('NOT_FOUND', 'No such location');
 
       const outcome = app.db.transaction(() =>
-        cancelUpgrade(app.repos, { base, location, control, now, acceptWaste }),
+        cancelUpgrade(app.repos, {
+          base,
+          location,
+          control,
+          now,
+          acceptWaste,
+          admin: app.config.admin,
+        }),
       )();
       if (outcome.kind === 'refused') {
         const { code, message } = WORK_CANCEL_ERRORS[outcome.reason];
         throw new AppError(code, message);
       }
       return {
-        district: projectDistrict(app.repos, outcome.base, district, now),
+        district: projectDistrict(app.repos, outcome.base, district, now, app.config.admin),
         base: outcome.base,
       };
-    },
-  );
-
-  app.post(
-    '/city/scout/recall',
-    { preHandler: app.authenticate },
-    (request): CityMutationResponse => {
-      parseBody(RecallScoutRequestSchema, request.body ?? {});
-      const now = new Date();
-      const base = settled(app, request.currentUser.id, now);
-      const outcome = app.db.transaction(() => recallScout(app.repos, base, now))();
-      if (outcome.kind === 'refused') {
-        const { code, message } = SCOUT_RECALL_ERRORS[outcome.reason];
-        throw new AppError(code, message);
-      }
-      const district = findDistrict(outcome.run.districtId);
-      if (!district) throw new AppError('NOT_FOUND', 'No such district');
-      return { district: projectDistrict(app.repos, base, district, now), base };
     },
   );
 
@@ -336,14 +274,20 @@ export function registerCityRoutes(app: FastifyInstance): void {
     if (!district) throw new AppError('NOT_FOUND', 'No such place');
 
     const outcome = app.db.transaction(() =>
-      sendSpy(app.repos, { base, target: body.target, tier: body.tier, now }),
+      sendSpy(app.repos, {
+        base,
+        target: body.target,
+        tier: body.tier,
+        now,
+        admin: app.config.admin,
+      }),
     )();
     if (outcome.kind === 'refused') {
       const { code, message } = SPY_REFUSAL_ERRORS[outcome.reason];
       throw new AppError(code, message);
     }
     return {
-      district: projectDistrict(app.repos, outcome.base, district, now),
+      district: projectDistrict(app.repos, outcome.base, district, now, app.config.admin),
       base: outcome.base,
     };
   });
@@ -352,12 +296,12 @@ export function registerCityRoutes(app: FastifyInstance): void {
     '/city/spy/recall',
     { preHandler: app.authenticate },
     (request): CityMutationResponse => {
-      parseBody(RecallSpyRequestSchema, request.body ?? {});
+      const { runId } = parseBody(RecallSpyRequestSchema, request.body ?? {});
       const now = new Date();
       const base = settled(app, request.currentUser.id, now);
-      const outcome = app.db.transaction(() => recallSpy(app.repos, base, now))();
+      const outcome = app.db.transaction(() => recallSpy(app.repos, base, now, runId))();
       if (outcome.kind === 'refused') {
-        const { code, message } = SCOUT_RECALL_ERRORS[outcome.reason];
+        const { code, message } = SPY_RECALL_ERRORS[outcome.reason];
         throw new AppError(code, message);
       }
       const districtId =
@@ -366,7 +310,7 @@ export function registerCityRoutes(app: FastifyInstance): void {
           : (findLocation(outcome.run.target.locationId)?.districtId ?? '');
       const district = findDistrict(districtId);
       if (!district) throw new AppError('NOT_FOUND', 'No such place');
-      return { district: projectDistrict(app.repos, base, district, now), base };
+      return { district: projectDistrict(app.repos, base, district, now, app.config.admin), base };
     },
   );
 
@@ -375,7 +319,7 @@ export function registerCityRoutes(app: FastifyInstance): void {
     const now = new Date();
     const base = settled(app, request.currentUser.id, now);
     const outcome = app.db.transaction(() =>
-      cancelGateRaise(app.repos, base, districtId, now, acceptWaste),
+      cancelGateRaise(app.repos, base, districtId, now, acceptWaste, app.config.admin),
     )();
     if (outcome.kind === 'refused') {
       const { code, message } = GATE_CANCEL_ERRORS[outcome.reason];
@@ -413,7 +357,7 @@ export function registerCityRoutes(app: FastifyInstance): void {
       throw new AppError('PLACE_UNAVAILABLE', SLEEPER_REFUSAL_TEXT[outcome.reason]);
     }
     return {
-      district: projectDistrict(app.repos, outcome.base, district, now),
+      district: projectDistrict(app.repos, outcome.base, district, now, app.config.admin),
       base: outcome.base,
     };
   });
@@ -456,14 +400,14 @@ export function registerCityRoutes(app: FastifyInstance): void {
     if (!control) throw new AppError('NOT_FOUND', 'No such location');
 
     const outcome = app.db.transaction(() =>
-      startUpgrade(app.repos, { base, location, control, now }),
+      startUpgrade(app.repos, { base, location, control, now, admin: app.config.admin }),
     )();
     if (outcome.kind === 'refused') {
       throw new AppError(UPGRADE_ERROR_CODES[outcome.reason], UPGRADE_REFUSALS[outcome.reason]);
     }
 
     return {
-      district: projectDistrict(app.repos, outcome.base, district, now),
+      district: projectDistrict(app.repos, outcome.base, district, now, app.config.admin),
       base: outcome.base,
     };
   });

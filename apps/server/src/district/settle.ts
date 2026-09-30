@@ -2,6 +2,7 @@ import {
   RESOURCE_KEYS,
   type PartialResources,
   accrueProduction,
+  productionRates,
   applyQueueEntry,
   BUILDING_CATALOG,
   disruptionPercentAt,
@@ -10,11 +11,13 @@ import {
   queueCompletesAt,
   researchCompletesAt,
   splitDueQueue,
-  xpForClock,
+  trainingCompletesAt,
+  queueEntryXp,
   type Base,
   type Building,
   type BuildQueueEntry,
   type PlayerXpAward,
+  type TrainingGain,
   type Resources,
   type CrewYield,
   type ProductionCarry,
@@ -22,7 +25,7 @@ import {
 import type { Repositories } from '../db/repos/index.js';
 import { tallyBuildingRaised, tallyResourcesEarned } from '../feats/tally.js';
 import { crewEffectsFor, standingEffectsFor } from '../crew/standing.js';
-import { settleTrainingFor } from '../crew/training.js';
+import { announceDrills, bankTrainingFor } from '../crew/training.js';
 import { awardPlayerXp, settleRetunedCurve } from '../progression/award.js';
 import { settleResearchFor } from '../research/settle.js';
 import { settleTraining } from '../units/training.js';
@@ -88,10 +91,11 @@ function walk(
   let cursor = since === null ? now.getTime() : Math.min(Date.parse(since), now.getTime());
 
   /*
-   * §A4: a district that has just been raided runs at reduced effectiveness for a few hours.
+   * §A4: a district that has just been raided makes less from its structures for a few hours.
    *
-   * Applied as a *fraction of the window* rather than as a scale on the output, which is exactly
-   * equivalent for a linear accrual and keeps `accrueProduction` a statement about structures.
+   * Handed to `accrueProduction` as the crew's `raidCutPercent` rather than taken off the hours,
+   * because the hours scale the held ground's output as well and the ruling (2026-09-29) cuts the
+   * buildings alone.
    *
    * Read **per segment**, and *both* edges of it are cuts in the walk, exactly like a completed
    * build is. It used to be read once from `now` and multiplied into every segment, which is only
@@ -119,16 +123,17 @@ function walk(
   const advanceTo = (mark: number): void => {
     const hours = (mark - cursor) / HOUR_MS;
     if (hours > 0) {
-      const working =
-        1 -
-        disruptionPercentAt(base.economy.disruption, new Date(cursor + (mark - cursor) / 2)) / 100;
+      const raidCutPercent = disruptionPercentAt(
+        base.economy.disruption,
+        new Date(cursor + (mark - cursor) / 2),
+      );
       // The carry threads through every segment of the walk, so cutting the window at a completed
       // build cannot round anything away: three segments owe exactly what one segment would have.
       const accrued = accrueProduction(
         resources,
         buildings,
-        hours * working,
-        crew,
+        hours,
+        { ...crew, raidCutPercent },
         carry,
         groundPerHour,
       );
@@ -163,7 +168,63 @@ function walk(
   return { buildings, resources, carry };
 }
 
-export function settleDistrict(repos: Repositories, base: Base, now: Date): DistrictSettlement {
+/**
+ * The crew and the ground as the production walk prices them at `now`.
+ *
+ * §F2: Engineering and Chemistry on the line, Logistics on the warehouse. Read once for the whole
+ * window rather than per segment: a crew does not change halfway through a settle, and re-reading
+ * it inside the walk would cost a database round trip per completed build. Read at the settle's
+ * own instant, not at the wall clock: both folds are step functions of time (an officer is out of
+ * the room until `injuredUntil`, a raid's disruption until it expires), and `now` is the moment
+ * this window is being priced at. Defaulting the argument read the clock of whichever process
+ * happened to be running, which is the settle answering about a different day.
+ *
+ * §A4: what the ground makes (`perHour`), and what it makes go further (`resourceYieldPercent`,
+ * the Abandoned Nuclear Plant), both off the territory fold rather than the crew one: they are a
+ * location's doing rather than a person's. `perHour` was once the half that did nothing. Every
+ * `resource` bonus in the location catalogue folded into it and nothing spent it, so a crew
+ * holding every location in the city banked exactly zero from them. Measured rather than reasoned
+ * about, with a probe that settled ten hours against a full sweep of the map and watched the
+ * stockpile not move.
+ */
+function yieldAt(
+  repos: Repositories,
+  base: Base,
+  now: Date,
+): { crew: CrewYield; groundPerHour: PartialResources } {
+  const { productionPercent, storageCapacityPercent } = crewEffectsFor(repos, base, now);
+  const { resourceYieldPercent, perHour } = standingEffectsFor(repos, base, now);
+  return {
+    crew: { productionPercent, storageCapacityPercent, resourceYieldPercent },
+    groundPerHour: perHour,
+  };
+}
+
+/**
+ * What the district is making an hour at `now`, the way the settle will pay it: the structures,
+ * the ground, the crew's line speed and yields, and a raid's disruption if one is running.
+ *
+ * On `/me` for the Production panel, which cannot work it out: the ground and the yields never
+ * reach the client. Read off {@link yieldAt} and `productionRates`, the same two the walk reads.
+ */
+export function productionRatesFor(repos: Repositories, base: Base, now: Date): PartialResources {
+  const { crew, groundPerHour } = yieldAt(repos, base, now);
+  const raidCutPercent = disruptionPercentAt(base.economy.disruption, now);
+  return productionRates(base.buildings, { ...crew, raidCutPercent }, groundPerHour);
+}
+
+export function settleDistrict(
+  repos: Repositories,
+  base: Base,
+  now: Date,
+  /**
+   * The instant the crew is read at. `now` for a caller settling one window on its own; the start
+   * of the stretch for `settleBase`, which cuts the window at every change to the crew, so the
+   * crew as a stretch began is the crew for all of it. Read at the end, a stretch that ran up to an
+   * officer's recovery was priced as though they had been on their feet for the whole of it.
+   */
+  crewAt: Date = now,
+): DistrictSettlement {
   const { due, pending } = splitDueQueue(base.buildQueue, now);
   const since = base.economy.productionSettledAt;
   const elapsedMs = since === null ? 0 : now.getTime() - Date.parse(since);
@@ -174,36 +235,9 @@ export function settleDistrict(repos: Repositories, base: Base, now: Date): Dist
     return { base, completed: [], awards: [] };
   }
 
-  // §F2: Engineering and Chemistry on the line, Logistics on the warehouse. Read once for the
-  // whole window rather than per segment: a crew does not change halfway through a settle, and
-  // re-reading it inside the walk would cost a database round trip per completed build.
-  // Read at the settle's own instant, not at the wall clock: both folds are step functions of time
-  // (an officer is out of the room until `injuredUntil`, a raid's disruption until it expires), and
-  // `now` is the moment this window is being priced at. Defaulting the argument read the clock of
-  // whichever process happened to be running, which is the settle answering about a different day.
-  const { productionPercent, storageCapacityPercent } = crewEffectsFor(repos, base, now);
-  // §A4, and what the ground makes go further (the Abandoned Nuclear Plant). Read from the
-  // territory fold rather than the crew one: this is a location's doing, not a person's.
-  /*
-   * §A4: what the ground makes, and what it makes go further.
-   *
-   * `perHour` is the half that was doing nothing. Every `resource` bonus in the location catalogue
-   * folds into it, `combineEffects` merges it, and until now nothing spent it: a crew holding
-   * every location in the city banked exactly zero from them. Measured rather than reasoned about,
-   * with a probe that settled ten hours against a full sweep of the map and watched the stockpile
-   * not move.
-   *
-   * Read off the territory fold rather than the crew one, like `resourceYieldPercent` beside it:
-   * both are a location's doing rather than a person's.
-   */
-  const { resourceYieldPercent, perHour } = standingEffectsFor(repos, base, now);
-  const { buildings, resources, carry } = walk(
-    base,
-    due,
-    now,
-    { productionPercent, storageCapacityPercent, resourceYieldPercent },
-    perHour,
-  );
+  // Read once for the whole window: see `yieldAt`.
+  const { crew, groundPerHour } = yieldAt(repos, base, crewAt);
+  const { buildings, resources, carry } = walk(base, due, now, crew, groundPerHour);
   const settled: Base = {
     ...base,
     resources,
@@ -211,7 +245,12 @@ export function settleDistrict(repos: Repositories, base: Base, now: Date): Dist
     buildQueue: pending,
     economy: {
       ...base.economy,
-      productionSettledAt: now.toISOString(),
+      // Never backwards. A read behind the stamp (the host clock stepped back) that lands a build
+      // walks nothing, because `walk` starts at the earlier of the two; stamping `now` there
+      // handed the next read the stretch between `now` and the old stamp a second time. An hour's
+      // step back paid an hour of output twice.
+      productionSettledAt:
+        since !== null && Date.parse(since) > now.getTime() ? since : now.toISOString(),
       productionCarry: carry,
     },
   };
@@ -250,15 +289,15 @@ export function settleDistrict(repos: Repositories, base: Base, now: Date): Dist
   let carried = settled;
   const awards: PlayerXpAward[] = [];
   for (const entry of due) {
-    // §I1: priced off the clock this order was actually placed under, not off a flat table entry.
-    // `durationSeconds` is frozen at order time (see `BuildQueueEntrySchema`), so raising the Nexus
-    // mid-build cannot re-price the XP any more than it can re-time the build.
+    // §I1: priced off the clock this order was placed under, not off a flat table entry, and fixed
+    // on the entry when it was ordered (see `BuildQueueEntrySchema.xp`), so neither raising the
+    // Nexus nor lighting the Generator's burn mid-build re-prices it.
     const { base: progressed, award } = awardPlayerXp(
       repos,
       carried,
       'buildingConstructed',
       0,
-      xpForClock('buildingConstructed', entry.durationSeconds),
+      queueEntryXp(entry),
     );
     carried = progressed;
     awards.push(award);
@@ -317,15 +356,24 @@ export function settleBasesById(
 
 /**
  * The instants inside this window where the crew itself changes: a drill landing on a sheet, a Lab
- * rung landing on `technologies`. Oldest first, and none at or after `now`'s own settle.
+ * rung landing on `technologies`, an officer getting out of bed. Oldest first, and none at or after
+ * `now`'s own settle.
  *
- * Both move what the district makes (`crewEffectsFor` reads the sheets and the Lab for Engineering,
- * Chemistry and Logistics), so both are cuts in the timeline exactly as a finished build is.
+ * All three move what the district makes (`crewEffectsFor` reads the sheets, the Lab and who is on
+ * their feet for Engineering, Chemistry and Logistics), so all three are cuts in the timeline
+ * exactly as a finished build is. A recovery already behind the production clock is not one: the
+ * stretch it ended has been paid for.
  */
 function crewChangesDue(base: Base, now: Date): number[] {
   const at = now.getTime();
   const instants = base.training.sessions.map(drillEndsAt);
   if (base.research.active) instants.push(researchCompletesAt(base.research.active).getTime());
+  const since = base.economy.productionSettledAt;
+  const paidTo = since === null ? Number.POSITIVE_INFINITY : Date.parse(since);
+  for (const officer of base.commanders) {
+    const back = officer.injuredUntil === null ? null : Date.parse(officer.injuredUntil);
+    if (back !== null && back > paidTo) instants.push(back);
+  }
   return [...new Set(instants.filter((instant) => instant <= at))].sort((a, b) => a - b);
 }
 
@@ -343,8 +391,13 @@ function settleBaseNow(repos: Repositories, base: Base, now: Date): DistrictSett
   let current = settleRetunedCurve(repos, base);
   const completed: BuildQueueEntry[] = [];
   const awards: PlayerXpAward[] = [];
+  const drilled: TrainingGain[] = [];
+  let drilledUntil: Date | null = null;
   const settleDistrictTo = (at: Date): void => {
-    const district = settleDistrict(repos, current, at);
+    // Priced with the crew as the stretch began, never behind the instant it runs to.
+    const since = current.economy.productionSettledAt;
+    const began = since === null ? at : new Date(Math.min(Date.parse(since), at.getTime()));
+    const district = settleDistrict(repos, current, at, began);
     current = district.base;
     completed.push(...district.completed);
     awards.push(...district.awards);
@@ -355,13 +408,19 @@ function settleBaseNow(repos: Repositories, base: Base, now: Date): DistrictSett
     const at = new Date(since === null ? instant : Math.max(instant, Date.parse(since)));
     settleDistrictTo(at);
     if (current.training.sessions.some((session) => drillEndsAt(session) <= instant)) {
-      current = settleTrainingFor(repos, current, at.toISOString()).base;
+      const banked = bankTrainingFor(repos, current, at.toISOString());
+      current = banked.base;
+      drilled.push(...banked.gains);
+      drilledUntil = banked.finishedAt ?? drilledUntil;
     }
     const researched = settleResearchFor(repos, current, at);
     current = researched.base;
     awards.push(...researched.awards);
   }
   settleDistrictTo(now);
+  // One receipt for every hour this settle banked, however many cut points they landed at: two
+  // drills ending ten minutes apart are one "2 hours on the floor", as the receipt promises.
+  announceDrills(repos, current, { gains: drilled, finishedAt: drilledUntil });
   const district = { base: current, completed, awards };
   // Training second: a batch landing does not feed anything else in the settle.
   const trained = settleTraining(repos, district.base, now);
@@ -381,7 +440,7 @@ function settleBaseNow(repos: Repositories, base: Base, now: Date): DistrictSett
       title: `${BUILDING_CATALOG[entry.kind].name} is finished`,
       body: `Standing at level ${entry.level}.`,
       link: '/game/base',
-      now,
+      at: queueCompletesAt(entry),
     });
   }
 
@@ -400,7 +459,8 @@ function settleBaseNow(repos: Repositories, base: Base, now: Date): DistrictSett
       body: 'They are on the roster.',
       link: '/game/units',
       subjectId: order.unitId,
-      now,
+      // When the last of the batch walked off the bench.
+      at: trainingCompletesAt(order),
     });
   }
 

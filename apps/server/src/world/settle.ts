@@ -1,4 +1,4 @@
-import { GAME_TIMEZONE, type SkirmishEngine } from '@frontline/shared';
+import { GAME_TIMEZONE, lastWeekBoundary, type SkirmishEngine } from '@frontline/shared';
 import { settleAutomations } from '../automations/runners.js';
 import { settleBarAuctions } from '../bar/auction.js';
 import { settleVendorAuctions } from '../market/auction.js';
@@ -10,8 +10,8 @@ import { settleSleepers } from '../city/sleepers.js';
 import { settleLocationUpgrades } from '../city/actions.js';
 import { settleCapturedGates } from '../city/gates.js';
 import { settleGarrisonRegrowth } from '../city/regrowth.js';
-import { settleScouting } from '../scouting/scouting.js';
 import { settleSpying } from '../spying/spying.js';
+import { settleCouriers } from '../spying/courier.js';
 import { settleMoves } from '../moves/moves.js';
 import type { Repositories } from '../db/repos/index.js';
 import { liveHub } from '../live/hub.js';
@@ -45,11 +45,13 @@ import { guardStage } from './guard.js';
  *    that ground is to take, and it changes it for somebody else.
  * 4. **The weekly regrowth**, because a fight called for a minute past the mark is a fight against
  *    the regime as it stands on Monday. Settled after it and the first fight of the week would be
- *    fought against last week's casualties and then have its survivors overwritten.
+ *    fought against last week's casualties and then have its survivors overwritten. Fights marked
+ *    before the week turned, or on the mark itself, are settled just ahead of it, for the mirror of
+ *    that reason.
  * 5. **Battles**, which read all four.
- * 6. **Crews coming home**, **scouting** and **the two closed auctions**, the Bar's and the
- *    Runner's, which read nothing above them and write receipts. Last because a receipt only has to
- *    arrive, not to arrive in any particular order.
+ * 6. **Crews coming home**, **spy jobs**, **the courier's daily report** and **the two closed
+ *    auctions**, the Bar's and the Runner's, which read nothing above them and write receipts. Last
+ *    because a receipt only has to arrive, not to arrive in any particular order.
  *
  * Both auctions are here rather than only on their own read paths, because a table closes at
  * midnight and a lot closes when the Runner packs up whether or not anybody is looking: the crew
@@ -65,7 +67,11 @@ export function settleWorld(
   now: Date,
   /** Optional: only the world clock brings crews home, so a page load does not pay for it. */
   bringCrewsHome?: (repos: Repositories, now: Date) => void,
-  /** Admin mode: automated parties and their gap run on the five second clock. */
+  /**
+   * Admin mode: parties run on the flattened mission clock (the gap between them stays real), and
+   * the Bar's close waives what its tables waived. Every caller passes the server's mode, because
+   * whichever door reaches a table first after midnight is the one that closes it.
+   */
   admin = false,
 ): number {
   /*
@@ -81,15 +87,28 @@ export function settleWorld(
   const moved = guardStage('moves', 0, () => settleMoves(repos, now));
   const planted = guardStage('sleeper cells', 0, () => settleSleepers(repos, now));
   const gates = guardStage('captured gates', 0, () => settleCapturedGates(repos, now));
+  /*
+   * Last week's fights before this week's regrowth (bug pass, 2026-09-29). A fight marked for
+   * Sunday night and settled after the mark, by a restart over it or a battles stage that threw on
+   * the Sunday tick, was fought against Monday's rebuilt garrison and then spent the rebuild.
+   *
+   * The mark itself is last week's too (maintainer, 2026-09-29): the regrowth "happens after any
+   * battles on exactly midnight, for the remaining units", and midnight is a half-hour slot a
+   * fight can be called for. `settleBattles` takes every fight at or before `dueBy`.
+   */
+  const late = guardStage('last week’s battles', [], () =>
+    settleBattles(repos, engine, now, lastWeekBoundary(now)),
+  ).length;
   const regrown = guardStage('regrowth', 0, () => settleGarrisonRegrowth(repos, now));
-  const fights = guardStage('battles', [], () => settleBattles(repos, engine, now)).length;
+  const fights = late + guardStage('battles', [], () => settleBattles(repos, engine, now)).length;
   guardStage('crews coming home', null, () => bringCrewsHome?.(repos, now));
   if (bringCrewsHome) guardStage('automations', 0, () => settleAutomations(repos, now, admin));
-  guardStage('scouting', 0, () => settleScouting(repos, now));
-  // Spy jobs beside the scouts: a report is a receipt too, and it reads the ground as it stands
-  // after the fights above, which is the ground the runners actually arrive at.
+  // Spy jobs with the receipts: a report reads the ground as it stands after the fights above,
+  // which is the ground the runners actually arrive at.
   guardStage('spying', 0, () => settleSpying(repos, now));
-  const tables = guardStage('bar auctions', 0, () => settleBarAuctions(repos, now));
+  // Turned Runners: one report a day at the Athens boundary, reading the same settled ground.
+  guardStage('couriers', 0, () => settleCouriers(repos, now));
+  const tables = guardStage('bar auctions', 0, () => settleBarAuctions(repos, now, admin));
   const lots = guardStage('runner lots', 0, () => settleVendorAuctions(repos, now));
   guardStage('black market lots', 0, () => settleBlackMarketLots(repos, now, GAME_TIMEZONE));
   // Listings past their lifetime and claims past their 24 hours, whether or not anybody looks.

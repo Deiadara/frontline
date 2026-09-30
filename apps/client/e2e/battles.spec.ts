@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import {
+  COMBINE_LEADERS,
   effectiveStats,
   findUnit,
   fleetCapacity,
@@ -430,6 +431,58 @@ test('a report reads as a document, and a silent one says so instead of showing 
   await page.getByTestId('read-fight-4').click();
   await expect(page.getByTestId('battle-report-silent')).toBeVisible();
   await expect(page.getByText(/stayed out there/)).toBeVisible();
+});
+
+/**
+ * Directive Xero's turncoats count as dead (maintainer, 2026-09-29): "Count them as dead, but show a
+ * separate line just in Xero-affected reports that shows how many were turned, and add a note that
+ * says these are included in the Dead count." The unit tests pin the words; this pins that the
+ * line fits the document at both widths the report is read at.
+ */
+test('a fight under Directive Xero says how many he turned, and that Died counts them', async ({
+  page,
+}) => {
+  const xero = COMBINE_LEADERS.find((leader) => leader.unitId === 'directive_xero')!;
+  const [first, ...rest] = battles.reports;
+  const analysis = first!.analysis!;
+  const underHim = {
+    ...analysis,
+    underLeader: { name: 'Directive Xero', powerName: xero.powerName },
+    turned: { razors: 3 },
+    // The three are in Died, on the Razors' row, as the settler writes them.
+    attacker: {
+      ...analysis.attacker,
+      lost: analysis.attacker.lost + 3,
+      survived: analysis.attacker.survived - 3,
+      units: analysis.attacker.units.map((unit) =>
+        unit.unitId === 'razors'
+          ? { ...unit, lost: unit.lost + 3, survived: unit.survived - 3 }
+          : unit,
+      ),
+    },
+  };
+  await installApi(page, lateGame);
+  await page.route('**/api/battles', (route) =>
+    route.fulfill({
+      json: { ...battles, reports: [{ ...first!, analysis: underHim }, ...rest] },
+    }),
+  );
+
+  for (const width of [1280, 1024]) {
+    await page.setViewportSize({ width, height: 800 });
+    await page.goto('/game/battles');
+    await page.getByTestId('battles-tab-reports').click();
+    await page.getByTestId('read-fight-3').click();
+    const dialog = page.getByRole('dialog');
+    await expect(dialog.getByTestId('report-turned')).toHaveText(
+      '3 turned by Directive Xero (included in Died): 3 Razors.',
+    );
+    await expect(dialog.getByTestId('report-under-leader')).toContainText('Directive Xero');
+
+    await growPastTheFold(page);
+    await expectNothingClippedVertically(page, '[role="dialog"]');
+    await page.screenshot({ path: `e2e-out/battles-report-xero-${width}.png`, fullPage: true });
+  }
 });
 
 /**

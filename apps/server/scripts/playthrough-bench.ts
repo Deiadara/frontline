@@ -145,8 +145,3 @@ export function addOfficer(h: Harness, player: Player, officer: Commander): void
   h.repos.bases.updateCommanders(base.id, [...base.commanders, officer]);
   note(player, `officer ${officer.name} put on the books in ${officer.role ?? 'no chair'}`);
 }
-
-export function markScouted(h: Harness, player: Player, districtId: string): void {
-  h.repos.city.markScouted(player.baseId, districtId, h.now().toISOString());
-  note(player, `district ${districtId} marked as scouted`);
-}

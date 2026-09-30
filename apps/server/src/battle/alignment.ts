@@ -129,7 +129,10 @@ export interface Presence {
  * there, and cells land before fights in the same tick, so after a late tick or a restart a cell
  * due twenty minutes after the mark was woken into the fight it had not reached.
  */
-function landedBy(cell: SleeperCell, mark: string): boolean {
+export function landedBy(
+  cell: Pick<SleeperCell, 'departedAt' | 'travelMs'>,
+  mark: string,
+): boolean {
   return Date.parse(cell.departedAt) + cell.travelMs <= Date.parse(mark);
 }
 

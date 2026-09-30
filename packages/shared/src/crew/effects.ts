@@ -20,6 +20,7 @@ import {
   type AttributeImportance,
 } from './importance.js';
 import { RESOURCE_KEYS, type PartialResources } from '../resources.js';
+import { softCap } from '../battle/soft-cap.js';
 
 /**
  * What the people you have actually change (GDD §B, §F2).
@@ -83,7 +84,6 @@ export const EFFECT_CHANNELS = [
   'storageCapacityPercent',
   'buildCostPercent',
   'wageDiscountPercent',
-  'recruitPoolPercent',
   'intelYieldPercent',
   'intelResistancePercent',
   'casualtyRecoveryPercent',
@@ -121,10 +121,11 @@ export const CHANNEL_LABELS: Readonly<Record<EffectChannel, ChannelLabel>> = {
   storageCapacityPercent: { label: 'Room to keep it', unit: 'percent' },
   buildCostPercent: { label: 'Off the cost of a build', unit: 'percent' },
   wageDiscountPercent: { label: 'Off what an officer asks for', unit: 'percent' },
-  recruitPoolPercent: { label: 'Who turns up at the bar', unit: 'percent' },
-  intelYieldPercent: { label: 'What a scout brings back', unit: 'percent' },
-  intelResistancePercent: { label: 'What theirs does not', unit: 'percent' },
-  casualtyRecoveryPercent: { label: 'The ones the medics get back', unit: 'percent' },
+  // Spy points and medic points, not percentages: the spy contest adds the first two to a chair's
+  // fit (`spying/spying.ts`), and the medics' points go through a curve (`casualtyRecoveryShare`).
+  intelYieldPercent: { label: 'What your spies bring back', unit: 'flat' },
+  intelResistancePercent: { label: 'What theirs does not', unit: 'flat' },
+  casualtyRecoveryPercent: { label: 'Medic points (who walks home)', unit: 'flat' },
   cohesionPercent: { label: 'Getting numbers to count', unit: 'percent' },
 };
 
@@ -138,13 +139,11 @@ export interface CrewOnlyEffects {
   buildCostPercent: number;
   /** Taken off the weekly wage bill. People work cheaper for someone worth working for. */
   wageDiscountPercent: number;
-  /** How much wider the Bar's nightly pool runs. */
-  recruitPoolPercent: number;
   /** Taken off what the next `Increase Payroll` step costs. */
   payrollStepDiscountPercent: number;
   // `intelYieldPercent` used to live here. It is a `TerritoryEffects` channel now, because a
   // Watchtower and a Master of Whispers with a Logic of 80 buy the same thing and should land in one place.
-  /** How much of *your* district a rival's scout fails to bring home. */
+  /** How much of *your* ground a rival's spies fail to bring home. */
   intelResistancePercent: number;
   /** How much faster the wounded come back after a fight instead of staying dead. */
   casualtyRecoveryPercent: number;
@@ -198,6 +197,8 @@ export interface CrewOnlyEffects {
   battleBoostsFlat: number;
   /** Benches on the training floor, on top of `TRAINING_BENCHES` (`crew/training.ts`). */
   trainingBenchesFlat: number;
+  /** Spy jobs out at once, on top of `SPY_BASE_PARTIES` (`spying/spying.ts`). */
+  spyPartiesFlat: number;
 }
 
 /**
@@ -265,6 +266,20 @@ export interface ConditionalCrewEffects {
    * `leadingAs` and `officerSheetBonusFor` spend it.
    */
   chairLeads: ChairLead[];
+  /**
+   * The rungs a chair's officer teaches everybody else in the room (`chair_teaches`).
+   *
+   * A list for the reason `chairLeads` is one: whether it pays depends on who is sitting in that
+   * chair and who is being taught, and the fold is built before either is known.
+   * `liftedOfficerSheet` on the server spends it, per officer.
+   */
+  chairTeaches: ChairTeaching[];
+}
+
+/** One rung's lesson, filed under the chair whose track it sits on. */
+export interface ChairTeaching {
+  role: OfficerRole;
+  attributes: Partial<Record<AttributeName, number>>;
 }
 
 export interface CrewEffects extends TerritoryEffects, CrewOnlyEffects, ConditionalCrewEffects {}
@@ -283,43 +298,6 @@ export type NumericEffectChannel = {
   [K in keyof CrewEffects]: CrewEffects[K] extends number ? K : never;
 }[keyof CrewEffects];
 
-/**
- * The numeric channels that hold a percentage, as opposed to flat points or a record.
- *
- * Derived from the struct rather than listed, so a channel added tomorrow lands in the right half
- * on its own. The `Percent` suffix is the discriminator and `crew.test.ts` pins the resulting set,
- * which is what turns a naming convention into something a reader can rely on: a channel that ends
- * in `Percent` and is *not* a percentage would show up as a diff on that list rather than as a
- * silently mis-scaled bonus.
- */
-export type PercentEffectChannel = Extract<NumericEffectChannel, `${string}Percent`>;
-
-/**
- * How much of every bonus a raid's disruption takes away while it lasts (§A4).
- *
- * The second half of what a raid costs. Production loses `RAID_DISRUPTION_PERCENT` of its hours in
- * the settle walk (`district/settle.ts`), and that is a fact about the district; this is a fact
- * about the *crew*, and it is what makes a raided crew weaker everywhere for the rest of the
- * evening rather than only slower at making scrap. The two do not overlap: see
- * {@link DISRUPTION_EXEMPT_CHANNELS} for the one channel that would have been charged twice.
- *
- * **Positive percentages only.** A negative value on a percent channel is a penalty somebody is
- * carrying, and scaling it down would hand the victim a bonus for having been robbed. Flat channels
- * are left alone for the same reason they are flat: `unitMoraleFlat` is points on a 0..100 rating
- * and `declarationsFlat` is a whole extra fight, and taking a quarter off either is not a smaller
- * version of the thing, it is a different thing.
- */
-export function disrupted(effects: CrewEffects, percent: number): CrewEffects {
-  const off = Math.min(100, Math.max(0, percent));
-  if (off === 0) return effects;
-  const scale = 1 - off / 100;
-  const cut: CrewEffects = { ...effects };
-  for (const channel of DISRUPTED_CHANNELS) {
-    if (cut[channel] > 0) cut[channel] = cut[channel] * scale;
-  }
-  return cut;
-}
-
 export function noCrewEffects(): CrewEffects {
   return {
     ...noTerritoryEffects(),
@@ -327,7 +305,6 @@ export function noCrewEffects(): CrewEffects {
     storageCapacityPercent: 0,
     buildCostPercent: 0,
     wageDiscountPercent: 0,
-    recruitPoolPercent: 0,
     payrollStepDiscountPercent: 0,
     intelResistancePercent: 0,
     casualtyRecoveryPercent: 0,
@@ -347,6 +324,7 @@ export function noCrewEffects(): CrewEffects {
     declarationsFlat: 0,
     battleBoostsFlat: 0,
     trainingBenchesFlat: 0,
+    spyPartiesFlat: 0,
     officerAttributeAtLeast: {},
     leadOffensePercent: 0,
     leadEvasionFlat: 0,
@@ -355,60 +333,9 @@ export function noCrewEffects(): CrewEffects {
     leadLootPercent: 0,
     leadArrivalPercent: 0,
     chairLeads: [],
+    chairTeaches: [],
   };
 }
-
-/**
- * Every percent channel, in the order the struct declares them.
- *
- * Built off a fresh `noCrewEffects()` rather than typed out, because a hand-kept list of thirty-odd
- * channel names is a list that goes stale the first time somebody adds the thirty-first.
- */
-export const PERCENT_EFFECT_CHANNELS: readonly PercentEffectChannel[] = Object.entries(
-  noCrewEffects(),
-).flatMap(([channel, value]) =>
-  typeof value === 'number' && channel.endsWith('Percent') ? [channel as PercentEffectChannel] : [],
-);
-
-/**
- * The percent channels a raid's disruption deliberately does **not** touch.
- *
- * Two, for two different reasons. `productionPercent` is the one the production walk has already
- * charged for: `district/settle.ts` cuts `RAID_DISRUPTION_PERCENT` off the *hours* of every
- * disrupted segment, and `accrueProduction` then multiplies those hours by
- * `1 + productionPercent / 100`. Both scale the same output, so cutting the channel here as well
- * charges a raided crew twice for one raid: 25% off the hours and another 25% off the bonus that
- * multiplies them.
- *
- * `unitArmorPercent` is the other, and it is exempt because the suffix on it is a misnomer: see
- * the comment on the entry itself.
- *
- * Two near misses, named so the next reader does not have to work them out again:
- *
- *   * `resourceYieldPercent` is the walk's *other* output multiplier and would double the same
- *     way. It is a record rather than a number, so it was never in {@link PERCENT_EFFECT_CHANNELS}
- *     and needs no exemption. If it ever becomes a flat channel it belongs on this list.
- *   * `storageCapacityPercent` is read by the walk and is **not** exempt. It sets the warehouse
- *     ceiling rather than the output, and the hour cut does not touch a ceiling, so cutting it is
- *     one effect applied once: a raided crew's store is tighter, which is what the maintainer asked for.
- */
-export const DISRUPTION_EXEMPT_CHANNELS = [
-  'productionPercent',
-  // Flat points wearing a `Percent` name: added straight to a unit's 0..100 armour rating in
-  // `battle/effects.ts`, so the cut was taking a quarter off points while `unitMoraleFlat` and
-  // `leadArmorFlat`, the same kind of number, kept all of theirs.
-  'unitArmorPercent',
-] as const;
-
-/**
- * Every percent channel a raid's disruption actually cuts.
- *
- * The derived list minus {@link DISRUPTION_EXEMPT_CHANNELS}, so a channel added tomorrow is cut by
- * default and staying out of the cut is the thing somebody has to write down.
- */
-export const DISRUPTED_CHANNELS: readonly PercentEffectChannel[] = PERCENT_EFFECT_CHANNELS.filter(
-  (channel) => !(DISRUPTION_EXEMPT_CHANNELS as readonly string[]).includes(channel),
-);
 
 /**
  * The perk-only channels, and when each one pays.
@@ -450,8 +377,8 @@ export const CONDITIONAL_CHANNEL_LABELS: Readonly<
     when: 'Only when your Gate is the thing being hit',
   },
   wholeDistrictPercent: {
-    label: 'Holding the whole district',
-    when: 'Only while every location in your district is yours',
+    label: 'Holding a district whole',
+    when: 'Only while you hold every location in at least one district',
   },
   xpGainPercent: {
     label: 'What the work teaches you',
@@ -553,7 +480,7 @@ export const ATTRIBUTE_EFFECTS: Readonly<Record<AttributeName, AttributeEffect>>
   },
   logic: {
     channel: 'intelYieldPercent',
-    summary: 'Takes three unrelated facts off a scout report and turns them into one answer.',
+    summary: 'Takes three unrelated facts off a spy report and turns them into one answer.',
   },
   composure: {
     channel: 'unitMoraleFlat',
@@ -565,7 +492,7 @@ export const ATTRIBUTE_EFFECTS: Readonly<Record<AttributeName, AttributeEffect>>
   },
   intuition: {
     channel: 'intelYieldPercent',
-    summary: 'Knows which of the things a scout brought back is the one that matters.',
+    summary: 'Knows which of the things the runners brought back is the one that matters.',
   },
   strategy: {
     channel: 'defensePercent',
@@ -583,8 +510,10 @@ export const ATTRIBUTE_EFFECTS: Readonly<Record<AttributeName, AttributeEffect>>
     summary: 'Four hundred people doing one thing, because somebody is telling them what it is.',
   },
   charisma: {
-    channel: 'recruitPoolPercent',
-    summary: 'Word gets around. More people come to the bar to see who is hiring.',
+    // Not morale, though §F3 names it: morale is capped at 100 and composure and resolve already
+    // take a maxed crew to +50 on it, where the maintainer halved the boosts on 2026-09-29.
+    channel: 'trainingSpeedPercent',
+    summary: 'Recruits work harder when somebody they want to impress is watching.',
   },
   communication: {
     channel: 'cohesionPercent',
@@ -600,7 +529,7 @@ export const ATTRIBUTE_EFFECTS: Readonly<Record<AttributeName, AttributeEffect>>
   },
   deception: {
     channel: 'intelResistancePercent',
-    summary: 'A rival scout comes back with a full report of things that are not true.',
+    summary: 'A rival spy comes back with a full report of things that are not true.',
   },
   empathy: {
     // Shared with `negotiation`, which the module doc says is how a channel gets deep. It used to
@@ -611,8 +540,9 @@ export const ATTRIBUTE_EFFECTS: Readonly<Record<AttributeName, AttributeEffect>>
     summary: 'Hears what somebody actually wants, which is rarely the number they opened with.',
   },
   diplomacy: {
-    channel: 'recruitPoolPercent',
-    summary: 'Talks to the crews you are not fighting, and their people hear where to go.',
+    channel: 'buildCostPercent',
+    summary:
+      'Talks to the crews you are not fighting, and their yards sell to yours at a neighbour\u2019s price.',
   },
 
   // Technical: the district runs on somebody knowing how it works.
@@ -661,7 +591,7 @@ export const ATTRIBUTE_EFFECTS: Readonly<Record<AttributeName, AttributeEffect>>
   },
   cryptography: {
     channel: 'intelResistancePercent',
-    summary: 'Your traffic reads as noise, so a rival scouting you learns the weather.',
+    summary: 'Your traffic reads as noise, so a rival spying on you learns the weather.',
   },
 };
 
@@ -894,9 +824,6 @@ export function applyPerkBonus(into: CrewEffects, bonus: PerkBonus): CrewEffects
       return into;
     case 'payroll_step_discount':
       into.payrollStepDiscountPercent += bonus.percent;
-      return into;
-    case 'recruit_pool':
-      into.recruitPoolPercent += bonus.percent;
       return into;
     case 'intel_resistance':
       into.intelResistancePercent += bonus.percent;
@@ -1193,6 +1120,10 @@ export function combineEffects(territory: TerritoryEffects, crew: CrewEffects): 
     perHour: mergeCounts(crew.perHour, territory.perHour),
     resourceYieldPercent: mergeCounts(crew.resourceYieldPercent, territory.resourceYieldPercent),
     officerGroupFlat: mergeCounts(crew.officerGroupFlat, territory.officerGroupFlat),
+    missionSpeedPercentByCity: mergeCounts(
+      crew.missionSpeedPercentByCity,
+      territory.missionSpeedPercentByCity,
+    ),
     unitTierPercent: mergeTierCounts(crew.unitTierPercent, territory.unitTierPercent),
     unitMarks: mergeMarks(crew.unitMarks, territory.unitMarks),
     // The switches are ORed, not added: ground and people are two ways of buying the same
@@ -1211,19 +1142,7 @@ export function combineEffects(territory: TerritoryEffects, crew: CrewEffects): 
     // here in silence. It works: `unitTierPercent` was added later and this loop is what refused
     // to compile until it had been given a merge of its own.
     if (isRecordChannel(key)) continue;
-    /*
-     * Vision is the one channel that is a *reach*, not an amount, so it takes the best eye rather
-     * than the sum, on both sides of the fold.
-     *
-     * `applyHoldBonus` already does that within a source: a Watchtower (1) and a Satellite Uplink
-     * (2) give 2, not 3, because the field's own doc is "how many of the nearest districts are
-     * visible". This loop added across sources, so a location worth 2 plus a Survey Hand worth 2
-     * gave 4, while a second Uplink added nothing and two Survey Hands added nothing. The same
-     * total bought different sight depending on where it came from, which is unpredictable from
-     * either side.
-     */
-    total[key] =
-      key === 'visionRange' ? Math.max(territory[key], crew[key]) : territory[key] + crew[key];
+    total[key] = territory[key] + crew[key];
   }
   return total;
 }
@@ -1238,6 +1157,7 @@ type RecordChannel =
   | 'perHour'
   | 'resourceYieldPercent'
   | 'officerGroupFlat'
+  | 'missionSpeedPercentByCity'
   | 'unitTierPercent'
   | 'unitMarks'
   // The four switches are folded above too. They are not records, but they are not summable
@@ -1251,6 +1171,7 @@ const RECORD_CHANNELS = new Set<string>([
   'perHour',
   'resourceYieldPercent',
   'officerGroupFlat',
+  'missionSpeedPercentByCity',
   'unitTierPercent',
   'unitMarks',
   'carriersFight',
@@ -1337,16 +1258,34 @@ export function discounted(cost: PartialResources, percent: number): PartialReso
  *
  * A share of a force's dead come off the casualty list before it is applied. Whole units only,
  * rounded down, so a chief medic on a small skirmish saves nobody and on a real fight saves a
- * squad, which is roughly how a field hospital works. Capped well under half: medicine changes
- * how bad a loss is, and is not allowed to make a fight free.
+ * squad, which is roughly how a field hospital works.
+ *
+ * ## Diminishing, never capped (maintainer ruling, 2026-09-29)
+ *
+ * Every source pays **medic points**: the crew's Medicine, the Lab's rungs, the Joker's card and the
+ * Infirmary's four a level, added. The share of the dead that walks home is
+ * `CASUALTY_RECOVERY_CEILING x (1 - e^(-points / CASUALTY_RECOVERY_CEILING))`, which is `softCap`
+ * with no knee: nearly one for one at first, a little less for every point after, and never half,
+ * because medicine changes how bad a loss is and is not allowed to make a fight free.
+ *
+ * It replaced a flat 40% ceiling that a level 10 Infirmary reached on its own, so the medics' ten
+ * rungs (46 points) paid nothing to a crew that had built one. Calibrated on that ceiling: both
+ * medic tracks with a level 10 Infirmary are 86 points and 41%, a level 5 Infirmary with the
+ * tracks 36.6%, and a medic with Medicine 40 on top 42.7%. Every point still adds something.
  */
-export const MAX_CASUALTY_RECOVERY = 40;
+export const CASUALTY_RECOVERY_CEILING = 50;
+
+/** The percent of the dead the medics get back for this many medic points. */
+export function casualtyRecoveryShare(points: number): number {
+  return softCap(Math.max(0, points), 0, CASUALTY_RECOVERY_CEILING);
+}
 
 export function recoverCasualties(
   losses: Readonly<Record<string, number>>,
-  recoveryPercent: number,
+  /** Medic points, every source added. See {@link casualtyRecoveryShare}. */
+  recoveryPoints: number,
 ): Record<string, number> {
-  const share = Math.min(MAX_CASUALTY_RECOVERY, Math.max(0, recoveryPercent)) / 100;
+  const share = casualtyRecoveryShare(recoveryPoints) / 100;
   if (share === 0) return { ...losses };
   return Object.fromEntries(
     Object.entries(losses).map(([unitId, dead]) => [unitId, dead - Math.floor(dead * share)]),
@@ -1358,9 +1297,9 @@ export function recoverCasualties(
  *
  * `combineEffects` adds ground to people and only walks the ground's channels. Research pays into
  * crew-only channels too (a unit's own kind, a structure's cost, another chair at the Bar), so it
- * needs a merge that walks the whole crew struct. Numbers add, `visionRange` takes the larger, and
- * every record-valued channel is merged key by key; a rule table (`officerAttributeAtLeast`) is
- * overlaid, since two rules on one attribute do not add.
+ * needs a merge that walks the whole crew struct. Numbers add, every record-valued channel is
+ * merged key by key, and a rule table (`officerAttributeAtLeast`) is overlaid, since two rules on
+ * one attribute do not add.
  */
 export function mergeCrewEffects(into: CrewEffects, extra: CrewEffects): CrewEffects {
   const mine = into as unknown as Record<string, unknown>;
@@ -1370,7 +1309,7 @@ export function mergeCrewEffects(into: CrewEffects, extra: CrewEffects): CrewEff
     const a = mine[key];
     const b = theirs[key];
     if (typeof a === 'number' && typeof b === 'number') {
-      total[key] = key === 'visionRange' ? Math.max(a, b) : a + b;
+      total[key] = a + b;
     } else if (typeof a === 'boolean' || typeof b === 'boolean') {
       // The switch channels (`carriers_fight`, `any_ride`, `steady_nerve`). Ored, the way
       // `combineEffects` ors them: two sources of one permission grant it once.
@@ -1394,7 +1333,7 @@ export function mergeCrewEffects(into: CrewEffects, extra: CrewEffects): CrewEff
     } else if (key === 'officerAttributeAtLeast') {
       total[key] = { ...(a as object), ...(b as object) };
     } else if (Array.isArray(a) || Array.isArray(b)) {
-      // The list channels (`chairLeads`): two sources are two lists, end to end. `mergeCounts`
+      // The list channels (`chairLeads`, `chairTeaches`): two sources are two lists, end to end. `mergeCounts`
       // read a list as a record and handed back one with no `filter`, which took every fight
       // down at the settle.
       total[key] = [

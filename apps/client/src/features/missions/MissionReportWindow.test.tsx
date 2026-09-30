@@ -94,6 +94,45 @@ describe('what the report says the crew could lift', () => {
       missionCarry(one.force) + 3 * (card.effect.lootCapacity ?? 0),
     );
   });
+
+  /**
+   * ...and the crew's own bag on top, which the settle also carries with (bug pass, 2026-09-29).
+   * Without it a crew holding the Pawn Shop read that it carried more than it could lift.
+   */
+  it('counts the crew’s own bag in, so a full haul never reads as more than the lift', () => {
+    const one = mission({ force: { scavengers: 2 } });
+    const bare = missionCarry(one.force);
+    // Everything the bigger bag brought home, which the bare sheets could not have lifted.
+    const carried = { ...one, rewards: { scrap: bare + 5 }, spoils: { scrap: bare + 5 } };
+    render(
+      <MissionReportWindow
+        mission={carried}
+        leaders={[ROOK]}
+        overseerName="Rook"
+        bagPercent={50}
+        onClose={() => undefined}
+      />,
+    );
+    const note = screen.getByTestId(`mission-carry-${one.id}`);
+    expect(note).toHaveTextContent('carried all');
+    expect(note).toHaveTextContent(`${missionCarry(one.force, {}, 50)} loot they could lift`);
+    expect(missionCarry(one.force, {}, 50)).toBeGreaterThan(bare + 5);
+  });
+
+  it('counts only whoever walked back from a fight', () => {
+    const one = mission({ force: { scavengers: 2, razors: 10 }, lost: { razors: 10 } });
+    render(
+      <MissionReportWindow
+        mission={{ ...one, rewards: { scrap: 1 }, spoils: { scrap: 1 } }}
+        leaders={[ROOK]}
+        overseerName="Rook"
+        onClose={() => undefined}
+      />,
+    );
+    expect(screen.getByTestId(`mission-carry-${one.id}`)).toHaveTextContent(
+      `${missionCarry({ scavengers: 2 })} loot they could lift`,
+    );
+  });
 });
 
 const show = (one: Mission) =>

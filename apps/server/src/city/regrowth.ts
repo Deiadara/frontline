@@ -30,8 +30,10 @@ import type { Repositories } from '../db/repos/index.js';
  *     what the catalogue says rather than to whatever it happened to have last week.
  *   * **The legendaries come back with the rest.** A leader is a body in his plot's garrison
  *     (`city/combine.ts`), so `startingGarrison` puts him back on ground the regime still holds
- *     and cannot put him back on ground it does not. Taking his plot and keeping it keeps him
- *     dead; losing it means he is back next week.
+ *     and cannot put him back on ground it does not. Nothing hands a taken plot back to the
+ *     regime (maintainer, 2026-09-29): a crew that loses it loses it to another crew, and one
+ *     that lets it go leaves it `unoccupied`, which this sweep skips. So taking his plot kills
+ *     him for good.
  *
  * ## Once a week, and not once a tick
  *

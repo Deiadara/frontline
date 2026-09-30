@@ -13,10 +13,9 @@
  */
 import { describe, expect, it } from 'vitest';
 import {
-  MAX_RAID_DISRUPTION_PERCENT,
   MAX_RAID_SHARE,
-  MIN_RAID_DISRUPTION_PERCENT,
   PLUNDER_PRIORITY,
+  RAID_CUT_ASYMPTOTE,
   RAID_DISRUPTION_HOURS,
   RESOURCE_KEYS,
   RESOURCE_KG,
@@ -25,8 +24,9 @@ import {
   noDisruption,
   plunder,
   raidDisruptionPercent,
-  refreshDisruption,
+  stackDisruption,
   weightOf,
+  type Disruption,
   type Resources,
 } from './index.js';
 
@@ -169,42 +169,47 @@ describe('what a raid leaves in the till', () => {
 });
 
 /**
- * §A4: what a lost raid leaves behind, now that it is the *only* thing it leaves behind.
+ * §A4: what a lost raid leaves behind (maintainer ruling, 2026-09-29).
  *
- * A won raid used to charge the victim twice: three roofs wrecked on a day-long repair clock, and
- * a flat quarter off the whole district for six hours. The maintainer kept the district-wide half
- * and asked for it to move with the defeat. So the two things worth pinning are that the number
- * actually depends on the loss, and that it cannot climb past half however badly the night went.
+ * A cut to what the district's structures make, for six hours, sized by the raid's blow (the share
+ * of the defending line lost) through a curve with no clamp on it. The numbers are pinned by hand
+ * because they are what the ruling's "not too punishing" was measured against: a light raid 10%,
+ * a medium one 20%, a crushing one 30%.
  */
 describe('what a raid leaves behind', () => {
-  it('scales the cut with how badly the defence lost', () => {
-    expect(raidDisruptionPercent(0)).toBe(MIN_RAID_DISRUPTION_PERCENT);
-    expect(raidDisruptionPercent(1)).toBe(MAX_RAID_DISRUPTION_PERCENT);
-    // Monotone across the range rather than at the two ends, where a function that ignored its
-    // argument between them would still pass.
-    const steps = [0, 0.1, 0.25, 0.5, 0.75, 0.9, 1].map(raidDisruptionPercent);
-    for (let i = 1; i < steps.length; i += 1) {
-      expect(steps[i]!, `${steps[i]} is not above ${steps[i - 1]}`).toBeGreaterThan(steps[i - 1]!);
-    }
+  it('cuts by the measured amounts for a light, a medium and a crushing raid', () => {
+    expect(raidDisruptionPercent(0)).toBe(0);
+    expect(raidDisruptionPercent(0.2)).toBeCloseTo(10, 9);
+    expect(raidDisruptionPercent(0.5)).toBeCloseTo(20, 9);
+    expect(raidDisruptionPercent(1)).toBeCloseTo(30, 9);
+    // A blow below zero is nothing, not a bonus.
+    expect(raidDisruptionPercent(-3)).toBe(0);
   });
 
-  it('never takes more than half, and never nothing at all', () => {
-    expect(MAX_RAID_DISRUPTION_PERCENT).toBeLessThanOrEqual(50);
-    expect(MIN_RAID_DISRUPTION_PERCENT).toBeGreaterThan(0);
-    // Out of range in both directions, which a caller dividing by a force of zero can produce.
-    for (const share of [-5, -0.2, 1.5, Number.POSITIVE_INFINITY]) {
-      expect(raidDisruptionPercent(share)).toBeGreaterThanOrEqual(MIN_RAID_DISRUPTION_PERCENT);
-      expect(raidDisruptionPercent(share)).toBeLessThanOrEqual(MAX_RAID_DISRUPTION_PERCENT);
+  /**
+   * No hard cap (the maintainer's standing rule): every extra bit of blow costs something, each
+   * costs less than the one before, and the asymptote is never reached however hard the night.
+   */
+  it('climbs for ever, by less each time, and never reaches its asymptote', () => {
+    const blows = [0, 0.1, 0.25, 0.5, 1, 2, 3, 5, 10, 100, 1e6];
+    const cuts = blows.map(raidDisruptionPercent);
+    for (let i = 1; i < cuts.length; i += 1) {
+      expect(cuts[i]!, `${blows[i]} did not cut more than ${blows[i - 1]}`).toBeGreaterThan(
+        cuts[i - 1]!,
+      );
+      expect(cuts[i]!).toBeLessThan(RAID_CUT_ASYMPTOTE);
     }
+    // Diminishing: the same step of blow buys less the further along it is taken.
+    const step = (at: number): number =>
+      raidDisruptionPercent(at + 0.25) - raidDisruptionPercent(at);
+    expect(step(0)).toBeGreaterThan(step(0.5));
+    expect(step(0.5)).toBeGreaterThan(step(1));
+    expect(step(1)).toBeGreaterThan(step(3));
   });
 
-  it('runs for six hours from the raid, at the percentage the defeat named', () => {
+  it('runs for six hours from the raid, at the percentage the blow named', () => {
     const now = new Date('2026-09-18T12:00:00.000Z');
     const half = disruptionFrom(now, 0.5);
-    // Strictly inside the range, so a `raidDisruptionPercent` that ignored its argument would be
-    // caught here as well as above rather than agreeing with itself.
-    expect(half.percent).toBeGreaterThan(MIN_RAID_DISRUPTION_PERCENT);
-    expect(half.percent).toBeLessThan(MAX_RAID_DISRUPTION_PERCENT);
     expect(half.percent).toBe(raidDisruptionPercent(0.5));
     expect(Date.parse(half.until!) - now.getTime()).toBe(RAID_DISRUPTION_HOURS * 3_600_000);
     expect(disruptionPercentAt(half, new Date(now.getTime() + 3_600_000))).toBe(half.percent);
@@ -214,73 +219,91 @@ describe('what a raid leaves behind', () => {
   });
 
   /**
-   * A second raid refreshes rather than stacks, field by field.
-   *
-   * Both halves matter now that the percentage moves. Taking the whole of the later record would
-   * let a crew who had just flattened a district throw a token raid at it and *lift* the cut from
-   * half back to a tenth; summing them would let two crews hold a district at zero for ever, which
-   * is the grief tactic this function was written to refuse.
+   * Repeated raids add their blows, not their cuts, and the old blow counts for what is left of
+   * its window. Back to back, two crushing raids are 40% and three are 45%: smooth, where
+   * multiplying what each leaves (70% of 70% of 70%) would be 66% and heading for zero.
    */
-  it('refreshes rather than stacks, and never lifts a standing cut', () => {
-    const early = disruptionFrom(new Date('2026-09-18T12:00:00.000Z'), 1);
-    const lateAndWeak = disruptionFrom(new Date('2026-09-18T15:00:00.000Z'), 0);
+  it('stacks back-to-back raids through the curve, not by multiplying them', () => {
+    const at = new Date('2026-09-18T12:00:00.000Z');
+    const two = stackDisruption(disruptionFrom(at, 1), disruptionFrom(at, 1));
+    expect(two.percent).toBeCloseTo(40, 9);
+    const three = stackDisruption(two, disruptionFrom(at, 1));
+    expect(three.percent).toBeCloseTo(45, 9);
+    const multiplied = 100 * (1 - 0.7 ** 3);
+    expect(three.percent).toBeLessThan(multiplied);
 
-    const after = refreshDisruption(early, lateAndWeak);
-    expect(after.until).toBe(lateAndWeak.until);
-    expect(after.percent).toBe(early.percent);
-    expect(after.percent).toBeLessThanOrEqual(MAX_RAID_DISRUPTION_PERCENT);
+    // Ten crushing raids in one breath are still short of the asymptote.
+    let piled = noDisruption();
+    for (let i = 0; i < 10; i += 1) piled = stackDisruption(piled, disruptionFrom(at, 1));
+    expect(piled.percent).toBeCloseTo(raidDisruptionPercent(10), 9);
+    expect(piled.percent).toBeLessThan(RAID_CUT_ASYMPTOTE);
+  });
 
-    // ...and the other way round: a harsher raid inside a longer standing window raises the cut
-    // without shortening it.
-    const longStandingWeak = {
-      until: '2026-09-19T12:00:00.000Z',
-      since: '2026-09-18T11:00:00.000Z',
-      percent: 10,
-    };
-    const harsh = disruptionFrom(new Date('2026-09-18T15:00:00.000Z'), 1);
-    const harder = refreshDisruption(longStandingWeak, harsh);
-    expect(harder.until).toBe(longStandingWeak.until);
-    expect(harder.percent).toBe(harsh.percent);
-    // The start belongs to whichever raid set the rate, because a settle reads the two together
-    // as "cut by `percent` from `since`". Keeping the older start here would charge the four
-    // hours the district spent at a tenth as though it had spent them at a half.
-    expect(harder.since).toBe(harsh.since);
+  it('counts the first raid for what is left of its window', () => {
+    const first = disruptionFrom(new Date('2026-09-18T12:00:00.000Z'), 1);
+    // Three of its six hours gone: half of its blow is still standing.
+    const second = disruptionFrom(new Date('2026-09-18T15:00:00.000Z'), 1);
+    const after = stackDisruption(first, second);
+    expect(after.percent).toBeCloseTo(raidDisruptionPercent(1.5), 9);
+    // The new record starts at the new raid and runs its six hours: the caller has already
+    // banked the hours before it at the old rate.
+    expect(after.since).toBe(second.since);
+    expect(after.until).toBe(second.until);
 
     // Nothing standing takes the fresh one whole, and a fresh one that is nothing leaves it alone.
-    expect(refreshDisruption(noDisruption(), harsh)).toEqual(harsh);
-    expect(refreshDisruption(harsh, noDisruption())).toEqual(harsh);
+    expect(stackDisruption(noDisruption(), second)).toEqual(second);
+    expect(stackDisruption(second, noDisruption())).toEqual(second);
   });
 
   /**
-   * The other side of pairing the start with the rate: two raids that landed at the same rate
-   * are one window, so the earlier start survives and the later expiry does.
-   *
-   * Without this, a second raid at the rate already standing would hand the victim back every
-   * hour since the first one, which is the same "a token raid lifts the cut" hole one step along.
+   * The grief case, from the other side: a token raid on a district that was just flattened must
+   * not be a way out of the cut. The rate it leaves can be lower for a few hours, spread over six
+   * fresh ones, but the production still owed never falls. Measured across the whole of the old
+   * window and a spread of blows rather than at one point.
    */
-  it('keeps the older start when a second raid matches the standing rate', () => {
-    const first = disruptionFrom(new Date('2026-09-18T12:00:00.000Z'), 1);
-    const second = disruptionFrom(new Date('2026-09-18T15:00:00.000Z'), 1);
-
-    const after = refreshDisruption(first, second);
-    expect(after.percent).toBe(first.percent);
-    expect(after.since).toBe(first.since);
-    expect(after.until).toBe(second.until);
+  it('never lowers the cut still owed, whatever the second raid was', () => {
+    const owed = (record: Disruption, from: number): number => {
+      if (record.until === null) return 0;
+      const hours = Math.max(0, Date.parse(record.until) - from) / 3_600_000;
+      return (record.percent * hours) / 100;
+    };
+    const landed = Date.parse('2026-09-18T12:00:00.000Z');
+    for (const standing of [0.2, 0.5, 1, 3]) {
+      const first = disruptionFrom(new Date(landed), standing);
+      for (const hoursLater of [0.01, 1, 3, 5, 5.99]) {
+        for (const token of [0, 0.01, 0.2, 1]) {
+          const when = landed + hoursLater * 3_600_000;
+          const after = stackDisruption(first, disruptionFrom(new Date(when), token));
+          expect(
+            owed(after, when),
+            `blow ${standing} then ${token} after ${hoursLater}h`,
+          ).toBeGreaterThanOrEqual(owed(first, when) - 1e-9);
+        }
+      }
+    }
   });
 
   /** Audit, 2026-09-28: the old record's rate and start used to survive its own expiry. */
   it('lets a disruption that has run out go, rather than merging it into the next raid', () => {
     const first = disruptionFrom(new Date('2026-09-18T10:00:00.000Z'), 1);
-    const second = disruptionFrom(new Date('2026-09-18T20:00:00.000Z'), 0);
+    const second = disruptionFrom(new Date('2026-09-18T20:00:00.000Z'), 0.2);
     expect(first.percent).toBeGreaterThan(second.percent);
 
-    const after = refreshDisruption(first, second);
+    const after = stackDisruption(first, second);
     expect(after).toEqual(second);
     // The evening between the two ran at full strength, and the new raid runs at its own rate.
     expect(disruptionPercentAt(after, new Date('2026-09-18T18:00:00.000Z'))).toBe(0);
     expect(disruptionPercentAt(after, new Date('2026-09-18T21:00:00.000Z'))).toBe(second.percent);
     // Expiring on the very instant the next raid lands is expired too.
-    const onTheMark = disruptionFrom(new Date(Date.parse(first.until!)), 0);
-    expect(refreshDisruption(first, onTheMark)).toEqual(onTheMark);
+    const onTheMark = disruptionFrom(new Date(Date.parse(first.until!)), 0.2);
+    expect(stackDisruption(first, onTheMark)).toEqual(onTheMark);
+  });
+
+  /** A record written before this ruling, at the old ceiling of 50, still stacks like any other. */
+  it('reads a record from before the ruling as the blow it stands for', () => {
+    const at = '2026-09-18T12:00:00.000Z';
+    const old: Disruption = { since: at, until: '2026-09-18T18:00:00.000Z', percent: 50 };
+    const after = stackDisruption(old, disruptionFrom(new Date(at), 0));
+    expect(after.percent).toBeCloseTo(50, 9);
   });
 });

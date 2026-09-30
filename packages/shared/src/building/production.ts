@@ -262,6 +262,14 @@ export interface CrewYield {
    * chose.
    */
   resourceYieldPercent?: PartialResources;
+  /**
+   * §A4: a raid's cut, in percent off what the **structures** make (`raid.ts`, maintainer ruling
+   * 2026-09-29). The held ground's output is not the district's buildings and is not cut.
+   *
+   * Carried here rather than as a fraction of the settle's hours because hours scale everything
+   * the window makes, the ground included, and the ruling names the buildings alone.
+   */
+  raidCutPercent?: number;
 }
 
 /**
@@ -290,6 +298,61 @@ export type ProductionCarry = FractionalResources;
 export interface Accrual {
   resources: Resources;
   carry: ProductionCarry;
+}
+
+/**
+ * What the district makes an hour once the crew and the ground are counted: the structures, what
+ * the held ground adds (§A4), the crew's line speed (§F2) and each resource's own yield.
+ *
+ * The rate half of {@link accrueProduction}, and the figure the Production panel prints. That panel
+ * used to read {@link districtProduction} alone, so an Engineering officer's +20% was missing from
+ * it and a crew whose only income was held ground read "Nothing is being made yet" while the
+ * stockpile climbed. One function, so the panel and the settle cannot disagree.
+ */
+export function productionRates(
+  buildings: readonly Building[],
+  crew: CrewYield,
+  extraPerHour: PartialResources = {},
+): PartialResources {
+  // Only on what is made: a raid that slowed a burn would pay the victim for being robbed.
+  const working = 1 - Math.max(0, crew.raidCutPercent ?? 0) / 100;
+  const perHour: PartialResources = Object.fromEntries(
+    Object.entries(districtProduction(buildings).perHour).map(([key, rate = 0]) => [
+      key,
+      rate > 0 ? rate * working : rate,
+    ]),
+  );
+  for (const [key, rate] of Object.entries(extraPerHour)) {
+    const resource = key as ResourceKey;
+    perHour[resource] = (perHour[resource] ?? 0) + (rate ?? 0);
+  }
+  const rate = Math.max(0, 1 + crew.productionPercent / 100);
+  const rates: PartialResources = {};
+  for (const key of RESOURCE_KEYS) {
+    const gross = perHour[key];
+    if (gross === undefined || gross === 0) continue;
+    // The crew's general rate, then this resource's own multiplier on top: both only on what is
+    // *made*. An engineer who is good at the job does not make the Generator drink faster.
+    const yielded = rate * (1 + Math.max(0, crew.resourceYieldPercent?.[key] ?? 0) / 100);
+    rates[key] = gross > 0 ? gross * yielded : gross;
+  }
+  return rates;
+}
+
+/**
+ * How close to a whole unit a carry has to be to count as one.
+ *
+ * A window's hours are a division of milliseconds, so a rate that owes exactly 2,160 oil over three
+ * days arrives across forty settles as 2,159.9999999999995, and `Math.trunc` put 2,159 on the
+ * stockpile with a carry of 0.9999999999999 behind it. Nothing was lost, the unit landed on the next
+ * read, but the readout was one short of the arithmetic at every exact boundary. A billionth of a
+ * unit is far below anything a rate can make on purpose and far above the float residue.
+ */
+const CARRY_EPSILON = 1e-9;
+
+function snapToWhole(amount: number): number {
+  const nearest = Math.round(amount);
+  return Math.abs(amount - nearest) < CARRY_EPSILON ? nearest : amount;
 }
 
 /**
@@ -335,13 +398,7 @@ export function accrueProduction(
   extraPerHour: PartialResources = {},
 ): Accrual {
   if (hours <= 0) return { resources: stock, carry };
-  const built = districtProduction(buildings).perHour;
-  const perHour: PartialResources = { ...built };
-  for (const [key, rate] of Object.entries(extraPerHour)) {
-    const resource = key as ResourceKey;
-    perHour[resource] = (perHour[resource] ?? 0) + (rate ?? 0);
-  }
-  const rate = Math.max(0, 1 + crew.productionPercent / 100);
+  const perHour = productionRates(buildings, crew, extraPerHour);
   // The bulk shelf once, with the crew's bonus on it. Each resource takes its own share of this
   // below, and caps take none of it: production has never made caps, but a ceiling that applied to
   // them would start throwing away raid pay the moment a settle ran long.
@@ -351,20 +408,14 @@ export function accrueProduction(
   const rest: Record<string, number> = {};
 
   for (const key of RESOURCE_KEYS) {
-    // The crew's share applies to what is *made*, never to what is burned: an engineer who is
-    // good at their job does not make the generator drink faster.
-    const gross = (perHour[key] ?? 0) * hours;
-    // The crew's general rate, then this resource's own multiplier on top: both only on what is
-    // *made*. Neither makes the Generator drink faster.
-    const yielded = rate * (1 + Math.max(0, crew.resourceYieldPercent?.[key] ?? 0) / 100);
-    const produced = gross > 0 ? gross * yielded : gross;
+    const produced = (perHour[key] ?? 0) * hours;
     const held = carry[key] ?? 0;
     if (produced === 0 && held === 0) {
       resources[key] = stock[key];
       continue;
     }
 
-    const delta = held + produced;
+    const delta = snapToWhole(held + produced);
     const whole = Math.trunc(delta);
     const next = stock[key] + whole;
 

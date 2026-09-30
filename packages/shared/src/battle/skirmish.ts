@@ -20,7 +20,8 @@ import {
   type BattleFinding,
 } from './report.js';
 import { mulberry32, seedFrom } from '../rng.js';
-import { pursuitSpeed, routSurvivors, winnerCasualties } from './rout.js';
+import { loyalSide, routContextOf, routSurvivors, winnerCasualties } from './rout.js';
+import type { TrapWire } from './traps.js';
 
 /**
  * Taking a location (GDD §A4): the seam every caller depends on.
@@ -86,6 +87,11 @@ export interface SkirmishInput {
    * attacks. See `SideSetup.presence` in the engine for what each power does.
    */
   defenderPresence?: CombinePower;
+  /**
+   * The Razor Wire the attack walked through, when the defence set one (`battle/traps.ts`).
+   * Attacker-only, for the reason every trap is: it is laid under a fight by whoever holds it.
+   */
+  attackerSlowed?: TrapWire;
 }
 
 export const SkirmishOutcomeSchema = z.object({
@@ -101,8 +107,8 @@ export const SkirmishOutcomeSchema = z.object({
    * The attacker's units that changed sides under Directive Xero (`changeOfHeart`), by unit id.
    *
    * Not in `killed` and not in `fled`: they are neither, and the settle has to know the
-   * difference. A turned unit is taken off the attacker's books for good and, if it is still
-   * standing when the fight ends and the ground holds, it joins the garrison it fought for.
+   * difference. A turned unit is taken off the attacker's books for good: it fights for him in
+   * this fight only and is dead afterwards, on a plot as at a gate (maintainer, 2026-09-29).
    */
   turned: z.record(z.string(), z.number().int().nonnegative()).default({}),
   /** Units the Executioner finished after an exchange. Already inside `killed`; this is the count. */
@@ -115,11 +121,6 @@ export const SkirmishOutcomeSchema = z.object({
    * over. Sums to `executed` in every fight the real engine ran.
    */
   executedForce: z.record(z.string(), z.number().int().nonnegative()).default({}),
-  /**
-   * Of `turned`, the ones still standing at the end, by unit id. If the defender held, these
-   * stand on the ground as its garrison; if not, they are gone with the rest of his side.
-   */
-  turnedAlive: z.record(z.string(), z.number().int().nonnegative()).default({}),
   /** How many rounds it took. One means it was over before it started. */
   rounds: z.number().int().nonnegative().default(0),
   /** Per-side, per-visibility notes: see `report.ts`. */
@@ -220,6 +221,7 @@ export class TacticalSkirmishEngine implements SkirmishEngine {
           : {}),
         ...(input.attackerOfficer ? { officer: input.attackerOfficer } : {}),
         ...(input.attackerFlat ? { flat: input.attackerFlat } : {}),
+        ...(input.attackerSlowed ? { slowed: input.attackerSlowed } : {}),
       },
       defender: {
         name: input.defenderName,
@@ -258,27 +260,17 @@ export function outcomeFrom(simulation: Simulation, input: SkirmishInput): Skirm
    * A unit that changed sides under Directive Xero is neither side's to rout nor to recover. If
    * it stood in the losing line it does not walk home to the attacker it left, and it is not a
    * Combine body for the kill ledger; if it stood in the winning line it is not a loss an
-   * infirmary brings back. What became of the ones still standing is `turnedAlive`, and the
-   * settle stands those on the ground.
+   * infirmary brings back. The ones still standing at the end are dead with the fight.
    */
-  const loyal = (side: Simulation['attacker']): Simulation['attacker'] => ({
-    ...side,
-    stacks: side.stacks.filter((stack) => stack.turncoat !== true),
-  });
-  const winnerSide = loyal(
+  const winnerSide = loyalSide(
     simulation.winner === 'attacker' ? simulation.attacker : simulation.defender,
   );
-  const loserSide = loyal(
+  const loserSide = loyalSide(
     simulation.winner === 'attacker' ? simulation.defender : simulation.attacker,
   );
   const lastRound = simulation.rounds.length;
 
-  const routContext = {
-    pursuit: pursuitSpeed(winnerSide),
-    lastRound,
-    away: simulation.winner === 'defender',
-    luck: loserSide.luck,
-  };
+  const routContext = routContextOf(simulation);
   const { fled, killed } = routSurvivors(loserSide, routContext, next);
 
   // The ring, and only the defender's, and only when the defence held: a beaten defender's
@@ -340,7 +332,6 @@ export function outcomeFrom(simulation: Simulation, input: SkirmishInput): Skirm
     turned: simulation.turned,
     executed: simulation.executed,
     executedForce: simulation.executedForce,
-    turnedAlive: simulation.turnedAlive,
     rounds: lastRound,
     findings,
     standing: {
@@ -457,7 +448,6 @@ export class CoinFlipSkirmishEngine implements SkirmishEngine {
       turned: {},
       executed: 0,
       executedForce: {},
-      turnedAlive: {},
       rounds: 1,
       findings: [],
       standing: { attacker: [], defender: [] },

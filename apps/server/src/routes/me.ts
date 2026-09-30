@@ -2,7 +2,7 @@ import type { MeResponse } from '@frontline/shared';
 import { featsReadyCount } from '../feats/project.js';
 import type { FastifyInstance } from 'fastify';
 import { fightsCalledOn } from '../battle/declare.js';
-import { settleBase } from '../district/settle.js';
+import { productionRatesFor, settleBase } from '../district/settle.js';
 import { buildClocksFor, buildQuotesFor } from '../district/build.js';
 import { takeLevelUp } from '../progression/award.js';
 
@@ -38,6 +38,8 @@ export function registerMeRoutes(app: FastifyInstance): void {
     const buildClocks = base
       ? buildClocksFor(app.repos, base, new Date(), app.config.admin)
       : undefined;
+    // And what the district is making, for the same reason: the ground and the yields stay here.
+    const productionRates = base ? productionRatesFor(app.repos, base, new Date()) : undefined;
     return {
       user,
       overseer,
@@ -46,6 +48,7 @@ export function registerMeRoutes(app: FastifyInstance): void {
       unread,
       buildQuotes,
       buildClocks,
+      productionRates,
       levelUp,
     };
   });

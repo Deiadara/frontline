@@ -25,14 +25,19 @@ import { COMBINE_UNITS, UNIT_IDS } from '../units/catalog.js';
 import { UNIT_UPGRADE_SLOTS } from '../units/loadout.js';
 import { BUILDING_PART_GATES } from '../building/parts.js';
 import { UNIT_MODIFICATIONS } from '../units/modifications.js';
-import { COMBINE_LEADERS } from '../city/combine.js';
+import { COMBINE_LEADERS, EXECUTIONER_THRESHOLD } from '../city/combine.js';
+import { startingGarrison } from '../city/control.js';
 import { CITY_LOCATIONS } from '../city/districts.js';
 import { OFFICER_MARKS } from '../crew/marks.js';
 import { ITEM_CATALOG } from '../items/catalog.js';
-import { BLACK_MARKET_GOOD_IDS } from '../market/blackmarket.js';
+import { BLACK_MARKET_GOOD_IDS, blackMarketTakesPerDay } from '../market/blackmarket.js';
+import { maxOpenAuctionsFor } from '../bar/auction.js';
+import { OVERSEER_POOL_SIZE } from '../overseer.js';
 import { MISC_AREA_ID } from '../missions.areas.js';
 import { RESOURCE_KEYS, type ResourceKey } from '../resources.js';
-import { findUnit } from '../units/index.js';
+import { blueprintForUnit } from '../blueprints/requirements.js';
+import { NOTORIETY_TO_FIELD } from '../economy/infamy.js';
+import { findUnit, isCombatUnit } from '../units/index.js';
 import { isUnitUnlocked } from '../units/unlocks.js';
 import type { LocationKind } from '../city/locations.js';
 import { FEATS, findFeat } from './catalog.js';
@@ -46,11 +51,10 @@ import {
   PLAYABLE_DISTRICTS,
   PLAYABLE_LOCATIONS,
   RAIL_STATIONS,
-  SMALLEST_CITY_DISTRICTS,
   reachableAbroad,
 } from './world.js';
 import { FEAT_MEASURES, FEAT_MEASURE_SPECS, type FeatMeasure } from './measures.js';
-import { FEAT_ERAS, featRewardBand, featRewardValue } from './rewards.js';
+import { FEAT_ERAS, FeatRewardSchema, featRewardBand, featRewardValue } from './rewards.js';
 import { splitFeatReward } from './waste.js';
 
 /**
@@ -213,7 +217,7 @@ describe('the feat catalogue', () => {
   /**
    * Every reward is a whole number of whatever it pays.
    *
-   * The schema only holds four of the five channels to it: `xp`, `infamy`, items and units are all
+   * The schema only holds three of the four counted channels to it: `xp`, items and units are all
    * `z.number().int()`, and **resources are not**, because production settles in fractional carry
    * and the bundle has to be able to carry it. So a reward computed rather than typed can put a
    * fraction on a stockpile, and the stores' credit adds it straight on: `rise(3, 'coin')` paid
@@ -614,18 +618,18 @@ describe('measures and scopes', () => {
       // list of kinds. The last rung of `finished` is exactly this number, on purpose.
       buildings_maxed: BUILDING_KINDS.length,
       modifications_fitted: BUILDING_KINDS.reduce(
-        (total, kind) => total + modificationSlotsAt(levelCeilingFor(kind)),
+        (total, kind) => total + modificationSlotsAt(levelCeilingFor(kind), kind),
         0,
       ),
       /*
        * A set is three cards of one family in one structure (`MODIFICATION_SET_SIZE`), so a
-       * structure that never opens a third bracket can never hold one. The third opens at level 20
-       * and the Garage and the Infirmary stop at 10, which puts the real maximum at nine sets
-       * rather than eleven. An upper bound: a structure also needs three cards of one family that
-       * fit it, which is a question about the deck rather than about the ladder.
+       * structure that never opens a third bracket can never hold one. Every structure opens all
+       * three somewhere on its own ladder since 2026-09-29 (the Garage and the Infirmary at 10), so
+       * this is eleven. An upper bound: a structure also needs three cards of one family that fit
+       * it, which is a question about the deck rather than about the ladder.
        */
       modification_sets: BUILDING_KINDS.filter(
-        (kind) => modificationSlotsAt(levelCeilingFor(kind)) >= MODIFICATION_SET_SIZE,
+        (kind) => modificationSlotsAt(levelCeilingFor(kind), kind) >= MODIFICATION_SET_SIZE,
       ).length,
       unit_modifications_fitted: UNIT_IDS.length * UNIT_UPGRADE_SLOTS,
       unit_kinds_held: UNIT_IDS.length,
@@ -638,19 +642,6 @@ describe('measures and scopes', () => {
       blueprints_unlocked: BLUEPRINTS.length,
       fleet_size: MAX_PER_VEHICLE * VEHICLE_IDS.length,
       districts_held_whole: holdableDistricts,
-      /*
-       * One short of the map, because a crew cannot scout the district it lives in.
-       *
-       * `sendScout` refuses `own_district` and no other path writes a `district_intel` row for
-       * home, so the measure tops out at twenty three of twenty four. The last rung of `scouted`
-       * asked for the whole map and sat at 11/12 for ever, which is the failure the note above
-       * this test describes.
-       *
-       * The whole world and not one city: the counter was always a raw row count with no district
-       * filter, so it has counted both cities from the day the second one opened, and
-       * `sendScout` resolves its target through `findDistrict`, which answers for all of them.
-       */
-      districts_scouted: PLAYABLE_DISTRICTS.length - 1,
       // The regime's ground, whole: ten districts across the two open cities, and the last rung of
       // `annexed` asks for exactly that many.
       combine_districts_held: COMBINE_DISTRICTS.length,
@@ -677,9 +668,18 @@ describe('measures and scopes', () => {
     };
 
     // The one figure here that is not read off the game, for the reason the ladder test above
-    // gives: two of the eleven structures never open a third bracket, so a table that quietly
-    // stopped covering `modification_sets` would leave the deepest deck feat unmeasured.
-    expect(CEILINGS.modification_sets, 'structures that can hold a full set').toBe(9);
+    // gives: a table that quietly stopped covering `modification_sets` would leave the deepest
+    // deck feat unmeasured. Every structure opens three brackets since 2026-09-29, so both deck
+    // ceilings are the whole board: eleven sets, and 33 brackets, which the top fitting rung asks
+    // for exactly.
+    expect(CEILINGS.modification_sets, 'structures that can hold a full set').toBe(11);
+    expect(CEILINGS.modifications_fitted, 'three brackets on each of eleven structures').toBe(33);
+    expect(
+      Math.max(
+        ...FEATS.filter((feat) => feat.measure === 'modifications_fitted').map((f) => f.target),
+      ),
+      'the top fitting rung is every bracket',
+    ).toBe(CEILINGS.modifications_fitted);
     /*
      * Likewise pinned by hand: a map that quietly lost a Combine district, or a chapel, would move
      * the ceiling and the ladder with it and leave this green.
@@ -744,7 +744,7 @@ describe('the shape of the set', () => {
     expect(measures.has('missions_done'), 'the work').toBe(true);
     expect(measures.has('battles_won'), 'fighting').toBe(true);
     expect(measures.has('districts_emptied'), 'the week').toBe(true);
-    expect(measures.has('districts_scouted'), 'the city').toBe(true);
+    expect(measures.has('spy_jobs_returned'), 'the city').toBe(true);
     expect(measures.has('locations_held_abroad'), 'the frontier').toBe(true);
     expect(measures.has('buildings_raised'), 'the district').toBe(true);
     expect(measures.has('officer_best_mark'), 'the crew').toBe(true);
@@ -766,7 +766,6 @@ describe('the shape of the set', () => {
       resources: FEATS.some((feat) => feat.reward.resources !== undefined),
       units: FEATS.some((feat) => feat.reward.units !== undefined),
       xp: FEATS.some((feat) => feat.reward.xp !== undefined),
-      infamy: FEATS.some((feat) => feat.reward.infamy !== undefined),
       boosts: FEATS.some((feat) => feat.reward.boosts !== undefined),
       items: FEATS.some((feat) => feat.reward.items !== undefined),
       pages: FEATS.some((feat) =>
@@ -779,11 +778,26 @@ describe('the shape of the set', () => {
       resources: true,
       units: true,
       xp: true,
-      infamy: true,
       boosts: true,
       items: true,
       pages: true,
     });
+  });
+
+  /**
+   * Feats pay no infamy (maintainer, 2026-09-29). A name is made in fights and on battle jobs and
+   * nowhere else; the 130 feats that used to pay one now pay units, experience or resources of the
+   * same band value.
+   *
+   * Two halves, because there are two ways back in. The catalogue half catches a reward that
+   * carries the key at runtime, which a cast or a spread from an untyped helper would get past the
+   * compiler. The schema half catches the channel being put back: a reward that arrives with the
+   * key has to lose it on the way through.
+   */
+  it('never pays infamy', () => {
+    const paying = FEATS.filter((feat) => 'infamy' in feat.reward).map((feat) => feat.id);
+    expect(paying, paying.join(', ')).toEqual([]);
+    expect(FeatRewardSchema.parse({ xp: 1, infamy: 50 })).toEqual({ xp: 1 });
   });
 
   it('gives the contested districts their own work, off the city rather than by hand', () => {
@@ -899,6 +913,32 @@ describe('the opening', () => {
   });
 
   /**
+   * The first mission feats pay fighters (maintainer, 2026-09-29).
+   *
+   * Scavengers cannot hold ground, so a crew with no fighter has no foothold, no district board
+   * and no misc fight card until a Gauntlet it reaches in about half a day. The first three
+   * mission rungs pay Razors instead: a fighter with no blueprint and no notoriety to field. The
+   * route-level half (the crew really can walk onto open ground and take the fight card) is
+   * `crew/first-fighters.test.ts` in the server.
+   */
+  it('pays the first fighters off the first few mission feats', () => {
+    let fighters = 0;
+    for (const id of ['oddjobs_1', 'runs_1', 'clean_1']) {
+      const feat = findFeat(id);
+      expect(feat?.era, id).toBe('early');
+      expect(feat?.target ?? Infinity, id).toBeLessThanOrEqual(10);
+      for (const [unitId, count] of Object.entries(feat?.reward.units ?? {})) {
+        const unit = findUnit(unitId)!;
+        expect(isCombatUnit(unit), `${id} pays ${unitId}`).toBe(true);
+        expect(blueprintForUnit(unitId), `${id} pays ${unitId}`).toBeUndefined();
+        expect(NOTORIETY_TO_FIELD[unit.tier], `${id} pays ${unitId}`).toBe(0);
+        fighters += count ?? 0;
+      }
+    }
+    expect(fighters).toBeGreaterThanOrEqual(8);
+  });
+
+  /**
    * An early feat never pays a unit an early crew could not have trained.
    *
    * `recruits('early', …)` paid four Haulers at `medium` and eight at `large`, and on the day the
@@ -986,10 +1026,12 @@ describe('the Combine', () => {
   /**
    * One standalone per leader, at a target of one, and **not** because the counter cannot climb.
    *
-   * It can: a killed leader is back at the Sunday reset wherever no player holds the plot he stood
-   * on (2026-09-24). The target is one because the first kill is the whole of what there is to
-   * reward, and the board's rule that a standalone is never locked means all three are open from
-   * the first evening: a crew can go for Directive Xero before it has met the Syndic, if it likes.
+   * It can, just: a leader who falls in a fight the regime wins is stood back up on Monday with
+   * the rest of its army. Once his plot is taken he is gone for good, because nothing hands a taken
+   * plot back to the regime (maintainer, 2026-09-29). The target is one because the first kill is
+   * the whole of what there is to reward, and the board's rule that a standalone is never locked
+   * means all three are open from the first evening: a crew can go for Directive Xero before it has
+   * met the Syndic, if it likes.
    */
   it('stands one open feat per leader, at a target of one', () => {
     const slain = FEATS.filter((feat) => feat.measure === 'combine_leaders_slain');
@@ -1077,6 +1119,39 @@ describe('the Combine', () => {
   });
 
   /**
+   * ...and the Executioner's line is quoted at the share the engine finishes at (bug pass,
+   * 2026-09-29). It moved from a tenth to 30% on 2026-09-21 and `shadow_3` kept "a tenth of a
+   * life", typed out where the Syndic's figures beside it are read off `city/combine.ts`.
+   */
+  it('quotes the Executioner’s line at the share the engine finishes at', () => {
+    const line = `${Math.round(EXECUTIONER_THRESHOLD * 100)}%`;
+    const quoting = FEATS.filter((feat) => /\bof (?:a|its) (?:life|vitality)\b/i.test(feat.blurb));
+    expect(quoting.length, 'nothing quotes his line').toBeGreaterThan(0);
+    for (const feat of quoting) expect(feat.blurb, feat.id).toContain(line);
+  });
+
+  /**
+   * A blurb that calls a plot cheap names one nothing on the regime's ground undercuts (bug pass,
+   * 2026-09-29). `liberated_1` sent a first crew to the Tideline Market, seven Levy, past three
+   * plots on the same quay with four.
+   */
+  it('points a first crew at ground no Combine plot undercuts', () => {
+    const regime = COMBINE_DISTRICTS.flatMap((district) =>
+      district.locations.map((location) => ({
+        name: location.name,
+        bodies: Object.values(startingGarrison(location, district)).reduce((a, b) => a + b, 0),
+      })),
+    ).filter((plot) => plot.bodies > 0);
+    const cheapest = Math.min(...regime.map((plot) => plot.bodies));
+    const named = FEATS.filter((feat) => /\bcheap/i.test(feat.blurb)).flatMap((feat) =>
+      regime.filter((plot) => feat.blurb.includes(plot.name)).map((plot) => ({ feat, plot })),
+    );
+    expect(named.length, 'no blurb names a cheap plot').toBeGreaterThan(0);
+    for (const { feat, plot } of named)
+      expect(plot.bodies, `${feat.id}: ${plot.name}`).toBe(cheapest);
+  });
+
+  /**
    * The chapel ladder ends on every chapel the regime has, which is no longer one.
    *
    * It was a standalone at a target of one, under the board's rule that a thing with no degrees
@@ -1093,6 +1168,39 @@ describe('the Combine', () => {
     expect(chapel.map((feat) => feat.target)).toEqual([1, CHAPEL_LOCATIONS.length]);
     expect(chapel[0]?.after, 'the head of a ladder is never locked').toBeNull();
     expect(chapel[1]?.after).toBe(chapel[0]?.id);
+  });
+
+  /**
+   * The map moves one way (maintainer, 2026-09-29). Nothing hands a plot back to the Combine or
+   * the looters, and the copy said four times that it did: a leader "back the Monday after", a
+   * ladder counting "every one they took back". A blurb that promises a retake is selling a
+   * mechanic the game does not have.
+   */
+  it('promises no retake by the regime', () => {
+    const retake = /\b(?:is|are|comes?) back\b|\btook (?:it |them )?back\b|\bretakes?\b/i;
+    const regime = FEATS.filter((feat) => feat.measure.startsWith('combine_'));
+    expect(regime.length).toBeGreaterThan(10);
+    for (const feat of regime) {
+      expect(retake.test(`${feat.name} ${feat.blurb}`), feat.id).toBe(false);
+    }
+  });
+
+  /**
+   * `liberated` counts a plot the first time a crew takes it off the regime, and the regime never
+   * takes one back, so every crew draws on the same 74 plots in the open cities and each counts
+   * once for the world. The ladder ran to 50, two thirds of all of it for one crew. Its top rung
+   * is held to a fifth of the regime's ground.
+   */
+  it('sizes the liberated ladder for one crew among many', () => {
+    const regimePlots = COMBINE_DISTRICTS.flatMap((district) =>
+      district.locations.filter(
+        (location) => Object.keys(startingGarrison(location, district)).length > 0,
+      ),
+    ).length;
+    expect(regimePlots).toBe(74);
+    const rungs = FEATS.filter((feat) => feat.measure === 'combine_locations_taken');
+    expect(rungs.map((feat) => feat.target)).toEqual([1, 3, 6, 10, 15]);
+    expect(rungs.at(-1)!.target).toBeLessThanOrEqual(Math.ceil(regimePlots / 5));
   });
 
   it('ends the held-districts ladder on the whole of the regime’s ground', () => {
@@ -1212,23 +1320,6 @@ describe('the frontier', () => {
       'the whole-district ladder fits inside one city',
     ).toBeGreaterThan(districtsPerCity);
   });
-
-  /**
-   * The scouting ladder has a rung for home and a rung for the world.
-   *
-   * `districts_scouted` was always a raw count of `district_intel` rows with no district filter, so
-   * from the day Terminus opened it counted both cities while the top of its ladder still asked
-   * for one city's worth. That is the quiet half of the same bug as the rest of this section: the
-   * number moved and the sentence did not.
-   */
-  it('separates walking your own city from walking the world', () => {
-    const rungs = FEATS.filter((feat) => feat.measure === 'districts_scouted');
-    expect(rungs.at(-2)?.target, 'your own city, all but home').toBe(SMALLEST_CITY_DISTRICTS - 1);
-    expect(rungs.at(-1)?.target, 'the whole world, all but home').toBe(
-      PLAYABLE_DISTRICTS.length - 1,
-    );
-    expect(PLAYABLE_DISTRICTS.length).toBeGreaterThan(SMALLEST_CITY_DISTRICTS);
-  });
 });
 
 /**
@@ -1302,5 +1393,61 @@ describe('the week', () => {
     // More than one Monday's worth of the whole map, or the ladder is about how much you hold
     // rather than about how long you kept it, which `locations_held` already asks.
     expect(rungs.at(-1)?.target ?? 0).toBeGreaterThan(PLAYABLE_LOCATIONS.length);
+  });
+});
+
+/**
+ * A counter the game caps by the day has a top rung a committed player can reach (audit,
+ * 2026-09-28).
+ *
+ * The ceilings test above bounds what a crew can ever *hold*. These measures are lifetime counts
+ * and have no ceiling, but each can only climb so far in a day, and the catalogue shipped rungs
+ * that would take years at that pace: 2,200 back-room lots at one or two a day, forty million
+ * faction infamy at about 1,500. Each top rung is held to {@link DAYS_CEILING} days at the most the
+ * game allows in one, read off the rule that sets it wherever the game has one.
+ */
+describe('the measures a day caps', () => {
+  /** Roughly eight months of playing every day. */
+  const DAYS_CEILING = 250;
+  /** Every level milestone earned: the fence's second take, the Bar's third table. */
+  const PAST_EVERY_MILESTONE = Number.POSITIVE_INFINITY;
+  /**
+   * The one rate here that no rule sets. Fight infamy has no daily cap; this is the audit's figure
+   * for a crew that fights every day, and the pace that reaches `infamy_10` (60,000) in 200 days.
+   */
+  const FIGHT_INFAMY_PER_CREW_PER_DAY = 300;
+  /** The Broker, the supplier and the Runner: one counterparty each (`tallyMarketDeal`). */
+  const HOUSE_COUNTERS = 3;
+
+  const MOST_PER_DAY: Partial<Record<FeatMeasure, number>> = {
+    contraband_taken: blackMarketTakesPerDay(PAST_EVERY_MILESTONE),
+    officers_hired: maxOpenAuctionsFor(PAST_EVERY_MILESTONE),
+    faction_infamy: SEAT_SLOT_ORDER.length * FIGHT_INFAMY_PER_CREW_PER_DAY,
+    // One deal a day with each other crew, and there is one crew per overseer.
+    market_sales: OVERSEER_POOL_SIZE - 1,
+    market_buys: OVERSEER_POOL_SIZE - 1 + HOUSE_COUNTERS,
+  };
+
+  it('reads the daily limits the game actually sets', () => {
+    // Pinned by hand, like the map ceilings: a rule that quietly loosened would loosen the bound
+    // with it and leave this green.
+    expect(MOST_PER_DAY.contraband_taken, 'two lots a day from level 50').toBe(2);
+    expect(MOST_PER_DAY.officers_hired, 'three tables a day from level 40').toBe(3);
+    expect(MOST_PER_DAY.faction_infamy, 'a table of five').toBe(1_500);
+    expect(OVERSEER_POOL_SIZE, 'thirty overseers, so thirty crews').toBe(30);
+  });
+
+  it('puts every top rung within the days a committed player has', () => {
+    const late: string[] = [];
+    for (const [measure, perDay] of Object.entries(MOST_PER_DAY) as [FeatMeasure, number][]) {
+      const rungs = FEATS.filter((feat) => feat.measure === measure);
+      expect(rungs.length, `nothing asks for ${measure}`).toBeGreaterThan(0);
+      const top = Math.max(...rungs.map((feat) => feat.target));
+      const days = top / perDay;
+      if (days > DAYS_CEILING) {
+        late.push(`${measure} tops out at ${top}: ${Math.round(days)} days at ${perDay} a day`);
+      }
+    }
+    expect(late, late.join('\n')).toEqual([]);
   });
 });
