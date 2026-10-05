@@ -1,7 +1,7 @@
 import {
   type EarlyRampBand,
   TRAVEL_BAND_MINUTES,
-  FAILED_MISSION_XP_SHARE,
+  offerXp,
   MISC_AREA_ID,
   RESOURCE_KG,
   areaPayPercent,
@@ -19,6 +19,7 @@ import {
   missionRewards,
   payoutSlots,
   scaledSpoils,
+  withMissionCaps,
   type Base,
   type District,
   type Grade,
@@ -103,12 +104,20 @@ export function offerFor(
   ramp: EarlyRampBand | null = null,
   /** The walk to a job in another city (`missionWalkMinutes`), on the raw road and the price. */
   walkMinutes = 0,
+  /** Cap Counter's cut of the caps (`withMissionCaps`), which the return pays off the same fold. */
+  capsPercent = 0,
+  /** The district's and the crew's XP bonus (`missionXpBonusPercent`, the Professor included), which the return adds. */
+  xpBonusPercent = 0,
+  /** What an officer leading the run adds to the pay (`leadLootPercent`), quoted as `ledRewards`. */
+  leadLootPercent = 0,
 ): MissionOffer {
   const timings = pricedTimings(template, grade, speedPercent, ramp, walkMinutes);
-  const rewards = scaledSpoils(
-    missionRewards(template, 'success', timings.totalMinutes, grade),
-    payPercent,
-  );
+  const paid = (percent: number) =>
+    withMissionCaps(
+      scaledSpoils(missionRewards(template, 'success', timings.totalMinutes, grade), percent),
+      capsPercent,
+    );
+  const rewards = paid(payPercent);
   const xp = missionXp(template, timings.totalMinutes, grade);
   return {
     templateId: template.id,
@@ -130,9 +139,9 @@ export function offerFor(
     ramp,
     speedPercent,
     rewards,
+    ...(leadLootPercent > 0 && { ledRewards: paid(payPercent + leadLootPercent) }),
     payoutSlots: Math.round(payoutSlots(rewards, RESOURCE_KG)),
-    xp,
-    failedXp: Math.round(xp * FAILED_MISSION_XP_SHARE),
+    ...offerXp(xp, xpBonusPercent),
     // The gauge grades whichever leader the player is looking at against these and the grade,
     // through `missionOdds`, the same function the launch prices with.
     leanings: [...leaningsFor(template)],
@@ -177,6 +186,12 @@ export function projectAreas(
     /** Speed that pays only on one city's boards, by city id (`missionSpeedPercentByCity`). */
     citySpeedPercent?: Record<string, number>;
     spoilsPercent?: number;
+    /** Cap Counter's cut of a job's caps (`missionCapsPercent`), quoted as the return pays it. */
+    capsPercent?: number;
+    /** The XP bonus every job is paid with (`missionXpBonusPercent`, the Professor included), quoted as the return pays it. */
+    xpBonusPercent?: number;
+    /** An officer's loot perks, paid only on a run an officer leads (`MissionOffer.ledRewards`). */
+    leadLootPercent?: number;
     ramp?: EarlyRampBand | null;
   } = {},
 ): MissionArea[] {
@@ -215,6 +230,9 @@ export function projectAreas(
                 ),
                 standing.ramp ?? null,
                 missionWalkMinutes(crew.districtId, id),
+                standing.capsPercent ?? 0,
+                standing.xpBonusPercent ?? 0,
+                standing.leadLootPercent ?? 0,
               ),
             )
           : [],

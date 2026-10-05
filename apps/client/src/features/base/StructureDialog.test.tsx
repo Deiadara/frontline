@@ -10,7 +10,9 @@ import {
   type MeResponse,
   type CrewStandingResponse,
   OVERSEER_PRESETS,
-  makeAttributes,
+  describeOverseerPassive,
+  buildBoostOilCost,
+  storeCeilings,
 } from '@frontline/shared';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
@@ -53,10 +55,12 @@ const base: Base = {
   buildings: [
     { id: 'b-nexus', kind: 'nexus', level: 13, modifications: [] },
     { id: 'b-generator', kind: 'generator', level: 6, modifications: [] },
+    // Stores big enough for the Nexus's next bill, or its button says the stores are too small.
+    { id: 'b-apothecary', kind: 'apothecary', level: 20, modifications: [] },
   ],
   buildQueue: [],
   army: {},
-  trainingQueue: [],
+  musterQueue: [],
   training: startingTraining('2026-08-16T00:00:00.000Z'),
   inventory: {},
   fittedUpgrades: [],
@@ -88,10 +92,12 @@ const crewStanding = (): CrewStandingResponse => {
   const { presetId: _presetId, ...preset } = OVERSEER_PRESETS[0]!;
   return {
     overseer: { ...preset, id: 'ov-1' },
-    crewSheet: makeAttributes(15),
+    chairs: [],
+    overseerGrade: { mark: 'C', passive: describeOverseerPassive(40) },
     effects: {},
     marks: {},
     haulPercent: 0,
+    missionCapsPercent: 0,
   };
 };
 
@@ -143,7 +149,7 @@ async function openNexus(): Promise<HTMLElement> {
 beforeEach(() => {
   vi.stubGlobal('fetch', fetchMock);
   fetchMock.mockReset();
-  useSession.setState({ token: 'session-token', user: null });
+  useSession.setState({ signedIn: true, user: null });
 });
 
 afterEach(() => vi.unstubAllGlobals());
@@ -224,15 +230,17 @@ describe('the plot window is in the same house as the feats board', () => {
     const footer = dialog.querySelector('footer');
     if (!footer) throw new Error('no footer');
     const buttons = [...footer.querySelectorAll('button')].map((b) => b.textContent);
-    expect(buttons).toEqual(['Close', 'Change payroll', 'Queue upgrade']);
+    expect(buttons).toEqual(['Close', 'Increase payroll', 'Queue upgrade']);
     expect(within(footer).getByRole('button', { name: 'Close' }).className).toContain('oxblood');
     expect(within(dialog).queryByRole('heading', { name: 'The payroll book' })).toBeNull();
 
-    fireEvent.click(within(footer).getByTestId('nexus-change-payroll'));
+    fireEvent.click(within(footer).getByTestId('nexus-open-payroll'));
     const book = await screen.findByTestId('payroll-dialog');
     expect(within(book).getByRole('heading', { name: 'The payroll book' })).toBeInTheDocument();
-    expect(within(book).getByTestId('nexus-payroll')).toBeInTheDocument();
+    expect(within(book).getByTestId('payroll-ledger')).toBeInTheDocument();
     expect(book.textContent).not.toMatch(/A step is permanent/);
+    // One window for the Bar and the Nexus (maintainer, 2026-10-01), so it names neither.
+    expect(book.textContent).not.toMatch(/the nexus/i);
   });
 
   /** Two sentences the maintainer took out (2026-09-28): the set rule is no longer stated. */
@@ -264,11 +272,6 @@ describe('the plot window is in the same house as the feats board', () => {
         `${name} is not drawn`,
       ).toBeGreaterThanOrEqual(4);
     }
-    const bench = within(dialog).getByTestId('structure-build-addons-nexus');
-    expect(
-      bench.querySelectorAll('svg path').length,
-      'the bench door is not drawn',
-    ).toBeGreaterThanOrEqual(4);
   });
 });
 
@@ -487,5 +490,50 @@ describe('a ten-rung structure at its ceiling', () => {
       expect(within(dialog).getByTestId(`slot-door-garage-${index}`)).toBeInTheDocument();
     }
     expect(dialog).not.toHaveTextContent(/level 20/i);
+  });
+});
+
+/*
+ * Bug pass, 2026-10-02: the burn's price follows the Generator and the store follows the
+ * Apothecary, so a Generator ahead of its Apothecary asks more oil than the store can ever hold,
+ * and the button said "Short of oil" to a crew that could wait for ever.
+ */
+describe('a burn priced past the stores', () => {
+  it('says the stores are too small, not that the crew is short', async () => {
+    const outgrown: Base = {
+      ...base,
+      buildings: [
+        { id: 'b-nexus', kind: 'nexus', level: 12, modifications: [] },
+        { id: 'b-generator', kind: 'generator', level: 12, modifications: [] },
+        { id: 'b-apothecary', kind: 'apothecary', level: 1, modifications: [] },
+      ],
+    };
+    const ceilings = storeCeilings(outgrown.buildings);
+    const oil = buildBoostOilCost(outgrown.buildings);
+    expect(oil, 'fixture: the burn must outgrow the store').toBeGreaterThan(ceilings.oil);
+    const full: Base = { ...outgrown, resources: { ...outgrown.resources, oil: ceilings.oil } };
+    const reply = (body: unknown) =>
+      Promise.resolve({
+        headers: new Headers(),
+        ok: true,
+        status: 200,
+        statusText: '',
+        json: () => Promise.resolve(body),
+      } as Response);
+    fetchMock.mockImplementation((path: string) => {
+      if (path.endsWith('/overseer/me')) return reply(crewStanding());
+      if (path.endsWith('/me')) return reply({ ...me, base: full });
+      if (path.includes('/base/')) return reply({ base: full });
+      throw new Error(`unstubbed request: ${path}`);
+    });
+    renderDistrict();
+    await waitFor(() => expect(plot('The Generator')).toBeInTheDocument());
+    fireEvent.click(plot('The Generator'));
+    const dialog = await screen.findByRole('dialog');
+
+    expect(within(dialog).getByTestId('build-boost-buy')).toHaveTextContent('Stores too small');
+    expect(within(dialog).getByTestId('build-boost').getAttribute('data-tip')).toContain(
+      `hold at most ${ceilings.oil.toLocaleString()} oil`,
+    );
   });
 });

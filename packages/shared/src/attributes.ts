@@ -8,7 +8,7 @@ import { z } from 'zod';
  * grouped Football-Manager style (B4a); Traits are a separate, discrete kind and live in
  * `traits.ts` (B7).
  *
- * The set is deliberately wide (B3, B5): each of the 19 roles in §C1 has one attribute that is
+ * The set is deliberately wide (B3, B5): each of the 13 roles in §C1 has one attribute that is
  * genuinely its own, so no two roles read off the same headline number. Which attributes a role
  * actually wants is server-side only and never reaches a player (B8, B8a).
  */
@@ -232,3 +232,13 @@ export function makeAttributes(base: number, overrides: Partial<Attributes> = {}
 
 /** Neutral sheet at the recruitment mean, useful as a factory default. */
 export const DEFAULT_ATTRIBUTES: Attributes = makeAttributes(15);
+
+/**
+ * The two skills everybody in the room still gives whatever chair they sit in: they guard the crew
+ * against spies (`spying/spying.ts`, maintainer 2026-10-01 and 2026-10-04). Here, in the leaf
+ * module, so the crew fold and the spy module can both read it without importing each other.
+ */
+export const SPY_DEFENCE_ATTRIBUTES = [
+  'signals',
+  'cryptography',
+] as const satisfies readonly AttributeName[];

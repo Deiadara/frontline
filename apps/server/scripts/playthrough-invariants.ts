@@ -88,10 +88,10 @@ function checkBase(h: Harness, player: Player, base: Base): void {
   h.check(new Set(seated).size === seated.length, `${who}: two officers sit in one chair`);
 
   // The bench never delivers more than it was ordered.
-  for (const order of base.trainingQueue) {
+  for (const order of base.musterQueue) {
     h.check(
       order.delivered >= 0 && order.delivered <= order.count,
-      `${who}: training order ${order.id} delivered ${order.delivered} of ${order.count}`,
+      `${who}: muster order ${order.id} delivered ${order.delivered} of ${order.count}`,
     );
   }
 

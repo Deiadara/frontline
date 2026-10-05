@@ -43,7 +43,7 @@ export interface BotBlueprint {
 }
 
 export const MVP_BOT: BotBlueprint = {
-  username: 'Vex_Combine',
+  username: 'Vex_Holdings',
   baseName: 'Vex Holdings',
   overseerPresetId: 'fixer',
   level: 4,
@@ -90,13 +90,13 @@ export const MVP_BOT: BotBlueprint = {
     },
   ],
   army: { razors: 12, wardens: 6, breakers: 4 },
-  /* Four of the 19 officer positions (GDD §C1), on the 0..100 attribute scale. */
+  /* Four of the 13 officer positions (GDD §C1), on the 0..100 attribute scale. */
   commanders: [
     createCommander(
       'vex-commander-doctor',
       'Iris "Suture" Vale',
-      'chief_medic',
-      { medicine: 38, composure: 30, chemistry: 24 },
+      'veteran',
+      { organization: 38, resolve: 30, logistics: 24 },
       ['field_medic'],
     ),
     createCommander('vex-commander-analyst', 'Ren Kaido', 'field_commander', {
@@ -104,7 +104,7 @@ export const MVP_BOT: BotBlueprint = {
       leadership: 28,
       resolve: 22,
     }),
-    createCommander('vex-commander-accountant', 'Odile Marchetti', 'finance_officer', {
+    createCommander('vex-commander-accountant', 'Odile Marchetti', 'fixer', {
       strategy: 34,
       analysis: 27,
       logistics: 25,
@@ -175,7 +175,7 @@ export const MVP_ALLY: BotBlueprint = {
     createCommander(
       'ally-commander-engineer',
       'Petra Vance',
-      'lead_engineer',
+      'engineer',
       { engineering: 34, craft: 29, salvage: 24 },
       ['site_foreman'],
       95,
@@ -226,12 +226,12 @@ export const MVP_RIVAL_SECOND: BotBlueprint = {
     createCommander(
       'sollen-commander-boss',
       'Mirek Sollen',
-      'lead_engineer',
+      'engineer',
       { engineering: 39, salvage: 33, craft: 26 },
       ['site_foreman'],
       110,
     ),
-    createCommander('sollen-commander-broker', 'Adaeze Quill', 'finance_officer', {
+    createCommander('sollen-commander-broker', 'Adaeze Quill', 'fixer', {
       negotiation: 31,
       analysis: 28,
       logistics: 24,

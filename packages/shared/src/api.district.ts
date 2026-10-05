@@ -123,8 +123,17 @@ export type ScrapyardEntry = z.infer<typeof ScrapyardEntrySchema>;
 export const ScrapyardResponseSchema = z.object({
   /** Zero when the Scrapyard has not been built: the page says so rather than 404ing. */
   scrapyardLevel: z.number().int().nonnegative(),
-  /** Percent the yard's level takes off every bill on this page; already applied to every `cost`. */
+  /**
+   * Percent the yard's level takes off every bill on this page (`scrapyardBillCutPercent`);
+   * already applied to every `cost`. A unit card can carry the held ground's refit cut on top.
+   */
   discountPercent: z.number().nonnegative(),
+  /**
+   * Percent the working Salvager takes off the scrap and HQ metal of every bill here, after the
+   * level's cut (`passives.ts`, 2026-10-04); already applied to every `cost`. Zero with the chair
+   * empty.
+   */
+  salvagerCutPercent: z.number().nonnegative(),
   resources: ResourcesSchema,
   entries: z.array(ScrapyardEntrySchema),
 });
@@ -171,7 +180,7 @@ export const CapturedGateViewSchema = z.object({
   upgradingSince: IsoDateTimeSchema.nullable(),
   /** What it is worth right now, already worded for the screen. */
   defensePercent: z.number(),
-  intelResistancePercent: z.number(),
+  // Its points against spies are not sent: spy strength is not public (maintainer, 2026-10-01).
   /** Why the button is dead, already worded, or null when it is live. */
   refusal: z.string().nullable(),
 });

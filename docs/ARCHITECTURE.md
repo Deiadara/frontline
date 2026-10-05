@@ -49,7 +49,7 @@ or client-facing type.
 | `building/`             | The district: 13 kinds, costs, power, production, standing, queue, 65 modifications  |
 | `base.ts`               | `Base` (district + queue + economy + roster), `BaseSummary` (public projection)      |
 | `city/`                 | The map: 10 districts, 42 location kinds, labels, weather, control, levels           |
-| `units/`                | 27 battle units, their sheets, multi-clause unlocks, training and the army cap       |
+| `units/`                | 27 battle units, their sheets, multi-clause unlocks, mustering and the army cap      |
 | `raid.ts`               | Loot capacity in loot slots, what a raid takes, and the disruption it leaves         |
 | `economy/`              | Meters (§D4/§D7), payroll (§H7), the §D8 reputation tally                            |
 | `bar/`                  | §H join gates, the daily roster, the §H7a auction and its close                      |
@@ -97,7 +97,7 @@ why the client can render the same numbers the server enforces without a DTO for
   a Rail Yard were the same kind of thing and a unit's own speed reached no clock at all. See
   `docs/PLAN-research-and-blueprints.md` §AE.
 - **Snapshots every two minutes**: `VACUUM INTO` writes a whole consistent database file while the
-  server keeps taking writes; each is integrity-checked before it gets its name, kept by tiers
+  server keeps taking writes, on a worker thread so the event loop never waits on it; each is integrity-checked before it gets its name, kept by tiers
   (two hours whole, hourly for two days, daily for thirty) and copied to `BACKUP_MIRROR_DIR`. A file
   copy is not an option: in WAL mode the newest commits live in the `-wal` sidecar. Recovery path
   in `docs/RECOVERY.md`, deployment in `docs/DEPLOY.md`.
@@ -118,10 +118,13 @@ why the client can render the same numbers the server enforces without a DTO for
   an `<img>` fetches when it is on screen. The whole UI is plain React + Tailwind.
 - **Zod (v4)**: runtime validation + static types from one declaration; used on both sides of
   the wire.
-- **JWT (stateless)**: no session table; token carries `{sub: userId}`. Fine for this scale;
-  revocation is a non-goal for now.
-- **zustand + react-query**: session/auth token is client-local state (zustand); everything
-  from the server is cache-managed by react-query. No duplicated server state in stores.
+- **JWT (stateless)**: no session table; token carries `{sub: userId, ver}`, and bumping the
+  account's `session_version` revokes every token at once. The browser holds it in an httpOnly,
+  `SameSite=Strict` cookie that no script can read, with a CSRF header on every write
+  (`apps/server/src/auth/`); scripted callers may send it as `Bearer`.
+- **zustand + react-query**: whether the browser is signed in is client-local state (zustand);
+  everything from the server is cache-managed by react-query. No duplicated server state in
+  stores.
 
 ## Battle engine
 
@@ -179,7 +182,7 @@ read path, from stored timestamps. A base nobody has looked at for three days ow
 same amount whenever it is next opened.
 
 `settleBase` (`apps/server/src/district/settle.ts`) is the one entry point every route uses. It
-runs the district first, training second and the Lab third. There used to be a weekly upkeep pass
+runs the district first, mustering second and the Lab third. There used to be a weekly upkeep pass
 between the first two; nothing in the game is charged on a clock any more, so what is left is
 production, the batches it paid for, and whatever research finished while nobody was looking.
 

@@ -23,7 +23,7 @@ import { districtUnitSlots } from '../district/unit-slots.js';
  * nothing credits past a ceiling any more (`district/stores.ts`), but a save from before that rule,
  * or a store that lost a storage card, can still be standing above one.
  *
- * The ceilings are `storeCeilingsOf`, the crew's §F2 Logistics included: the ceiling the HUD bar
+ * The ceilings are `storeCeilingsOf`, the crew's §F2 storage bonus included: the ceiling the HUD bar
  * draws is the one with the bonus folded in, and a claim clamping to the bare structures' figure
  * would discard a reward the stockpile panel says there is room for.
  */

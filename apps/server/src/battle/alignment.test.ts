@@ -9,6 +9,7 @@ import {
   type BattlesResponse,
 } from '@frontline/shared';
 import { afterEach, describe, expect, it } from 'vitest';
+import { armTheAttack } from '../testing/attack.js';
 import { settleSleepers } from '../city/sleepers.js';
 import { standingEffectsFor } from '../crew/standing.js';
 import { groundBehind } from '../spying/spying.js';
@@ -325,6 +326,8 @@ describe('Sleepers that were not there at the mark (bug pass, 2026-09-28)', () =
     const holder = await register(world, 'holder');
     holdPlot(world, holder, { razors: 5 });
     const battleId = await declare(world, caller);
+    // The attack's least commitment, or the lock calls it off (2026-10-05).
+    armTheAttack(world.app.repos, battleId, caller.baseId);
     waitingCell(world, caller, { sleepers: 2 });
     const recall = () =>
       world.app.inject({

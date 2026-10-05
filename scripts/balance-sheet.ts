@@ -142,7 +142,7 @@ function fieldsOf(entry: Record<string, unknown>): Field[] {
  *
  * "Next to the units a description of where and how you can get them."
  *
- * Nothing on the sheet answered that. `trainedAt` is a building key, `requires` was a JSON box of
+ * Nothing on the sheet answered that. `musteredAt` is a building key, `requires` was a JSON box of
  * clause objects, and `unique` was a bare boolean: three fields a reader had to assemble in their
  * head into the one fact they came for. This composes them through `describeRequirement`, which
  * is the same function the roster's locked card prints its missing list with, so the sentence
@@ -156,9 +156,9 @@ function fieldsOf(entry: Record<string, unknown>): Field[] {
 function acquisitionLine(unit: Record<string, unknown>): string {
   const spec = findUnit(String(unit.id));
   if (!spec) return '';
-  const where = BUILDING_CATALOG[spec.trainedAt]?.name ?? spec.trainedAt;
+  const where = BUILDING_CATALOG[spec.musteredAt]?.name ?? spec.musteredAt;
   const gates = spec.requires.map(describeRequirement);
-  const opening = spec.unique ? `One of a kind, and made at ${where}.` : `Trained at ${where}.`;
+  const opening = spec.unique ? `One of a kind, and made at ${where}.` : `Mustered at ${where}.`;
   // A sheet with no clauses at all is reachable: it means the structure alone is the whole gate.
   const needs =
     gates.length === 0
@@ -251,7 +251,7 @@ function catalogueSections(): Section[] {
       'units',
       'Units',
       'packages/shared/src/units/catalog.ts',
-      "Every trainable unit: what it costs, how long it takes, and the eleven stats it fights on. `stats.resistances` is a JSON box because it is a sparse map of damage type to percent. The Combine's own sheets are not here: they carry no price and no clock, so there is nothing for a balance sheet to weigh (`UnitSpec.faction`).",
+      "Every musterable unit: what it costs, how long it takes, and the eleven stats it fights on. `stats.resistances` is a JSON box because it is a sparse map of damage type to percent. The Combine's own sheets are not here: they carry no price and no clock, so there is nothing for a balance sheet to weigh (`UnitSpec.faction`).",
       PLAYER_UNITS as unknown as Record<string, unknown>[],
       (entry) => str(entry.tier),
       withAcquisition,

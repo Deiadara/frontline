@@ -1,4 +1,10 @@
-import { callPriceOf, DECLARE_UNAFFORDABLE_MESSAGE, type BattleTarget } from '@frontline/shared';
+import {
+  MIN_ATTACK_UNIT_SLOTS,
+  callPriceOf,
+  DECLARE_UNAFFORDABLE_MESSAGE,
+  formatClock,
+  type BattleTarget,
+} from '@frontline/shared';
 import { useState } from 'react';
 import { Button } from '../../components/ui/Button';
 import { Modal } from '../../components/ui/Modal';
@@ -6,6 +12,7 @@ import { ApiRequestError } from '../../lib/api';
 import { cn } from '../../lib/cn';
 import { useBattles } from '../../lib/queries';
 import { ErrorNote } from '../../components/ui/ErrorNote';
+import { usePlayerZone } from '../settings/usePlayerZone';
 
 /**
  * Calling a fight for a time (GDD §A4, battle rework).
@@ -55,11 +62,17 @@ interface DeclareDialogProps {
   onSpy?: (() => void) | undefined;
 }
 
-const dayLabel = (iso: string): string =>
-  new Date(iso).toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'short' });
+// On the player's own clock face, as the board, the Fights tab and the bells print the same mark
+// (bug pass, 2026-10-02): the browser's zone put "14:00" here on a fight the board called 16:00.
+const dayLabel = (iso: string, zone: string): string =>
+  new Date(iso).toLocaleDateString(undefined, {
+    weekday: 'long',
+    day: 'numeric',
+    month: 'short',
+    timeZone: zone,
+  });
 
-const timeLabel = (iso: string): string =>
-  new Date(iso).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+const timeLabel = (iso: string, zone: string): string => formatClock(new Date(iso), zone);
 
 export function DeclareDialog({
   target,
@@ -100,12 +113,13 @@ export function DeclareDialog({
    * same read, so there is nothing to press yet anyway.
    */
   const board = useBattles();
+  const zone = usePlayerZone();
   const cost = board.data ? callPriceOf(target, board.data.callPrices) : null;
   const charged = cost !== null && cost > 0;
   const affordable = cost !== null && infamy >= cost;
 
   const days = slots.reduce<{ day: string; slots: string[] }[]>((groups, slot) => {
-    const day = dayLabel(slot);
+    const day = dayLabel(slot, zone);
     const last = groups[groups.length - 1];
     if (last && last.day === day) last.slots.push(slot);
     else groups.push({ day, slots: [slot] });
@@ -175,7 +189,7 @@ export function DeclareDialog({
                       : 'border-surface-600 text-ink-300 hover:border-iris-300/70 hover:text-ink-100',
                   )}
                 >
-                  {timeLabel(slot)}
+                  {timeLabel(slot, zone)}
                 </button>
               ))}
             </div>
@@ -200,6 +214,16 @@ export function DeclareDialog({
             until you walk them somewhere else.
           </p>
         )}
+
+        {/* The least commitment (maintainer, 2026-10-05): said before the call, because the cost of
+            getting it wrong is the call itself. */}
+        <p
+          className="font-body text-[11px] leading-relaxed text-ink-300"
+          data-testid="declare-minimum"
+        >
+          The attack needs {MIN_ATTACK_UNIT_SLOTS} unit slots committed, yours and your
+          allies&apos;, an hour before it starts, or it is called off and what it cost stays spent.
+        </p>
 
         {/* The price against the wallet, so the two numbers a player is weighing are on one line
             rather than one in the copy above and one on the HUD behind the dialog. Only for a

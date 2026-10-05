@@ -9,6 +9,18 @@ export const OverseerArchetypeSchema = z.enum(OVERSEER_ARCHETYPES);
 export type OverseerArchetype = z.infer<typeof OverseerArchetypeSchema>;
 
 /**
+ * What an archetype is called on screen. `fixer` reads "operator" since the payroll chair took the
+ * name Fixer (maintainer, 2026-10-04); the id stays, since saves, presets and the art are keyed by
+ * it. Every screen that prints an archetype goes through here.
+ */
+export const OVERSEER_ARCHETYPE_LABELS: Readonly<Record<OverseerArchetype, string>> = {
+  enforcer: 'enforcer',
+  netrunner: 'netrunner',
+  fixer: 'operator',
+  technocrat: 'technocrat',
+};
+
+/**
  * The player's avatar/commander-in-chief. Same sheet as everyone else (GDD §F1).
  *
  * `attributes` is the **effective** sheet: any trait bonus is already in it, exactly as the

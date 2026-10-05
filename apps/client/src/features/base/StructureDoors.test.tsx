@@ -11,7 +11,7 @@ import {
   type MeResponse,
   type CrewStandingResponse,
   OVERSEER_PRESETS,
-  makeAttributes,
+  describeOverseerPassive,
 } from '@frontline/shared';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
@@ -50,7 +50,7 @@ const base: Base = {
   ],
   buildQueue: [],
   army: {},
-  trainingQueue: [],
+  musterQueue: [],
   training: startingTraining('2026-08-16T00:00:00.000Z'),
   inventory: {},
   fittedUpgrades: [],
@@ -82,10 +82,12 @@ const crewStanding = (): CrewStandingResponse => {
   const { presetId: _presetId, ...preset } = OVERSEER_PRESETS[0]!;
   return {
     overseer: { ...preset, id: 'ov-1' },
-    crewSheet: makeAttributes(15),
+    chairs: [],
+    overseerGrade: { mark: 'C', passive: describeOverseerPassive(40) },
     effects: {},
     marks: {},
     haulPercent: 0,
+    missionCapsPercent: 0,
   };
 };
 
@@ -137,7 +139,7 @@ const plot = (name: string) => screen.getByRole('button', { name: new RegExp(`^$
 beforeEach(() => {
   vi.stubGlobal('fetch', fetchMock);
   fetchMock.mockReset();
-  useSession.setState({ token: 'session-token', user: null });
+  useSession.setState({ signedIn: true, user: null });
 });
 
 afterEach(() => vi.unstubAllGlobals());
@@ -151,7 +153,8 @@ describe('§I3a: a structure sends you where the work is', () => {
     fireEvent.click(plot('The Generator'));
 
     const dialog = within(await screen.findByRole('dialog'));
-    fireEvent.click(dialog.getByTestId('structure-build-addons-generator'));
+    // Through an empty bracket: the button under the rack went on 2026-10-04.
+    fireEvent.click(dialog.getByTestId('slot-door-generator-0'));
     // The bench, not just the yard. The yard reads `?view` and `?bench` together as of
     // 2026-09-16, and the bench ids are `BuildingKind`, so there is no second name to keep in step.
     expect(

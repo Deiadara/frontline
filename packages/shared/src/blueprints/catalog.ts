@@ -21,7 +21,7 @@ import { type BlueprintMotif } from './motifs.js';
  * The bands, and every entry below sits in one of them:
  *
  * - **2 to 3**: the first machine in a class, the shallow structure retrofits, the two-step
- *   consumables, the specialists a Gauntlet already trains.
+ *   consumables, the specialists a Gauntlet already musters.
  * - **4 to 5**: engineered units, mid-yard machines, the structures a district lives out of.
  * - **6 to 8**: the uniques and the Rotorcraft. One of a kind, and the page you are missing is
  *   the reason you do not have one.
@@ -172,7 +172,7 @@ export interface BlueprintSpec {
 }
 
 export const BLUEPRINTS = [
-  // ---------------------------------------------------------------- unit: trained units (§D12a)
+  // ---------------------------------------------------------------- unit: mustered units (§D12a)
   {
     id: 'bp_snipers',
     name: 'Sniper Blueprint',
@@ -2660,7 +2660,7 @@ export const BLUEPRINTS = [
    *
    * A trap is a consumable in the same sense a shaped charge is: cut for one night, gone by
    * morning. Their page counts run 2 or 3 against the §D3 bands, except the frontage collapse at
-   * 4, and they are written in the order the Head of Security's track opens them: the cheap ones
+   * 4, and they are written in the order the Veteran's track opens them: the cheap ones
    * are a thing a district reaches early and the last two are a fortnight of collecting.
    */
   {

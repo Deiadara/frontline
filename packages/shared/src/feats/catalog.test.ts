@@ -21,19 +21,23 @@ import { RESEARCH_ITEMS } from '../research/tracks.js';
 import { SEAT_SLOT_ORDER } from '../factions/cards.js';
 import { ATTRIBUTE_NAMES, MAX_ATTRIBUTE } from '../attributes.js';
 import { OFFICER_ROLES } from '../roles.js';
-import { COMBINE_UNITS, UNIT_IDS } from '../units/catalog.js';
+import { COMBINE_UNITS, PLAYER_UNITS } from '../units/catalog.js';
 import { UNIT_UPGRADE_SLOTS } from '../units/loadout.js';
 import { BUILDING_PART_GATES } from '../building/parts.js';
 import { UNIT_MODIFICATIONS } from '../units/modifications.js';
 import { COMBINE_LEADERS, EXECUTIONER_THRESHOLD } from '../city/combine.js';
 import { startingGarrison } from '../city/control.js';
 import { CITY_LOCATIONS } from '../city/districts.js';
-import { OFFICER_MARKS } from '../crew/marks.js';
+import { OFFICER_MARKS, OFFICER_MARK_BAND, OFFICER_MARK_FLOOR, markIndex } from '../crew/marks.js';
+import { chairPassivePercent } from '../crew/passives.js';
 import { ITEM_CATALOG } from '../items/catalog.js';
 import { BLACK_MARKET_GOOD_IDS, blackMarketTakesPerDay } from '../market/blackmarket.js';
 import { maxOpenAuctionsFor } from '../bar/auction.js';
-import { OVERSEER_POOL_SIZE } from '../overseer.js';
-import { MISC_AREA_ID } from '../missions.areas.js';
+import { MISC_AREA_ID, areaPayPercent, concurrentMissionSlots } from '../missions.areas.js';
+import { MISSION_TEMPLATES, missionRewards, templateTimings } from '../missions.js';
+import { productionRates } from '../building/production.js';
+import { noCrewEffects } from '../crew/effects.js';
+import { ALL_DISTRICTS } from '../city/index.js';
 import { RESOURCE_KEYS, type ResourceKey } from '../resources.js';
 import { blueprintForUnit } from '../blueprints/requirements.js';
 import { NOTORIETY_TO_FIELD } from '../economy/infamy.js';
@@ -41,6 +45,10 @@ import { findUnit, isCombatUnit } from '../units/index.js';
 import { isUnitUnlocked } from '../units/unlocks.js';
 import type { LocationKind } from '../city/locations.js';
 import { FEATS, findFeat } from './catalog.js';
+import { MODIFICATIONS } from '../building/modifications.js';
+import { PAYROLL_PERCENT_PER_QUARTERS_LEVEL } from '../building/standing.js';
+import { payrollCapacity, payrollStepCost } from '../economy/payroll.js';
+import { playerXpToNextLevel } from '../progression/curve.js';
 import {
   CHAPEL_LOCATIONS,
   COMBINE_DISTRICTS,
@@ -56,6 +64,8 @@ import {
 import { FEAT_MEASURES, FEAT_MEASURE_SPECS, type FeatMeasure } from './measures.js';
 import { FEAT_ERAS, FeatRewardSchema, featRewardBand, featRewardValue } from './rewards.js';
 import { splitFeatReward } from './waste.js';
+import { ERA_REWARD_MIX, eraStoreCeiling, type RewardKind } from './shaping.js';
+import { maxBaseStorageFor } from '../building/production.js';
 
 /**
  * The catalogue, held to the rules it was authored under.
@@ -178,7 +188,7 @@ describe('the feat catalogue', () => {
    *
    * §A1 refuses a payout of units while there is nowhere to put them, and the feat stays **ready**:
    * the backlog does not empty, the count on the Collect-all button does not move, and pressing it
-   * again pays nothing. The catalogue shipped two rungs (`trained_10` and `faction_10`) paying 844
+   * again pays nothing. The catalogue shipped two rungs (`mustered_10` and `faction_10`) paying 844
    * units worth 3,377 unit slots against a ceiling of 3,186, so the top of two ladders could not be
    * collected by anybody, ever (bug pass, 2026-09-17).
    *
@@ -187,6 +197,28 @@ describe('the feat catalogue', () => {
    * for, which is not what a reward is. Half is also where the catalogue already sat: the biggest
    * bundle it has ever paid, `recruits('late', 'large')`, is 1,560 slots.
    */
+  /**
+   * ...and across the whole catalogue, at most the game's whole appetite for each one (review,
+   * 2026-10-02). The per-feat check above passed a catalogue that paid 88 Neural Shunts against a
+   * lifetime demand of 20.
+   */
+  it('never pays more of a component across every feat than the game can ever spend', () => {
+    const paid: Record<string, number> = {};
+    for (const feat of FEATS) {
+      for (const [id, count] of Object.entries(feat.reward.items ?? {})) {
+        if (ITEM_CATALOG[id as keyof typeof ITEM_CATALOG]?.kind !== 'component') continue;
+        paid[id] = (paid[id] ?? 0) + (count ?? 0);
+      }
+    }
+    const over = Object.entries(paid)
+      .filter(([id, count]) => count > (LIFETIME_PART_DEMAND[id] ?? 0))
+      .map(
+        ([id, count]) => `${id}: ${count} paid, ${LIFETIME_PART_DEMAND[id] ?? 0} ever asked for`,
+      );
+    expect(over, over.join('\n')).toEqual([]);
+    expect(Object.keys(paid).length, 'no feat pays a component at all').toBeGreaterThan(3);
+  });
+
   it('never pays more units than a district could house', () => {
     const over: string[] = [];
     let biggest = 0;
@@ -412,7 +444,7 @@ describe('chains', () => {
       fighting: 'kills',
       'the city': 'taken',
       'the district': 'addons',
-      'the crew': 'trained',
+      'the crew': 'mustered',
       'the trade': 'caps',
       'the name': 'infamy',
       people: 'faction',
@@ -631,8 +663,9 @@ describe('measures and scopes', () => {
       modification_sets: BUILDING_KINDS.filter(
         (kind) => modificationSlotsAt(levelCeilingFor(kind), kind) >= MODIFICATION_SET_SIZE,
       ).length,
-      unit_modifications_fitted: UNIT_IDS.length * UNIT_UPGRADE_SLOTS,
-      unit_kinds_held: UNIT_IDS.length,
+      // A crew can hold and fit only its own sheets; the Combine's are in `UNIT_IDS` too.
+      unit_modifications_fitted: PLAYER_UNITS.length * UNIT_UPGRADE_SLOTS,
+      unit_kinds_held: PLAYER_UNITS.length,
       officer_best_mark: OFFICER_MARKS.length - 1,
       officers_held: OFFICER_ROLES.length,
       overseer_skills_at: ATTRIBUTE_NAMES.length,
@@ -665,6 +698,7 @@ describe('measures and scopes', () => {
       // oversight (`atlas.ts`).
       rail_stations_held: RAIL_STATIONS.length,
       faction_seats: SEAT_SLOT_ORDER.length,
+      location_level_held: MAX_LOCATION_LEVEL,
     };
 
     // The one figure here that is not read off the game, for the reason the ladder test above
@@ -750,7 +784,6 @@ describe('the shape of the set', () => {
     expect(measures.has('officer_best_mark'), 'the crew').toBe(true);
     expect(measures.has('resources_earned'), 'the trade').toBe(true);
     expect(measures.has('research_done'), 'the name').toBe(true);
-    expect(measures.has('messages_sent'), 'people').toBe(true);
   });
 
   it('opens most ladders with something a new player can do at once', () => {
@@ -852,7 +885,7 @@ describe('the shape of the set', () => {
  * The first hour, which is the one stretch of the game a player can walk out of.
  *
  * A new crew stands a Nexus and a Generator, holds 600 caps, produces no caps at all and needs
- * 512 of them for the second Nexus level. Until 2026-09-18 it also could not train a single unit,
+ * 512 of them for the second Nexus level. Until 2026-09-18 it also could not muster a single unit,
  * because every unit answered to a Gauntlet that answers to Nexus 3 and Quarters 2. The board's
  * opening feats are what pays for the way out of that, so what they pay is pinned here rather
  * than left to the band check, which cannot tell caps from scrap or a Scavenger from a Hauler.
@@ -871,7 +904,7 @@ describe('the opening', () => {
     inventory: {},
   };
 
-  it('pays the very first feat in carriers a bare district can train', () => {
+  it('pays the very first feat in carriers a bare district can muster', () => {
     const first = findFeat('overseer_taken');
     expect(first?.measure).toBe('overseer_taken');
     expect(first?.target).toBe(1);
@@ -888,7 +921,7 @@ describe('the opening', () => {
     };
     for (const [id, count] of paid) {
       const unit = findUnit(id);
-      // Trainable by a crew at its first second, or the reward teaches nothing: the point of it
+      // Musterable by a crew at its first second, or the reward teaches nothing: the point of it
       // is that the player can go and buy more of what just landed.
       expect(isUnitUnlocked(unit!, opening), id).toBe(true);
       expect(count ?? 0, id).toBeGreaterThanOrEqual(5);
@@ -939,7 +972,7 @@ describe('the opening', () => {
   });
 
   /**
-   * An early feat never pays a unit an early crew could not have trained.
+   * An early feat never pays a unit an early crew could not have mustered.
    *
    * `recruits('early', …)` paid four Haulers at `medium` and eight at `large`, and on the day the
    * carriers were re-gated on the Nexus that became a reward handing a beginner a unit they
@@ -947,13 +980,13 @@ describe('the opening', () => {
    * whichever building signs it. Five is a generous reading of "early", and the point is the
    * order of magnitude rather than the exact level.
    */
-  it('never pays an early feat in units an early crew cannot train', () => {
+  it('never pays an early feat in units an early crew cannot muster', () => {
     const over: string[] = [];
     for (const feat of FEATS.filter((one) => one.era === 'early')) {
       for (const id of Object.keys(feat.reward.units ?? {})) {
         const unit = findUnit(id);
         if (unit && !isUnitUnlocked(unit, EARLY_DISTRICT)) {
-          over.push(`${feat.id} pays ${id}, which a district five levels in cannot train`);
+          over.push(`${feat.id} pays ${id}, which a district five levels in cannot muster`);
         }
       }
     }
@@ -963,32 +996,100 @@ describe('the opening', () => {
   });
 
   /**
-   * The early purse leads with caps and carries what the first evening runs out of.
-   *
-   * Caps have no producer at all, so a bundle of scrap is a bundle of the one thing a new crew is
-   * not short of. Read off the feats rather than off the helper, because the helper is private
-   * and what a player receives is the feat.
+   * The early resources are what the first evening runs out of (maintainer, 2026-09-18), and the
+   * early coin leads with caps, which no structure produces. Since the era deal (P8-A) a reward
+   * pays one or the other rather than a caps-led purse of both.
    */
   it('pays the early rungs in what the opening actually runs out of', () => {
-    const paid = FEATS.filter(
-      (feat) => feat.era === 'early' && feat.reward.resources?.caps !== undefined,
+    const early = FEATS.filter((feat) => feat.era === 'early');
+    const stores = early.filter((feat) =>
+      RESOURCE_KEYS.some((key) => key !== 'caps' && (feat.reward.resources?.[key] ?? 0) > 0),
     );
-    expect(paid.length, 'no early feat pays caps').toBeGreaterThan(10);
-    for (const feat of paid) {
-      const resources = feat.reward.resources ?? {};
-      const caps = resources.caps ?? 0;
-      const rest = RESOURCE_KEYS.filter((key) => key !== 'caps').reduce(
-        (total, key) => total + (resources[key] ?? 0),
-        0,
-      );
-      expect(caps, `${feat.id} pays more of everything else than it pays caps`).toBeGreaterThan(
-        rest,
-      );
+    expect(stores.length, 'no early feat pays resources').toBeGreaterThan(10);
+    for (const feat of stores) {
+      expect(feat.reward.resources?.planks ?? 0, `${feat.id} pays no planks`).toBeGreaterThan(0);
+      expect(feat.reward.resources?.oil ?? 0, `${feat.id} pays no oil`).toBeGreaterThan(0);
     }
+    const coin = early.filter((feat) => (feat.reward.resources?.caps ?? 0) > 100);
+    expect(coin.length, 'no early feat pays caps').toBeGreaterThan(10);
     // The small rung carries planks and oil as well, which are what runs out after caps.
     const small = findFeat('runs_1')?.reward.resources ?? {};
     expect(small.planks ?? 0).toBeGreaterThan(0);
     expect(small.oil ?? 0).toBeGreaterThan(0);
+  });
+});
+
+/**
+ * What each era pays in (maintainer ruling P8-A, 2026-10-02): early about half caps and
+ * experience, the rest resources, early units and useful items; mid about half caps or
+ * experience, a fifth resources and the rest mid units, a random page, a consumable or a trap;
+ * late about a third large sums, the rest rarer units, rare pages and hard-to-get parts.
+ *
+ * Read off what a feat pays rather than off the deal in `shaping.ts`, so the hand-written rewards
+ * count too and a deal that silently fell back to coin shows up as a coin share out of band.
+ */
+describe('what each era pays', () => {
+  const kindOf = (feat: (typeof FEATS)[number]): RewardKind => {
+    const { reward } = feat;
+    if (reward.units) return 'units';
+    if (reward.pages) return 'page';
+    if (reward.boosts) return 'consumable';
+    const items = Object.keys(reward.items ?? {}).map(
+      (id) => ITEM_CATALOG[id as keyof typeof ITEM_CATALOG],
+    );
+    if (items.some((item) => item?.kind === 'page')) return 'rare_pages';
+    if (items.some((item) => item?.id.startsWith('trap_'))) return 'trap';
+    if (items.length > 0) return feat.era === 'late' ? 'parts' : 'kit';
+    if (RESOURCE_KEYS.some((key) => key !== 'caps' && (reward.resources?.[key] ?? 0) > 0)) {
+      return 'stores';
+    }
+    return 'coin';
+  };
+
+  it('pays each era in the shares the ruling set', () => {
+    const off: string[] = [];
+    for (const era of FEAT_ERAS) {
+      const feats = FEATS.filter((feat) => feat.era === era);
+      for (const [kind, share] of Object.entries(ERA_REWARD_MIX[era]) as [RewardKind, number][]) {
+        const paid = feats.filter((feat) => kindOf(feat) === kind).length / feats.length;
+        if (Math.abs(paid - share) > 0.06) {
+          off.push(
+            `${era} pays ${kind} on ${Math.round(paid * 100)}% of its feats, not ${share * 100}%`,
+          );
+        }
+      }
+    }
+    expect(off, off.join('\n')).toEqual([]);
+  });
+
+  it('never pays more of a resource than a store of its era holds', () => {
+    const over: string[] = [];
+    for (const feat of FEATS) {
+      for (const key of RESOURCE_KEYS) {
+        const amount = feat.reward.resources?.[key] ?? 0;
+        const ceiling = eraStoreCeiling(feat.era, key);
+        if (amount > ceiling)
+          over.push(`${feat.id} pays ${amount} ${key}, a ${feat.era} store holds ${ceiling}`);
+      }
+    }
+    expect(over, over.join('\n')).toEqual([]);
+    // The widest store, every resource: the ruling's own test.
+    for (const key of RESOURCE_KEYS) {
+      expect(eraStoreCeiling('late', key)).toBeLessThanOrEqual(maxBaseStorageFor(key));
+    }
+  });
+
+  it('pays the late game in rarer units than the early one', () => {
+    const early = new Set(
+      FEATS.filter((feat) => feat.era === 'early').flatMap((feat) =>
+        Object.keys(feat.reward.units ?? {}),
+      ),
+    );
+    const late = FEATS.filter((feat) => feat.era === 'late').flatMap((feat) =>
+      Object.keys(feat.reward.units ?? {}),
+    );
+    expect(late.length).toBeGreaterThan(0);
+    for (const id of late) expect(early.has(id), id).toBe(false);
   });
 });
 
@@ -1407,25 +1508,79 @@ describe('the week', () => {
  * game allows in one, read off the rule that sets it wherever the game has one.
  */
 describe('the measures a day caps', () => {
-  /** Roughly eight months of playing every day. */
-  const DAYS_CEILING = 250;
+  /**
+   * The game lasts about three months (maintainer, 2026-10-02), so every top rung on a measure
+   * the game paces has to be reachable inside ninety days by a committed crew. It was 250 days,
+   * eight months, which put the top of the earned ladders out of the game's own life.
+   */
+  const DAYS_CEILING = 90;
   /** Every level milestone earned: the fence's second take, the Bar's third table. */
   const PAST_EVERY_MILESTONE = Number.POSITIVE_INFINITY;
   /**
    * The one rate here that no rule sets. Fight infamy has no daily cap; this is the audit's figure
-   * for a crew that fights every day, and the pace that reaches `infamy_10` (60,000) in 200 days.
+   * for a crew that fights every day.
    */
   const FIGHT_INFAMY_PER_CREW_PER_DAY = 300;
+  /**
+   * ...with a B Field Commander's share on it, the basis the top infamy rungs are sized on
+   * (maintainer, 2026-10-04): the chair's passive adds to every fight against a crew.
+   */
+  const FIGHT_INFAMY_WITH_A_B_COMMANDER =
+    FIGHT_INFAMY_PER_CREW_PER_DAY *
+    (1 +
+      chairPassivePercent(
+        'battle_infamy',
+        OFFICER_MARK_FLOOR + markIndex('B') * OFFICER_MARK_BAND,
+      ) /
+        100);
   /** The Broker, the supplier and the Runner: one counterparty each (`tallyMarketDeal`). */
   const HOUSE_COUNTERS = 3;
+  /**
+   * The crews there are to trade with (maintainer ruling P18-C, 2026-10-02: "size the trading
+   * feats on 12 crews in all"). The overseer pool holds thirty, but two cities of four plots hold
+   * eight crews, and a market rung sized on thirty asked for 929 days of selling.
+   */
+  const TRADING_CREWS = 12;
+
+  /**
+   * What a committed late crew earns of one resource in a day, off the game's own tables.
+   *
+   * Its district at every structure's ceiling, producing round the clock, plus its parties on the
+   * best-paying job for that resource, at the hardest area's pay, for a third of the day. A third
+   * because nobody keeps a party on the shortest job all night: the board's best rate per minute
+   * is the short jobs, and asleep a crew runs the long ones. An upper bound on the steady state,
+   * which is the right side for a ceiling test to err on.
+   */
+  const lateDaily = (key: ResourceKey): number => {
+    const buildings = BUILDING_KINDS.map((kind) => ({
+      id: kind,
+      kind,
+      level: levelCeilingFor(kind),
+      modifications: [],
+    }));
+    const produced = (productionRates(buildings, noCrewEffects())[key] ?? 0) * 24;
+    const topPay = 1 + Math.max(...ALL_DISTRICTS.map((one) => areaPayPercent(one.id))) / 100;
+    let perMinute = 0;
+    for (const template of MISSION_TEMPLATES) {
+      for (const grade of template.grades) {
+        const minutes = templateTimings(template, grade).totalMinutes;
+        const paid = missionRewards(template, 'success', minutes, grade)[key] ?? 0;
+        perMinute = Math.max(perMinute, (paid * topPay) / minutes);
+      }
+    }
+    const parties = concurrentMissionSlots(PAST_EVERY_MILESTONE);
+    return produced + (perMinute * 24 * 60 * parties) / 3;
+  };
 
   const MOST_PER_DAY: Partial<Record<FeatMeasure, number>> = {
     contraband_taken: blackMarketTakesPerDay(PAST_EVERY_MILESTONE),
     officers_hired: maxOpenAuctionsFor(PAST_EVERY_MILESTONE),
-    faction_infamy: SEAT_SLOT_ORDER.length * FIGHT_INFAMY_PER_CREW_PER_DAY,
-    // One deal a day with each other crew, and there is one crew per overseer.
-    market_sales: OVERSEER_POOL_SIZE - 1,
-    market_buys: OVERSEER_POOL_SIZE - 1 + HOUSE_COUNTERS,
+    // The member's own share since 2026-10-02 (P3-D), so one crew's fights rather than a table's.
+    faction_infamy: FIGHT_INFAMY_WITH_A_B_COMMANDER,
+    infamy_earned: FIGHT_INFAMY_WITH_A_B_COMMANDER,
+    // One deal a day with each other crew.
+    market_sales: TRADING_CREWS - 1,
+    market_buys: TRADING_CREWS - 1 + HOUSE_COUNTERS,
   };
 
   it('reads the daily limits the game actually sets', () => {
@@ -1433,8 +1588,7 @@ describe('the measures a day caps', () => {
     // with it and leave this green.
     expect(MOST_PER_DAY.contraband_taken, 'two lots a day from level 50').toBe(2);
     expect(MOST_PER_DAY.officers_hired, 'three tables a day from level 40').toBe(3);
-    expect(MOST_PER_DAY.faction_infamy, 'a table of five').toBe(1_500);
-    expect(OVERSEER_POOL_SIZE, 'thirty overseers, so thirty crews').toBe(30);
+    expect(MOST_PER_DAY.market_sales, 'eleven other crews').toBe(11);
   });
 
   it('puts every top rung within the days a committed player has', () => {
@@ -1449,5 +1603,113 @@ describe('the measures a day caps', () => {
       }
     }
     expect(late, late.join('\n')).toEqual([]);
+  });
+
+  /**
+   * The lifetime "earned" ladders (maintainer ruling P8-B, 2026-10-02). `caps_10` asked for 2.6
+   * billion and `metal_7` for ten million, thousands of days at any rate the game pays.
+   */
+  it('puts every earned rung within the days a committed late crew has', () => {
+    const earned = FEATS.filter((feat) => feat.measure === 'resources_earned');
+    expect(earned.length).toBeGreaterThan(5);
+    const late: string[] = [];
+    for (const feat of earned) {
+      const perDay = lateDaily(feat.scope as ResourceKey);
+      expect(perDay, `nothing earns ${feat.scope}`).toBeGreaterThan(0);
+      const days = feat.target / perDay;
+      if (days > DAYS_CEILING) {
+        late.push(
+          `${feat.id} wants ${feat.target}: ${Math.round(days)} days at ${Math.round(perDay)} a day`,
+        );
+      }
+    }
+    expect(late, late.join('\n')).toEqual([]);
+  });
+});
+
+/*
+ * Three level feats quote the experience it took to get there, and those figures are the curve's
+ * (`progression/curve.ts`). They went stale once already: the curve's power went from 1.6 to 1.41
+ * on 2026-10-01 and the blurbs still said forty five thousand, a hundred and thirty thousand and
+ * half a million. Each quoted figure has to sit within a tenth of the real total.
+ */
+describe('the level feats quote the curve', () => {
+  const quoted: readonly { id: string; words: string; figure: number }[] = [
+    { id: 'level_3', words: 'Twenty eight thousand', figure: 28_000 },
+    { id: 'level_4', words: 'Seventy five thousand', figure: 75_000 },
+    { id: 'level_5', words: 'A quarter of a million', figure: 250_000 },
+  ];
+  const xpToReach = (level: number) => {
+    let total = 0;
+    for (let from = 1; from < level; from += 1) total += playerXpToNextLevel(from);
+    return total;
+  };
+
+  it.each(quoted)('$id says $words, which is what the curve asks', ({ id, words, figure }) => {
+    const feat = findFeat(id);
+    expect(feat?.blurb).toContain(words);
+    const real = xpToReach(feat?.target ?? 0);
+    expect(
+      Math.abs(real - figure) / real,
+      `${id}: ${real} to reach level ${feat?.target}`,
+    ).toBeLessThan(0.1);
+  });
+});
+
+/*
+ * The late payroll rungs, sized for a crew with every payroll card fitted and expansions bought in
+ * caps (maintainer, 2026-10-01). The counts and the prices are written out, so a card added to the
+ * deck, a target moved or a price retuned shows up here.
+ */
+describe('the payroll ladder', () => {
+  it('asks the full card stack for the expansions and caps the rungs were sized at', () => {
+    const cards = MODIFICATIONS.filter((card) => card.effect === 'payroll_percent');
+    const bonus =
+      PAYROLL_PERCENT_PER_QUARTERS_LEVEL * levelCeilingFor('quarters') +
+      cards.reduce((total, card) => total + card.magnitude, 0);
+    // An A- Fixer, whose passive adds a share of the whole book (2026-10-04).
+    const fixer = chairPassivePercent(
+      'payroll',
+      OFFICER_MARK_FLOOR + markIndex('A-') * OFFICER_MARK_BAND,
+    );
+    const expansionsFor = (target: number): number => {
+      let bought = 0;
+      while (payrollCapacity(levelCeilingFor('nexus'), bought, bonus, fixer) < target) bought += 1;
+      return bought;
+    };
+    const capsFor = (count: number): number => {
+      let spent = 0;
+      for (let bought = 0; bought < count; bought += 1) spent += payrollStepCost(bought);
+      return spent;
+    };
+    const late = ['payroll_3', 'payroll_4', 'payroll_5'].map((id) =>
+      expansionsFor(findFeat(id)!.target),
+    );
+    expect(cards, 'the payroll cards the sizing counts').toHaveLength(11);
+    expect(late).toEqual([24, 61, 122]);
+    expect(late.map(capsFor)).toEqual([23_760, 128_100, 479_460]);
+  });
+
+  /** The two early rungs need no card past the Nexus's and the Quarters' own. */
+  it('opens the early rungs to a crew without the late cards', () => {
+    expect(payrollCapacity(12, 0)).toBeGreaterThanOrEqual(findFeat('payroll_1')!.target);
+    const fourCards = MODIFICATIONS.filter(
+      (card) =>
+        card.effect === 'payroll_percent' &&
+        (card.id.startsWith('nexus_') || card.id.startsWith('quarters_')),
+    ).reduce((total, card) => total + card.magnitude, 0);
+    const bonus = PAYROLL_PERCENT_PER_QUARTERS_LEVEL * levelCeilingFor('quarters') + fourCards;
+    expect(fourCards).toBe(60);
+    // With an A- Fixer, the basis every rung past the first is sized on (2026-10-04).
+    const fixer = chairPassivePercent(
+      'payroll',
+      OFFICER_MARK_FLOOR + markIndex('A-') * OFFICER_MARK_BAND,
+    );
+    expect(payrollCapacity(levelCeilingFor('nexus'), 20, bonus, fixer)).toBeGreaterThanOrEqual(
+      findFeat('payroll_2')!.target,
+    );
+    expect(payrollCapacity(levelCeilingFor('nexus'), 19, bonus, fixer)).toBeLessThan(
+      findFeat('payroll_2')!.target,
+    );
   });
 });

@@ -12,14 +12,8 @@ import { buildApp } from '../app.js';
 import { loadConfig } from '../config.js';
 import { openDatabase, runMigrations, type AppDatabase } from '../db/index.js';
 import { chooseOverseer, pinOverseer } from '../testing/overseer.js';
-import {
-  moveMinutes,
-  railOfferFor,
-  recallMove,
-  sendMove,
-  settleMoves,
-  stationsHeldBy,
-} from './moves.js';
+import { stationsHeldBy } from '../city/railway.js';
+import { moveMinutes, railOfferFor, recallMove, sendMove, settleMoves } from './moves.js';
 
 /**
  * Terminus's railway, from the server's side (maintainer, 2026-09-24).
@@ -210,7 +204,7 @@ describe('the quote the dialog draws', () => {
   it('carries no ride for a crew with no platforms', async () => {
     const { app, token, baseId } = await world();
     const base = app.repos.bases.findById(baseId)!;
-    app.repos.bases.updateArmy(base.id, { razors: 4 }, base.trainingQueue);
+    app.repos.bases.updateArmy(base.id, { razors: 4 }, base.musterQueue);
     const quoted = await app.inject({
       method: 'POST',
       url: '/api/actions/move/quote',

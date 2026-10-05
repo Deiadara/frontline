@@ -1,4 +1,4 @@
-import { NO_FREE_BED_TEXT, committedWage } from '@frontline/shared';
+import { NO_FREE_BED_TEXT, committedWage, type BarAuction } from '@frontline/shared';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -11,7 +11,7 @@ import { AuctionWindow } from './AuctionWindow';
  */
 
 const recruit = F.bar.recruits[0]!;
-const auction = {
+const auction: BarAuction = {
   ...F.bar.auctions[0]!,
   recruitId: recruit.id,
   yourBid: null,
@@ -23,15 +23,21 @@ const now = new Date(Date.parse(auction.sealedFrom) - 60_000);
 
 function renderWindow(
   bedsFree: number,
-  { chairsFree = 3, auctionsUsed = 0, wageDiscountPercent = 0 } = {},
+  {
+    chairsFree = 3,
+    auctionsUsed = 0,
+    wageDiscountPercent = 0,
+    bidCeiling = 10_000,
+    table = auction,
+  } = {},
 ) {
   return render(
     <QueryClientProvider client={new QueryClient()}>
       <AuctionWindow
         recruit={{ ...recruit, assessment: { ...recruit.assessment, interested: true } }}
-        auction={auction}
+        auction={table}
         now={now}
-        bidCeiling={10_000}
+        bidCeiling={bidCeiling}
         wageDiscountPercent={wageDiscountPercent}
         auctionsUsed={auctionsUsed}
         auctionsAllowed={2}
@@ -66,6 +72,28 @@ describe('bidding with every bed taken', () => {
     renderWindow(1);
     expect(screen.getByTestId('place-bid')).toBeEnabled();
     expect(screen.queryByTestId('bid-refusal')).toBeNull();
+  });
+});
+
+/*
+ * Maintainer, 2026-09-30: a crew holding more officers than its level's slots keeps them all and
+ * bids on nobody until it is back under. At the limit and over it are two different sentences,
+ * because "let somebody go" is wrong advice to a crew that has to let two go.
+ */
+describe('bidding with every officer slot taken', () => {
+  it('greys the bid and says the books are full at the limit', () => {
+    renderWindow(4, { chairsFree: 0 });
+    expect(screen.getByTestId('place-bid')).toBeDisabled();
+    expect(screen.getByTestId('bid-refusal')).toHaveTextContent('Your books are full');
+  });
+
+  it('greys the bid and says everyone stays when the crew is over the limit', () => {
+    renderWindow(4, { chairsFree: -2 });
+    expect(screen.getByTestId('place-bid')).toBeDisabled();
+    const refusal = screen.getByTestId('bid-refusal');
+    expect(refusal).toHaveTextContent('more officers than your slots allow');
+    expect(refusal).toHaveTextContent('They all stay');
+    expect(screen.queryByTestId('chairs-warning')).toBeNull();
   });
 });
 
@@ -105,5 +133,57 @@ describe('what a table would cost this crew', () => {
   it('prints nothing more with no negotiators', () => {
     renderWindow(2);
     expect(screen.queryByTestId('bid-you-pay')).toBeNull();
+  });
+});
+
+/**
+ * Wages in plain caps (maintainer, 2026-10-01: "Remove everywhere the per week wording"), and a
+ * book too small for the bid points at the Bar's own Increase payroll rather than at the Nexus.
+ */
+describe('a bid the book cannot hold', () => {
+  it('says how much the book holds, in caps, and where to widen it', () => {
+    const { container } = renderWindow(4, { bidCeiling: auction.nextBid - 1 });
+    expect(screen.getByTestId('place-bid')).toBeDisabled();
+    expect(screen.getByTestId('bid-refusal')).toHaveTextContent(
+      `Your book holds up to ${(auction.nextBid - 1).toLocaleString()} caps. Increase it at the foot of the Bar.`,
+    );
+    expect(container.ownerDocument.body).not.toHaveTextContent(/wk|a week/i);
+  });
+});
+
+/** A reader who never bid on a table somebody else leads has not been outbid: nobody beat them. */
+describe('where the reader stands', () => {
+  const someoneElse = { username: 'rival', amount: auction.reserve + 50, at: now.toISOString() };
+
+  it('says somebody is in front on a table the reader never bid on', () => {
+    renderWindow(2, { table: { ...auction, leading: { ...someoneElse, yours: false } } });
+    expect(screen.getByTestId('auction-standing')).toHaveTextContent('Somebody is in front');
+  });
+
+  it('says outbid only when the reader has a bid that was beaten', () => {
+    renderWindow(2, {
+      table: { ...auction, yourBid: auction.reserve, leading: { ...someoneElse, yours: false } },
+    });
+    expect(screen.getByTestId('auction-standing')).toHaveTextContent('You have been outbid');
+  });
+
+  it("says leading when the top bid is the reader's", () => {
+    renderWindow(2, {
+      table: {
+        ...auction,
+        yourBid: someoneElse.amount,
+        leading: { ...someoneElse, username: 'me', yours: true },
+      },
+    });
+    expect(screen.getByTestId('auction-standing')).toHaveTextContent('You are leading');
+  });
+});
+
+// Maintainer, 2026-10-04: bids cannot be taken back, and the panel says what a bid holds.
+describe('what a bid holds', () => {
+  it('offers no way to take a bid back, and says the wage is held until midnight', () => {
+    renderWindow(5, { table: { ...auction, yourBid: auction.reserve } });
+    expect(screen.queryByTestId('withdraw-bid')).toBeNull();
+    expect(screen.getByTestId('bid-holds')).toHaveTextContent('win or lose');
   });
 });

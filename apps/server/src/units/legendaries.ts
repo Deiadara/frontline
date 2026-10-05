@@ -8,8 +8,8 @@ import type { Repositories } from '../db/repos/index.js';
  * "Add a general rule in the game that you can have up to 1 of each legendary unit, no more, and
  * remove any excess that the console / admin version currently gives you."
  *
- * The rule itself was never missing from the door a player uses: `trainUnits` has refused a
- * second unique since uniques existed, and `maxTrainable` has offered at most one. What was
+ * The rule itself was never missing from the door a player uses: `musterUnits` has refused a
+ * second unique since uniques existed, and `maxMusterable` has offered at most one. What was
  * missing was everywhere else. `applyUnlockedSandbox` wrote `fullArmy()`, which was a dozen of
  * every id in the catalogue, so a console build handed out twelve of all seven legendaries; and
  * any account that had been raised that way kept them for good, because nothing walks a stored
@@ -50,11 +50,11 @@ export function trimLegendaries(repos: Repositories): LegendaryTrim {
     /*
      * The queue is left exactly as it is.
      *
-     * A batch on the bench is already bounded by the door that accepted it, and a training order
+     * A batch on the bench is already bounded by the door that accepted it, and a muster order
      * is a thing the crew paid for: taking one off here would be refunding nothing and deleting
      * a purchase. The roster is the only place an ungated grant could have landed.
      */
-    repos.bases.updateArmy(base.id, capLegendaries(base.army), base.trainingQueue);
+    repos.bases.updateArmy(base.id, capLegendaries(base.army), base.musterQueue);
     trim.crews += 1;
     trim.removed += over;
   }

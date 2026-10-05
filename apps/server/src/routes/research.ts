@@ -1,3 +1,4 @@
+import { chairLineContext } from '../crew/roster.js';
 import { randomUUID } from 'node:crypto';
 import {
   StartTechRequestSchema,
@@ -19,7 +20,7 @@ import { officerFitReader } from '../crew/standing.js';
 import { labResearchItems, researchHead, trackStatuses } from '../research/tracks.js';
 
 /**
- * Research (GDD §C): the eighteen role tracks and the Lab's one bench.
+ * Research (GDD §C): the thirteen role tracks and the Lab's one bench.
  *
  * Nothing in the response is keyed by role id beyond the track list itself, and the only role
  * knowledge on it is the mark, which is the coarse hint §B8a allows. The scores behind the marks
@@ -83,8 +84,8 @@ const CANCEL_ERRORS: Record<ResearchCancelRefusal, { code: ErrorCode; message: s
  */
 function researchScreen(app: FastifyInstance, base: Base, now: Date): ResearchResponse {
   const { active } = base.research;
-  // Read once for the page: the same lifted sheets answer the head's cut, the eighteen track marks
-  // and all 180 rungs, and building the room three times would triple the cost of the route.
+  // Read once for the page: the same lifted sheets answer the head's cut, the thirteen track marks
+  // and all 130 rungs, and building the room three times would triple the cost of the route.
   const fit = officerFitReader(app.repos, base, now);
   return {
     serverNow: now.toISOString(),
@@ -92,8 +93,8 @@ function researchScreen(app: FastifyInstance, base: Base, now: Date): ResearchRe
     completesAt: active ? researchCompletesAt(active).toISOString() : null,
     caps: base.resources.caps,
     technologies: labResearchItems(app.repos, base, fit),
-    tracks: trackStatuses(base, fit),
-    head: researchHead(base, fit),
+    tracks: trackStatuses(base, fit, chairLineContext(app.repos, base, fit)),
+    head: researchHead(app.repos, base, fit),
   };
 }
 
@@ -108,7 +109,7 @@ export function registerResearchRoutes(app: FastifyInstance): void {
    * §C: put the crew on one rung of one track.
    *
    * On the Lab's one bench rather than bought outright, which is the point of §C3a: a rung takes
-   * *time*, and the Head of Research's own sheet is what shortens it. A programme that landed the
+   * *time*, and the Researcher's own sheet is what shortens it. A programme that landed the
    * instant it was paid for had nothing for their points to buy.
    */
   /** Take the project off the bench inside its first tenth (maintainer request, 2026-09-12). */

@@ -1,121 +1,21 @@
 import { describe, expect, it } from 'vitest';
-import { blueprintForUnitUpgrade, blueprintGateMet } from '../blueprints/index.js';
-import { BUILDING_MAX_LEVEL } from '../building/kinds.js';
-import { scrapyardLevelForUpgrade } from '../building/scrapyard.js';
 import { UNIT_MODIFICATIONS, findUnitModification } from './modifications.js';
-import { UPGRADE_REFUSALS, upgradeRefusal, upgradedStats } from './upgrades.js';
+import { UPGRADE_REFUSALS, upgradedStats } from './upgrades.js';
 import { UNIT_CATALOG, findUnit } from './catalog.js';
 import { UNIT_RATING_KEYS, capRating } from './stats.js';
 
-const YES = () => true;
-const NO = () => false;
-
-/** Three cards with nothing in common but the bench: open, gated and costly, universal all. */
+/** Two cards with nothing in common but the bench: one open, one gated behind drawings. */
 const open = findUnitModification('taped_grips');
 const gated = findUnitModification('ablative_layers');
-const dear = findUnitModification('hardshell_exoframe');
-if (!open || !gated || !dear) throw new Error('fixture: expected three named cards');
+if (!open || !gated) throw new Error('fixture: expected two named cards');
 
-describe('building a card at the yard', () => {
-  /**
-   * An empty inventory, asked through the real mapping rather than through a flat `NO`.
-   *
-   * The card says whether it wants drawings (`requiresBlueprint`) and `blueprints/catalog.ts`
-   * says which document those are. Reading the answer off `blueprintGateMet` is what keeps "three
-   * cards are open to anybody" a measurement of the shipped catalogue.
-   */
-  const NO_DOCUMENTS = (id: string) => blueprintGateMet({}, 'unit_upgrade', id);
-
-  /**
-   * One call, with every gate open except the ones a test names.
-   *
-   * `yardLevel` defaults to the top of the ladder so that only the test that cares about it sees
-   * it at all.
-   */
-  const refuse = (over: Partial<Parameters<typeof upgradeRefusal>[0]>) =>
-    upgradeRefusal({
-      id: open.id,
-      fitted: [],
-      yardLevel: BUILDING_MAX_LEVEL,
-      requiredYardLevel: scrapyardLevelForUpgrade,
-      blueprintUnlocked: YES,
-      affordable: YES,
-      hasParts: YES,
-      ...over,
-    });
-
-  it('takes an open card with nothing but a standing yard and the money', () => {
-    expect(refuse({ yardLevel: 1, blueprintUnlocked: NO_DOCUMENTS })).toBeNull();
-  });
-
-  /**
-   * No tiers: a card never asks for the card below it.
-   *
-   * The Gauntlet came back on 2026-09-16 and it is a different rule, so it is no longer asserted
-   * away here. A card used to ask for nothing but the yard, the drawings and the bill, and the
-   * maintainer's ruling is that the good ones should be hard to get: `boltOntoUnitRefusal` asks
-   * the Gauntlet's level, the crew's level and an officer's mark on top. `upgradeRefusal`, which
-   * this exercises, is still the cut-it-at-all half and still asks none of them.
-   */
-  it('has no rung below a card to ask for', () => {
+/**
+ * No tiers: a card never asks for the card below it. The gates a card does ask for are
+ * `boltOntoUnitRefusal`'s, held against the real yard in `district/scrapyard.test.ts`.
+ */
+describe('the unit bench refusals', () => {
+  it('have no rung below a card to ask for', () => {
     expect(UPGRADE_REFUSALS).not.toContain('needs_previous_tier');
-    // The dearest card in the catalogue, on a bare roster: nothing about what else is built is
-    // asked, so the only thing between a crew and a masterpiece is the yard, the drawings and the
-    // bill.
-    expect(refuse({ id: dear.id, fitted: [] })).toBeNull();
-  });
-
-  /**
-   * The blueprint gate is checked before the money.
-   *
-   * Both can be true at once, and "you need the blueprint" is the one a player can act on today:
-   * the scrap will fix itself.
-   */
-  it('names the blueprint before it names the price', () => {
-    expect(refuse({ id: gated.id, blueprintUnlocked: NO_DOCUMENTS, affordable: NO })).toBe(
-      'needs_blueprint',
-    );
-  });
-
-  it('opens a gated card the moment its document is in the inventory', () => {
-    const document = blueprintForUnitUpgrade(gated.id);
-    if (!document) throw new Error('fixture: the gated card has no document');
-    const held = (id: string) => blueprintGateMet({ [document.id]: 1 }, 'unit_upgrade', id);
-    expect(refuse({ id: gated.id, blueprintUnlocked: held })).toBeNull();
-    expect(refuse({ id: gated.id, blueprintUnlocked: NO_DOCUMENTS })).toBe('needs_blueprint');
-  });
-
-  /** The yard's own level comes before the drawings: raising it is the errand either way. */
-  it('names the yard before the document when both are short', () => {
-    const opens = scrapyardLevelForUpgrade(dear);
-    expect(opens).toBeGreaterThan(1);
-    expect(refuse({ id: dear.id, yardLevel: opens - 1, blueprintUnlocked: NO_DOCUMENTS })).toBe(
-      'yard_too_low',
-    );
-    expect(refuse({ id: dear.id, yardLevel: opens, blueprintUnlocked: NO_DOCUMENTS })).toBe(
-      'needs_blueprint',
-    );
-  });
-
-  it('refuses on parts, then on money', () => {
-    expect(refuse({ id: gated.id, hasParts: NO, affordable: NO })).toBe('missing_parts');
-    expect(refuse({ id: gated.id, affordable: NO })).toBe('cannot_afford');
-  });
-
-  it('refuses to build the same card twice', () => {
-    expect(refuse({ fitted: [open.id] })).toBe('already_fitted');
-  });
-
-  it('does not know what an invented card is', () => {
-    expect(refuse({ id: 'not_a_thing' })).toBe('unknown_upgrade');
-    expect(refuse({ id: 'armour_1' }), 'a retired refit id is not a card').toBe('unknown_upgrade');
-  });
-
-  /** Every gate open, across the whole catalogue: no card is refused for a reason nobody named. */
-  it('takes every card in the catalogue once every gate is open', () => {
-    for (const spec of UNIT_MODIFICATIONS) {
-      expect(refuse({ id: spec.id }), spec.id).toBeNull();
-    }
   });
 });
 

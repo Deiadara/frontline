@@ -57,9 +57,17 @@ export const MESSAGE_RECIPIENTS_MAX = 5;
 export const MESSAGES_PER_DAY = 100;
 
 /**
+ * Letters one sender may put in one player's mailbox in any rolling day (maintainer, 2026-10-02).
+ * The day's hundred is about how much an account writes; this is about one stranger filling
+ * somebody else's mailbox, which a hundred a day to one player did in a single morning.
+ */
+export const LETTERS_TO_ONE_PLAYER_PER_DAY = 10;
+
+/**
  * How many letters a mailbox keeps, and how many a sent folder keeps (maintainer, 2026-09-29).
- * Hard: the oldest goes when the hundred-and-first arrives, read or not, so the inbox shows every
- * letter there is and the unread badge counts nothing the player cannot open. Never below
+ * Hard, so the inbox shows every letter there is and the unread badge counts nothing the player
+ * cannot open. When a hundred-and-first arrives the oldest **read** letter goes first; unread
+ * letters and invitations go only once nothing read is left (maintainer, 2026-10-02). Never below
  * `MESSAGES_PER_DAY`, because the day's limit is counted off the sent folder and a trim under it
  * would hand a sender back letters they had already spent.
  */
@@ -173,17 +181,19 @@ export const MESSAGE_REFUSALS = [
   'cannot_write_to_yourself',
   'nobody_to_write_to',
   'too_many_today',
+  'too_many_to_them',
   'blank_letter',
 ] as const;
 export const MessageRefusalSchema = z.enum(MESSAGE_REFUSALS);
 export type MessageRefusal = z.infer<typeof MessageRefusalSchema>;
 
 export const MESSAGE_REFUSAL_TEXT: Record<MessageRefusal, string> = {
-  no_such_player: 'Nobody in this city goes by that name.',
+  no_such_player: 'Nobody goes by that name.',
   not_in_a_faction: 'You are not in a faction to write to.',
   cannot_write_to_yourself: 'You already know.',
   nobody_to_write_to: 'There is nobody at the other end of that.',
   too_many_today: 'You have sent enough for one day. The wires open again tomorrow.',
+  too_many_to_them: 'You have written to them enough for one day. Try again tomorrow.',
   blank_letter: 'Nothing in that would show on the page. Write something they can read.',
 };
 

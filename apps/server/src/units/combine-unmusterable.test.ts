@@ -9,9 +9,9 @@ import { chooseOverseer } from '../testing/overseer.js';
 /**
  * The Combine's sheets are met, never ordered (`UnitSpec.faction`).
  *
- * `POST /units/train` takes a unit id off the wire and `findUnit` resolves the regime's ids as
+ * `POST /units/muster` takes a unit id off the wire and `findUnit` resolves the regime's ids as
  * readily as the player's, because the engine and the garrisons need it to. The only thing
- * standing between that id and the bench was `queueTraining`'s `isUnitUnlocked` gate, whose
+ * standing between that id and the bench was `queueMuster`'s `isUnitUnlocked` gate, whose
  * refusal is `locked`, and `locked` is the first entry on `admin/mode.ts`'s `WAIVED_REFUSALS`.
  * Admin mode is on by default outside the test runner (`adminDefault`), so on any dev or staging
  * server `{"unitId":"directive_xero","count":1}` answered 200 and put a Combine legendary on a
@@ -52,7 +52,7 @@ async function adminPlayer(): Promise<{ app: FastifyInstance; token: string; bas
   return { app, token, baseId };
 }
 
-describe('the Combine roster, from the training door', () => {
+describe('the Combine roster, from the muster door', () => {
   it('refuses every Combine sheet even where admin mode waives the unlock', async () => {
     const { app, token, baseId } = await adminPlayer();
     expect(COMBINE_UNITS.length, 'no Combine sheets to try').toBeGreaterThan(0);
@@ -60,7 +60,7 @@ describe('the Combine roster, from the training door', () => {
     for (const unit of COMBINE_UNITS) {
       const sent = await app.inject({
         method: 'POST',
-        url: '/api/units/train',
+        url: '/api/units/muster',
         headers: { authorization: `Bearer ${token}` },
         payload: { unitId: unit.id, count: 1 },
       });
@@ -70,7 +70,7 @@ describe('the Combine roster, from the training door', () => {
     // The bench, not just the answer: a refusal that still wrote the order would read as a 404.
     const base = app.repos.bases.findById(baseId);
     expect(base, 'the fixture crew has no base').toBeDefined();
-    expect(base!.trainingQueue.filter((order) => isCombineUnit(order.unitId))).toEqual([]);
+    expect(base!.musterQueue.filter((order) => isCombineUnit(order.unitId))).toEqual([]);
     expect(Object.keys(base!.army).filter((unitId) => isCombineUnit(unitId))).toEqual([]);
   });
 
@@ -78,12 +78,12 @@ describe('the Combine roster, from the training door', () => {
     const { app, token, baseId } = await adminPlayer();
     const sent = await app.inject({
       method: 'POST',
-      url: '/api/units/train',
+      url: '/api/units/muster',
       headers: { authorization: `Bearer ${token}` },
       payload: { unitId: 'razors', count: 1 },
     });
     expect(sent.statusCode, sent.body.slice(0, 200)).toBe(200);
-    expect(app.repos.bases.findById(baseId)!.trainingQueue.map((order) => order.unitId)).toEqual([
+    expect(app.repos.bases.findById(baseId)!.musterQueue.map((order) => order.unitId)).toEqual([
       'razors',
     ]);
   });

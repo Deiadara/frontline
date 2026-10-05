@@ -1,14 +1,17 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it, vi } from 'vitest';
 import {
+  ADVANCED_MODIFICATION_MAGNITUDE,
   BLUEPRINT_PAGE_IDS,
   BLUEPRINTS,
   BUILDING_KINDS,
   CITY_DISTRICTS,
+  MAX_SCRAPYARD_DISCOUNT,
   MISSION_TEMPLATES,
   MODIFICATIONS,
   PERK_CATALOG,
   RESEARCH_ITEMS,
+  SCRAPYARD_DISCOUNT_PER_LEVEL,
   TRAP_CATALOG,
   UNIT_CATALOG,
   VEHICLES,
@@ -158,6 +161,19 @@ describe('sections', () => {
     expect(byTitle.get('Officer perks')?.rows).toBe(PERK_CATALOG.length);
     expect(byTitle.get('Building modifications')?.rows).toBe(MODIFICATIONS.length);
     expect(byTitle.size).toBe(sections().length);
+  });
+
+  /*
+   * The yard's rules as the yard applies them (wiring audit, 2026-10-01). The note said a card is
+   * advanced from 12 points; the line is `ADVANCED_MODIFICATION_MAGNITUDE`, 14 since the bands
+   * moved, and a number typed into prose is a number that stays behind when the constant moves.
+   */
+  it('states the advanced line and the yard discount the Scrapyard actually uses', () => {
+    const body = sections().find((section) => section.title === 'Building modifications')!.body;
+    expect(body).toContain(`worth ${ADVANCED_MODIFICATION_MAGNITUDE} points or more`);
+    expect(body).toContain(
+      `takes ${SCRAPYARD_DISCOUNT_PER_LEVEL}% off per level above its first, to a cap of ${MAX_SCRAPYARD_DISCOUNT}%`,
+    );
   });
 });
 

@@ -1,6 +1,7 @@
 import type { BuildQueue, BuildQueueEntry } from './queue.js';
 import { queueCompletesAt, queueEntryXp } from './queue.js';
 import { buildingLevel, type Building } from './state.js';
+import { apothecaryAllowedFor, fittedToTheStore } from './cost.js';
 
 /**
  * The Generator's paid burn (§B4): two hours of oil for a quarter off the whole queue.
@@ -49,9 +50,18 @@ export const BUILD_BOOST_PERCENT = 25;
  */
 export const BUILD_BOOST_OIL_PER_LEVEL = 250;
 
-/** What a burn costs this district, in oil. Zero when there is no Generator to run it. */
+/**
+ * What a burn costs this district, in oil. Zero when there is no Generator to run it.
+ *
+ * Bent under the oil store the Generator's own Nexus allows, the way every build bill is
+ * (`fittedToTheStore`, maintainer ruling P4-A): a Generator at 6 or 7 ahead of its Apothecary
+ * asked 1,500 or 1,750 oil of a store that could hold 1,441, so no amount of waiting bought one.
+ */
 export function buildBoostOilCost(buildings: readonly Building[]): number {
-  return buildingLevel(buildings, 'generator') * BUILD_BOOST_OIL_PER_LEVEL;
+  const level = buildingLevel(buildings, 'generator');
+  const oil = level * BUILD_BOOST_OIL_PER_LEVEL;
+  if (oil === 0) return 0;
+  return fittedToTheStore({ oil }, apothecaryAllowedFor('generator', level)).oil ?? oil;
 }
 
 /** Whether a burn is running at `now`. */

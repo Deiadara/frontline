@@ -23,9 +23,16 @@ play.example.com {
 
 	header {
 		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		# What the page may load and run (security pass, 2026-09-30). Nothing but this origin: the
+		# built client has no inline script or style and no third-party host, so a script injected
+		# into the page cannot run, and cannot phone home if it does. `data:` images are the SVG
+		# patterns Vite inlines into the stylesheet. See docs/DEPLOY.md before loosening any of it.
+		Content-Security-Policy "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'self'; media-src 'self'; manifest-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'; object-src 'none'"
 		X-Content-Type-Options nosniff
 		X-Frame-Options DENY
 		Referrer-Policy no-referrer
+		Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=(), usb=()"
+		Cross-Origin-Opener-Policy same-origin
 		-Server
 	}
 

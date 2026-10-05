@@ -1,4 +1,5 @@
 import {
+  seatPoints,
   MISSION_TEMPLATES,
   createCommander,
   makeAttributes,
@@ -52,7 +53,7 @@ function crew(): Base {
     commanders: [
       createCommander('boss', 'Vasco Renn', 'raid_boss'),
       createCommander('marshal', 'Halvard Nyx', 'field_commander'),
-      createCommander('books', 'Odile Marchetti', 'consigliere'),
+      createCommander('books', 'Odile Marchetti', 'professor'),
     ].map((one) => ({ ...one, attributes: makeAttributes(30) })),
   };
 }
@@ -77,15 +78,20 @@ describe('the chair and the sheet a leader brings', () => {
 
   it("puts the Raid Boss's rungs on his sheet and the Field Commander's on the line", () => {
     const base = crew();
-    const effects = researchEffects([...RAID_BOSS_RUNGS, ...FIELD_COMMANDER_RUNGS]);
+    // A perfect Raid Boss in the chair, as the people fold records him (2026-10-04): his passive
+    // multiplies his own damage and vitality by five.
+    const effects = {
+      ...researchEffects([...RAID_BOSS_RUNGS, ...FIELD_COMMANDER_RUNGS]),
+      chairPoints: { raid_boss: 100 },
+    };
     const [overseer, boss, marshal] = bench(base);
     expect(combatantFor(base, boss!, effects, 'mission').sheetBonus).toEqual({
       offensePercent: 55,
       vitalityPercent: 130,
       armorFlat: 15,
       targetSharePercent: 100,
-      offenseTimes: 2,
-      vitalityTimes: 2,
+      offenseTimes: 5,
+      vitalityTimes: 5,
     });
     expect(combatantFor(base, marshal!, effects, 'mission').sheetBonus).toEqual({
       offensePercent: 0,
@@ -141,10 +147,19 @@ describe('the ranking', () => {
 
   /**
    * The case where the sheet decides the fight: two officers with every attribute at eighty,
-   * fifteen Razors beside them at grade E, which is about the size of what an E fields. Over thirty
-   * practice keys (re-measured 2026-09-29) the Raid Boss with his six rungs wins 133 of 180 and the
-   * Consigliere with the same sheet 20, and the Raid Boss ranks first on all thirty. The same
-   * sweep at seventy and ninety, and at sixteen and seventeen Razors, ranks him first on every key.
+   * fifteen Razors beside them at grade E. Over thirty practice keys (re-measured 2026-10-05) the
+   * Raid Boss with his six rungs wins 180 of 180 and the same sheet in the Professor's chair, which
+   * pays a fight nothing, 6, and the Raid Boss ranks first on all thirty.
+   *
+   * It was seventeen until morale started reading wounds (2026-10-05): a Razor line no longer
+   * panics at the first body down, so the Professor won 134 of 180 at seventeen and the window
+   * where the rungs tip the fight moved down to fifteen and sixteen. Sixteen reads 180 against 62.
+   *
+   * It was fifteen Razors until that day, when being outnumbered started counting unit slots and
+   * Last Stand started ramping with the odds: the grade's heavier sheets stopped feeling outnumbered
+   * by a Razor column, fifteen won 28 fights of 180 under either chair, and the rungs had nothing
+   * left to tip. At eighteen and up both officers win nearly every fight and the rungs show only
+   * in what comes home.
    *
    * It used to be four Razors against the same grade, where a loud enough leader routed a line
    * three times his party's size. Intimidation now reaches 1.5 enemy slots per slot of its own
@@ -154,7 +169,11 @@ describe('the ranking', () => {
   it('prefers the Raid Boss once his track pays him, over the same sheet in another chair', () => {
     const base = crew();
     base.commanders = base.commanders.map((one) => ({ ...one, attributes: makeAttributes(80) }));
-    const effects = researchEffects(RAID_BOSS_RUNGS);
+    // His seat's points on the fold, as the people fold records them (2026-10-04).
+    const effects = {
+      ...researchEffects(RAID_BOSS_RUNGS),
+      chairPoints: { raid_boss: seatPoints(makeAttributes(80), 'raid_boss') },
+    };
     const [, boss, , books] = bench(base);
     const keys = 30;
     let first = 0;
@@ -166,7 +185,7 @@ describe('the ranking', () => {
         grade: 'E',
         force: { razors: 15 },
         vehicles: {},
-        // The Consigliere first, so a tie would rank him ahead and never count for the Raid Boss.
+        // The Professor first, so a tie would rank her ahead and never count for the Raid Boss.
         candidates: [books!, boss!],
         effects,
         practice: `practice-leader:chair:${key}`,
@@ -180,5 +199,39 @@ describe('the ranking', () => {
     }
     expect(first).toBeGreaterThanOrEqual(keys - 3);
     expect(margin).toBeGreaterThanOrEqual(60);
+  });
+
+  /*
+   * Bug pass, 2026-10-02: the practice fights left the medics out, so `kept` read survivors as the
+   * engine left them and never as the real fight hands them home. Recovery comes after the
+   * outcome, so the wins stay as they were.
+   */
+  it('brings the medics to practice, as the real fight does', () => {
+    // The Raid Boss's fight above: it is won often, and with enough dead that a share of them
+    // rounds to somebody.
+    const base = crew();
+    base.commanders = base.commanders.map((one) => ({ ...one, attributes: makeAttributes(80) }));
+    const effects = researchEffects(RAID_BOSS_RUNGS);
+    const args = {
+      base,
+      template: fight(),
+      grade: 'E' as const,
+      force: { razors: 17 },
+      vehicles: {},
+      candidates: bench(base),
+      practice: 'practice-leader:medics',
+    };
+    const without = rankFightLeaders({ ...args, effects });
+    const withMedics = rankFightLeaders({
+      ...args,
+      effects: { ...effects, casualtyRecoveryPercent: effects.casualtyRecoveryPercent + 100 },
+    });
+    const by = (ratings: typeof without, id: string) => ratings.find((one) => one.id === id)!;
+    for (const rating of without) {
+      expect(by(withMedics, rating.id).wins, rating.id).toBe(rating.wins);
+      expect(by(withMedics, rating.id).kept, rating.id).toBeGreaterThanOrEqual(rating.kept);
+    }
+    const total = (ratings: typeof without) => ratings.reduce((sum, one) => sum + one.kept, 0);
+    expect(total(withMedics)).toBeGreaterThan(total(without));
   });
 });

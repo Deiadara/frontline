@@ -8,7 +8,7 @@ import {
 import { noTerritoryEffects, type TerritoryEffects } from '../city/locations.js';
 import { bareBattlefield } from './battlefield.js';
 import { simulate } from './engine.js';
-import type { Army } from '../units/training.js';
+import type { Army } from '../units/muster.js';
 
 /**
  * What the three Combine leaders are actually worth, measured (2026-09-21).
@@ -203,10 +203,10 @@ describe('Directive Xero, and which half of him is doing the work', () => {
    * Change of Heart cannot reach a crew that could take the CCS.
    *
    * §D3 spends the defence's menace against the attacker's nerve, and both are sums over bodies.
-   * The CCS garrison is 28 Greycoats, 21 Enforcers and 12 Suppressors, so its menace is
-   * 28*12 + 21*30 + 12*45 = 1506 and that is a ceiling: it cannot buy the silence of a crew whose
-   * morale sums past it. A Razor is 40 of nerve, so the largest crew Change of Heart can touch is
-   * about 22 Razors and their escort.
+   * The CCS garrison is 12 Greycoats, 21 Enforcers and 16 Suppressors since the 2026-10-02 re-share,
+   * so its menace is 12*12 + 21*30 + 16*45 = 1494 and that is a ceiling: it cannot buy the
+   * silence of a crew whose morale sums past it. A Razor is 40 of nerve, so the largest crew
+   * Change of Heart can touch is about 22 Razors and their escort.
    *
    * Measured 2026-09-21, 20 seeds a row, crew scaled as `crewOf`:
    *

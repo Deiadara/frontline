@@ -145,6 +145,7 @@ function boardWith(leaders: MissionLeader[] = LEADERS): MissionsResponse {
     justResolved: [],
     resources: { caps: 0, supplies: 0, oil: 0, scrap: 0, highQualityMetal: 0, planks: 0 },
     activeLimit: 2,
+    xpBonusPercent: 0,
     areas: [
       {
         id: MISC_AREA_ID,
@@ -240,7 +241,7 @@ const take = (dialog: HTMLElement, unitName: string, count: number) =>
 beforeEach(() => {
   vi.stubGlobal('fetch', fetchMock);
   fetchMock.mockReset();
-  useSession.setState({ token: 'session-token', user: null });
+  useSession.setState({ signedIn: true, user: null });
 });
 
 afterEach(() => {

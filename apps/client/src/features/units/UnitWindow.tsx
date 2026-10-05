@@ -54,7 +54,7 @@ export function useUnitOption(unitId: string): UnitOption | null {
  * A `UnitOption` built from the catalogue alone.
  *
  * Every field is either off the sheet or an honest empty. The four empties are `cost`,
- * `trainSeconds`, `slots` and `eligible`: a card drawn from this is drawn without a price box, so
+ * `musterSeconds`, `slots` and `eligible`: a card drawn from this is drawn without a price box, so
  * none of them reaches a screen, and filling them with a guess would put a number on the wire's
  * shape that the wire never said.
  */
@@ -64,7 +64,7 @@ export function catalogueOption(spec: UnitSpec, extraRules: UnitOption['rules'] 
     name: spec.name,
     tier: spec.tier,
     blurb: spec.blurb,
-    trainedAt: spec.trainedAt,
+    musteredAt: spec.musteredAt,
     unique: spec.unique ?? false,
     stats: spec.stats,
     modifiers: spec.modifiers.map((id) => ({
@@ -79,7 +79,7 @@ export function catalogueOption(spec: UnitSpec, extraRules: UnitOption['rules'] 
     rules: [...extraRules, ...unitRules(spec)],
     affinities: unitAffinities(spec),
     cost: {},
-    trainSeconds: 0,
+    musterSeconds: 0,
     unitSlots: spec.unitSlots,
     unlocked: true,
     missing: [],
@@ -92,10 +92,10 @@ export function catalogueOption(spec: UnitSpec, extraRules: UnitOption['rules'] 
 /**
  * The card itself, for a unit id.
  *
- * No price box and no count, whichever row it came from. Both are answers to "shall I train one",
+ * No price box and no count, whichever row it came from. Both are answers to "shall I muster one",
  * which is a question the roster asks and no other surface does: a chip in a column, a face in a
  * garrison and a legendary on a district are each a unit the player is *looking at* rather than
- * shopping for. The roster passes its own `training` to `UnitCard` directly and does not come
+ * shopping for. The roster passes its own `muster` to `UnitCard` directly and does not come
  * through here.
  */
 export function UnitWindow({ unitId, option }: { unitId: string; option?: UnitOption | null }) {

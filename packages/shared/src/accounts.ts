@@ -37,7 +37,7 @@ export function withoutInvisibleCharacters(name: string): string {
  * cannot be added without its name being reserved.
  */
 export const SEEDED_BOT_USERNAMES = [
-  'Vex_Combine',
+  'Vex_Holdings',
   'Sable_Ninth',
   'Sollen_Tam',
   'Halvard_Line',
@@ -120,13 +120,85 @@ export const DisplayNameSchema = z
   );
 
 /**
+ * Letters from other scripts that are drawn like a Latin one, and the Latin one they pass for.
+ *
+ * The common part of Unicode's confusables table that a name can be built from: Cyrillic and Greek
+ * look-alikes, and the digits and bars that read as letters. Lower case only, because the skeleton
+ * is folded first.
+ */
+const LOOK_ALIKES: Readonly<Record<string, string>> = {
+  // Cyrillic
+  а: 'a',
+  в: 'b',
+  е: 'e',
+  ё: 'e',
+  к: 'k',
+  м: 'm',
+  н: 'h',
+  о: 'o',
+  р: 'p',
+  с: 'c',
+  т: 't',
+  у: 'y',
+  х: 'x',
+  ѕ: 's',
+  і: 'i',
+  ї: 'i',
+  ј: 'j',
+  ԁ: 'd',
+  ԛ: 'q',
+  ԝ: 'w',
+  һ: 'h',
+  ӏ: 'l',
+  ɡ: 'g',
+  // Greek
+  α: 'a',
+  β: 'b',
+  ε: 'e',
+  η: 'n',
+  ι: 'i',
+  κ: 'k',
+  ν: 'v',
+  ο: 'o',
+  ρ: 'p',
+  τ: 't',
+  υ: 'u',
+  χ: 'x',
+  ω: 'w',
+  ζ: 'z',
+  μ: 'u',
+  // Digits and bars
+  '0': 'o',
+  '1': 'l',
+  '|': 'l',
+  '!': 'l',
+};
+
+/**
+ * What a name looks like, for telling two apart (maintainer, 2026-10-02): folded case, accents and
+ * invisible characters gone, look-alike letters mapped to the Latin letter they pass for, and "rn"
+ * read as the "m" it draws. Two names with one skeleton are one name to a reader, so the second is
+ * refused.
+ */
+export function nameSkeleton(name: string): string {
+  const folded = withoutInvisibleCharacters(name)
+    .normalize('NFKD')
+    .replace(/\p{M}/gu, '')
+    .normalize('NFKC')
+    .trim()
+    .toLowerCase();
+  return [...folded]
+    .map((char) => LOOK_ALIKES[char] ?? char)
+    .join('')
+    .replace(/rn/g, 'm');
+}
+
+/**
  * Whether two names read the same, for a display name against another account's username or
- * display name: ignoring case, and the invisible characters an older row may still carry.
+ * display name: by their skeletons (`nameSkeleton`), so a look-alike of somebody's name is theirs.
  */
 export function sameDisplayName(a: string, b: string): boolean {
-  const key = (name: string) =>
-    withoutInvisibleCharacters(name).normalize('NFKC').trim().toLowerCase();
-  return key(a) === key(b);
+  return nameSkeleton(a) === nameSkeleton(b);
 }
 
 export const DISPLAY_NAME_TAKEN_MESSAGE = 'Somebody already goes by that name. Pick another.';

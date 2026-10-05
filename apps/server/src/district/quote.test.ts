@@ -92,7 +92,7 @@ async function makeStack(): Promise<{ app: FastifyInstance; token: string; baseI
   app.repos.bases.updateProgression(baseId, 9, base.progression);
   // In a chair: a perk on the bench pays nothing (maintainer, 2026-09-28).
   app.repos.bases.updateCommanders(baseId, [
-    createCommander('off-1', 'Vasso', 'fabricator', {}, [SPONSOR]),
+    createCommander('off-1', 'Vasso', 'salvager', {}, [SPONSOR]),
   ]);
   return { app, token, baseId };
 }

@@ -10,7 +10,16 @@
  * breaks.
  */
 import { expect, test, type Page } from '@playwright/test';
-import { CITY_DISTRICTS, LOCATION_CATALOG, cityOf, findDistrict } from '@frontline/shared';
+import {
+  CITY_DISTRICTS,
+  DEFAULT_BADGE,
+  LOCATION_CATALOG,
+  cityOf,
+  findDistrict,
+  type DistrictDetailResponse,
+  type LocationHolder,
+} from '@frontline/shared';
+import { HELD_BY_ON_THE_RIGHT } from '../src/features/city/marks';
 import { districtDetailFor, me } from './fixtures';
 import { installApi, settleFonts } from './harness';
 
@@ -77,24 +86,52 @@ interface Box {
  * here because `e2e/fixtures.ts` belongs to another lane.
  */
 async function serveTerminusGround(page: Page, id: string) {
-  const district = findDistrict(id);
-  if (district === undefined || cityOf(id) === 'ashfall') return;
+  if (findDistrict(id) === undefined || cityOf(id) === 'ashfall') return;
+  await serveDetail(page, id, terminusDetail(id));
+}
+
+/** A Terminus district's detail: one Steelbelt payload re-labelled. See `serveTerminusGround`. */
+function terminusDetail(id: string): DistrictDetailResponse {
+  const district = findDistrict(id)!;
   const standIn = districtDetailFor('steelbelt');
+  return {
+    ...standIn,
+    district,
+    unified: null,
+    locations: district.locations.map((location, index) => ({
+      ...standIn.locations[index % standIn.locations.length]!,
+      location,
+    })),
+  };
+}
+
+/** Whichever detail this file serves for `id`, Ashfall's fixture or Terminus's stand-in. */
+function detailOf(id: string): DistrictDetailResponse {
+  return cityOf(id) === 'ashfall' ? districtDetailFor(id) : terminusDetail(id);
+}
+
+async function serveDetail(page: Page, id: string, detail: DistrictDetailResponse) {
   await page.route(`**/api/city/${id}`, (route) =>
-    route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({
-        ...standIn,
-        district,
-        unified: null,
-        locations: district.locations.map((location, index) => ({
-          ...standIn.locations[index % standIn.locations.length]!,
-          location,
-        })),
-      }),
-    }),
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(detail) }),
   );
+}
+
+/**
+ * `detail` with every location held by one party, which is what puts the "Held by" plaque on the
+ * painting (maintainer, 2026-09-30).
+ */
+function heldWhole(
+  detail: DistrictDetailResponse,
+  holder: LocationHolder,
+  holderName: string,
+  holderFaction: DistrictDetailResponse['holderFaction'] = null,
+): DistrictDetailResponse {
+  return {
+    ...detail,
+    holder,
+    holderFaction,
+    locations: detail.locations.map((view) => ({ ...view, holder, holderName })),
+  };
 }
 
 async function open(page: Page, id: string, size: { width: number; height: number }) {
@@ -311,6 +348,62 @@ for (const id of PAINTED) {
         expect(escaped, `cards opening off the screen at ${tag}`).toEqual([]);
       });
 
+      /*
+       * The "Held by" plaque at the painting's foot (maintainer, 2026-09-30) stands clear of every
+       * sign, the gate's included, and of the strip and the toggle over the top corners, at the
+       * two widths the game is played at. Held by the Combine, which is the case every district
+       * can be in.
+       */
+      if (size.width <= 1280) {
+        test(`hangs the "Held by" plaque clear of every sign at ${tag}`, async ({ page }) => {
+          await page.setViewportSize(size);
+          await installApi(page, me);
+          await serveDetail(
+            page,
+            id,
+            heldWhole(detailOf(id), { kind: 'government' }, 'The Combine'),
+          );
+          await page.goto(`/game/city/${id}`);
+          await expect(page.getByTestId(`district-painting-${id}`)).toBeVisible();
+          await settleFonts(page);
+
+          const plaque = page.getByTestId('held-by');
+          await expect(plaque).toBeVisible();
+          await expect(plaque.getByTestId('held-by-mark-government')).toBeVisible();
+          const hits = await page.evaluate(() => {
+            const rect = (el: Element) => el.getBoundingClientRect();
+            const held = rect(document.querySelector('[data-testid="held-by"]')!);
+            const band = rect(document.querySelector('[data-testid="district-band"]')!);
+            const over = (b: DOMRect) =>
+              held.left < b.right &&
+              b.left < held.right &&
+              held.top < b.bottom &&
+              b.top < held.bottom;
+            const others = [
+              ...document.querySelectorAll(
+                '[data-testid^="site-"], [data-testid="back-to-city"], [data-testid="district-standing-column"]',
+              ),
+            ];
+            const inside =
+              held.left >= band.left - 1 &&
+              held.right <= band.right + 1 &&
+              held.top >= band.top - 1 &&
+              held.bottom <= band.bottom + 1;
+            return {
+              inside,
+              corner: held.left - band.left < band.right - held.right ? 'left' : 'right',
+              covered: others
+                .filter((el) => over(rect(el)))
+                .map((el) => (el as HTMLElement).dataset.testid ?? '?'),
+            };
+          });
+          expect(hits.inside, 'the plaque stands inside the painting band').toBe(true);
+          expect(hits.corner).toBe(HELD_BY_ON_THE_RIGHT.has(id) ? 'right' : 'left');
+          expect(hits.covered, `the plaque covers something at ${tag}`).toEqual([]);
+          await page.screenshot({ path: `screenshots/held-by/${id}-${tag}.png` });
+        });
+      }
+
       test(`keeps the signs off each other at ${tag}`, async ({ page }) => {
         await open(page, id, size);
         const { signs } = await signsOn(page, id);
@@ -330,3 +423,59 @@ for (const id of PAINTED) {
     }
   });
 }
+
+/**
+ * The plaque's mark is the holder's (maintainer, 2026-09-30): the Combine's cross, the looters'
+ * skull, a crew's faction badge, or the crew mark for a crew at no table. And no plaque at all on
+ * ground held in pieces, which is the shared fixture's Steelbelt.
+ */
+test.describe('the "Held by" plaque', () => {
+  const id = 'steelbelt';
+  const cases: readonly [string, DistrictDetailResponse, string, string][] = [
+    [
+      'the Combine',
+      heldWhole(detailOf(id), { kind: 'government' }, 'The Combine'),
+      'government',
+      'The Combine',
+    ],
+    ['the looters', heldWhole(detailOf(id), { kind: 'looters' }, 'Looters'), 'looters', 'Looters'],
+    [
+      'a crew at a table',
+      heldWhole(detailOf(id), { kind: 'crew', baseId: 'rival-base' }, 'Vex Holdings', {
+        name: 'The Vexhold Concern',
+        badge: DEFAULT_BADGE,
+      }),
+      'faction',
+      'Vex Holdings',
+    ],
+    [
+      'a crew at no table',
+      heldWhole(detailOf(id), { kind: 'crew', baseId: 'rival-base' }, 'Vex Holdings'),
+      'crew',
+      'Vex Holdings',
+    ],
+  ];
+  for (const [who, detail, mark, name] of cases) {
+    test(`wears the mark of ${who}`, async ({ page }) => {
+      await page.setViewportSize({ width: 1280, height: 720 });
+      await installApi(page, me);
+      await serveDetail(page, id, detail);
+      await page.goto(`/game/city/${id}`);
+      const plaque = page.getByTestId('held-by');
+      await expect(plaque).toBeVisible();
+      await expect(plaque).toContainText('Held by');
+      await expect(plaque.getByTestId('held-by-name')).toHaveText(name);
+      await expect(plaque.getByTestId(`held-by-mark-${mark}`)).toBeVisible();
+      await settleFonts(page);
+      await plaque.screenshot({ path: `screenshots/held-by/mark-${mark}.png` });
+    });
+  }
+
+  test('is not there on ground held in pieces', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 720 });
+    await installApi(page, me);
+    await page.goto(`/game/city/${id}`);
+    await expect(page.getByTestId(`district-painting-${id}`)).toBeVisible();
+    await expect(page.getByTestId('held-by')).toHaveCount(0);
+  });
+});

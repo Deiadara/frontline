@@ -22,7 +22,7 @@ export const NOTIFICATION_LIVE_KINDS: Partial<Record<NotificationKind, LiveEvent
   building_done: 'base',
   research_done: 'base',
   training_done: 'base',
-  unit_trained: 'base',
+  unit_mustered: 'base',
   mission_home: 'base',
   // §H7a: the close signs somebody while the player is asleep, so the crew they are looking at
   // when the bell rings is a crew short of the officer it just won.

@@ -1,12 +1,12 @@
 import { randomUUID } from 'node:crypto';
 import { tallyMarketDeal, tallyResourcesEarned } from '../feats/tally.js';
 import {
+  officerRecoverySeconds,
   addItems,
   barterQuote,
+  brokerPayoutRate,
   brokerRate,
   discountedCaps,
-  effectiveMarketDiscount,
-  brokerDealsIn,
   bundleIsEmpty,
   isReimaginingResearched,
   largestBidWithin,
@@ -51,12 +51,14 @@ import {
   type TradeBundle,
 } from '@frontline/shared';
 import type { Repositories } from '../db/repos/index.js';
+import { adminCaps, adminCost, adminWaives } from '../admin/mode.js';
 import { citiesFor, homeCityOf, mayEnter } from '../city/stakes.js';
 import { workingRoles } from '../crew/roster.js';
 import { crewEffectsFor, standingEffectsFor } from '../crew/standing.js';
 import { creditBase, refuseWaste } from '../district/stores.js';
 import { settleBase } from '../district/settle.js';
 import { notify } from '../social/notify.js';
+import { shownNameOf } from '../social/names.js';
 import { settleEach } from '../world/guard.js';
 import { tellPagesFound } from '../social/pages.js';
 import {
@@ -361,7 +363,7 @@ export function projectMarket(
 ): MarketResponse {
   const day = marketDay(now);
   /*
-   * §F2: the Logistics the crew has, on the shelf the run is measured against.
+   * §F2: the crew's storage bonus, on the shelf the run is measured against.
    *
    * The bonus used to reach the production clamp and nothing else, so a crew that had researched
    * room for another 55% of a warehouse was quoted the bare structures' figure here: the ration was
@@ -396,8 +398,11 @@ export function projectMarket(
   const stock = visit
     ? vendorStockFor(day, cityId).map((line) => {
         const left = Math.max(0, line.stock - vendorSoldCount(repos, day, line.id));
+        // At most one sale a visit, and the line is gone with the day: a two-stock line nobody won
+        // on the first visit has one sale left in it, not two.
+        const visitsLeft = vendorSessionsFor(day).length - visit.session;
         return {
-          line: { ...line, stock: left },
+          line: { ...line, stock: Math.min(left, visitsLeft) },
           // Nothing left on the line is nothing to bid on: the city cleared him out on an earlier
           // visit, and he will not have another until tomorrow's barrow is drawn.
           auction:
@@ -420,7 +425,10 @@ export function projectMarket(
   const board = repos.market.openInCity(cityId);
   const mine = repos.market.openBySeller(base.id);
   // §A4: the Downtown Market's cut, read once. It comes off what a winner pays, never the reserve.
-  const ground = standingEffectsFor(repos, base, now).marketDiscountPercent;
+  const standing = standingEffectsFor(repos, base, now);
+  const ground = standing.marketDiscountPercent;
+  // The working Trader's seat points, which move both rates (`traderRates`, 2026-10-04).
+  const trader = standing.chairPoints.trader ?? null;
   return {
     serverNow: now.toISOString(),
     cityId,
@@ -454,16 +462,27 @@ export function projectMarket(
       repos.market.supplyUsed(base.id, day),
       (key) => storageCapacityFor(base.buildings, key, bulk),
       ground,
+      trader,
     ),
-    barterRate: brokerRate(base.level, ground),
-    marketDiscountPercent: effectiveMarketDiscount(ground),
+    barterRate: brokerRate(base.level, ground, trader),
+    traderPoints: trader,
+    // The raw sum, which every shared price function curves for itself: see the schema field.
+    marketDiscountPercent: ground,
     // §G4: the two things the Blueprints screen cannot see for itself. Read from the same base
     // record the trade route re-reads, so the panel and the refusal never disagree.
     reimagining: {
-      // Working, not merely seated: a Head of Research in a hospital bed reads nothing
+      // Working, not merely seated: a Researcher in a hospital bed reads nothing
       // (maintainer, 2026-09-23).
-      hasHeadOfResearch: workingRoles(base.commanders, now).includes('head_of_research'),
+      hasResearcher: workingRoles(base.commanders, now).includes('researcher'),
       hasReimaginingResearch: isReimaginingResearched(base.research.technologies),
+      // ...and how long until they are, so the bench says "laid up" rather than "hire one".
+      researcherBackInSeconds: (() => {
+        const laidUp = base.commanders.find(
+          (officer) =>
+            officer.role === 'researcher' && officerRecoverySeconds(officer.injuredUntil, now) > 0,
+        );
+        return laidUp ? officerRecoverySeconds(laidUp.injuredUntil, now) : null;
+      })(),
     },
     traderAtWork: workingRoles(base.commanders, now).includes('trader'),
   };
@@ -484,10 +503,12 @@ export function buySupply(
   units: number,
   now: Date,
   acceptWaste?: boolean,
+  /** Admin mode: the ration and the caps are waived and nothing is charged (2026-10-02). */
+  admin = false,
 ): MarketResult {
   const day = marketDay(now);
   // The ration is measured against the bulk shelf; the room is measured against this resource's own.
-  // Both off the same figure the board quoted, the crew's own Logistics included, or the till would
+  // Both off the same figure the board quoted, the crew's own storage bonus included, or the till would
   // refuse a run the panel had just offered.
   const bulk = storageCapacity(
     base.buildings,
@@ -496,24 +517,27 @@ export function buySupply(
   const allowance = supplyAllowance(base.level, bulk);
   const used = repos.market.supplyUsed(base.id, day);
   // The crew's market discount, off the same reading the board quoted the lines with.
-  const discount = standingEffectsFor(repos, base, now).marketDiscountPercent;
-  const price = supplyPrice(key, units, discount);
+  const standing = standingEffectsFor(repos, base, now);
+  const discount = standing.marketDiscountPercent;
+  const trader = standing.chairPoints.trader ?? null;
+  const price = supplyPrice(key, units, discount, trader);
 
   const refusal = supplyRefusal({
     key,
     units,
     stock: base.resources,
-    allowanceLeft: Math.max(0, allowance - used),
+    allowanceLeft: admin ? Number.POSITIVE_INFINITY : Math.max(0, allowance - used),
     discountPercent: discount,
+    traderPoints: trader,
   });
-  if (refusal !== null) return { kind: 'refused', reason: refusal };
+  if (refusal !== null && !adminWaives(refusal, admin)) return { kind: 'refused', reason: refusal };
 
   // The store is a warning, not a refusal (maintainer ruling, 2026-09-28): an order past it is
   // asked about first and, once agreed, lands up to the ceiling. The whole order is still charged
   // and still spends the ration, because that is what was bought.
   const paid: Base = {
     ...base,
-    resources: spendResources(base.resources, { caps: price }),
+    resources: spendResources(base.resources, { caps: adminCaps(price, admin) }),
   };
   const credit = creditBase(repos, paid, { [key]: units }, now);
   refuseWaste(credit, acceptWaste);
@@ -539,7 +563,6 @@ export type MarketRefusal =
   | VendorBidRefusal
   | 'too_small'
   | 'same_resource'
-  | 'no_caps'
   | 'unknown_offer'
   | 'unknown_claim'
   | 'not_yours'
@@ -558,7 +581,7 @@ export type MarketResult =
   { kind: 'done'; base: Base } | { kind: 'refused'; reason: MarketRefusal };
 
 /**
- * The Broker: any resource into any other, at half.
+ * The Broker: any resource into any other, caps included (maintainer, 2026-10-01), at half.
  *
  * Refuses a same-resource trade explicitly rather than quietly halving somebody's scrap, which is
  * the one input a fat-fingered player will actually produce.
@@ -574,24 +597,28 @@ export function barter(
   },
   minimum: number,
   now: Date,
+  /** Admin mode: what is handed over is not taken, so the trade costs nothing (2026-10-02). */
+  admin = false,
 ): MarketResult {
   const { give, want, amount, acceptWaste } = trade;
   if (give === want) return { kind: 'refused', reason: 'same_resource' };
-  // Materials only, either way round: see `BARTER_RESOURCES`.
-  if (!brokerDealsIn(give) || !brokerDealsIn(want)) return { kind: 'refused', reason: 'no_caps' };
   if (amount < minimum) return { kind: 'refused', reason: 'too_small' };
   // §I3: the Broker stops taking half at level 60. Read off the level here rather than passed in
-  // so the quote the screen drew and the trade the server settles cannot come from two rates.
+  // so the quote the screen drew and the trade the server settles cannot come from two rates. A
+  // trade into caps is held under the supply run's price (`brokerPayoutRate`).
+  const standing = standingEffectsFor(repos, base, now);
+  const discount = standing.marketDiscountPercent;
+  const trader = standing.chairPoints.trader ?? null;
   const gained = barterQuote(
     give,
     want,
     amount,
-    brokerRate(base.level, standingEffectsFor(repos, base, now).marketDiscountPercent),
+    brokerPayoutRate(want, brokerRate(base.level, discount, trader), discount, trader, give),
   );
   // The quote floors, and valuing by worth means ten of a cheap thing can buy less than one of a
   // dear one. Past the minimum count and still nothing back is the same trade as under it.
   if (gained <= 0) return { kind: 'refused', reason: 'too_small' };
-  if (!canAfford(base.resources, { [give]: amount })) {
+  if (!canAfford(base.resources, { [give]: amount }) && !adminWaives('cannot_afford', admin)) {
     return { kind: 'refused', reason: 'cannot_afford' };
   }
   // The stores' ceiling, which the Broker used to credit straight past and then, from 2026-09-27,
@@ -599,7 +626,7 @@ export function barter(
   // will not fit, and if they go ahead the excess is thrown away.
   const handedOver: Base = {
     ...base,
-    resources: spendResources(base.resources, { [give]: amount }),
+    resources: spendResources(base.resources, adminCost({ [give]: amount }, admin)),
   };
   const credit = creditBase(repos, handedOver, { [want]: gained }, now);
   refuseWaste(credit, acceptWaste);
@@ -615,7 +642,10 @@ export function barter(
     ),
     now,
   });
-  tallyResourcesEarned(repos, base.id, credit.landed);
+  // Nothing he hands over is earned, caps or goods (bug pass, 2026-10-04). Caps he pays out are
+  // goods already counted on their own ladders (caps ruling, 2026-10-01), and goods he hands over
+  // are a trade of what the crew already had: with a Trader past C+ a trade into goods comes back
+  // at even, so a loop through him counted the same stock again on every lap, for ever.
   return { kind: 'done', base: { ...base, resources } };
 }
 
@@ -680,6 +710,22 @@ export function postOffer(
     cityId,
   };
   repos.market.insert(offer);
+  // The poster hears about a counter (bug pass, 2026-10-02). It sat on its listing's city board and
+  // nowhere else, so a poster browsing another city never saw it, and the counter's escrow stayed
+  // locked for two days before coming back as a claim.
+  if (directedAt !== null) {
+    const poster = repos.bases.findById(directedAt);
+    if (poster) {
+      notify(repos, {
+        userId: poster.ownerId,
+        kind: 'market_countered',
+        title: `${shownNameOf(repos, base.ownerId, base.name)} countered your listing: ${describeBundle(give)} for ${describeBundle(want)}`,
+        link: '/game/market/offers',
+        subjectId: offer.id,
+        at: now,
+      });
+    }
+  }
   return { kind: 'done', base: { ...base, resources, inventory }, offer };
 }
 
@@ -919,7 +965,6 @@ export const MARKET_REFUSAL_TEXT: Record<
   too_many_lots: 'You have money on every lot you can hold. Let one close first',
   too_small: 'The Broker will not get out of his chair for that little',
   same_resource: 'The Broker trades one thing for another, not for itself',
-  no_caps: 'The Broker does not touch caps. Materials for materials, or the supply run',
   unknown_offer: 'That listing is gone',
   unknown_claim: 'Those goods are not on the board any more',
   not_yours: 'That listing is not yours to touch',

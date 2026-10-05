@@ -4,6 +4,7 @@ import {
   declarationWindow,
   isAlwaysOn,
   type BattleTarget,
+  formatDayClock,
 } from '@frontline/shared';
 import type { FastifyInstance } from 'fastify';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -67,6 +68,7 @@ describe('calling a fight on somebody', () => {
   it('rings the defender, names the ground and the mark, and never rings the caller', async () => {
     const { app } = await makeApp();
     const holder = await register(app, 'holder');
+    app.repos.users.updateProfile(holder.userId, { timezone: 'Asia/Tokyo' });
     const raider = await register(app, 'raider');
 
     const { CITY_DISTRICTS } = await import('@frontline/shared');
@@ -107,6 +109,8 @@ describe('calling a fight on somebody', () => {
     expect(bell[0]?.title).toContain('has called a fight on you');
     // It says which ground, so the receipt is a place to go rather than a place to hunt.
     expect(bell[0]?.body).toContain(location.name);
+    // ...and when, on the defender's own clock (bug pass, 2026-10-02).
+    expect(bell[0]?.body).toContain(formatDayClock(mark, 'Asia/Tokyo'));
     // And it is followable: §K5's rule that a receipt with nowhere to go makes a player hunt.
     expect(bell[0]?.link).toBe('/game/battles');
     expect(bell[0]?.subjectId).toBeTruthy();

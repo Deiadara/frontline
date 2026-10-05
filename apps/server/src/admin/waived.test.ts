@@ -149,7 +149,7 @@ describe('the gates admin mode waives, met by an ordinary player', () => {
 
     /*
      * The queue is four wide before anything is researched (maintainer, 2026-09-22) and six after
-     * the Fabricator's third rung. Both halves are walked here rather than only the second,
+     * Batch Runs, the Engineer's third rung. Both halves are walked here rather than only the second,
      * because a capacity that ignored the crew's research would sit at six for everybody and the
      * old version of this test, which queued six and expected a refusal on the seventh, would
      * have passed all the way through the change without noticing.

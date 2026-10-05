@@ -1,4 +1,4 @@
-import { findPerk, type OverseerPreset } from '@frontline/shared';
+import { OVERSEER_ARCHETYPE_LABELS, findPerk, type OverseerPreset } from '@frontline/shared';
 import type { ReactNode } from 'react';
 import { perkDetail } from '../../components/PerkTags';
 import { AttributeRadar } from './AttributeRadar';
@@ -87,7 +87,7 @@ export function OverseerSheet({ preset }: { preset: OverseerPreset }) {
             {preset.name}
           </h2>
           <p className="mt-0.5 font-display text-[13px] uppercase tracking-[0.16em] text-brass-300">
-            {preset.archetype}
+            {OVERSEER_ARCHETYPE_LABELS[preset.archetype]}
           </p>
         </div>
         {/* The radar is a shape, and the numbers below say the same thing exactly. Dropped under

@@ -38,8 +38,6 @@ export type ErrorCode =
   /** §H7a: the crew is already sitting at as many tables as its level allows. */
   | 'TOO_MANY_AUCTIONS'
   | 'NO_PAYROLL'
-  /** §H7: the payroll ladder is bought out. There is no further step to sell. */
-  | 'PAYROLL_AT_MAX'
   | 'AREA_LOCKED'
   /**
    * The door on a city's rooms, shut (maintainer, 2026-09-17).
@@ -78,6 +76,7 @@ export type ErrorCode =
   | 'TRAINING_REFUSED'
   | 'MARKET_REFUSED'
   | 'BLACK_MARKET_REFUSED'
+  | 'STACKHOUSE_REFUSED'
   | 'MISSION_REFUSED'
   | 'WORKSHOP_REFUSED'
   /** A blueprint could not be unlocked: unknown, already held, or short of pages (D10). */
@@ -99,7 +98,7 @@ export type ErrorCode =
   | 'NO_FORCE'
   | 'PLACE_UNAVAILABLE'
   | 'UNIT_LOCKED'
-  | 'TRAINING_QUEUE_FULL'
+  | 'MUSTER_QUEUE_FULL'
   | 'NO_UNIT_SLOTS'
   // declared battles and the §D7 sinks
   | 'BATTLE_REFUSED'
@@ -108,7 +107,7 @@ export type ErrorCode =
    *
    * Surfaced by a soak against a hosted server on 2026-09-17, where a second process writing to
    * the same file (a backup, an admin script, a migration, a second instance) made an ordinary
-   * `POST /units/train` answer `500 INTERNAL`. SQLite allows one writer at a time, and a
+   * `POST /units/muster` answer `500 INTERNAL`. SQLite allows one writer at a time, and a
    * transaction that has already read cannot then wait for the write lock without risking a
    * deadlock, so it is refused immediately whatever `busy_timeout` says. That is a transient
    * refusal and it has a shape: the request is safe to repeat.
@@ -160,10 +159,10 @@ const STATUS_BY_CODE: Record<ErrorCode, number> = {
   TRAINING_REFUSED: 409,
   MARKET_REFUSED: 409,
   BLACK_MARKET_REFUSED: 409,
+  STACKHOUSE_REFUSED: 409,
   MISSION_REFUSED: 409,
   ROLE_TAKEN: 409,
   NO_PAYROLL: 409,
-  PAYROLL_AT_MAX: 409,
   WORKSHOP_REFUSED: 409,
   BLUEPRINT_REFUSED: 409,
   REIMAGINING_REFUSED: 409,
@@ -194,7 +193,7 @@ const STATUS_BY_CODE: Record<ErrorCode, number> = {
   NO_FORCE: 409,
   PLACE_UNAVAILABLE: 409,
   UNIT_LOCKED: 409,
-  TRAINING_QUEUE_FULL: 409,
+  MUSTER_QUEUE_FULL: 409,
   NO_UNIT_SLOTS: 409,
   BATTLE_REFUSED: 409,
   // 503, not 500: nothing is wrong with the request or with the server, the moment was wrong.

@@ -52,7 +52,7 @@ const base: Base = {
   buildings: [],
   buildQueue: [],
   army: { razors: 8 },
-  trainingQueue: [],
+  musterQueue: [],
   training: startingTraining(NOW),
   inventory: {},
   fittedUpgrades: [],
@@ -176,7 +176,7 @@ beforeEach(() => {
   vi.stubGlobal('fetch', fetchMock);
   fetchMock.mockReset();
   posted = null;
-  useSession.setState({ token: 'session-token', user: null });
+  useSession.setState({ signedIn: true, user: null });
 });
 
 afterEach(() => vi.unstubAllGlobals());

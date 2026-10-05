@@ -436,3 +436,34 @@ for (const width of [1024, 1280]) {
     }
   });
 }
+
+/**
+ * A muster card prints the time it takes off the clock on its own, not its speed as time
+ * (maintainer, 2026-10-01): Night Course's 16 read "+16% off how long training takes" and is 14%
+ * off. Read off the Gauntlet's bench as the player meets it.
+ */
+test('the muster cards on the Gauntlet bench print their own cut of the clock', async ({
+  page,
+}) => {
+  const drawn = scrapyard.entries.filter(
+    (entry) =>
+      entry.kind === 'modification' &&
+      entry.building === 'gauntlet' &&
+      entry.documentHeld &&
+      entry.effect.includes('muster time'),
+  );
+  expect(drawn.length, 'no muster card drawn on the Gauntlet bench').toBeGreaterThan(0);
+  await installApi(page, lateGame);
+  await page.goto('/game/scrapyard');
+  await page.getByTestId(doorOf('gauntlet')).click();
+  await expect(page.getByTestId('scrapyard-gauntlet')).toBeVisible();
+  await settleFonts(page);
+  for (const entry of drawn) {
+    const row = page.getByTestId(`addon-${entry.id}`);
+    await expect(row).toContainText(/-\d+% muster time \(tapers\)/);
+    await expect(row).not.toContainText('off how long training takes');
+  }
+  await page.getByTestId(`addon-${drawn[0]!.id}`).scrollIntoViewIfNeeded();
+  await expectNothingOverflowsTheScreen(page);
+  await page.screenshot({ path: 'e2e-out/scrapyard-gauntlet-muster-cards.png' });
+});

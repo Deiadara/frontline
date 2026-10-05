@@ -1,4 +1,5 @@
-import { districtEffects, MAX_EFFECT_REDUCTION } from './effects.js';
+import { softCap } from '../battle/soft-cap.js';
+import { districtEffects } from './effects.js';
 import { buildingLevel, type Building } from './state.js';
 
 /**
@@ -6,7 +7,7 @@ import { buildingLevel, type Building } from './state.js';
  *
  * Five structures reach the crew through this module: the Quarters sets how many names the payroll
  * book can carry, the Gate holds the district and hides it, the Lab shortens research, the
- * Gauntlet trains everybody faster, and the Greenhouse takes supplies off a training bill. Each is
+ * Gauntlet musters everybody faster, and the Greenhouse takes supplies off a muster bill. Each is
  * one exported function, so "what does the Gate actually do" has exactly one answer.
  *
  * The Quarters is the one exception, because it also houses people, and that is `unit-slots.ts`.
@@ -82,6 +83,16 @@ export function gateDefensePercent(buildings: readonly Building[]): number {
   );
 }
 
+/**
+ * Points the district's counter-intelligence cards put in a spy's way (maintainer, 2026-10-01),
+ * on top of the holder's Master of Whispers, the people's counter-intelligence and the gate. Read
+ * by the spy contest only (`crewCounter`). Not cut by a breach: a broken door does not decrypt
+ * anything.
+ */
+export function counterIntelPoints(buildings: readonly Building[]): number {
+  return districtEffects(buildings).counter_intel_points;
+}
+
 /** §B7: what the Gate adds to `intelResistancePercent`. */
 export function gateIntelResistancePercent(buildings: readonly Building[]): number {
   return buildingLevel(buildings, 'gate') * GATE_INTEL_RESISTANCE_PER_LEVEL;
@@ -103,15 +114,47 @@ export function districtDefense(buildings: readonly Building[]): number {
 
 // --- the Lab, the Gauntlet, the Infirmary and the haul ---
 
-/** Percentage points the Lab takes off every research project's clock, per level. */
-export const RESEARCH_TIME_PER_LAB_LEVEL = 2;
+/**
+ * Percentage off every research price, per Lab level (maintainer ruling P7-C, 2026-10-02).
+ *
+ * Raising the Lab cuts what research costs and not how long it takes: the clock is the Researcher's
+ * (with the crew's research points and the Lab's cards), the price is the Lab's and the
+ * track officer's. It took 2 points a level off the clock until that day. At 1.5 a level a Lab at
+ * 20 takes 30% off, the same as the best track officer, and the two multiply (`researchItemPrice`),
+ * so no price falls below about half.
+ */
+export const RESEARCH_COST_PER_LAB_LEVEL = 1.5;
 
+/** What the Lab's level takes off every research price, as a percentage. */
+export function labResearchCostCut(buildings: readonly Building[]): number {
+  return buildingLevel(buildings, 'lab') * RESEARCH_COST_PER_LAB_LEVEL;
+}
+
+/**
+ * The district's points off a research clock: the research cards fitted, uncapped. The Lab's own
+ * level stopped counting here on 2026-10-02 (P7-C): it cuts the price now.
+ *
+ * Points rather than a finished cut (maintainer, 2026-10-01: "make them add"). They join the crew's
+ * research speed and the Researcher's cut on one sum, and {@link researchTimeCut} is the one
+ * bound on it.
+ */
 export function researchTimeReduction(buildings: readonly Building[]): number {
-  const effects = districtEffects(buildings);
-  return Math.min(
-    MAX_EFFECT_REDUCTION,
-    buildingLevel(buildings, 'lab') * RESEARCH_TIME_PER_LAB_LEVEL + effects.research_time_reduction,
-  );
+  return districtEffects(buildings).research_time_reduction;
+}
+
+/**
+ * The research clock's taper: in full to 30 points, then closing on 92% off, never reaching it.
+ *
+ * Sized against the old compound: a Lab 10 with Filed Drawings, a crew on 15 and a Head buying 20
+ * is 55% off (was 50%); a Lab 20 with three research cards, a crew on 30 and a Head at the top is
+ * 85% off (was 87%).
+ */
+export const RESEARCH_TIME_KNEE = 30;
+export const RESEARCH_TIME_CEILING = 92;
+
+/** Percent off a research clock for this many points, every source added. */
+export function researchTimeCut(points: number): number {
+  return softCap(points, RESEARCH_TIME_KNEE, RESEARCH_TIME_CEILING);
 }
 
 /**
@@ -133,50 +176,53 @@ export function raidLootBonus(buildings: readonly Building[]): number {
   return districtEffects(buildings).raid_loot_percent;
 }
 
-// --- the Gauntlet (§B6) and the Greenhouse (§B5): what training costs and how long it takes ---
+// --- the Gauntlet (§B6) and the Greenhouse (§B5): what mustering costs and how long it takes ---
 
-/** Percentage points off every unit's training clock, per Gauntlet level. */
-export const TRAINING_TIME_PER_GAUNTLET_LEVEL = 2;
+/** Percentage points off every unit's muster clock, per Gauntlet level. */
+export const MUSTER_TIME_PER_GAUNTLET_LEVEL = 2;
 /** And the ceiling on it, before modifications. A maxed Gauntlet is 40 points on its own. */
-export const MAX_GAUNTLET_TRAINING_BONUS = 40;
+export const MAX_GAUNTLET_MUSTER_BONUS = 40;
 
 /**
- * §B6: how much faster this district trains, in percentage points.
+ * §B6: how much faster this district musters, in percentage points.
  *
- * Applies to **every** unit on the roster, including the ones the Gauntlet cannot train itself.
+ * Applies to **every** unit on the roster, including the ones the Gauntlet cannot muster itself.
  * That is the maintainer's wording and it is the right rule: the Gauntlet is where a crew learns to
- * drill, and a Cyber Dog assembled in the Infirmary is still handled by people who trained here.
+ * drill, and a Cyber Dog assembled in the Infirmary is still handled by people who learned the trade here.
  *
  * The Gauntlet's own contribution is capped separately from the modifications on top, so a maxed
  * Gauntlet is 40 points and a maxed Gauntlet carrying Salvaged Simulators is 52.
  */
-export function trainingTimeReduction(buildings: readonly Building[]): number {
+export function musterTimeReduction(buildings: readonly Building[]): number {
   const effects = districtEffects(buildings);
   const gauntlet = Math.min(
-    MAX_GAUNTLET_TRAINING_BONUS,
-    buildingLevel(buildings, 'gauntlet') * TRAINING_TIME_PER_GAUNTLET_LEVEL,
+    MAX_GAUNTLET_MUSTER_BONUS,
+    buildingLevel(buildings, 'gauntlet') * MUSTER_TIME_PER_GAUNTLET_LEVEL,
   );
-  return gauntlet + effects.training_time_reduction;
+  return gauntlet + effects.muster_time_reduction;
 }
 
-/** Percentage points off the **supplies** line of a training bill, per Greenhouse level. */
-export const TRAINING_SUPPLIES_PER_GREENHOUSE_LEVEL = 2;
-/** And the ceiling on it, before modifications. */
-export const MAX_GREENHOUSE_SUPPLIES_DISCOUNT = 30;
+/**
+ * Percentage points off the **supplies** line of a muster bill, per Greenhouse level.
+ *
+ * Half a point (maintainer, 2026-10-01: "generally nerf the supply reduction bonuses so that it's
+ * hard to get there and a mid game crew is expected to have reduced it by about 20% or so"). It was
+ * 2 a level stopped at 30, which put a level 10 Greenhouse at 20 on its own and a mid-game crew
+ * near 41% off the line with one card. A level 20 Greenhouse is 10 now, and nothing stops it: the
+ * structure's own ceiling of 20 levels is the only bound, so every level still pays.
+ */
+export const MUSTER_SUPPLIES_PER_GREENHOUSE_LEVEL = 0.5;
 
 /**
- * §B5: how much less supplies a unit costs to train here, in percentage points.
+ * §B5: how much less supplies a unit costs to muster here, in percentage points.
  *
  * Supplies only, and that restriction is the whole point of the channel existing: the Greenhouse
  * grows food, so what it makes cheaper is the food a recruit eats while they learn, not the scrap
- * their armour is cut from. Folded on top of whatever general training discount the crew and the
- * ground already carry, in `trainingCost`, which applies the two to different lines of the bill.
+ * their armour is cut from. Folded on top of whatever general muster discount the crew and the
+ * ground already carry, in `musterCost`, which applies the two to different lines of the bill.
  */
-export function trainingSuppliesReduction(buildings: readonly Building[]): number {
+export function musterSuppliesReduction(buildings: readonly Building[]): number {
   const effects = districtEffects(buildings);
-  const greenhouse = Math.min(
-    MAX_GREENHOUSE_SUPPLIES_DISCOUNT,
-    buildingLevel(buildings, 'greenhouse') * TRAINING_SUPPLIES_PER_GREENHOUSE_LEVEL,
-  );
-  return greenhouse + effects.training_supplies_reduction;
+  const greenhouse = buildingLevel(buildings, 'greenhouse') * MUSTER_SUPPLIES_PER_GREENHOUSE_LEVEL;
+  return greenhouse + effects.muster_supplies_reduction;
 }

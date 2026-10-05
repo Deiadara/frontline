@@ -3,18 +3,13 @@ import {
   BUILDING_MAX_LEVEL,
   districtDefense,
   gateDefensePercent,
-  gateIntelResistancePercent,
   type Building,
 } from '../building/index.js';
-import {
-  capturedGateDefensePercent,
-  capturedGateIntelResistancePercent,
-  noTerritoryEffects,
-} from '../city/index.js';
+import { capturedGateDefensePercent, noTerritoryEffects } from '../city/index.js';
 import { analyseBattle, reportReaches } from './analysis.js';
 import { bareBattlefield } from './battlefield.js';
 import {
-  MAX_COHESION_WIDTH,
+  COHESION_CEILING,
   effectiveFrontage,
   engagedUnits,
   simulate,
@@ -49,15 +44,9 @@ import {
   type BattleTarget,
   type ScheduledBattle,
 } from './scheduled.js';
-import {
-  TRAP_CATALOG,
-  findTrap,
-  springTrap,
-  trapBite,
-  trapEffectLine,
-  trapsAvailable,
-} from './traps.js';
-import type { Army } from '../units/training.js';
+import { TRAP_CATALOG, findTrap, springTrap, trapBite, trapEffectLine } from './traps.js';
+import type { Army } from '../units/muster.js';
+import { blueprintForTrap } from '../blueprints/requirements.js';
 
 const NOON = new Date('2026-08-16T12:00:00.000Z');
 const at = (iso: string): Date => new Date(iso);
@@ -540,12 +529,13 @@ const headcount = (force: Army): number =>
   Object.values(force).reduce((sum, count) => sum + count, 0);
 
 describe('traps (§A4)', () => {
-  it('gates every trap behind a Lab programme, and hands over only what is known', () => {
-    for (const spec of TRAP_CATALOG) expect(spec.requiresTech).toMatch(/^tech_/);
-    expect(trapsAvailable([])).toEqual([]);
-    expect(trapsAvailable(['tech_pressure_plates']).map((spec) => spec.id)).toEqual([
-      'trap_pressure_plates',
-    ]);
+  // Opened by its drawings alone (maintainer, 2026-10-01): every trap has a blueprint, and none
+  // names a Lab programme any more.
+  it('opens every trap off a blueprint, and nothing in the Lab', () => {
+    for (const spec of TRAP_CATALOG) {
+      expect(blueprintForTrap(spec.id), spec.id).toBeDefined();
+      expect(Object.keys(spec), spec.id).not.toContain('requiresTech');
+    }
   });
 
   /**
@@ -876,7 +866,7 @@ describe('everything that feeds the engine (§A5)', () => {
 
   it('never widens the ground past the ceiling, however well led the crew is', () => {
     const side: SideState = { ...run({}).attacker, cohesionPercent: 1000 };
-    expect(effectiveFrontage(side, 20)).toBe(20 * MAX_COHESION_WIDTH);
+    expect(effectiveFrontage(side, 20)).toBeLessThanOrEqual(20 * (1 + COHESION_CEILING / 100));
   });
 
   it('does nothing at all for a force that already fits on the ground', () => {
@@ -922,9 +912,6 @@ describe('what a breach does to a district (§A4)', () => {
     });
     for (const level of [1, 4, 12, BUILDING_MAX_LEVEL]) {
       expect(gateDefensePercent([gateAt(level)])).toBe(capturedGateDefensePercent(level));
-      expect(gateIntelResistancePercent([gateAt(level)])).toBe(
-        capturedGateIntelResistancePercent(level),
-      );
     }
     // The flat rating moves with the level too, and with nothing a player can buy separately.
     expect(districtDefense([gateAt(2)])).toBeGreaterThan(districtDefense([gateAt(1)]));

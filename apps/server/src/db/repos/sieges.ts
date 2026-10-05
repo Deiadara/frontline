@@ -3,6 +3,7 @@ import {
   withoutRetiredVehicles,
   BattleAnalysisSchema,
   BattleDeploymentSchema,
+  BattleSideSchema,
   LocationHolderSchema,
   ScheduledBattleSchema,
   type BattleAnalysis,
@@ -13,6 +14,7 @@ import {
   type ScheduledBattle,
 } from '@frontline/shared';
 import { readJson } from '../json.js';
+import type { Statement } from 'better-sqlite3';
 import type { AppDatabase } from '../index.js';
 
 /**
@@ -144,6 +146,12 @@ export interface SiegeRepo {
    * that never took place would be a lie in the crew's own history.
    */
   abandon(id: string, at: string): void;
+  /**
+   * How a fight came out, for the Stackhouse's book: still coming (`resolvedAt` null), won by a
+   * side, or closed with no winner (abandoned, or a report this build cannot read). Undefined when
+   * there is no such fight.
+   */
+  outcomeOf(id: string): { resolvedAt: string | null; winner: BattleSide | null } | undefined;
 
   deployments(battleId: string): BattleDeployment[];
   /**
@@ -168,6 +176,13 @@ export interface SiegeRepo {
    * as a second contributor, which is what pays the allied perks.
    */
   removeDeployment(battleId: string, side: BattleSide, baseId: string): void;
+  /** The most this crew has had at this fight, as counted toward the deployed feats (0140). */
+  deployedPeak(battleId: string, baseId: string): { units: number; unitSlots: number };
+  setDeployedPeak(
+    battleId: string,
+    baseId: string,
+    peak: { units: number; unitSlots: number },
+  ): void;
   /**
    * The coming fights this officer is already named on, other than `exceptBattleId`.
    *
@@ -296,6 +311,10 @@ export function createSiegeRepo(db: AppDatabase): SiegeRepo {
       WHERE d.officer_id = ? AND d.battle_id != ? AND b.resolved_at IS NULL`,
   );
 
+  // Prepared on first use: the table arrives in 0140, and some tests migrate only part way.
+  let peakStmt: Statement | undefined;
+  let putPeakStmt: Statement | undefined;
+
   const gateStmt = db.prepare('SELECT * FROM district_gates WHERE district_id = ?');
   const breakGateStmt = db.prepare(
     `INSERT INTO district_gates (district_id, broken_until) VALUES (?, ?)
@@ -318,6 +337,18 @@ export function createSiegeRepo(db: AppDatabase): SiegeRepo {
         battle.holdAfterCapture ? 1 : 0,
         battle.wokeSleepers ? 1 : 0,
       );
+    },
+    outcomeOf(id) {
+      const row = findStmt.get(id) as BattleRow | undefined;
+      if (!row) return undefined;
+      if (row.resolved_at === null) return { resolvedAt: null, winner: null };
+      const parsed =
+        row.analysis_json === null
+          ? null
+          : BattleSideSchema.safeParse(
+              (readJson(row.analysis_json) as { winner?: unknown } | null)?.winner,
+            );
+      return { resolvedAt: row.resolved_at, winner: parsed?.success ? parsed.data : null };
     },
     find(id) {
       const row = findStmt.get(id) as BattleRow | undefined;
@@ -408,6 +439,24 @@ export function createSiegeRepo(db: AppDatabase): SiegeRepo {
 
     removeDeployment(battleId, side, baseId) {
       removeDeploymentStmt.run(battleId, side, baseId);
+    },
+
+    deployedPeak(battleId, baseId) {
+      peakStmt ??= db.prepare(
+        'SELECT units, unit_slots FROM deployed_peaks WHERE battle_id = ? AND base_id = ?',
+      );
+      const row = peakStmt.get(battleId, baseId) as
+        { units: number; unit_slots: number } | undefined;
+      return { units: row?.units ?? 0, unitSlots: row?.unit_slots ?? 0 };
+    },
+
+    setDeployedPeak(battleId, baseId, peak) {
+      putPeakStmt ??= db.prepare(
+        `INSERT INTO deployed_peaks (battle_id, base_id, units, unit_slots) VALUES (?, ?, ?, ?)
+         ON CONFLICT (battle_id, base_id) DO UPDATE SET units = excluded.units,
+           unit_slots = excluded.unit_slots`,
+      );
+      putPeakStmt.run(battleId, baseId, peak.units, peak.unitSlots);
     },
 
     leadingElsewhere(officerId, exceptBattleId) {

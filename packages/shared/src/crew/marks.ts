@@ -95,7 +95,9 @@ export function markIndex(mark: OfficerMark): number {
  */
 export function markFromPoints(points: number): OfficerMark {
   const above = Math.max(0, points - OFFICER_MARK_FLOOR);
-  const band = Math.floor(above / OFFICER_MARK_BAND);
+  // A hair of tolerance (bug pass, 2026-10-05): the band is 90/21, so a score built as
+  // `FLOOR + i * BAND` lands a float's width under its own floor and read one grade low.
+  const band = Math.floor(above / OFFICER_MARK_BAND + 1e-9);
   return OFFICER_MARKS[Math.min(OFFICER_MARKS.length - 1, band)]!;
 }
 

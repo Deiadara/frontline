@@ -1,5 +1,6 @@
 import { combineGarrison, combineLeaderAt, combineSlotBudget, looterGarrison } from './combine.js';
 import { z } from 'zod';
+import { PartialResourcesSchema } from '../resources.js';
 import { IdSchema, IsoDateTimeSchema } from '../primitives.js';
 import { UNIT_SLOTS_PER_LOCATION, UNIT_SLOTS_PER_LOCATION_LEVEL } from '../building/unit-slots.js';
 import type { District } from './districts.js';
@@ -70,6 +71,13 @@ export const LocationControlSchema = z.object({
   level: z.number().int().min(1).max(MAX_LOCATION_LEVEL).default(1),
   /** Set while a level is being worked on; null when nothing is under way. */
   upgradingUntil: IsoDateTimeSchema.nullable().default(null),
+  /**
+   * What the running level was charged, so calling it off hands back what was paid rather than
+   * today's price (bug pass, 2026-10-04: the Engineer's cut is read live, so seating one to start
+   * and benching them to cancel refunded more than was spent). Null with nothing under way, and on
+   * a row written before the column, which refunds the list price as it always did.
+   */
+  upgradePaid: PartialResourcesSchema.nullable().optional(),
   /** Units standing here, keyed by unit id. Belongs to whoever `holder` is. */
   garrison: z.record(z.string(), z.number().int().nonnegative()),
 });

@@ -73,13 +73,13 @@ async function crew(): Promise<Stack> {
   return { app, token, baseId: chosen.json<{ base: { id: string } }>().base.id };
 }
 
-/** Seats a Head of Research and banks the Reimagining rung: the two halves of the §G4 gate. */
+/** Seats a Researcher and banks the Reimagining rung: the two halves of the §G4 gate. */
 function openTheLab(stack: Stack, { seat = true, research = true } = {}): void {
   const base = stack.app.repos.bases.findById(stack.baseId);
   if (!base) throw new Error('no base');
   stack.app.repos.bases.updateCommanders(
     stack.baseId,
-    seat ? [createCommander('off-1', 'Vell Ashgrove', 'head_of_research')] : [],
+    seat ? [createCommander('off-1', 'Vell Ashgrove', 'researcher')] : [],
   );
   stack.app.repos.bases.updateResearch(stack.baseId, {
     ...base.research,
@@ -204,7 +204,7 @@ describe('the Reimagining trade (§G2, §G3)', () => {
     expect(heldBy(stack)[PAID] ?? 0).toBe(REIMAGINING_PAGES_SPENT + 1);
   });
 
-  it('refuses a crew with no Head of Research, and spends nothing', async () => {
+  it('refuses a crew with no Researcher, and spends nothing', async () => {
     const stack = await crew();
     openTheLab(stack, { seat: false });
     hold(stack, STACK);
@@ -367,10 +367,35 @@ describe('the Reimagining trade (§G2, §G3)', () => {
 
     const read = async (s: Stack) =>
       (await s.app.inject({ method: 'GET', url: '/api/market', headers: auth(s.token) })).json<{
-        reimagining: { hasHeadOfResearch: boolean; hasReimaginingResearch: boolean };
+        reimagining: { hasResearcher: boolean; hasReimaginingResearch: boolean };
       }>().reimagining;
 
-    expect(await read(stack)).toEqual({ hasHeadOfResearch: true, hasReimaginingResearch: true });
-    expect((await read(shut)).hasHeadOfResearch).toBe(false);
+    expect(await read(stack)).toEqual({
+      hasResearcher: true,
+      hasReimaginingResearch: true,
+      researcherBackInSeconds: null,
+    });
+    expect((await read(shut)).hasResearcher).toBe(false);
+  });
+
+  // Laid up is not an empty chair: the board says when they are back (bug pass, 2026-10-02).
+  it('says how long an injured Researcher is out', async () => {
+    const stack = await crew();
+    openTheLab(stack);
+    const back = new Date(Date.now() + 2 * 3_600_000).toISOString();
+    stack.app.repos.bases.updateCommanders(stack.baseId, [
+      { ...createCommander('off-1', 'Vell Ashgrove', 'researcher'), injuredUntil: back },
+    ]);
+    const read = await stack.app.inject({
+      method: 'GET',
+      url: '/api/market',
+      headers: auth(stack.token),
+    });
+    const context = read.json<{
+      reimagining: { hasResearcher: boolean; researcherBackInSeconds: number | null };
+    }>().reimagining;
+    expect(context.hasResearcher).toBe(false);
+    expect(context.researcherBackInSeconds).toBeGreaterThan(7_000);
+    expect(context.researcherBackInSeconds).toBeLessThanOrEqual(7_200);
   });
 });

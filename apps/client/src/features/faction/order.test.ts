@@ -54,13 +54,14 @@ describe('the order the table is read in', () => {
     expect(seats.map((seat) => seat.username)).toEqual(['Nikos', 'Sable', 'Marrow']);
   });
 
-  it('puts whoever can field the most first inside a rank', () => {
+  // By who sat down first since 2026-10-02 (P3-C), never by the army at home, which moves.
+  it('puts whoever joined first first inside a rank, whatever they can field', () => {
     const seats = seatOrder([
-      member('Small', 'member', 3),
-      member('Big', 'member', 300),
-      member('Middle', 'member', 30),
+      { ...member('Zed', 'member', 3), joinedAt: '2026-08-01T00:00:00.000Z' },
+      { ...member('Abel', 'member', 300), joinedAt: '2026-08-03T00:00:00.000Z' },
+      { ...member('Mid', 'member', 30), joinedAt: '2026-08-02T00:00:00.000Z' },
     ]);
-    expect(seats.map((seat) => seat.username)).toEqual(['Big', 'Middle', 'Small']);
+    expect(seats.map((seat) => seat.username)).toEqual(['Zed', 'Mid', 'Abel']);
   });
 
   it('breaks a tie by name, so an unchanged faction does not reshuffle between reads', () => {

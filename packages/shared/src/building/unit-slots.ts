@@ -4,10 +4,10 @@ import {
   unitSlotsUsed,
   unitSlotsQueued,
   type Army,
-  type TrainingQueue,
+  type MusterQueue,
 } from '../units/index.js';
 import { findVehicle, fleetSize, type Fleet } from './vehicles.js';
-import { unitSlotCapacity } from './production.js';
+import { baseUnitSlotBeds, unitSlotCapacity } from './production.js';
 import type { Building } from './state.js';
 
 /**
@@ -19,7 +19,7 @@ import type { Building } from './state.js';
  * There used to be two ceilings and they did not know about each other. The Quarters housed
  * the officers; the Gauntlet supplied an army; and a crew could fill both to the brim
  * without either noticing, so "how big is this crew" had two answers and neither was the whole
- * truth. A district that is three quarters barracks should not also have room for nineteen
+ * truth. A district that is three quarters barracks should not also have room for eighteen
  * officers, and the version with two counters could not say so.
  *
  * One pool now. The Quarters raise it and captured ground raises it, because people who work for
@@ -81,8 +81,25 @@ export const UNIT_SLOTS_PER_LOCATION_LEVEL = 3;
 export function districtUnitSlotCapacity(
   buildings: readonly Building[],
   effects: Pick<TerritoryEffects, 'unitSlotBonus'>,
+  /**
+   * The Steward's passive (`passives.ts`, maintainer 2026-10-04): a share of the **base**, which is
+   * the structures' own beds and the ground's flat slots. A card that adds a percentage of unit
+   * slots is a bonus on top, not base, so the Steward's share never multiplies it.
+   */
+  stewardPercent = 0,
+  /**
+   * The ground's own flat slots: the share of `unitSlotBonus` the held locations give. Research
+   * and perks add flat slots on the same channel, and they are not base either (maintainer,
+   * 2026-10-05: "base: buildings and ground only"), so the Steward is paid on this alone. Defaults
+   * to the whole channel for a caller that only has ground on it.
+   */
+  groundSlots: number = effects.unitSlotBonus,
 ): number {
-  return unitSlotCapacity(buildings) + Math.max(0, effects.unitSlotBonus);
+  const ground = Math.max(0, effects.unitSlotBonus);
+  const base = baseUnitSlotBeds(buildings) + Math.max(0, Math.min(groundSlots, ground));
+  return (
+    unitSlotCapacity(buildings) + ground + Math.floor((base * Math.max(0, stewardPercent)) / 100)
+  );
 }
 
 export interface UnitSlotDraw {
@@ -94,10 +111,10 @@ export interface UnitSlotDraw {
    * What is on the bench, counted at order time so a batch cannot overfill on landing.
    *
    * Units at their own slots and machines at one each, because the bench builds both now
-   * (`units/training.ts`). A machine moves from here into {@link UnitSlotDraw.fleet} on the read
+   * (`units/muster.ts`). A machine moves from here into {@link UnitSlotDraw.fleet} on the read
    * that delivers it, exactly as a unit moves from here into `army`.
    */
-  training: number;
+  mustering: number;
   /** Machines parked in the yard, one bed each. */
   fleet: number;
   total: number;
@@ -110,7 +127,7 @@ export interface UnitSlotDraw {
  * yard, rather than in both places. A vehicle order is always one machine today, and writing it
  * off the same two fields means a batched one cannot quietly go uncounted.
  */
-function machinesQueued(queue: TrainingQueue): number {
+function machinesQueued(queue: MusterQueue): number {
   return queue.reduce((total, order) => {
     if (findVehicle(order.unitId) === undefined) return total;
     return total + Math.max(0, order.count - order.delivered);
@@ -136,7 +153,7 @@ export const NO_FREE_BED_TEXT = 'Every bed in your district is taken, and an off
 export function unitSlotDraw(input: {
   commanders: readonly { readonly id: string }[];
   army: Army;
-  trainingQueue: TrainingQueue;
+  musterQueue: MusterQueue;
   /** Machines in the yard. Required rather than optional: a caller that forgets it under-counts. */
   fleet: Fleet;
   /** Units standing on captured ground. Still this crew's people, and still eating. */
@@ -144,9 +161,9 @@ export function unitSlotDraw(input: {
 }): UnitSlotDraw {
   const officers = input.commanders.length;
   const army = unitSlotsUsed(input.army) + (input.garrison ? unitSlotsUsed(input.garrison) : 0);
-  const training = unitSlotsQueued(input.trainingQueue) + machinesQueued(input.trainingQueue);
+  const mustering = unitSlotsQueued(input.musterQueue) + machinesQueued(input.musterQueue);
   const fleet = fleetSize(input.fleet);
-  return { officers, army, training, fleet, total: officers + army + training + fleet };
+  return { officers, army, mustering, fleet, total: officers + army + mustering + fleet };
 }
 
 /** What one of these costs against the pool. The sheet's own slot figure, and nothing new. */

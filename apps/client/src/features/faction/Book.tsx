@@ -156,7 +156,7 @@ export function Book({
             <Heading>Ending it</Heading>
             <p className="font-body text-[13px] leading-relaxed text-ink-300">
               Disbanding closes the table for everybody at it. To walk out and leave it standing,
-              hand it to somebody first, then leave from your own seat.
+              leave from your own seat and name who leads after you.
             </p>
             <Button
               variant="danger"

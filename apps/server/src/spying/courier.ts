@@ -10,7 +10,13 @@ import {
 import type { Repositories } from '../db/repos/index.js';
 import { tallyCourierReport, tallySpyReport } from '../feats/tally.js';
 import { settleEach } from '../world/guard.js';
-import { composeSpyReport, fileReportNotice, groundBehind, readGround } from './spying.js';
+import {
+  composeSpyReport,
+  fileReportNotice,
+  groundBehind,
+  readGround,
+  whispersAtWork,
+} from './spying.js';
 
 /**
  * Turned Runners (maintainer, 2026-09-28): "Every day you get one full report of a player's
@@ -25,6 +31,11 @@ import { composeSpyReport, fileReportNotice, groundBehind, readGround } from './
  * Filed on the first tick of the day on which the crew holds the rung, which for a crew that
  * already held it is the tick after midnight. The report's id is the crew and the day, so a
  * restart, a retried tick or two ticks racing each other file it once.
+ *
+ * The runner is turned by the Master of Whispers and reports to them, so he comes only while
+ * somebody is working that chair (bug pass, 2026-10-01): an empty chair, a benched officer or
+ * one in a hospital bed stops him, the way it stops every other job the chair runs. He is not
+ * owed for the days he missed; a chair back at work later the same day still gets that day's.
  */
 
 /** The report a crew's courier brings in on one day. Its id is the once-a-day guard. */
@@ -40,7 +51,11 @@ export function courierReportId(baseId: string, day: string): string {
  * gate. Held by a crew that is neither the reader nor in the reader's faction; for a home gate,
  * the crew living behind it.
  */
-export function courierTargets(repos: Repositories, reader: Base): SpyTarget[] {
+export function courierTargets(
+  repos: Repositories,
+  reader: Base,
+  now: Date = new Date(),
+): SpyTarget[] {
   const factions = repos.factions.factionOfEveryone();
   const ownerOf = new Map(repos.bases.listSummaries().map((crew) => [crew.id, crew]));
   const readerFaction = factions.get(reader.ownerId);
@@ -58,7 +73,7 @@ export function courierTargets(repos: Repositories, reader: Base): SpyTarget[] {
     .map((crew) => ({ kind: 'gate', districtId: crew.districtId }));
 
   const readable = [...locations, ...gates].filter(
-    (target) => groundBehind(repos, reader, target).kind === 'ground',
+    (target) => groundBehind(repos, reader, target, now).kind === 'ground',
   );
   const key = (target: SpyTarget) => JSON.stringify(target);
   return [...new Map(readable.map((target) => [key(target), target])).values()].sort((a, b) =>
@@ -97,14 +112,14 @@ export function settleCouriers(repos: Repositories, now: Date): number {
     (baseId) => baseId,
     (baseId) => {
       const reader = repos.bases.findById(baseId);
-      if (!reader) return;
-      const target = courierPick(baseId, day, courierTargets(repos, reader));
+      if (!reader || !whispersAtWork(reader, now)) return;
+      const target = courierPick(baseId, day, courierTargets(repos, reader, now));
       if (!target) return;
       const report = composeSpyReport(
         repos,
         reader,
         { id: courierReportId(baseId, day), target, tier: null, capsPaid: 0, foundOut: false },
-        readGround(reader, groundBehind(repos, reader, target), Number.POSITIVE_INFINITY),
+        readGround(reader, groundBehind(repos, reader, target, now), Number.POSITIVE_INFINITY),
         now,
       );
       repos.spying.insertReport(report);

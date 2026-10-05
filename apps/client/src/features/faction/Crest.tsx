@@ -1,7 +1,13 @@
-import { BADGE_COLOR_VALUES, FACTION_RANK_LABELS, type FactionResponse } from '@frontline/shared';
+import {
+  BADGE_COLOR_VALUES,
+  FACTION_RANK_LABELS,
+  dayInZone,
+  type FactionResponse,
+} from '@frontline/shared';
 import { OnArt } from '../game/PlateRoom';
 import { FactionBadge, PropGlyph } from './FactionBadge';
 import { seatTicks } from './geometry';
+import { usePlayerZone } from '../settings/usePlayerZone';
 
 /**
  * What is pinned to the wall: the badge, the name, the motto, and your own rank at this table.
@@ -35,6 +41,7 @@ export function Crest({
   rank: FactionResponse['rank'];
 }) {
   const badge = faction.badge;
+  const zone = usePlayerZone();
 
   return (
     <OnArt className="pointer-events-auto w-[18rem] overflow-hidden px-3 py-2.5 xl:w-[20rem]">
@@ -61,7 +68,8 @@ export function Crest({
               {faction.name}
             </h1>
             <span className="font-display text-[9.5px] uppercase tracking-[0.16em] text-brass-300">
-              {rank ? FACTION_RANK_LABELS[rank] : 'Guest'} · since {faction.foundedAt.slice(0, 10)}
+              {rank ? FACTION_RANK_LABELS[rank] : 'Guest'} · since{' '}
+              {dayInZone(new Date(faction.foundedAt), zone)}
             </span>
           </div>
         </div>

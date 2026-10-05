@@ -29,18 +29,19 @@ describe('a locked door', () => {
     expect(AREA_REQUIREMENTS[AREA].kind).toBe('notoriety');
   });
 
-  it('names the rank that opens it and the rank you are on, never an index', () => {
+  it('names the rank that opens it, never an index, and nothing under it', () => {
     draw(AREA, 0);
     const sign = screen.getByTestId('locked-door');
     const wanted = AREA_REQUIREMENTS[AREA];
     if (wanted.kind !== 'notoriety') throw new Error('fixture: not a rank door');
 
-    // Both names present...
     expect(sign).toHaveTextContent(notorietyTier(wanted.rank));
-    expect(sign).toHaveTextContent(notorietyTier(0));
-    // ...and no bare index anywhere on the sign. `rank 0` and `rank 3` are the two shapes the
-    // regression produced; neither may come back.
+    // No bare index anywhere on the sign. `rank 0` and `rank 3` are the two shapes the regression
+    // produced; neither may come back.
     expect(sign.textContent ?? '').not.toMatch(/rank \d/i);
+    // The line on where the player stands went (maintainer, 2026-10-01).
+    expect(screen.queryByTestId('locked-door-standing')).toBeNull();
+    expect(sign.textContent ?? '').not.toMatch(/never lost/);
   });
 
   it('says the door should be open once the rank is held, rather than naming a distance', () => {
@@ -48,5 +49,29 @@ describe('a locked door', () => {
     if (wanted.kind !== 'notoriety') throw new Error('fixture: not a rank door');
     draw(AREA, wanted.rank);
     expect(screen.getByTestId('locked-door-standing')).toHaveTextContent(/reload/i);
+  });
+});
+
+describe('a door that opens on a level', () => {
+  const BAR = AREA_REQUIREMENTS.bar;
+  if (BAR.kind !== 'level') throw new Error('fixture: the Bar no longer opens on a level');
+
+  function drawAt(level: number) {
+    render(
+      <MemoryRouter>
+        <LockedDoor area="market" facts={{ ...noUnlocks(), level }} />
+      </MemoryRouter>,
+    );
+    return screen.getByTestId('locked-door-standing');
+  }
+
+  it('does not send a player to the Bar before the Bar is open', () => {
+    const hint = drawAt(BAR.level - 1);
+    expect(hint).not.toHaveTextContent(/Bar/);
+    expect(hint).toHaveTextContent(/feats/);
+  });
+
+  it('names the Bar once it is', () => {
+    expect(drawAt(BAR.level)).toHaveTextContent(/sign at the Bar/);
   });
 });

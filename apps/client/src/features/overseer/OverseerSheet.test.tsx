@@ -32,7 +32,9 @@ describe('OverseerSheet', () => {
 
   it('prints the mechanical line for whichever character it is handed', () => {
     sheet('paymaster');
-    expect(screen.getByText('-18% wages')).toBeVisible();
+    expect(
+      screen.getByText('-18% off wages agreed at signing while they are working'),
+    ).toBeVisible();
   });
 
   it('carries the name, the whole description and the browser test handle', () => {

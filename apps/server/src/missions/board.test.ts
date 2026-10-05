@@ -53,7 +53,7 @@ function makeStack(): { repos: Repositories; base: Base } {
     buildings: [{ id: 'nexus-1', kind: 'nexus', level: 5, modifications: [] }],
     buildQueue: [],
     army: { razors: 20 },
-    trainingQueue: [],
+    musterQueue: [],
     training: startingTraining(now),
     inventory: {},
     fittedUpgrades: [],

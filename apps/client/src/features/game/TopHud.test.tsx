@@ -88,7 +88,7 @@ describe('renaming the crew from the standing bar', () => {
   const fetchMock = vi.fn();
 
   beforeEach(() => {
-    useSession.setState({ token: 'test-token', user: null });
+    useSession.setState({ signedIn: true, user: null });
     vi.stubGlobal('fetch', fetchMock);
     fetchMock.mockImplementation(() =>
       Promise.resolve({
@@ -379,11 +379,11 @@ describe('the standing bar does not size itself to its contents', () => {
 });
 
 /**
- * The admin plate (maintainer ruling, 2026-09-29): an admin build says on the bar that its clocks
- * are five seconds and its prices are not taken, and a normal build says nothing.
+ * The admin plate is gone from the bar (maintainer, 2026-09-30), in every build: the Console says
+ * testing mode on its own page, and the bar breaks at the same width whichever build it is in.
  */
-describe('the admin plate', () => {
-  const renderWith = (adminSeconds: number | undefined) =>
+describe('the standing bar in a testing build', () => {
+  it('carries no admin plate', () => {
     render(
       <QueryClientProvider client={new QueryClient()}>
         <MemoryRouter>
@@ -393,19 +393,11 @@ describe('the admin plate', () => {
             resources={STARTING_RESOURCES}
             economy={economy}
             buildings={buildings}
-            adminSeconds={adminSeconds}
           />
         </MemoryRouter>
       </QueryClientProvider>,
     );
-
-  it('is on the bar in an admin build', () => {
-    renderWith(5);
-    expect(screen.getByTestId('hud-admin')).toHaveTextContent('Admin · 5s · free');
-  });
-
-  it('is not there otherwise', () => {
-    renderWith(undefined);
     expect(screen.queryByTestId('hud-admin')).toBeNull();
+    expect(screen.queryByText(/· free/)).toBeNull();
   });
 });

@@ -31,7 +31,7 @@ import { UnitMoveViewSchema } from './moves/index.js';
 export const BattleLeaderSchema = z.object({
   officerId: IdSchema,
   name: z.string(),
-  /** The chair they sit in, or null on the bench. Shown so the picker is not nineteen bare names. */
+  /** The chair they sit in, or null on the bench. Shown so the picker is not thirteen bare names. */
   role: OfficerRoleSchema.nullable(),
   /** What they would fight as, so the player can compare them to a unit before sending them. */
   stats: UnitStatsSchema,
@@ -41,7 +41,7 @@ export const BattleLeaderSchema = z.object({
    * A leader has to get there like everybody else, at their own `speed` and in whatever machine
    * this crew has committed to the fight, so the picker's choice is between a better sheet and a
    * shorter road rather than between two sheets. Per officer rather than one figure for the crew,
-   * because the pace is the person: the Head of Finance and the Cartographer are not the same number.
+   * because the pace is the person: the Fixer and the Cartographer are not the same number.
    *
    * Defaulted so a payload written before the field existed still parses.
    */
@@ -56,9 +56,10 @@ export const BattleRoleSchema = z.enum(BATTLE_ROLES);
 /**
  * What the caller has standing on one side of a coming fight.
  *
- * Exact for their own, because it is theirs. The enemy's is a *count* and only when their
- * counter-intelligence lets it be one, see `battle/intel.ts`, which is why `enemySize` is
- * nullable and `enemyForce` does not exist at all. A composition field that was sometimes null
+ * Exact for their own, because it is theirs. The enemy's is a *count*, and only off the caller's
+ * last spy report on the ground (`readEnemy` in the server's `battle/view.ts`; the free blur of
+ * `battle/intel.ts` is gone since 2026-09-22), which is why `enemySize` is nullable and
+ * `enemyForce` does not exist at all. A composition field that was sometimes null
  * would be a field a client could learn something from by its shape.
  */
 export const BattleMusterSchema = z.object({
@@ -97,7 +98,7 @@ export const BattleBoostOptionSchema = z.object({
   reach: z.number().int().min(0).max(100),
   /** The crew has the points. */
   affordable: z.boolean(),
-  /** The Lab or the right officer has put it on the table. */
+  /** Its blueprint is assembled, or the right officer has put it on the table. */
   available: z.boolean(),
   /**
    * Contraband the crew already owns, rather than a name they can burn infamy on.
@@ -157,6 +158,12 @@ export const BattleViewSchema = z.object({
   /** The caller's own force, exact. Null when they are neither side. */
   muster: BattleMusterSchema.nullable(),
   /**
+   * The caller's own row only, where `muster` is the whole side, allies included (bug pass,
+   * 2026-10-02): the Monitor counted an ally's reinforcement as the reader's units at a fight. Null
+   * when the caller has nobody there; absent on a payload from before it, read as `muster`.
+   */
+  own: BattleMusterSchema.pick({ army: true, perimeter: true, size: true }).nullable().optional(),
+  /**
    * What the caller knows of the other side, or null when they know nothing.
    *
    * Since 2026-09-22 this is the last spy report the caller wrote on the ground the fight is on:
@@ -165,6 +172,14 @@ export const BattleViewSchema = z.object({
    * spies a column, and reads null.
    */
   enemySize: z.number().int().nonnegative().nullable(),
+  /**
+   * The units the caller's own report named, for the odds, with Wardens standing in only for the
+   * bodies it says it missed (`ESTIMATE_UNIT`). Null when the report named nobody, which the caller
+   * already knows from their own report, so the shape gives nothing away. It used to be absent and
+   * the odds stood a Warden in for every named unit: 40 Razors against 30 Razors read 0% where they
+   * win every time (bug pass, 2026-10-02). Optional so an older payload still parses.
+   */
+  enemyArmy: ArmySchema.nullable().optional(),
   /** One line about where that figure came from. Always present: "nothing" is a reading. */
   enemyIntel: z.string(),
   /** Who the caller is up against, in the words the map uses. */
@@ -264,7 +279,7 @@ export const StructureDefenceSchema = z.object({
    * district by standing in it rather than by a percentage of its own.
    */
   defensePercent: z.number().nullable().default(null),
-  intelResistancePercent: z.number().nullable().default(null),
+  // The Gate's points against spies are not sent: spy strength is not public (2026-10-01).
 });
 export type StructureDefence = z.infer<typeof StructureDefenceSchema>;
 
@@ -330,7 +345,16 @@ export const SleeperCellViewSchema = z.object({
   phase: SleeperPhaseSchema,
   /** The mark this phase runs to, or when they went to ground if they are `waiting`. */
   arrivesAt: IsoDateTimeSchema,
+  /**
+   * Held where it is by a fight landing within the hour, which refuses a recall (bug pass,
+   * 2026-10-02): the row offered "Pull them out" and the press was turned down. Absent on a payload
+   * from before it, read as not held.
+   */
+  locked: z.boolean().optional(),
 });
+
+/** What a cell held in its fight's last hour says instead of offering a recall. */
+export const CELL_LOCKED_TEXT = 'A fight lands there within the hour. Nobody leaves the ground now';
 export type SleeperCellView = z.infer<typeof SleeperCellViewSchema>;
 
 /** One posting on the Monitor: units standing on a place this crew holds. */

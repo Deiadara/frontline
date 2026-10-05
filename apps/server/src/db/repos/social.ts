@@ -70,6 +70,14 @@ export interface SocialRepo {
   findMessage(id: string, userId: string): Message | undefined;
   /** Letters this account has sent since `sinceIso`, deleted or not. */
   sentSince(userId: string, sinceIso: string): number;
+  /** Letters from one sender put in one reader's mailbox since `sinceIso` (0139's day limit). */
+  lettersToSince(senderUserId: string, recipientUserId: string, sinceIso: string): number;
+  /** The reader stops, or starts again, taking letters from `blockedUserId` (0139). */
+  setBlocked(userId: string, blockedUserId: string, blocked: boolean, at: string): void;
+  /** Everybody this reader has blocked, oldest first. */
+  blockedBy(userId: string): string[];
+  /** Whether `userId` has blocked `senderUserId`. */
+  hasBlocked(userId: string, senderUserId: string): boolean;
   markMessageRead(id: string, userId: string, at: string): void;
   markAllMessagesRead(userId: string, at: string): void;
   deleteMessage(id: string, userId: string): void;
@@ -221,6 +229,20 @@ export function createSocialRepo(db: AppDatabase): SocialRepo {
     return () => (held ??= db.prepare(sql));
   };
   // The sender's copy is addressed to the sender, so the inbox index answers this.
+  const lettersToSinceStmt = lazy(
+    `SELECT COUNT(*) AS n FROM messages
+      WHERE sender_user_id = ? AND recipient_user_id = ? AND is_sent_copy = 0 AND sent_at >= ?`,
+  );
+  const blockStmt = lazy(
+    'INSERT OR IGNORE INTO blocked_senders (user_id, blocked_user_id, created_at) VALUES (?, ?, ?)',
+  );
+  const unblockStmt = lazy('DELETE FROM blocked_senders WHERE user_id = ? AND blocked_user_id = ?');
+  const blockedByStmt = lazy(
+    'SELECT blocked_user_id FROM blocked_senders WHERE user_id = ? ORDER BY created_at, blocked_user_id',
+  );
+  const hasBlockedStmt = lazy(
+    'SELECT 1 FROM blocked_senders WHERE user_id = ? AND blocked_user_id = ?',
+  );
   const sentSinceStmt = db.prepare(
     `SELECT COUNT(*) AS n FROM messages
       WHERE recipient_user_id = ? AND is_sent_copy = 1 AND sent_at >= ?`,
@@ -282,7 +304,10 @@ export function createSocialRepo(db: AppDatabase): SocialRepo {
         AND (deleted = 1 OR id NOT IN (
           SELECT id FROM messages
            WHERE recipient_user_id = ? AND is_sent_copy = 0 AND deleted = 0
-           ORDER BY sent_at DESC, id DESC LIMIT ?
+           -- Unread letters and invitations are kept before anything read (maintainer,
+           -- 2026-10-02): a flood of letters pushed out the ones the reader had not opened.
+           ORDER BY (read_at IS NULL OR invite_id IS NOT NULL) DESC, sent_at DESC, id DESC
+           LIMIT ?
         ))`,
   );
   const foldIntoSentCopyStmt = lazy(
@@ -405,6 +430,24 @@ export function createSocialRepo(db: AppDatabase): SocialRepo {
     sentSince(userId, sinceIso) {
       const row = sentSinceStmt.get(userId, sinceIso) as { n: number };
       return row.n;
+    },
+    lettersToSince(senderUserId, recipientUserId, sinceIso) {
+      const row = lettersToSinceStmt().get(senderUserId, recipientUserId, sinceIso) as {
+        n: number;
+      };
+      return row.n;
+    },
+    setBlocked(userId, blockedUserId, blocked, at) {
+      if (blocked) blockStmt().run(userId, blockedUserId, at);
+      else unblockStmt().run(userId, blockedUserId);
+    },
+    blockedBy(userId) {
+      return (blockedByStmt().all(userId) as { blocked_user_id: string }[]).map(
+        (row) => row.blocked_user_id,
+      );
+    },
+    hasBlocked(userId, senderUserId) {
+      return hasBlockedStmt().get(userId, senderUserId) !== undefined;
     },
     findMessage(id, userId) {
       const row = findMessageStmt.get(id, userId) as MessageRow | undefined;

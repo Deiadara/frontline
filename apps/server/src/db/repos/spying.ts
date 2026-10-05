@@ -18,6 +18,12 @@ import type { AppDatabase } from '../index.js';
  * report is what a crew knows about a place, and `latestFor` is how the district sheet and the
  * battle board read that knowledge back.
  */
+/** What `putSnapshot` keeps. `watcher` is undefined on a read stored before it was kept. */
+export interface SpySnapshot {
+  report: SpyReport;
+  watcher: string | null | undefined;
+}
+
 export interface SpyingRepo {
   insert(run: SpyRun): void;
   /** Every run whose mark has passed and which has not been settled. For the world clock. */
@@ -29,6 +35,15 @@ export interface SpyingRepo {
   markRecalled(id: string, atIso: string, returnsAtIso: string): void;
 
   insertReport(report: SpyReport): void;
+  /** Runs out, not turned round, whose runners have not yet read the ground (`snapshotSpying`). */
+  unread(): SpyRun[];
+  /** The report the runners took at the target, kept until they are home (P3-B, 0138). */
+  /**
+   * The read taken when the runners reached the target, and the crew who could have seen them
+   * there: the holder told they were found out is the one whose ground it was then.
+   */
+  putSnapshot(id: string, snapshot: SpySnapshot): void;
+  snapshotOf(id: string): SpySnapshot | undefined;
   /** Every report this crew has written, most recent first. */
   reportsFor(baseId: string, limit: number): SpyReport[];
   /** The last report this crew wrote on one place, or undefined. Failed reports count: they are news too. */
@@ -56,6 +71,10 @@ interface RunRow {
   travel_minutes: number;
   settled_at: string | null;
   recalled_at: string | null;
+  chair_points: number | null;
+  intel_percent: number | null;
+  /** Absent on a database stopped short of 0138. */
+  snapshot_json?: string | null;
 }
 
 interface ReportRow {
@@ -78,6 +97,8 @@ interface ReportRow {
   units_shown: number;
   total_slots: number | null;
   found_out: number;
+  /** Absent on a database stopped short of 0138. */
+  held_from_away?: number;
 }
 
 const toRun = (row: RunRow): SpyRun =>
@@ -91,6 +112,8 @@ const toRun = (row: RunRow): SpyRun =>
     returnsAt: row.returns_at,
     travelMinutes: row.travel_minutes,
     recalledAt: row.recalled_at,
+    chairPoints: row.chair_points,
+    intelPercent: row.intel_percent,
   });
 
 const toReport = (row: ReportRow): SpyReport => {
@@ -119,6 +142,7 @@ const toReport = (row: ReportRow): SpyReport => {
     accuracy: row.accuracy,
     unseen: row.unseen,
     accuracyShown: row.accuracy_shown === 1,
+    heldFromAway: row.held_from_away === 1,
   });
 };
 
@@ -138,8 +162,9 @@ export function createSpyingRepo(db: AppDatabase): SpyingRepo {
 
   const insertStmt = lazy(
     `INSERT INTO spy_runs
-       (id, base_id, target_json, tier, caps_paid, departed_at, returns_at, travel_minutes)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+       (id, base_id, target_json, tier, caps_paid, departed_at, returns_at, travel_minutes,
+        chair_points, intel_percent)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   );
   const dueStmt = lazy(
     'SELECT * FROM spy_runs WHERE settled_at IS NULL AND returns_at <= ? ORDER BY returns_at',
@@ -149,13 +174,20 @@ export function createSpyingRepo(db: AppDatabase): SpyingRepo {
   );
   const settleStmt = lazy('UPDATE spy_runs SET settled_at = ? WHERE id = ?');
   const recallStmt = lazy('UPDATE spy_runs SET recalled_at = ?, returns_at = ? WHERE id = ?');
+  const unreadStmt = lazy(
+    `SELECT * FROM spy_runs
+      WHERE settled_at IS NULL AND recalled_at IS NULL AND snapshot_json IS NULL
+      ORDER BY departed_at`,
+  );
+  const putSnapshotStmt = lazy('UPDATE spy_runs SET snapshot_json = ? WHERE id = ?');
+  const snapshotStmt = lazy('SELECT snapshot_json FROM spy_runs WHERE id = ?');
 
   const insertReportStmt = lazy(
     `INSERT INTO spy_reports
        (id, base_id, target_json, district_id, district_name, place_name, holder_json, tier,
         caps_paid, written_at, failed, exposed_json, accuracy, unseen, accuracy_shown,
-        exposed_slots, units_shown, total_slots, found_out)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        exposed_slots, units_shown, total_slots, found_out, held_from_away)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   );
   const hasReportStmt = lazy('SELECT 1 FROM spy_reports WHERE id = ?');
   const holdingStmt = lazy(
@@ -184,6 +216,8 @@ export function createSpyingRepo(db: AppDatabase): SpyingRepo {
         run.departedAt,
         run.returnsAt,
         run.travelMinutes,
+        run.chairPoints,
+        run.intelPercent,
       );
     },
     due(nowIso) {
@@ -219,7 +253,27 @@ export function createSpyingRepo(db: AppDatabase): SpyingRepo {
         report.unitsShown ? 1 : 0,
         report.totalSlots,
         report.foundOut ? 1 : 0,
+        report.heldFromAway ? 1 : 0,
       );
+    },
+    unread() {
+      return (unreadStmt().all() as RunRow[]).map(toRun);
+    },
+    putSnapshot(id, snapshot) {
+      putSnapshotStmt().run(JSON.stringify(snapshot), id);
+    },
+    snapshotOf(id) {
+      const row = snapshotStmt().get(id) as { snapshot_json: string | null } | undefined;
+      if (!row?.snapshot_json) return undefined;
+      const stored = JSON.parse(row.snapshot_json) as { report?: unknown; watcher?: unknown };
+      // A read stored before the watcher was kept is the report itself: no watcher on it.
+      if (stored.report === undefined) {
+        return { report: SpyReportSchema.parse(stored), watcher: undefined };
+      }
+      return {
+        report: SpyReportSchema.parse(stored.report),
+        watcher: typeof stored.watcher === 'string' ? stored.watcher : null,
+      };
     },
     reportsFor(baseId, limit) {
       return (reportsStmt().all(baseId, limit) as ReportRow[]).map(toReport);

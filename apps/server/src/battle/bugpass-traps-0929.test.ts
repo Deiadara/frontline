@@ -155,7 +155,7 @@ describe('a crate does what its card says in whatever city the fight is in', () 
   it('quotes and applies the card’s figure on a fight in a veteran Terminus', async () => {
     const world = await makeWorld('defender');
     const { repos } = world.app;
-    const smuggler = await register(world, 'smuggler', { razors: 4 });
+    const smuggler = await register(world, 'smuggler', { razors: 20 });
     const holder = await register(world, 'holder', {});
     const veteran = await register(world, 'veteran', {});
     // Terminus's street is a veteran's: the only crew living there is level 60, which put the
@@ -188,7 +188,8 @@ describe('a crate does what its card says in whatever city the fight is in', () 
       battleId,
       baseId: smuggler.baseId,
       side: 'attacker',
-      army: { razors: 4 },
+      // The least commitment a fight needs at the lock (2026-10-05), or it is called off.
+      army: { razors: 20 },
       perimeter: {},
       boostIds: [SYRINGES.id],
       officerId: null,
@@ -280,7 +281,7 @@ describe('the last of a crate, spent on one of two fights it was named on', () =
   async function twoFightsOneCrate() {
     const world = await makeWorld('attacker');
     const { repos } = world.app;
-    const crew = await register(world, 'smuggler', { razors: 8 });
+    const crew = await register(world, 'smuggler', { razors: 40 });
     const holder = await register(world, 'holder', {});
     holdPlot(world, holder, { razors: 3 });
     repos.blackMarket.writeStash(crew.baseId, { [SYRINGES]: 1, [STIMS]: 1 });
@@ -303,7 +304,8 @@ describe('the last of a crate, spent on one of two fights it was named on', () =
         battleId: id,
         baseId: crew.baseId,
         side: 'attacker',
-        army: { razors: 4 },
+        // The least commitment a fight needs at the lock (2026-10-05), or it is called off.
+        army: { razors: 20 },
         perimeter: {},
         boostIds: [],
         officerId: null,

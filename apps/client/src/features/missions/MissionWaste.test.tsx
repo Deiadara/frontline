@@ -68,6 +68,7 @@ function open(stores: MissionStores | undefined): HTMLElement {
       fleet={{}}
       loadouts={{}}
       bagPercent={0}
+      notoriety={100}
       marks={{}}
       carriersFight={false}
       anyRide={false}

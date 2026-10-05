@@ -1,5 +1,5 @@
 /**
- * Research (GDD §C): the eighteen role tracks, the one bench they run on, and what a finished
+ * Research (GDD §C): the thirteen role tracks, the one bench they run on, and what a finished
  * rung pays into.
  *
  * Re-exported through a single barrel line in `../index.ts` (INTERFACES §3).

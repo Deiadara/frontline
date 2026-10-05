@@ -17,7 +17,11 @@ import {
   bodyCost,
   counterScore,
   expose,
+  roughAccuracy,
+  roughUnseen,
   spyReportStands,
+  spyDefenceMean,
+  spyDefencePercent,
   spyScore,
   type CounterStrength,
   type SpyTier,
@@ -51,6 +55,13 @@ import {
  *
  * The chair figures are fit points, 10..100, which is what `officerFitReader` hands the
  * server: a bad chair around 25, a B+ around 85, an S at the ceiling.
+ *
+ * Retuned on 2026-10-01, after the spy bonuses came off every rating and rung: the intel and
+ * resistance figures below are perks, ground and cards now, and each rival's other officers carry
+ * their Signals and Cryptography as `officersPercent`, at means a crew of that stage typically has
+ * (20 early, 35 mid, 45 good, 55 strong, 70 the strongest). The three middle boosts rose (0.4, 1.2
+ * and 1.6 to 0.8, 1.7 and 2.1) on the maintainer's ask for the cheap tiers to read an equal crew
+ * as they did; the one anchor that moved says so where it is.
  */
 const stealthOf = (unitId: string): number => findUnit(unitId)!.stats.stealth;
 const visible = (unitId: string): boolean => {
@@ -64,39 +75,44 @@ function read(
   army: Record<string, number>,
 ) {
   const budget = spyScore(spy) - counterScore(counter);
-  return expose({ army, stealthOf, visible, budget });
+  return expose({ forces: [{ army, stealthOf }], visible, budget });
 }
 
 const LOOTER_CAMP: CounterStrength = { kind: 'looters', districtDifficulty: 2, baseDefense: 30 };
 const EARLY_RIVAL: CounterStrength = {
   kind: 'crew',
-  consigliereChairPoints: 45,
+  whispersChairPoints: 45,
   intelResistancePercent: 5,
   gateLevel: 2,
+  officersPercent: spyDefencePercent(20),
 };
 const MID_RIVAL: CounterStrength = {
   kind: 'crew',
-  consigliereChairPoints: 60,
+  whispersChairPoints: 60,
   intelResistancePercent: 8,
   gateLevel: 3,
+  officersPercent: spyDefencePercent(35),
 };
 const GOOD_RIVAL: CounterStrength = {
   kind: 'crew',
-  consigliereChairPoints: 72,
+  whispersChairPoints: 72,
   intelResistancePercent: 15,
   gateLevel: 5,
+  officersPercent: spyDefencePercent(45),
 };
 const STRONG_RIVAL: CounterStrength = {
   kind: 'crew',
-  consigliereChairPoints: 85,
+  whispersChairPoints: 85,
   intelResistancePercent: 25,
   gateLevel: 6,
+  officersPercent: spyDefencePercent(55),
 };
 const STRONGEST_RIVAL: CounterStrength = {
   kind: 'crew',
-  consigliereChairPoints: 100,
+  whispersChairPoints: 100,
   intelResistancePercent: 45,
   gateLevel: 10,
+  officersPercent: spyDefencePercent(70),
 };
 
 /** Twenty bodies of the cheapest ground a camp holds. */
@@ -128,27 +144,39 @@ describe('the tiers', () => {
 
 describe('the report', () => {
   it('never names a unit that is not there, nor more of one than are there', () => {
-    const out = expose({ army: CAMP, stealthOf, visible, budget: 10_000 });
+    const out = expose({ forces: [{ army: CAMP, stealthOf }], visible, budget: 10_000 });
     expect(out.exposed).toEqual(CAMP);
     expect(out.accuracy).toBe(1);
     expect(out.unseen).toBe(0);
   });
 
+  // An empty gate used to read perfectly whatever the defence, so a failed report alone said that
+  // somebody stood there (bug pass, 2026-10-02). Empty ground now reads only to a spy who beat it.
+  it('reads empty ground only when the spy beat the counter', () => {
+    const empty = { forces: [{ army: {}, stealthOf }], visible };
+    expect(spyReportStands(expose({ ...empty, budget: 5 }).accuracy)).toBe(true);
+    expect(spyReportStands(expose({ ...empty, budget: 0 }).accuracy)).toBe(false);
+    expect(spyReportStands(expose({ ...empty, budget: -40 }).accuracy)).toBe(false);
+  });
+
   it('spends cheapest first and stops inside a stack rather than rounding it up', () => {
     const cost = bodyCost(stealthOf('razors'));
-    const out = expose({ army: { ghosts: 5, razors: 10 }, stealthOf, visible, budget: cost * 6.5 });
+    const out = expose({
+      forces: [{ army: { ghosts: 5, razors: 10 }, stealthOf }],
+      visible,
+      budget: cost * 6.5,
+    });
     expect(out.exposed).toEqual({ razors: 6 });
     expect(out.accuracy).toBeCloseTo(6 / 15, 5);
   });
 
   it('never lists a Specter, and never a Sleeper without the rung, and does not count them', () => {
-    const out = expose({ army: LATE_ARMY, stealthOf, visible, budget: 10_000 });
+    const out = expose({ forces: [{ army: LATE_ARMY, stealthOf }], visible, budget: 10_000 });
     expect(out.exposed).toEqual({ razors: 30, snipers: 20, ghosts: 30 });
     expect(out.countable).toBe(80);
     expect(out.accuracy).toBe(1);
     const withSleepers = expose({
-      army: LATE_ARMY,
-      stealthOf,
+      forces: [{ army: LATE_ARMY, stealthOf }],
       visible: (id) => findUnit(id)!.unspyable !== true,
       budget: 10_000,
     });
@@ -156,8 +184,8 @@ describe('the report', () => {
   });
 
   it('is the same report twice for the same ground and budget', () => {
-    const a = expose({ army: LATE_ARMY, stealthOf, visible, budget: 60 });
-    const b = expose({ army: { ...LATE_ARMY }, stealthOf, visible, budget: 60 });
+    const a = expose({ forces: [{ army: LATE_ARMY, stealthOf }], visible, budget: 60 });
+    const b = expose({ forces: [{ army: { ...LATE_ARMY }, stealthOf }], visible, budget: 60 });
     expect(a).toEqual(b);
   });
 
@@ -181,23 +209,58 @@ describe('the anchors', () => {
     expect(spyReportStands(out.accuracy), `read ${out.accuracy}`).toBe(false);
   });
 
-  it('mid game: the cheap tiers are not competitive and the middle one is', () => {
+  /*
+   * Bought Eyes read this rival at 40% to 60% until 2026-10-01, when the maintainer asked for it to
+   * read an equal crew at 90% or more (the case below). This rival is not an equal: a gate of 3
+   * the spy has nothing against, and its officers at 35. It reads 70% now, and the band says so.
+   */
+  it('mid game: the cheapest tier is not competitive and the middle ones are', () => {
     const mid = (tier: SpyTier) => ({ chairPoints: 60, intelPercent: 8, tier });
     expect(read(mid('loose_ears'), MID_RIVAL, MID_LINE).accuracy).toBeLessThan(SPY_REPORT_FLOOR);
     expect(read(mid('paid_whisper'), MID_RIVAL, MID_LINE).accuracy).toBeLessThan(0.5);
     const bought = read(mid('bought_eyes'), MID_RIVAL, MID_LINE);
-    expect(bought.accuracy, `read ${bought.accuracy}`).toBeGreaterThanOrEqual(0.4);
-    expect(bought.accuracy, `read ${bought.accuracy}`).toBeLessThanOrEqual(0.6);
+    expect(bought.accuracy, `read ${bought.accuracy}`).toBeGreaterThanOrEqual(0.6);
+    expect(bought.accuracy, `read ${bought.accuracy}`).toBeLessThanOrEqual(0.8);
   });
 
-  it('a B+ chair with the second-best tier, against good counter-intel and good stealth: about 80%', () => {
+  /*
+   * The maintainer's ask of 2026-10-01: a mid-game crew spying an equal crew lands where it did
+   * before the spy bonuses came off, Paid Whisper about 40% and Bought Eyes 90% or more. The crew
+   * is the modelled one the retune was measured on: a D chair (42 points), Street Ears and a level 3
+   * Pirate Radio (32 spy points), a gate at 4, and other officers at 30 to 45 on the two skills.
+   */
+  it('a mid crew reads its equal at about 40% on Paid Whisper and 90% or more on Bought Eyes', () => {
+    const spy = (tier: SpyTier) => ({ chairPoints: 42.2, intelPercent: 32, tier });
+    for (const mean of [30, 38, 45]) {
+      const equal: CounterStrength = {
+        kind: 'crew',
+        whispersChairPoints: 42.2,
+        intelResistancePercent: 0,
+        gateLevel: 4,
+        officersPercent: spyDefencePercent(mean),
+      };
+      const paid = read(spy('paid_whisper'), equal, MID_LINE).accuracy;
+      expect(paid, `officers at ${mean}: read ${paid}`).toBeGreaterThanOrEqual(0.33);
+      expect(paid, `officers at ${mean}: read ${paid}`).toBeLessThanOrEqual(0.5);
+      const bought = read(spy('bought_eyes'), equal, MID_LINE).accuracy;
+      expect(bought, `officers at ${mean}: read ${bought}`).toBeGreaterThanOrEqual(0.9);
+      expect(read(spy('loose_ears'), equal, MID_LINE).accuracy).toBeLessThan(SPY_REPORT_FLOOR);
+    }
+  });
+
+  /*
+   * "about 80%" until 2026-10-01, when the maintainer took Network Compromise to 2.1 so that it is
+   * clearly worth its 5,000 caps over Bought Eyes, knowing it reads this rival at about 97%. Still
+   * not the whole of it: the last few Ghosts are what Total Intelligence is for.
+   */
+  it('a B+ chair with the second-best tier, against good counter-intel and good stealth: about 97%', () => {
     const out = read(
       { chairPoints: 85, intelPercent: 10, tier: 'network_compromise' },
       GOOD_RIVAL,
       QUIET_LINE,
     );
-    expect(out.accuracy, `read ${out.accuracy}`).toBeGreaterThanOrEqual(0.7);
-    expect(out.accuracy, `read ${out.accuracy}`).toBeLessThanOrEqual(0.9);
+    expect(out.accuracy, `read ${out.accuracy}`).toBeGreaterThanOrEqual(0.93);
+    expect(out.accuracy, `read ${out.accuracy}`).toBeLessThan(1);
   });
 
   /*
@@ -216,8 +279,13 @@ describe('the anchors', () => {
   });
 
   it('makes Total Intelligence half as strong again as it was, for a fifth more caps', () => {
-    // Written out, not read back: 2.6 on 10,000 caps was the tier before the ruling.
-    expect(SPY_TIER_SPECS.total_intelligence.boost).toBeCloseTo(2.6 * 1.5, 10);
+    // Written out, not read back: 2.6 on 10,000 caps was the tier before the ruling, and the
+    // half is on the job's score (maintainer, 2026-10-01), not on the boost alone.
+    const before = { chairPoints: 60, intelPercent: 10 };
+    expect(spyScore({ ...before, tier: 'total_intelligence' })).toBeCloseTo(
+      70 * (1 + 2.6) * 1.5,
+      10,
+    );
     expect(SPY_TIER_SPECS.total_intelligence.caps).toBe(10_000 * 1.2);
   });
 
@@ -228,7 +296,9 @@ describe('the anchors', () => {
   });
 
   it('reads Combine ground harder than looter ground, and harder the deeper the district', () => {
-    const chosen = { chairPoints: 60, intelPercent: 8, tier: 'bought_eyes' as const };
+    // Paid Whisper, not Bought Eyes: since Bought Eyes rose to 1.7 (2026-10-01) it reads a camp and
+    // a shallow Combine district whole, and a test of "harder" needs a read that is not full.
+    const chosen = { chairPoints: 60, intelPercent: 8, tier: 'paid_whisper' as const };
     const camp = read(chosen, LOOTER_CAMP, MID_LINE).accuracy;
     const shallow = read(
       chosen,
@@ -242,6 +312,154 @@ describe('the anchors', () => {
     ).accuracy;
     expect(shallow).toBeLessThan(camp);
     expect(deep).toBeLessThan(shallow);
+  });
+});
+
+describe('the defending Master of Whispers', () => {
+  /*
+   * Maintainer, 2026-10-01: "a master of whispers in defense with same grade ... cancels out a
+   * spying master of whispers with equivalent strength ... so if they have the same attributes the
+   * bonus becomes 0 and it's up to the rest".
+   */
+  it('cancels an equal chair on the cheapest tier, leaving the rest to decide', () => {
+    for (const points of [10, 45, 72, 100]) {
+      const spy = spyScore({ chairPoints: points, intelPercent: 0, tier: 'loose_ears' });
+      const bare: CounterStrength = {
+        kind: 'crew',
+        whispersChairPoints: points,
+        intelResistancePercent: 0,
+        gateLevel: 0,
+        officersPercent: 0,
+      };
+      expect(spy - counterScore(bare)).toBe(0);
+      expect(spy + 12 - counterScore(bare)).toBe(12);
+      expect(spy - counterScore({ ...bare, gateLevel: 1 })).toBe(-SPY_GATE_POINTS_PER_LEVEL);
+    }
+  });
+
+  it('defends nothing with nobody working the chair', () => {
+    const empty: CounterStrength = {
+      kind: 'crew',
+      whispersChairPoints: null,
+      intelResistancePercent: 0,
+      gateLevel: 0,
+      officersPercent: 0,
+    };
+    expect(counterScore(empty)).toBe(0);
+    expect(counterScore({ ...empty, whispersChairPoints: 60 })).toBe(60);
+  });
+});
+
+/**
+ * The other officers' Signals and Cryptography (maintainer, 2026-10-01): "if they are below 30
+ * they apply a penalty ... at worst making it about 10% easier if they were both 1. it's about
+ * break even at 30, and then they add the more they go up, but again not too much, up to roughly
+ * 25%". The anchors are written out, not read back from the constants.
+ */
+describe("the other officers' guard against spies", () => {
+  it('is -10% at a mean of 1, nothing at 30, and linear between', () => {
+    expect(spyDefencePercent(1)).toBeCloseTo(-10, 9);
+    expect(spyDefencePercent(0)).toBeCloseTo(-10, 9);
+    expect(spyDefencePercent(30)).toBeCloseTo(0, 9);
+    expect(spyDefencePercent(15.5)).toBeCloseTo(-5, 9);
+  });
+
+  it('climbs past 30 to about +20% at 70 and closes on +25% without reaching it', () => {
+    expect(spyDefencePercent(31)).toBeGreaterThan(0);
+    expect(spyDefencePercent(45)).toBeCloseTo(11.3, 1);
+    expect(spyDefencePercent(70)).toBeCloseTo(20, 0);
+    expect(spyDefencePercent(100)).toBeGreaterThan(23);
+    expect(spyDefencePercent(100)).toBeLessThan(25);
+    let previous = spyDefencePercent(1);
+    for (let mean = 2; mean <= 100; mean += 1) {
+      const next = spyDefencePercent(mean);
+      expect(next, `mean ${mean}`).toBeGreaterThan(previous);
+      previous = next;
+    }
+  });
+
+  it('reads nothing either way with no officer to read', () => {
+    expect(spyDefenceMean([])).toBeNull();
+    expect(spyDefencePercent(null)).toBe(0);
+  });
+
+  it('averages the two skills over every sheet it is given, and nothing else on them', () => {
+    const sheet = (signals: number, cryptography: number) =>
+      makeAttributes(90, { signals, cryptography });
+    expect(spyDefenceMean([sheet(10, 30)])).toBe(20);
+    expect(spyDefenceMean([sheet(10, 30), sheet(50, 70)])).toBe(40);
+  });
+
+  it('moves the whole of a crew counter by its percentage, after the sum', () => {
+    const counter: CounterStrength = {
+      kind: 'crew',
+      whispersChairPoints: 50,
+      intelResistancePercent: 10,
+      gateLevel: 4,
+      officersPercent: 0,
+    };
+    expect(counterScore(counter)).toBe(100);
+    expect(counterScore({ ...counter, officersPercent: -10 })).toBeCloseTo(90, 9);
+    expect(counterScore({ ...counter, officersPercent: 20 })).toBeCloseTo(120, 9);
+  });
+
+  it('makes a read of the same ground easier below 30 and harder above it', () => {
+    const spy = { chairPoints: 60, intelPercent: 8, tier: 'paid_whisper' as const };
+    const at = (mean: number) =>
+      read(spy, { ...MID_RIVAL, officersPercent: spyDefencePercent(mean) }, MID_LINE).accuracy;
+    expect(at(1)).toBeGreaterThan(at(30));
+    expect(at(30)).toBeGreaterThan(at(70));
+  });
+});
+
+describe('several owners on one place', () => {
+  it("reads each owner's units at that owner's stealth, and merges what it saw by unit", () => {
+    const plain = (unitId: string) => findUnit(unitId)!.stats.stealth;
+    const hidden = (unitId: string) => findUnit(unitId)!.stats.stealth + 200;
+    const cost = bodyCost(plain('razors'));
+    // Budget for nine cheap Razors: read at the holder's stealth the ally's would be four more,
+    // but at their own stealth not one of them is affordable with what is left.
+    const out = expose({
+      forces: [
+        { army: { razors: 5 }, stealthOf: plain },
+        { army: { razors: 5 }, stealthOf: hidden },
+      ],
+      visible,
+      budget: cost * 9,
+    });
+    expect(out.exposed).toEqual({ razors: 5 });
+    expect(out.countable).toBe(10);
+    const same = expose({
+      forces: [
+        { army: { razors: 5 }, stealthOf: plain },
+        { army: { razors: 5 }, stealthOf: plain },
+      ],
+      visible,
+      budget: cost * 9,
+    });
+    expect(same.exposed).toEqual({ razors: 9 });
+  });
+});
+
+describe('the printed figures', () => {
+  it('rounds the accuracy to a tenth, and never to a full hundred with anything missed', () => {
+    expect(roughAccuracy(1)).toBe(1);
+    expect(roughAccuracy(0.99)).toBe(0.9);
+    expect(roughAccuracy(0.64)).toBe(0.6);
+    expect(roughAccuracy(0.25)).toBe(0.3);
+  });
+
+  it('turns the bodies missed into a guess rather than a count', () => {
+    expect(roughUnseen(0)).toBe(0);
+    for (const n of [1, 4, 7]) expect(roughUnseen(n)).toBe(5);
+    expect(roughUnseen(8)).toBe(10);
+    expect(roughUnseen(34)).toBe(30);
+    expect(roughUnseen(96)).toBe(100);
+    expect(roughUnseen(170)).toBe(150);
+    // Across a run of real counts the guess is off by up to half a band, and lands on the count
+    // itself only where the count is a round number.
+    const exact = Array.from({ length: 200 }, (_, i) => i + 1).filter((n) => roughUnseen(n) === n);
+    expect(exact.every((n) => n % 5 === 0)).toBe(true);
   });
 });
 

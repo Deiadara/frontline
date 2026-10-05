@@ -11,9 +11,10 @@ import {
   nexusLevelFor,
   createCommander,
   findUnit,
-  MAX_TRAINING_QUEUE,
-  trainingCost,
+  MAX_MUSTER_QUEUE,
+  musterCost,
   districtProduction,
+  structureProductionRates,
   findBuilding,
   RESOURCE_KEYS,
   BUILD_BOOST_MS,
@@ -45,8 +46,13 @@ import { clearSlot } from './modifications.js';
 import { districtUnitSlots } from './unit-slots.js';
 import { sendMove, settleMoves } from '../moves/moves.js';
 import { projectUnits } from '../units/roster.js';
-import { cancelTraining, queueTraining, settleTraining } from '../units/training.js';
-import { PRODUCTION_MIN_STEP_MS, productionRatesFor, settleDistrict } from './settle.js';
+import { cancelMuster, queueMuster, settleMuster } from '../units/muster.js';
+import {
+  PRODUCTION_MIN_STEP_MS,
+  productionRatesFor,
+  productionYieldFor,
+  settleDistrict,
+} from './settle.js';
 
 /**
  * The district's server half (GDD §A1): ordering a level, and everything that lands lazily on the
@@ -84,7 +90,7 @@ interface SeedOptions {
   settledAt?: string | null;
   officers?: Base['commanders'];
   level?: number;
-  trainingQueue?: Base['trainingQueue'];
+  musterQueue?: Base['musterQueue'];
   addons?: Base['addons'];
 }
 
@@ -111,7 +117,7 @@ function seedBase(repos: Repositories, options: SeedOptions = {}): Base {
     buildings: options.buildings ?? [build('nexus', 1), build('generator', 1)],
     buildQueue: options.buildQueue ?? [],
     army: {},
-    trainingQueue: options.trainingQueue ?? [],
+    musterQueue: options.musterQueue ?? [],
     training: startingTraining('2026-08-16T00:00:00.000Z'),
     inventory: {},
     fittedUpgrades: [],
@@ -447,25 +453,25 @@ describe('settling the district (§A1)', () => {
    * twenty XP apiece, forever. The unit's own clock is what prices it, so a Colossus is worth
    * bringing off the bench and a Razor is worth what a Razor takes.
    */
-  it('pays more XP for a unit that took longer to train', () => {
+  it('pays more XP for a unit that took longer to muster', () => {
     const started = new Date(NOW.getTime() - 4 * HOUR_MS);
     const settleOne = (unitId: string) => {
       const repos = openStack();
       const unit = findUnit(unitId)!;
       const base = seedBase(repos, {
-        trainingQueue: [
+        musterQueue: [
           {
             id: `order-${unitId}`,
             unitId,
             count: 1,
             delivered: 0,
             startedAt: started.toISOString(),
-            durationSeconds: unit.trainSeconds,
+            durationSeconds: unit.musterSeconds,
             paid: {},
           },
         ],
       });
-      return settleTraining(repos, base, NOW);
+      return settleMuster(repos, base, NOW);
     };
 
     const cheap = settleOne('razors');
@@ -473,7 +479,7 @@ describe('settling the district (§A1)', () => {
     expect(cheap.awards).toHaveLength(1);
     expect(dear.awards).toHaveLength(1);
     expect(cheap.awards[0]!.xpGained).toBe(
-      xpForClock('unitTrained', findUnit('razors')!.trainSeconds),
+      xpForClock('unitMustered', findUnit('razors')!.musterSeconds),
     );
     expect(dear.awards[0]!.xpGained).toBeGreaterThan(cheap.awards[0]!.xpGained * 4);
   });
@@ -666,12 +672,12 @@ describe('unit slots (§A1: one pool)', () => {
     const razors = findUnit('razors')!;
     const room = districtUnitSlots(repos, base).spare;
 
-    expect(queueTraining(repos, { base, unit: razors, count: room + 1, now: NOW })).toEqual({
+    expect(queueMuster(repos, { base, unit: razors, count: room + 1, now: NOW })).toEqual({
       kind: 'refused',
       reason: 'no_unit_slots',
     });
 
-    const filled = queueTraining(repos, { base, unit: razors, count: room, now: NOW });
+    const filled = queueMuster(repos, { base, unit: razors, count: room, now: NOW });
     expect(filled.kind).toBe('queued');
 
     // ...and signing somebody takes a bed off the army, which is the maintainer's rule (§A1).
@@ -683,14 +689,14 @@ describe('unit slots (§A1: one pool)', () => {
   });
 
   /**
-   * The roster's chip and **Max** subtract to the same figure the training door compares against.
+   * The roster's chip and **Max** subtract to the same figure the muster door compares against.
    *
    * `unitSlotsCap - unitSlotsUsed` is exactly what Max offers, and the route refuses anything past
    * `districtUnitSlots`'s `spare`. Sending the roster a draw that leaves the officers and the yard
    * out is Max proposing a batch the door then turns away, which is the defect this pins: it needs
    * a crew that actually has an officer and a machine, or the two numbers agree by accident.
    */
-  it('sends the roster a draw that subtracts to the same beds the training door counts', () => {
+  it('sends the roster a draw that subtracts to the same beds the muster door counts', () => {
     const repos = openStack();
     const base = seedBase(repos, {
       officers: [
@@ -733,7 +739,7 @@ describe('unit slots (§A1: one pool)', () => {
       },
     });
     const crew: Base = { ...base, army: { razors: 6 } };
-    repos.bases.updateArmy(crew.id, crew.army, crew.trainingQueue);
+    repos.bases.updateArmy(crew.id, crew.army, crew.musterQueue);
     const agree = (at: Base, label: string): number => {
       const slots = districtUnitSlots(repos, at);
       const page = projectUnits(repos, at, NOW);
@@ -771,11 +777,11 @@ describe('unit slots (§A1: one pool)', () => {
 
     // A batch of two claims two beds at the order, and hands them back when it is called off.
     const razors = findUnit('razors')!;
-    const queued = queueTraining(repos, { base: posted.base, unit: razors, count: 2, now: NOW });
+    const queued = queueMuster(repos, { base: posted.base, unit: razors, count: 2, now: NOW });
     if (queued.kind !== 'queued') throw new Error(`fixture: order refused ${queued.reason}`);
     expect(agree(queued.base, 'two on the bench')).toBe(home + 2);
     // Rich on purpose, so the refund lands on a full store: agreed to, because it is not the point.
-    const cancelled = cancelTraining(repos, queued.base, queued.order.id, NOW, true);
+    const cancelled = cancelMuster(repos, queued.base, queued.order.id, NOW, true);
     if (cancelled.kind !== 'cancelled') throw new Error('fixture: cancel refused');
     expect(agree(cancelled.base, 'batch called off')).toBe(home);
 
@@ -1117,36 +1123,36 @@ describe('the bench (§A5)', () => {
   it('records what a batch was charged, so a refund is against the price paid', () => {
     const { repos, base } = stack();
     const razors = findUnit('razors')!;
-    const result = queueTraining(repos, { base, unit: razors, count: 4, now: NOW });
+    const result = queueMuster(repos, { base, unit: razors, count: 4, now: NOW });
     expect(result.kind).toBe('queued');
     if (result.kind !== 'queued') return;
 
-    expect(result.order.paid).toEqual(trainingCost(razors, 4));
+    expect(result.order.paid).toEqual(musterCost(razors, 4));
     // And it is on the row after a round trip, which is the half a unit test cannot see.
-    expect(repos.bases.findById(base.id)!.trainingQueue[0]!.paid).toEqual(trainingCost(razors, 4));
+    expect(repos.bases.findById(base.id)!.musterQueue[0]!.paid).toEqual(musterCost(razors, 4));
   });
 
   it('hands 95% back inside the window and refuses once the work has started', () => {
     const { repos, base } = stack();
     const razors = findUnit('razors')!;
-    const queued = queueTraining(repos, { base, unit: razors, count: 4, now: NOW });
+    const queued = queueMuster(repos, { base, unit: razors, count: 4, now: NOW });
     if (queued.kind !== 'queued') throw new Error('expected the batch to be queued');
 
     const order = queued.order;
     const late = new Date(NOW.getTime() + order.durationSeconds * 1000 * 0.5);
-    expect(cancelTraining(repos, queued.base, order.id, late)).toEqual({
+    expect(cancelMuster(repos, queued.base, order.id, late)).toEqual({
       kind: 'refused',
       reason: 'window_closed',
     });
 
-    const cancelled = cancelTraining(repos, queued.base, order.id, NOW, RICH_ON_PURPOSE);
+    const cancelled = cancelMuster(repos, queued.base, order.id, NOW, RICH_ON_PURPOSE);
     expect(cancelled.kind).toBe('cancelled');
     if (cancelled.kind !== 'cancelled') return;
 
-    expect(cancelled.base.trainingQueue).toHaveLength(0);
+    expect(cancelled.base.musterQueue).toHaveLength(0);
     // Back on the row, not only in the answer.
     const stored = repos.bases.findById(base.id)!;
-    expect(stored.trainingQueue).toHaveLength(0);
+    expect(stored.musterQueue).toHaveLength(0);
     expect(stored.resources.caps).toBe(queued.base.resources.caps + (cancelled.refund.caps ?? 0));
     // Ninety-five percent, so the crew is out of pocket either way.
     expect(stored.resources.caps).toBeLessThan(base.resources.caps);
@@ -1156,18 +1162,18 @@ describe('the bench (§A5)', () => {
   it('warns before a refund is thrown away, and leaves the batch on the bench', () => {
     const { repos, base } = stack();
     const razors = findUnit('razors')!;
-    const queued = queueTraining(repos, { base, unit: razors, count: 4, now: NOW });
+    const queued = queueMuster(repos, { base, unit: razors, count: 4, now: NOW });
     if (queued.kind !== 'queued') throw new Error('expected the batch to be queued');
 
-    expect(() => cancelTraining(repos, queued.base, queued.order.id, NOW)).toThrow(
+    expect(() => cancelMuster(repos, queued.base, queued.order.id, NOW)).toThrow(
       /would go to waste/,
     );
-    expect(repos.bases.findById(base.id)!.trainingQueue).toHaveLength(1);
+    expect(repos.bases.findById(base.id)!.musterQueue).toHaveLength(1);
   });
 
   it('says so rather than throwing when the order is not there', () => {
     const { repos, base } = stack();
-    expect(cancelTraining(repos, base, 'no-such-order', NOW)).toEqual({
+    expect(cancelMuster(repos, base, 'no-such-order', NOW)).toEqual({
       kind: 'refused',
       reason: 'unknown_order',
     });
@@ -1184,23 +1190,23 @@ describe('the bench (§A5)', () => {
   it('pulls the orders behind a cancelled one forward', () => {
     const { repos, base } = stack();
     const razors = findUnit('razors')!;
-    const first = queueTraining(repos, { base, unit: razors, count: 20, now: NOW });
+    const first = queueMuster(repos, { base, unit: razors, count: 20, now: NOW });
     if (first.kind !== 'queued') throw new Error('expected the first batch to be queued');
-    const second = queueTraining(repos, { base: first.base, unit: razors, count: 2, now: NOW });
+    const second = queueMuster(repos, { base: first.base, unit: razors, count: 2, now: NOW });
     if (second.kind !== 'queued') throw new Error('expected the second batch to be queued');
 
     // The precondition: the second batch really is parked behind the first, or there is no gap to
     // close and the assertion below would pass on any implementation.
     expect(Date.parse(second.order.startedAt)).toBeGreaterThan(NOW.getTime());
 
-    const cancelled = cancelTraining(repos, second.base, first.order.id, NOW, RICH_ON_PURPOSE);
+    const cancelled = cancelMuster(repos, second.base, first.order.id, NOW, RICH_ON_PURPOSE);
     if (cancelled.kind !== 'cancelled') throw new Error(`refused: ${cancelled.reason}`);
 
-    const remaining = cancelled.base.trainingQueue;
+    const remaining = cancelled.base.musterQueue;
     expect(remaining).toHaveLength(1);
     expect(Date.parse(remaining[0]!.startedAt)).toBe(NOW.getTime());
     // On the row too, not only in the answer.
-    expect(Date.parse(repos.bases.findById(base.id)!.trainingQueue[0]!.startedAt)).toBe(
+    expect(Date.parse(repos.bases.findById(base.id)!.musterQueue[0]!.startedAt)).toBe(
       NOW.getTime(),
     );
   });
@@ -1208,18 +1214,18 @@ describe('the bench (§A5)', () => {
   it('does not move an order that has already begun', () => {
     const { repos, base } = stack();
     const razors = findUnit('razors')!;
-    const first = queueTraining(repos, { base, unit: razors, count: 2, now: NOW });
+    const first = queueMuster(repos, { base, unit: razors, count: 2, now: NOW });
     if (first.kind !== 'queued') throw new Error('expected the first batch to be queued');
-    const second = queueTraining(repos, { base: first.base, unit: razors, count: 20, now: NOW });
+    const second = queueMuster(repos, { base: first.base, unit: razors, count: 20, now: NOW });
     if (second.kind !== 'queued') throw new Error('expected the second batch to be queued');
-    const third = queueTraining(repos, { base: second.base, unit: razors, count: 2, now: NOW });
+    const third = queueMuster(repos, { base: second.base, unit: razors, count: 2, now: NOW });
     if (third.kind !== 'queued') throw new Error('expected the third batch to be queued');
 
     // Cancel the middle one while the first is still running.
-    const cancelled = cancelTraining(repos, third.base, second.order.id, NOW, RICH_ON_PURPOSE);
+    const cancelled = cancelMuster(repos, third.base, second.order.id, NOW, RICH_ON_PURPOSE);
     if (cancelled.kind !== 'cancelled') throw new Error(`refused: ${cancelled.reason}`);
 
-    const [running, next] = cancelled.base.trainingQueue;
+    const [running, next] = cancelled.base.musterQueue;
     expect(running!.startedAt).toBe(first.order.startedAt);
     // The one behind now starts when the running batch finishes, not when the cancelled one would
     // have.
@@ -1238,8 +1244,8 @@ describe('the bench (§A5)', () => {
     const { repos, base } = stack();
     const razors = findUnit('razors')!;
     let current = base;
-    for (let i = 0; i < MAX_TRAINING_QUEUE + 2; i += 1) {
-      const result = queueTraining(repos, {
+    for (let i = 0; i < MAX_MUSTER_QUEUE + 2; i += 1) {
+      const result = queueMuster(repos, {
         base: current,
         unit: razors,
         count: 1,
@@ -1251,7 +1257,7 @@ describe('the bench (§A5)', () => {
     }
 
     const reloaded = repos.bases.findById(base.id);
-    expect(reloaded?.trainingQueue).toHaveLength(MAX_TRAINING_QUEUE + 2);
+    expect(reloaded?.musterQueue).toHaveLength(MAX_MUSTER_QUEUE + 2);
   });
 
   /** ...and the gate itself still holds for anybody not in testing mode. */
@@ -1259,12 +1265,12 @@ describe('the bench (§A5)', () => {
     const { repos, base } = stack();
     const razors = findUnit('razors')!;
     let current = base;
-    for (let i = 0; i < MAX_TRAINING_QUEUE; i += 1) {
-      const result = queueTraining(repos, { base: current, unit: razors, count: 1, now: NOW });
+    for (let i = 0; i < MAX_MUSTER_QUEUE; i += 1) {
+      const result = queueMuster(repos, { base: current, unit: razors, count: 1, now: NOW });
       if (result.kind !== 'queued') throw new Error(`refused at ${i}: ${result.reason}`);
       current = result.base;
     }
-    expect(queueTraining(repos, { base: current, unit: razors, count: 1, now: NOW })).toEqual({
+    expect(queueMuster(repos, { base: current, unit: razors, count: 1, now: NOW })).toEqual({
       kind: 'refused',
       reason: 'queue_full',
     });
@@ -1354,6 +1360,26 @@ describe('what the ground makes (§A4)', () => {
 
     const after = settleBase(repos, base, new Date(since + HOURS * 3600_000)).base;
     expect(after.resources.caps - base.resources.caps).toBeCloseTo((rates.caps ?? 0) * HOURS, 6);
+  });
+
+  /*
+   * A structure's own window runs the same rate over the crew's half of it (`/me`'s
+   * `productionYield`), so a crew whose only scrap is the Scrapyard reads one figure on both.
+   */
+  it('gives a structure window the same figure as the panel', () => {
+    const repos = openStack();
+    const base = seedBase(repos, {
+      buildings: [build('scrapyard', 5)],
+      settledAt: '2026-09-01T00:00:00.000Z',
+    });
+    const now = new Date('2026-09-01T00:00:00.000Z');
+    const own = structureProductionRates(
+      'scrapyard',
+      base.buildings,
+      productionYieldFor(repos, base, now),
+    );
+    expect(own.scrap ?? 0).toBeGreaterThan(0);
+    expect(own.scrap).toBeCloseTo(productionRatesFor(repos, base, now).scrap ?? 0, 9);
   });
 
   /** And the ground's output is added to what is built rather than replacing it. */

@@ -233,7 +233,8 @@ export const UNIT_MODIFIERS = {
   },
   last_stand: {
     label: 'Last Stand',
-    description: 'Hits harder when outnumbered. Nothing left to lose.',
+    description:
+      'Hits harder the more it is outnumbered, in full at two to one. Nothing left to lose.',
     context: 'outnumbered',
     percent: 25,
   },

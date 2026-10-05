@@ -1,4 +1,6 @@
 import {
+  ALL_DISTRICTS as CITY_DISTRICTS_ALL,
+  MISSION_FORCE_REFUSAL_TEXT,
   AUTOMATION_COOLDOWN_MS,
   AUTOMATION_RUNGS,
   CITY_DISTRICTS,
@@ -17,6 +19,8 @@ import {
   carriedHome,
   missionCarry,
   missionRewards,
+  areaPayPercent,
+  scaledSpoils,
   createCommander,
   makeAttributes,
   boardIsAutomated,
@@ -34,10 +38,10 @@ import {
   type Commander,
 } from '@frontline/shared';
 import { randomUUID } from 'node:crypto';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { openDatabase, runMigrations, type AppDatabase } from '../db/index.js';
 import { createRepositories, type Repositories } from '../db/repos/index.js';
-import { STALL_RETRY_MS, settleAutomations } from './runners.js';
+import { STALL_RETRY_MS, candidates, settleAutomations } from './runners.js';
 import { enemyForce } from '../missions/enemy.js';
 import { areaStatesFor } from '../missions/board.js';
 import { tickWorld } from '../live/clock.js';
@@ -92,7 +96,7 @@ function stack(
     buildings: [{ id: 'nexus-1', kind: 'nexus', level: 10, modifications: [] }],
     buildQueue: [],
     army: { razors: 40 },
-    trainingQueue: [],
+    musterQueue: [],
     training: startingTraining(now),
     inventory: {},
     fittedUpgrades: [],
@@ -116,7 +120,7 @@ function stack(
 
 /** The crew takes the first location of a district, which is what opens its board. */
 function holdOneIn(repos: Repositories, baseId: string, districtId: string): void {
-  const location = CITY_DISTRICTS.find((one) => one.id === districtId)?.locations[0];
+  const location = CITY_DISTRICTS_ALL.find((one) => one.id === districtId)?.locations[0];
   const control = location ? repos.city.control(location.id) : undefined;
   if (!control) throw new Error(`fixture: ${districtId} has no location to hold`);
   repos.city.put({ ...control, holder: { kind: 'crew', baseId } });
@@ -243,6 +247,32 @@ describe('a standing order on the world clock', () => {
     expect(settleAutomations(repos, NOW)).toBe(0);
     expect(repos.automations.get(base.id, 0)?.stalled).toMatch(/not at home/i);
     expect(repos.missions.listActiveByBaseId(base.id)).toHaveLength(0);
+  });
+
+  // Every stall read "not at home", so porters named for a fight sat at home under a sentence that
+  // blamed their absence (bug pass, 2026-10-02). It now says the launch's own reason.
+  // Every city the crew may stand in (maintainer, 2026-10-02): a crew whose ground is all abroad
+  // had a Right Hand that only ever read the misc board at home.
+  it('reads the boards of every city the crew holds ground in', () => {
+    const away = CITY_DISTRICTS_ALL.find(
+      (district) =>
+        district.kind === 'contested' && district.cityId !== cityOfDistrict('kettle-row'),
+    );
+    if (!away) throw new Error('fixture: no contested district in another city');
+    const { repos, base } = stack([AUTOMATION_RUNGS.open], []);
+    holdOneIn(repos, base.id, away.id);
+    const boards = new Set(candidates(repos, base, 'mission', NOW).map((one) => one.areaId));
+    expect(boards.has(away.id)).toBe(true);
+  });
+
+  it('stalls with the real reason when the party it named cannot fight', () => {
+    const { repos, base } = stack([AUTOMATION_RUNGS.open, AUTOMATION_RUNGS.battles]);
+    repos.bases.updateArmy(base.id, { razors: 40, haulers: 8 }, base.musterQueue);
+    slot(repos, base, { order: 'battles', force: { haulers: 8 } });
+    expect(settleAutomations(repos, NOW)).toBe(0);
+    expect(repos.automations.get(base.id, 0)?.stalled).toBe(
+      MISSION_FORCE_REFUSAL_TEXT.needs_fighters,
+    );
   });
 
   it('stalls, and says why, when a raid on home is inside its last hour', () => {
@@ -582,16 +612,44 @@ describe('a standing order on the world clock', () => {
     );
   });
 
-  /** The feat that measures this mechanic is bumped where the party leaves, and only there. */
-  it('counts a party sent by standing order towards the orders ladder', () => {
+  /**
+   * The feat that measures this mechanic is bumped when the party comes home, and only then (bug
+   * pass, 2026-10-02): it was bumped at the send, so a party recalled the moment it left counted.
+   */
+  it('counts a party sent by standing order towards the orders ladder once it is home', () => {
     const { repos, base } = stack();
     slot(repos, base);
-    expect(repos.feats.tallies(base.id).automated_parties ?? 0).toBe(0);
     expect(settleAutomations(repos, NOW)).toBe(1);
+    expect(repos.feats.tallies(base.id).automated_parties ?? 0).toBe(0);
+
+    const run = repos.missions.listActiveByBaseId(base.id)[0]!.mission;
+    const home = new Date(NOW.getTime() + 60_000);
+    repos.missions.markResolved(run.id, {
+      outcome: 'success',
+      rewards: {},
+      spoils: {},
+      resolvedAt: home.toISOString(),
+    });
+    settleAutomations(repos, home);
     expect(repos.feats.tallies(base.id).automated_parties).toBe(1);
-    // A stall sends nobody and counts nothing.
-    expect(settleAutomations(repos, new Date(NOW.getTime() + 1_000))).toBe(0);
-    expect(repos.feats.tallies(base.id).automated_parties).toBe(1);
+  });
+
+  it('does not count a party the crew turned round', () => {
+    const { repos, base } = stack();
+    slot(repos, base);
+    expect(settleAutomations(repos, NOW)).toBe(1);
+
+    const run = repos.missions.listActiveByBaseId(base.id)[0]!.mission;
+    const back = new Date(NOW.getTime() + 60_000);
+    repos.missions.markRecalled(run.id, NOW.toISOString());
+    repos.missions.markResolved(run.id, {
+      outcome: 'failure',
+      rewards: {},
+      spoils: {},
+      resolvedAt: back.toISOString(),
+    });
+    settleAutomations(repos, back);
+    expect(repos.feats.tallies(base.id).automated_parties ?? 0).toBe(0);
   });
 
   it('stops when the rung is taken away mid-run; the party out still lands', () => {
@@ -624,6 +682,35 @@ describe('a standing order on the world clock', () => {
    * chosen resource, and nothing else weighed. The expected pick is computed here off the same
    * catalogue the runner reads, so a retune of the misc board moves both sides together.
    */
+  /**
+   * Two modes (maintainer ruling P5-A, 2026-10-02): any job it can fill at random until Field
+   * Promotions, the best job overall from that rung. Told apart by the draw: the same board read
+   * with the dice at either end picks two different jobs at random and the same one at its best.
+   */
+  describe('which job it takes with nothing to chase', () => {
+    const pickWith = (rungs: readonly string[], dice: number): string | undefined => {
+      const { repos, base } = stack(rungs);
+      slot(repos, base, { unitSlots: 4, officerId: null, force: {}, optimiseFor: null });
+      const roll = vi.spyOn(Math, 'random').mockReturnValue(dice);
+      try {
+        expect(settleAutomations(repos, NOW)).toBe(1);
+      } finally {
+        roll.mockRestore();
+      }
+      return repos.missions.listActiveByBaseId(base.id)[0]?.mission.templateId;
+    };
+
+    it('takes any job it can fill, at random, before Field Promotions', () => {
+      const rungs = [AUTOMATION_RUNGS.open, AUTOMATION_RUNGS.bestFit];
+      expect(pickWith(rungs, 0)).not.toBe(pickWith(rungs, 0.9999));
+    });
+
+    it('takes the same best job whatever the dice say once it is researched', () => {
+      const rungs = [AUTOMATION_RUNGS.open, AUTOMATION_RUNGS.bestFit, AUTOMATION_RUNGS.optimise];
+      expect(pickWith(rungs, 0)).toBe(pickWith(rungs, 0.9999));
+    });
+  });
+
   it('chases one resource by the best rate per minute, ignoring everything else', () => {
     const { repos, base } = stack([
       AUTOMATION_RUNGS.open,
@@ -761,6 +848,59 @@ describe('choosing on what actually happens', () => {
     slot(repos, base, { unitSlots: 2, officerId: null, force: {}, optimiseFor: 'scrap' });
     expect(settleAutomations(repos, day!)).toBe(1);
     expect(repos.missions.listActiveByBaseId(base.id)[0]?.mission.templateId).toBe(expected);
+  });
+
+  /*
+   * Bug pass, 2026-10-02: the rate was the bare template's, so the district's pay premium (9% a
+   * point of difficulty) never reached the pick, and the same job on a difficulty-10 board scored
+   * the same as on Misc. The day is the first hour on which the premium changes which job wins.
+   */
+  it('counts the district premium the run is paid, as the card does', () => {
+    const { repos, base } = stack([
+      AUTOMATION_RUNGS.open,
+      AUTOMATION_RUNGS.bestFit,
+      AUTOMATION_RUNGS.optimise,
+    ]);
+    const areas = openAreas(repos, base);
+    const carry = missionCarry({ razors: 4 });
+    const offersOn = (at: Date) =>
+      areas.flatMap((areaId) =>
+        missionOffers(areaId, missionBoardKey(areaId, at), base.level)
+          .filter((one) => one.template.kind !== 'battle')
+          .map((one) => ({ ...one, areaId })),
+      );
+    type Offer = ReturnType<typeof offersOn>[number];
+    const minutesOf = (job: Offer): number => templateTimings(job.template, job.grade).totalMinutes;
+    const scrapPer = (job: Offer, premium: number): number =>
+      (carriedHome(
+        scaledSpoils(missionRewards(job.template, 'success', minutesOf(job), job.grade), premium),
+        carry,
+        RESOURCE_KG,
+      ).scrap ?? 0) / minutesOf(job);
+    const bare = (job: Offer) => scrapPer(job, 0);
+    const paid = (job: Offer) => scrapPer(job, areaPayPercent(job.areaId));
+
+    let day: Date | null = null;
+    let expected: Offer | null = null;
+    for (let hour = 0; hour < 24 * 30 && day === null; hour += 1) {
+      const at = new Date(NOW.getTime() + hour * 3_600_000);
+      const offers = offersOn(at);
+      const byPaid = offers.reduce((top, one) => (paid(one) > paid(top) ? one : top));
+      const byBare = offers.reduce((top, one) => (bare(one) > bare(top) ? one : top));
+      if (
+        (byPaid.areaId !== byBare.areaId || byPaid.template.id !== byBare.template.id) &&
+        paid(byPaid) > paid(byBare)
+      ) {
+        day = at;
+        expected = byPaid;
+      }
+    }
+    expect(day, 'no hour in a month where the premium changes the pick').not.toBeNull();
+
+    slot(repos, base, { unitSlots: 4, officerId: null, force: {}, optimiseFor: 'scrap' });
+    expect(settleAutomations(repos, day!)).toBe(1);
+    const sent = repos.missions.listActiveByBaseId(base.id)[0]?.mission;
+    expect([sent?.areaId, sent?.templateId]).toEqual([expected!.areaId, expected!.template.id]);
   });
 
   /** Everybody but the Right Hand, who has to stay fit or every order stalls on the chair. */
@@ -993,7 +1133,7 @@ describe('the crew a standing order sends', () => {
     expect(settleAutomations(repos, NOW)).toBe(1);
     const after = repos.bases.findById(base.id)!;
     expect(after.army.razors).toBe(4);
-    expect(after.trainingQueue).toEqual([]);
+    expect(after.musterQueue).toEqual([]);
   });
 
   it('freezes the practice-fight odds on a fight, the figure the hand-sent launch freezes', () => {

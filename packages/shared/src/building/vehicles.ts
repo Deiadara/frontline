@@ -260,8 +260,8 @@ const BY_ID = new Map<string, VehicleSpec>(SPECS.map((spec) => [spec.id, spec]))
  *
  * The Garage's own role line promises this in as many words, and until now it did not happen: a
  * vehicle's `buildSeconds` was a flat number and the yard's level changed nothing about it. The
- * Gauntlet's training cut deliberately does **not** reach here, which is the maintainer's rule:
- * machines are built, not trained, and the two clocks answer to different structures.
+ * Gauntlet's muster cut deliberately does **not** reach here, which is the maintainer's rule:
+ * machines are built, not mustered, and the two clocks answer to different structures.
  */
 export const GARAGE_TIME_DISCOUNT_PER_LEVEL = 5;
 

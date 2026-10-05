@@ -96,7 +96,7 @@ export const SideAnalysisSchema = z.object({
    * §D1: the officer who led this side, or null when nobody did.
    *
    * Beside the unit rows rather than in them. Every figure in `units` is a unit count the settler
-   * writes back to a roster, and an officer is neither trained nor lost nor recovered: they are
+   * writes back to a roster, and an officer is neither mustered nor lost nor recovered: they are
    * one person who was there. `injured` is filled in by the settler once the stretcher has been
    * decided, and it is reported rather than acted on: {@link reportReaches} stopped reading it on
    * 2026-09-23, so a hurt officer withholds nothing from anybody. Saying otherwise here is what

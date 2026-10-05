@@ -68,6 +68,9 @@ export default defineConfig({
         PORT: String(API_PORT),
         HOST: '127.0.0.1',
         DATABASE_PATH: scratchDb,
+        // Throwaway databases: no snapshots, or they land in the dev world's backups folder and its
+        // prune deletes the dev world's own (bug pass, 2026-10-02).
+        BACKUPS: 'false',
         JWT_SECRET: 'e2e-secret',
         CORS_ORIGIN: clientUrl,
         // Pinned off, not merely absent. `dotenv` loads the developer's own `apps/server/.env`,
@@ -98,6 +101,7 @@ export default defineConfig({
         PORT: String(ADMIN_API_PORT),
         HOST: '127.0.0.1',
         DATABASE_PATH: adminScratchDb,
+        BACKUPS: 'false',
         JWT_SECRET: 'e2e-secret',
         CORS_ORIGIN: clientUrl,
         EXIT_WITH_PARENT: 'true',

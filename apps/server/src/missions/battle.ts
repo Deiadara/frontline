@@ -1,4 +1,5 @@
 import {
+  findUnit,
   TacticalSkirmishEngine,
   loadable,
   recoverCasualties,
@@ -16,7 +17,7 @@ import {
   type MissionOutcome,
   type UnitLoadouts,
 } from '@frontline/shared';
-import { removeForce } from '../battle/forces.js';
+import { forceSize, removeForce } from '../battle/forces.js';
 import { enemyForce } from './enemy.js';
 
 /**
@@ -45,6 +46,8 @@ export interface MissionBattle {
   enemy: Army;
   /** The units that did not come home. */
   lost: Army;
+  /** How many of the crew's dead the medics brought round, on a win (`casualties_recovered`). */
+  recovered: number;
   /** The enemy's dead, which is what the job pays a name for (§D7, `missionInfamyForKills`). */
   killed: Army;
   /** ...and the ones that did, `force` less `lost`. */
@@ -123,19 +126,20 @@ export function fightMissionBattle(args: {
   // The engine names the dead by who lost the field: `killed` is the loser's and `winnerLosses` the
   // winner's, so which list is ours and which is theirs turns on who held it.
   const killed = won ? fought.killed : fought.winnerLosses;
-  // The enemy's runners, on a win: worth half a kill each (`missionInfamyForFled`). On a loss the
+  // The enemy's runners, on a win: worth half a kill each (`missionInfamyForBattle`). On a loss the
   // runners are the crew's own, and nobody pays for those.
   const fledEnemy = won ? fought.fled : {};
   /*
    * §F2 and §B10: the medics take some of the crew's dead off the list, on a win.
    *
    * The same rule and the same two sources as a declared battle (`battle/resolve.ts`): the crew's
-   * own medicine plus the Infirmary, winner only, because a routed force leaves its wounded where
-   * they fell. Neither reached a battle job, so a Chief Medic, `sig_field_surgeon`, the Joker's
-   * seat and a level 20 Infirmary saved nobody on the one job that kills people.
+   * own medic points (perks and the Joker's seat) plus the Infirmary, winner only, because a
+   * routed force leaves its wounded where they fell. Neither used to reach a battle job, so the
+   * Chief Medic of the day, `sig_field_surgeon`, the Joker's seat and a level 20 Infirmary saved
+   * nobody on the one job that kills people.
    */
   const fell = won ? fought.winnerLosses : fought.killed;
-  const lost = won ? recoverCasualties(fell, args.recoveryPercent ?? 0) : fell;
+  const lost = won ? recoverCasualties(fell, args.recoveryPercent ?? 0, slotsOf) : fell;
   const home = removeForce(args.force, lost);
   // See `MissionBattle.carrying`. On a loss the two lists are identical, because a routed crew
   // gets nobody back, which is the rule `fell` already encodes.
@@ -159,6 +163,7 @@ export function fightMissionBattle(args: {
     outcome: won ? 'success' : 'failure',
     enemy,
     lost,
+    recovered: forceSize(fell) - forceSize(lost),
     killed,
     fledEnemy,
     home,
@@ -166,4 +171,9 @@ export function fightMissionBattle(args: {
     vehicles: mergeFleets(idle, removeFleet(riding, wreckedVehicles)),
     wreckedVehicles,
   };
+}
+
+/** A unit's size in slots, for who the medics bring back first: the biggest. */
+function slotsOf(unitId: string): number {
+  return findUnit(unitId)?.unitSlots ?? 1;
 }

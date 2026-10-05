@@ -27,7 +27,7 @@ import {
 import { ALL_DISTRICTS, unifiedBonusFor } from './atlas.js';
 import { DistrictNameSchema } from '../base.js';
 import { hastenedMinutes } from '../missions.js';
-import { trainingSeconds } from '../units/training.js';
+import { musterSecondsFor } from '../units/muster.js';
 import {
   LOCATION_KINDS,
   LOCATION_CATALOG,
@@ -35,7 +35,7 @@ import {
   describeHoldBonus,
   noTerritoryEffects,
 } from './locations.js';
-import { MAX_TRAVEL_SPEED_BONUS, MIN_TRAVEL_MINUTES, travelMinutes } from './geography.js';
+import { MIN_TRAVEL_MINUTES, travelMinutes } from './geography.js';
 import {
   districtHolder,
   districtsHeldBy,
@@ -236,17 +236,17 @@ describe('geography (§A4)', () => {
     expect(travelMinutes('steelbelt', 'nowhere')).toBeNull();
   });
 
-  it('shortens the journey with a travel bonus, and stops shortening it eventually', () => {
+  it('shortens the journey with a travel bonus, less and less, and never to nothing', () => {
     const to = (pace?: { speed?: number; reductionPercent?: number }) =>
       travelMinutes(STARTER_DISTRICT_ID, 'ccs', pace) ?? 0;
     const plain = to();
     const quick = to({ reductionPercent: 30 });
     const absurd = to({ reductionPercent: 500 });
-    const capped = to({ reductionPercent: MAX_TRAVEL_SPEED_BONUS });
 
     expect(quick).toBeLessThan(plain);
-    expect(absurd).toBe(capped);
-    expect(absurd).toBeGreaterThan(0);
+    expect(absurd).toBeLessThanOrEqual(quick);
+    // Bent under its ceiling (2026-10-05): a quarter of the road always stays.
+    expect(absurd).toBeGreaterThanOrEqual(Math.floor(plain / 4));
   });
 
   /**
@@ -936,28 +936,36 @@ describe('what a card promises against what the clock does', () => {
   const saving = (minutes: number, after: number) => Math.round((1 - after / minutes) * 100);
 
   it('quotes the mission saving the launch actually applies', () => {
-    // Level 10 Smuggler's Tunnel: 12 scaled by LEVEL_SCALE[9] to 66, clamped to 50 at the launch.
-    expect(describeHoldBonus({ kind: 'mission_speed', percent: 66 })).toBe('-33% mission time');
+    // Level 10 Smuggler's Tunnel: 12 scaled by LEVEL_SCALE[9] to 66, bent to about 49 at the launch.
+    expect(describeHoldBonus({ kind: 'mission_speed', percent: 66 })).toBe(
+      '-33% mission time (tapers, no hard stop)',
+    );
     expect(saving(60, hastenedMinutes(60, 66))).toBe(33);
   });
 
-  it('quotes the training saving the bench actually applies', () => {
+  it('quotes the muster saving the bench actually applies', () => {
     const razors = findUnit('razors');
     if (!razors) throw new Error('fixture: no razors');
-    const card = describeHoldBonus({ kind: 'training_speed', percent: 90 });
-    const real = saving(trainingSeconds(razors, 1, 0), trainingSeconds(razors, 1, 90));
-    expect(card).toBe(`-${real}% training time`);
+    const card = describeHoldBonus({ kind: 'muster_speed', percent: 90 });
+    const real = saving(musterSecondsFor(razors, 1, 0), musterSecondsFor(razors, 1, 90));
+    expect(card).toBe(`-${real}% muster time`);
   });
 
   it('quotes a research saving that is a divisor, not a subtraction, even with no clamp', () => {
     // 1 - 1/1.12 = 10.7%, not 12%.
-    expect(describeHoldBonus({ kind: 'research_speed', percent: 12 })).toBe('-11% research time');
-    expect(describeHoldBonus({ kind: 'build_speed', percent: 12 })).toBe('-11% build time');
+    // Points since 2026-10-02 (P7-A): they join a curved sum, so a share of the clock is not theirs.
+    expect(describeHoldBonus({ kind: 'research_speed', percent: 12 })).toBe(
+      '+12 points off the research clock',
+    );
+    expect(describeHoldBonus({ kind: 'build_speed', percent: 12 })).toBe(
+      '+12 points off the build clock',
+    );
   });
 
+  // The two that print points (research and build speed) promise no share of the clock.
   it('never promises a saving of a hundred percent or more', () => {
     for (const percent of [50, 100, 200, 500, 1000]) {
-      for (const kind of ['research_speed', 'build_speed', 'training_speed', 'mission_speed']) {
+      for (const kind of ['muster_speed', 'mission_speed']) {
         const text = describeHoldBonus({ kind, percent } as Parameters<
           typeof describeHoldBonus
         >[0]);

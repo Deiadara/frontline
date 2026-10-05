@@ -65,7 +65,7 @@ async function world(username: string): Promise<{ repos: Repositories; base: Bas
   const repos = createRepositories(db);
   const baseId = chosen.json<{ base: { id: string } }>().base.id;
   const base = repos.bases.findById(baseId)!;
-  repos.bases.updateArmy(base.id, { razors: 10, sleepers: 10 }, base.trainingQueue);
+  repos.bases.updateArmy(base.id, { razors: 10, sleepers: 10 }, base.musterQueue);
   return { repos, base: repos.bases.findById(baseId)! };
 }
 

@@ -72,7 +72,10 @@ async function supplyAndBarter(h: Harness, a: Player): Promise<void> {
         h,
         before.resources,
         bought.market.resources,
-        { caps: -supplyPrice(line.key, 10), [line.key]: 10 },
+        {
+          caps: -supplyPrice(line.key, 10, read.marketDiscountPercent, read.traderPoints ?? null),
+          [line.key]: 10,
+        },
         'a supply run of ten',
       );
       h.check(

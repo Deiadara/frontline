@@ -122,16 +122,18 @@ export function infamyForFled(fled: Army): number {
 }
 
 /**
- * The same half, off the battle job's own rate.
+ * What a battle job's fight pays: its kills and its routs at the job's half rate, rounded up once.
  *
- * `Math.ceil`, to match `missionInfamyForKills` directly above it: the job's rate is already a
- * half, so flooring a half of a half paid **nothing** for one, two or three routed one-slot units
- * while killing a single one paid a point. A job has one rout figure and nothing to fold it into,
- * so it rounds here rather than at a ledger.
+ * Once, on the whole ledger, for the reason the fled share gives above. The rout used to be rounded
+ * up on its own and added to the rounded-up kills, so three one-slot kills and one rout (1.5 and
+ * 0.25) paid 3 rather than 2 (bug pass, 2026-10-02). Rounding up still pays at least a point for
+ * any rout at all, which is why it was rounded up in the first place: flooring a half of a half
+ * paid nothing for one, two or three routed one-slot units.
  */
-export function missionInfamyForFled(fled: Army): number {
-  const points = infamyForKills(fled) * MISSION_INFAMY_PER_UNIT_SLOT * FLED_INFAMY_SHARE;
-  return points > 0 ? Math.max(1, Math.ceil(points)) : 0;
+export function missionInfamyForBattle(killed: Army, fled: Army): number {
+  return Math.ceil(
+    (infamyForKills(killed) + infamyPointsForFled(fled)) * MISSION_INFAMY_PER_UNIT_SLOT,
+  );
 }
 
 /**
@@ -267,7 +269,7 @@ export const NOTORIETY_TO_FIELD: Readonly<Record<UnitTier, number>> = {
  * The unit slots a sheet has to eat before the middle band's rank gate applies to it.
  *
  * The gate is derived off the tier, and that stopped being sufficient when the line infantry moved
- * into Heavy: the tier now runs from Breakers, which a crew trains off a Gauntlet 4 in its first
+ * into Heavy: the tier now runs from Breakers, which a crew musters off a Gauntlet 4 in its first
  * session, up to Juggernauts. A flat rank on the tier locked three cheap early units behind a
  * reputation nobody has yet, which is a progression wall where the reshuffle meant to put a shelf
  * of armour.

@@ -9,20 +9,28 @@ import {
   type AuthResponse,
 } from '@frontline/shared';
 import bcrypt from 'bcryptjs';
-import type { FastifyInstance } from 'fastify';
+import type { FastifyInstance, FastifyReply } from 'fastify';
 import { AppError, parseBody } from '../errors.js';
 import type { UserRecord } from '../types.js';
-import { SESSION_HEADER, signSession } from '../auth/session.js';
+import { clearSession, issueSession, sessionCookie, signSession } from '../auth/session.js';
 import { worldHasRoom } from '../city/homes.js';
+import { admitSignIn, clearFailedSignIns } from '../limits/sign-in.js';
+import { refuseUsernameWornByAnother } from './settings.js';
 
 const BCRYPT_COST = 10;
 
 /** A real bcrypt hash of a random string, compared against when the username is unknown. */
 const UNKNOWN_USER_HASH = bcrypt.hashSync(randomUUID(), BCRYPT_COST);
 
-function authResponse(app: FastifyInstance, record: UserRecord): AuthResponse {
+/**
+ * Signs the account in: the session as an httpOnly cookie for the browser, and the same token in
+ * the body for a scripted caller (see `AuthResponseSchema`).
+ */
+function signIn(app: FastifyInstance, reply: FastifyReply, record: UserRecord): AuthResponse {
   const user = UserSchema.parse(record); // strips passwordHash
-  return { token: signSession(app, user.id, app.repos.users.sessionVersion(user.id) ?? 0), user };
+  const token = signSession(app, user.id, app.repos.users.sessionVersion(user.id) ?? 0);
+  reply.header('Set-Cookie', sessionCookie(token, app.config.secureCookies));
+  return { token, user };
 }
 
 /**
@@ -44,6 +52,7 @@ function refuseSignUp(app: FastifyInstance, username: string): void {
   if (app.repos.users.findByUsername(username)) {
     throw new AppError('USERNAME_TAKEN', 'That username is already taken');
   }
+  refuseUsernameWornByAnother(app, null, username);
 }
 
 export function registerAuthRoutes(app: FastifyInstance): void {
@@ -78,11 +87,15 @@ export function registerAuthRoutes(app: FastifyInstance): void {
     });
 
     reply.code(201);
-    return authResponse(app, record);
+    return signIn(app, reply, record);
   });
 
-  app.post('/auth/login', async (request) => {
+  app.post('/auth/login', async (request, reply) => {
     const body = parseBody(LoginRequestSchema, request.body);
+    // Before the compare: the point of the lock is that a knock on a shut door costs no hash.
+    admitSignIn(app.rateLimiter, body.username, (seconds) => {
+      reply.header('Retry-After', String(seconds));
+    });
 
     const record = app.repos.users.findByUsername(body.username);
     // An unknown name still pays for a compare, against a hash nobody holds, so the answer takes
@@ -95,6 +108,7 @@ export function registerAuthRoutes(app: FastifyInstance): void {
       throw new AppError('INVALID_CREDENTIALS', 'Invalid username or password');
     }
 
+    clearFailedSignIns(app.rateLimiter, body.username);
     // Successes only. A trail of failed attempts against a username is a list of guesses at a
     // password, and it belongs in a rate limiter rather than in a table anybody can read.
     app.repos.history.record({
@@ -103,12 +117,24 @@ export function registerAuthRoutes(app: FastifyInstance): void {
       kind: 'account.login',
       payload: {},
     });
-    return authResponse(app, record);
+    return signIn(app, reply, record);
+  });
+
+  /**
+   * Signs this browser out. The cookie is httpOnly, so the page cannot drop it itself; this answers
+   * with an expired one in its place. Not behind `authenticate`: a session that has already ended
+   * still leaves a cookie to clear. Every other session this account holds carries on, which is
+   * what "Log out everywhere" below is for.
+   */
+  app.post('/auth/logout', (_request, reply) => {
+    clearSession(app, reply);
+    return { ok: true as const };
   });
 
   /**
    * Log out everywhere: every token this account has handed out stops working at once, and the
-   * tab that asked is given a new one so it stays signed in (`auth/session.ts`).
+   * tab that asked is given a new one so it stays signed in (`auth/session.ts`), as a cookie or in
+   * the header, the way it sent the old one.
    */
   app.post('/auth/logout-all', { preHandler: app.authenticate }, (request, reply) => {
     const version = app.repos.users.revokeSessions(request.currentUser.id);
@@ -118,7 +144,7 @@ export function registerAuthRoutes(app: FastifyInstance): void {
       kind: 'account.sessions_revoked',
       payload: {},
     });
-    reply.header(SESSION_HEADER, signSession(app, request.currentUser.id, version));
+    issueSession(app, reply, request.currentUser.id, version, request.sessionVia);
     return { ok: true as const };
   });
 }

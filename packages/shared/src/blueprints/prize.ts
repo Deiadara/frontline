@@ -204,6 +204,25 @@ export function pagesIn(category: BlueprintCategory): { id: BlueprintPageId; wei
   );
 }
 
+/** Every page in the game, each at its draw weight: the pool a feat's random page comes from. */
+export function everyPage(): { id: BlueprintPageId; weight: number }[] {
+  return BLUEPRINT_CATEGORIES.flatMap((category) => pagesIn(category));
+}
+
+/**
+ * `count` random pages for a feat (maintainer ruling P8-A, 2026-10-02: the mid game pays "a
+ * random page"), drawn on the claim off the whole pool, the rarer sheets less often.
+ */
+export function drawFeatPages(count: number, seed: string): BlueprintPageId[] {
+  const pool = everyPage();
+  const drawn: BlueprintPageId[] = [];
+  for (let index = 0; index < count; index += 1) {
+    const page = drawPage(pool, `feat:${seed}:${index}`);
+    if (page !== null) drawn.push(page);
+  }
+  return drawn;
+}
+
 /** Each category's total draw weight: what {@link pagePrizeCategory} splits the paying runs by. */
 const CATEGORY_WEIGHT: Readonly<Record<BlueprintCategory, number>> = Object.fromEntries(
   BLUEPRINT_CATEGORIES.map((category) => [

@@ -1,7 +1,6 @@
 import {
   BUILDING_CATALOG,
   BUILDING_KINDS,
-  BUILDING_MAX_LEVEL,
   ITEM_CATALOG,
   MAX_MODIFICATION_SLOTS,
   MODIFICATIONS,
@@ -18,6 +17,7 @@ import {
   findUnitModification,
   modificationSlots,
   MAX_SCRAPYARD_DISCOUNT,
+  CHAIR_PASSIVE_CAP,
   SCRAPYARD_DISCOUNT_PER_LEVEL,
   SCRAPYARD_LEVEL_FOR_RARITY,
   nextScrapyardUnlock,
@@ -154,7 +154,8 @@ const BENCH_ICON: Readonly<Record<BuildingKind, IconName>> = {
   apothecary: 'flask',
   gate: 'shield',
   lab: 'research',
-  gauntlet: 'training',
+  // Where units are mustered: the Training tab's icon belongs to officer drills (2026-10-04).
+  gauntlet: 'units',
   infirmary: 'physical',
   garage: 'build',
 };
@@ -374,7 +375,7 @@ export function ScrapyardPage() {
    *
    * Taken off the cards rather than off the roster: a unit nothing in the catalogue fits has an
    * empty bench, and a rail door onto an empty bench is a door onto nothing. The server decides
-   * *whether* a card may go on (`cannot_train` is one of its refusals), so the rail shows the unit
+   * *whether* a card may go on (`cannot_muster` is one of its refusals), so the rail shows the unit
    * either way and the card says why.
    */
   const unitRail = PLAYER_UNITS.filter((one) =>
@@ -720,16 +721,17 @@ function YardInfoBox({ data }: { data: ScrapyardResponse }) {
       <dl className="grid min-w-0 grid-cols-[auto_auto] gap-x-4 gap-y-0 font-display">
         <dt
           className="cursor-help text-[9px] uppercase tracking-[0.18em] text-ink-400"
-          // One ladder for both benches since the maintainer evened it (2026-09-29): a building
-          // card opens at its grade's rung, as a unit card does (`scrapyardLevelForModification`).
-          data-tip={`The Scrapyard's level opens the catalogue a grade at a time, building and unit cards alike: BASIC at ${SCRAPYARD_LEVEL_FOR_RARITY.basic}, INTRICATE at ${SCRAPYARD_LEVEL_FOR_RARITY.intricate}, ADVANCED at ${SCRAPYARD_LEVEL_FOR_RARITY.advanced}, MASTERPIECE at ${SCRAPYARD_LEVEL_FOR_RARITY.masterpiece}. Each trap opens at a level of its own.`}
+          // One ladder for both benches since the maintainer evened it (2026-09-29), and spread
+          // over all twenty levels since 2026-10-02 (P13-A): each grade opens over a band of
+          // levels, cheapest first, so every level opens something.
+          data-tip={`The Scrapyard's level opens the catalogue a grade at a time, building and unit cards alike: BASIC from ${SCRAPYARD_LEVEL_FOR_RARITY.basic}, INTRICATE from ${SCRAPYARD_LEVEL_FOR_RARITY.intricate}, ADVANCED from ${SCRAPYARD_LEVEL_FOR_RARITY.advanced}, MASTERPIECE from ${SCRAPYARD_LEVEL_FOR_RARITY.masterpiece}, the dearest cards of each grade a few levels later. Every level opens something, and each trap opens at a level of its own, the strongest at the top.`}
           data-testid="scrapyard-level-tip"
         >
           Scrapyard
         </dt>
         <dt
           className="cursor-help text-[9px] uppercase tracking-[0.18em] text-ink-400"
-          data-tip={`Every level above the first takes ${SCRAPYARD_DISCOUNT_PER_LEVEL}% off every bill on this screen: building cards, unit cards and traps alike. The Scrapyard caps at level ${BUILDING_MAX_LEVEL}, which is ${MAX_SCRAPYARD_DISCOUNT}% off.`}
+          data-tip={`Every level above the first takes ${SCRAPYARD_DISCOUNT_PER_LEVEL}% off every bill on this screen: building cards, unit cards and traps alike. It stops at ${MAX_SCRAPYARD_DISCOUNT}% off, reached at level ${1 + MAX_SCRAPYARD_DISCOUNT / SCRAPYARD_DISCOUNT_PER_LEVEL}. A working Salvager takes up to ${CHAIR_PASSIVE_CAP.scrapyard_cost}% off the scrap and HQ metal of what is left${data.salvagerCutPercent > 0 ? `, and yours takes ${data.salvagerCutPercent}% now` : ''}; every price here counts both. Unit cards can be cheaper still on ground that refits.`}
           data-testid="scrapyard-discount-tip"
         >
           Every bill
@@ -1325,12 +1327,10 @@ function UnitDoor({
 /**
  * The yard level a group's cards open at, read off the rows rather than off the grade.
  *
- * Both benches climb one ladder today (`SCRAPYARD_LEVEL_FOR_RARITY`: 1, 3, 4, 7), but the two
- * used to differ, building cards opening at 1 or 4 by magnitude, and a heading that read the unit
- * ladder over both printed "opens at yard level 3" over Nexus brackets a level-1 yard was cutting.
- * `requiresLevel` is the level the server gated each row with, so it is the number the heading
- * says. The minimum is what the heading would have to say if a group's rows ever stopped sharing
- * one level, since it is the level at which the first of them opens.
+ * Both benches climb one ladder, and since 2026-10-02 (P13-A) a grade opens over a band of levels
+ * (`SCRAPYARD_RARITY_BANDS`), so a group's rows do not share one level. `requiresLevel` is the
+ * level the server gated each row with, and the heading says the lowest of them: the level at
+ * which the first card of the group opens.
  */
 function opensAt(entries: readonly ScrapyardEntry[]): number {
   return Math.min(...entries.map((entry) => entry.requiresLevel));

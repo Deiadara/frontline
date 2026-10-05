@@ -295,4 +295,33 @@ describe('what the table fields', () => {
       razors: 40,
     });
   });
+
+  // Bug pass, 2026-10-02: the table printed login names where every other screen prints the name a
+  // player goes by. The login name stays on the row for addressing and the seat order.
+  it('names each member by the name they go by, and keeps the login name beside it', async () => {
+    const config = loadConfig({ DATABASE_PATH: ':memory:', JWT_SECRET: 'test-secret' });
+    const db = openDatabase(config.databasePath);
+    runMigrations(db);
+    const app = await buildApp({ config, db, logger: false });
+    instances.push({ app, db });
+
+    const leader = await register(app, 'vex_1987');
+    app.repos.users.updateProfile(leader.userId, { displayName: 'Vex' });
+    const founded = await app.inject({
+      method: 'POST',
+      url: '/api/factions',
+      headers: auth(leader.token),
+      payload: { name: 'The Ninth Street Crew', badge: randomBadge(5), blurb: '' },
+    });
+    expect(founded.statusCode, founded.body.slice(0, 200)).toBe(200);
+
+    const screen = await app.inject({
+      method: 'GET',
+      url: '/api/factions',
+      headers: auth(leader.token),
+    });
+    const me = screen.json<FactionResponse>().members.find((one) => one.userId === leader.userId);
+    expect(me?.displayName).toBe('Vex');
+    expect(me?.username).toBe('vex_1987');
+  });
 });

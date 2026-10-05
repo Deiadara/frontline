@@ -22,15 +22,20 @@ export const PLAYER_LEVEL_MIN = 1;
  * the late game about two and a half months in for a crew that plays every day). It was
  * `100 * triangular(level)`, which grows with the square of the level: a crew in the progression
  * simulation (`apps/server/scripts/progression-sim.ts`) was level thirty on day 156 and never saw
- * level ninety. At this one it reaches level ten on day five, forty on day thirty two, sixty on day
- * fifty and ninety, the last milestone, on day seventy nine. The simulation leaves out the XP from
- * buildings, research, drills and hires, so a real crew playing that much runs a few days ahead.
+ * level ninety. At a power of 1.6 it reached level ninety on day seventy nine.
+ *
+ * The power went to 1.41 on 2026-10-01 (maintainer), when the fight premium came down from the
+ * old 1.6 to 6.7 times to 10 to 250% and the same crew slipped to level ninety on day 143. At 1.41
+ * it reaches level ten on day five, forty on day thirty, sixty on day forty nine and ninety, the
+ * last milestone, on day seventy six (73 to 76 over five seeds). The simulation leaves out the XP
+ * from buildings, research, drills, hires, declared fights and feats, so a real crew playing that
+ * much runs a few days ahead.
  */
 export const PLAYER_XP_LEVEL_STEP = 52;
-export const PLAYER_XP_LEVEL_POWER = 1.6;
+export const PLAYER_XP_LEVEL_POWER = 1.41;
 
 /**
- * XP required to advance *from* `level` to `level + 1`: 52, 158, 302, 478, 683, …
+ * XP required to advance *from* `level` to `level + 1`: 52, 138, 245, 367, 503, …
  *
  * Strictly increasing and always positive, which is what makes `applyPlayerXp`'s loop terminate.
  */

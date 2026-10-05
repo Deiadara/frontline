@@ -3,7 +3,6 @@ import {
   LOCATION_CATALOG,
   MAX_LOCATION_LEVEL,
   UNIT_MODIFIERS,
-  spyReportSummary,
   battlefieldFor,
   findUnit,
   cancelWindowMs,
@@ -38,7 +37,7 @@ import { HOLDER_PLATE } from './holder';
 import { whenItHolds } from './characteristics';
 import { ForcePicker } from './ForcePicker';
 import { MoveDialog } from '../actions/MoveDialog';
-import { SpyDialog, type SpyingProps } from './SpyPanel';
+import { SpyDialog, spyStandingFigure, type SpyingProps } from './SpyPanel';
 import { ErrorNote } from '../../components/ui/ErrorNote';
 
 /**
@@ -137,6 +136,17 @@ export function LocationSheet({
   // the same map (`battle/resolve.ts`).
   const me = useMe();
   const [staging, setStaging] = useState(false);
+  // Empty ground a column can walk onto: the server's own list (open city, no fight called on it),
+  // so the button never opens the Move dialog on a place it would refuse (review, 2026-10-02).
+  const walkable =
+    view.holder.kind === 'unoccupied' &&
+    (roster.data?.moveDestinations.some(
+      (entry) =>
+        entry.group === 'empty' &&
+        entry.place.kind === 'location' &&
+        entry.place.locationId === view.location.id,
+    ) ??
+      false);
   const [planting, setPlanting] = useState(false);
   const [spyingOpen, setSpyingOpen] = useState(false);
   const plant = usePlantSleepers(baseId, districtId);
@@ -268,9 +278,7 @@ export function LocationSheet({
             value={
               view.garrisonSize !== null
                 ? String(view.garrisonSize)
-                : view.latestSpyReport && !view.latestSpyReport.failed
-                  ? spyReportSummary(view.latestSpyReport)
-                  : 'Unknown'
+                : ((view.latestSpyReport && spyStandingFigure(view.latestSpyReport)) ?? 'Unknown')
             }
           />
         </dl>
@@ -365,6 +373,36 @@ export function LocationSheet({
             </Button>
           </div>
         </Sheet>
+      ) : view.holder.kind === 'unoccupied' ? (
+        /*
+         * Empty ground is walked onto, not fought for (maintainer rulings, 2026-10-02 and
+         * 2026-10-04: the server refuses a call on it). The plate above says "Walk in and it is
+         * yours", and the Move dialog opens aimed here, as Garrison does.
+         */
+        <Sheet label="Walking in" icon="units">
+          <p className="font-body text-[12px] leading-relaxed text-ink-300">
+            Nobody holds it. Walk a fighting force onto it and it is yours the moment they arrive,
+            with no fight.
+          </p>
+          {roster.data !== undefined && !walkable && (
+            <p
+              className="font-body text-[12px] leading-relaxed text-oxblood-300"
+              data-testid={`walk-shut-${view.location.id}`}
+            >
+              A fight called on it before is still to come. Walk in once it is over.
+            </p>
+          )}
+          <div className="flex flex-wrap gap-2">
+            <Button
+              size="sm"
+              disabled={!walkable}
+              onClick={() => setStaging(true)}
+              data-testid={`walk-in-${view.location.id}`}
+            >
+              Walk in
+            </Button>
+          </div>
+        </Sheet>
       ) : (
         <Sheet label="Taking it" icon="battles" tone="hostile">
           <p className="font-body text-[12px] leading-relaxed text-ink-300">
@@ -411,10 +449,9 @@ export function LocationSheet({
                 one that tells you what the other two are up against. A window rather than a
                 sheet, so this card still fits at 1024x768.
                 
-                Not offered behind a shut gate, where the district screen reads the door instead,
-                and not on ground nobody holds: there is nothing to count, the sheet says so
-                already, and the route refuses it (`nothing_there`). */}
-            {!shut && view.holder.kind !== 'unoccupied' && (
+                Not offered behind a shut gate, where the district screen reads the door instead.
+                Ground nobody holds never reaches this panel: it shows Walk in instead. */}
+            {!shut && (
               <Button
                 size="sm"
                 variant="ghost"
@@ -474,7 +511,7 @@ const HOLDER_READING: Record<
   government: {
     tone: 'government',
     icon: 'shield',
-    note: 'The state keeps this. Expect the garrison the district says it has.',
+    note: 'The state keeps this. What stands on it is anybody\u2019s guess until you spy on it.',
   },
   unoccupied: { tone: 'unoccupied', icon: 'eye', note: 'Empty ground. Walk in and it is yours.' },
 };

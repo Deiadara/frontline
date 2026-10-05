@@ -366,7 +366,7 @@ describe('a page out of the Lab', () => {
     const crew = await signIn(app, 'drafter');
     const base = baseOf(app, crew);
     app.repos.bases.updateCommanders(base.id, [
-      createCommander('off-1', 'Vell Ashgrove', 'head_of_research'),
+      createCommander('off-1', 'Vell Ashgrove', 'researcher'),
     ]);
     app.repos.bases.updateResearch(base.id, {
       ...base.research,

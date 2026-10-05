@@ -75,9 +75,9 @@ test.describe('reading the players board', () => {
     await expect(page.getByTestId('standings-sort')).toContainText('Standing');
 
     await sortBy(page, /^Level/);
-    await expect.poll(async () => (await rows(page))[0]).toBe('Vex_Combine');
+    await expect.poll(async () => (await rows(page))[0]).toBe('Vex_Holdings');
     // Vex is second on the board and first in the table: the menu reorders, it does not re-rank.
-    await expect(page.getByTestId('standing-Vex_Combine')).toContainText('2');
+    await expect(page.getByTestId('standing-Vex_Holdings')).toContainText('2');
 
     // `totalInfamy`, not the wallet: Ash_Wren is last by what they are holding and first by what
     // they have ever been paid, because they spent 36,300 of it on the ladder.

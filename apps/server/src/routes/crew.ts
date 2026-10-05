@@ -88,8 +88,14 @@ export function registerCrewRoutes(app: FastifyInstance): void {
         base.commanders.some((candidate) => candidate.role === role && candidate.id !== officerId);
       if (taken) throw new AppError('ROLE_TAKEN', 'Somebody already holds that position');
 
+      /*
+       * The clock on the new chair starts now (maintainer, 2026-10-05): it gives nothing for its
+       * first `CHAIR_SETTLE_HOURS`, so one strong officer cannot be walked through every chair to
+       * carry each passive at the moment it is spent. The bench has no chair to settle into.
+       */
+      const seatedAt = role === null ? null : now.toISOString();
       const commanders = base.commanders.map((candidate) =>
-        candidate.id === officerId ? { ...candidate, role } : candidate,
+        candidate.id === officerId ? { ...candidate, role, seatedAt } : candidate,
       );
       app.repos.bases.updateCommanders(base.id, commanders);
       return { crew: projectCrew(app.repos, { ...base, commanders }) };

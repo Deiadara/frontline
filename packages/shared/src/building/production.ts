@@ -6,7 +6,7 @@ import {
   type Resources,
 } from '../resources.js';
 import { districtEffects, localProductionPercent, withBonus } from './effects.js';
-import { BUILDING_KINDS, type BuildingKind } from './kinds.js';
+import { BUILDING_KINDS, levelCeilingFor, type BuildingKind } from './kinds.js';
 import { LOCAL_EFFECTS, MODIFICATIONS, fitsIn } from './modifications.js';
 import { buildingLevel, findBuilding, type Building } from './state.js';
 
@@ -101,25 +101,49 @@ for (const spec of MODIFICATIONS) {
   );
 }
 
+/** One structure's hourly output from its level alone, before any percentage. */
+function levelProduction(kind: BuildingKind, buildings: readonly Building[]): PartialResources {
+  const rates = PRODUCTION_PER_LEVEL[kind];
+  const level = buildingLevel(buildings, kind);
+  if (!rates || level <= 0) return {};
+  return Object.fromEntries(Object.entries(rates).map(([key, rate]) => [key, (rate ?? 0) * level]));
+}
+
 /**
- * One structure's hourly output, with its own `production_percent` modifications folded in.
+ * The production percentage the district's structures put on one producing structure: its own
+ * cards, and the Plumbing set wherever in the district one is complete (maintainer, 2026-10-01).
+ *
+ * The structure's share of the channel, and the figure the crew's own production and each
+ * resource's yield are **added** to in {@link productionRates}.
+ */
+export function structureProductionPercent(
+  kind: BuildingKind,
+  buildings: readonly Building[],
+): number {
+  return (
+    localProductionPercent(findBuilding(buildings, kind)) +
+    districtEffects(buildings).production_percent
+  );
+}
+
+/**
+ * One structure's hourly output with the structures' own percentage on it (its cards and the
+ * Plumbing set), and nothing of the crew's. What the plot dialog quotes for the structure.
  *
  * Nothing scales this district-wide any more. The Generator used to hold a grid up and everything
  * ran at a fraction of itself when it could not (§A1 as it was); the grid is gone (§A1 as it is),
- * so what a line makes is what its own level and its own modifications say.
+ * so what a line makes is what its own level and the district's cards say.
  */
 export function buildingProduction(
   kind: BuildingKind,
   buildings: readonly Building[],
 ): PartialResources {
-  const rates = PRODUCTION_PER_LEVEL[kind];
-  const level = buildingLevel(buildings, kind);
-  if (!rates || level <= 0) return {};
-
-  const local = localProductionPercent(findBuilding(buildings, kind));
-
+  const percent = structureProductionPercent(kind, buildings);
   return Object.fromEntries(
-    Object.entries(rates).map(([key, rate]) => [key, withBonus((rate ?? 0) * level, local)]),
+    Object.entries(levelProduction(kind, buildings)).map(([key, rate]) => [
+      key,
+      withBonus(rate ?? 0, percent),
+    ]),
   );
 }
 
@@ -170,7 +194,7 @@ export const STORAGE_SHARES: Readonly<Partial<Record<ResourceKey, number>>> = {
 /**
  * The bulk shelf: what this district can hold of scrap or planks, and the figure the rest scale off.
  *
- * `crewStorageCapacityPercent` is §F2's Logistics, and it is a parameter here rather than a private
+ * `crewStorageCapacityPercent` is the crew's §F2 storage bonus, and it is a parameter here rather than a private
  * multiply inside {@link accrueProduction} because that is exactly where it used to live. The clamp
  * knew about it and nothing else did: a crew on +12 banked 47,808 scrap while the stockpile panel,
  * the HUD bar and the supply run all quoted 42,686, so the bar read 112% full and `supplyAffordable`
@@ -186,10 +210,25 @@ export function storageCapacity(
   crewStorageCapacityPercent = 0,
 ): number {
   const level = buildingLevel(buildings, 'apothecary');
-  const effects = districtEffects(buildings);
+  const cards = districtEffects(buildings).storage_percent;
+  // The cards and the crew on one sum (maintainer, 2026-10-01: "make them add"), where the crew's
+  // used to multiply what the cards had already made of the shelf.
+  const percent = Math.max(cards, cards + crewStorageCapacityPercent);
+  return Math.round(withBonus(STORAGE_BASE * STORAGE_GROWTH ** level, percent));
+}
+
+/**
+ * The most a district can ever hold of one resource on the Apothecary alone: its top level, no
+ * storage cards, no storage bonus. `Infinity` for caps.
+ *
+ * A price that has to stay payable for every crew is sized under this, because bonuses are things
+ * some crews have and some do not. The payroll expansion is the first such price.
+ */
+export function maxBaseStorageFor(key: ResourceKey): number {
+  const share = STORAGE_SHARES[key];
+  if (share === undefined) return Number.POSITIVE_INFINITY;
   return Math.round(
-    withBonus(STORAGE_BASE * STORAGE_GROWTH ** level, effects.storage_percent) *
-      Math.max(1, 1 + crewStorageCapacityPercent / 100),
+    Math.round(STORAGE_BASE * STORAGE_GROWTH ** levelCeilingFor('apothecary')) * share,
   );
 }
 
@@ -237,20 +276,28 @@ export const HOUSING_BASE = 26;
  */
 export const HOUSING_PER_QUARTERS_LEVEL = 8;
 
+/**
+ * The beds the structures give before any card's percentage: the founding beds and the Quarters.
+ * What the Steward's passive is a share of, with the ground's flat slots (`unit-slots.ts`).
+ */
+export function baseUnitSlotBeds(buildings: readonly Building[]): number {
+  const quarters = buildingLevel(buildings, 'quarters');
+  return HOUSING_BASE + HOUSING_PER_QUARTERS_LEVEL * ((quarters * (quarters + 1)) / 2);
+}
+
 /** How many people this district can house: officers and soldiers alike (§A1, §G, §H8). */
 export function unitSlotCapacity(buildings: readonly Building[]): number {
   const effects = districtEffects(buildings);
-  const quarters = buildingLevel(buildings, 'quarters');
-  const beds = HOUSING_BASE + HOUSING_PER_QUARTERS_LEVEL * ((quarters * (quarters + 1)) / 2);
+  const beds = baseUnitSlotBeds(buildings);
   // Floored at the founding crew's own beds, so a negative `housing_percent` cannot leave a crew
   // with nowhere to sleep the people it started with.
   return Math.max(HOUSING_BASE, Math.floor(withBonus(beds, effects.housing_percent)));
 }
 
 export interface CrewYield {
-  /** §F2: Engineering runs the line at its rated speed rather than the one it settled into. */
+  /** §F2: the crew's production bonus, off its perks and the Lab. */
   productionPercent: number;
-  /** §F2: Logistics finds room in a full warehouse. */
+  /** §F2: the crew's storage bonus, off its perks and the Lab. */
   storageCapacityPercent: number;
   /**
    * §A4: one resource going further than it should, per resource.
@@ -261,7 +308,7 @@ export interface CrewYield {
    * appear, and folding the two together is how a specific bonus becomes a general one nobody
    * chose.
    */
-  resourceYieldPercent?: PartialResources;
+  resourceYieldPercent?: PartialResources | undefined;
   /**
    * §A4: a raid's cut, in percent off what the **structures** make (`raid.ts`, maintainer ruling
    * 2026-09-29). The held ground's output is not the district's buildings and is not cut.
@@ -269,7 +316,7 @@ export interface CrewYield {
    * Carried here rather than as a fraction of the settle's hours because hours scale everything
    * the window makes, the ground included, and the ruling names the buildings alone.
    */
-  raidCutPercent?: number;
+  raidCutPercent?: number | undefined;
 }
 
 /**
@@ -314,29 +361,75 @@ export function productionRates(
   crew: CrewYield,
   extraPerHour: PartialResources = {},
 ): PartialResources {
-  // Only on what is made: a raid that slowed a burn would pay the victim for being robbed.
-  const working = 1 - Math.max(0, crew.raidCutPercent ?? 0) / 100;
-  const perHour: PartialResources = Object.fromEntries(
-    Object.entries(districtProduction(buildings).perHour).map(([key, rate = 0]) => [
-      key,
-      rate > 0 ? rate * working : rate,
-    ]),
+  const made: Record<string, number> = {};
+  const add = (rates: PartialResources): void => {
+    for (const [key, rate = 0] of Object.entries(rates)) made[key] = (made[key] ?? 0) + rate;
+  };
+  for (const kind of PRODUCING_BUILDINGS) add(structureProductionRates(kind, buildings, crew));
+  // The held ground is not a structure: no card reaches it and no raid cuts it, the crew's rate does.
+  add(
+    Object.fromEntries(
+      Object.entries(extraPerHour).map(([key, rate = 0]) => [
+        key,
+        boosted(rate, crewPercentFor(crew, key)),
+      ]),
+    ),
   );
-  for (const [key, rate] of Object.entries(extraPerHour)) {
-    const resource = key as ResourceKey;
-    perHour[resource] = (perHour[resource] ?? 0) + (rate ?? 0);
-  }
-  const rate = Math.max(0, 1 + crew.productionPercent / 100);
+
   const rates: PartialResources = {};
   for (const key of RESOURCE_KEYS) {
-    const gross = perHour[key];
-    if (gross === undefined || gross === 0) continue;
-    // The crew's general rate, then this resource's own multiplier on top: both only on what is
-    // *made*. An engineer who is good at the job does not make the Generator drink faster.
-    const yielded = rate * (1 + Math.max(0, crew.resourceYieldPercent?.[key] ?? 0) / 100);
-    rates[key] = gross > 0 ? gross * yielded : gross;
+    const rate = made[key];
+    if (rate !== undefined && rate !== 0) rates[key] = rate;
   }
   return rates;
+}
+
+/**
+ * One structure's share of {@link productionRates}, which is what its own window quotes.
+ *
+ * The window used to read {@link buildingProduction}, the structure and its cards alone, so a crew
+ * with Engineering on the line read 6.0 supplies an hour on the Greenhouse and 7.2 on the
+ * Production panel, and a raid's cut never showed there at all.
+ */
+export function structureProductionRates(
+  kind: BuildingKind,
+  buildings: readonly Building[],
+  crew: CrewYield,
+): PartialResources {
+  // Only on what is made: a raid that slowed a burn would pay the victim for being robbed.
+  const working = 1 - Math.max(0, crew.raidCutPercent ?? 0) / 100;
+  /*
+   * A structure's own percentage (its cards and the Plumbing set) joins the crew's on the same sum
+   * (maintainer, 2026-10-01: "make them add"). It used to be applied first and the crew's on the
+   * result, so a +28% card beside a +16% crew paid x1.485 rather than +44%.
+   */
+  const structure = structureProductionPercent(kind, buildings);
+  const rates: PartialResources = {};
+  for (const [key, rate = 0] of Object.entries(levelProduction(kind, buildings))) {
+    if (rate === 0) continue;
+    rates[key as ResourceKey] = boosted(
+      rate > 0 ? rate * working : rate,
+      structure + crewPercentFor(crew, key),
+    );
+  }
+  return rates;
+}
+
+/**
+ * The crew's general rate and this resource's own yield, **added**, like every other pair of
+ * sources in the fold (maintainer, 2026-10-01): +16% production and +25% metal is +41% metal, not
+ * the x1.45 the two came to when one multiplied the other.
+ */
+function crewPercentFor(crew: CrewYield, key: string): number {
+  return crew.productionPercent + Math.max(0, crew.resourceYieldPercent?.[key as ResourceKey] ?? 0);
+}
+
+/**
+ * A rate with a percentage on it, only on what is *made*: an engineer who is good at the job does
+ * not make the Generator drink faster.
+ */
+function boosted(rate: number, percent: number): number {
+  return rate > 0 ? rate * Math.max(0, 1 + percent / 100) : rate;
 }
 
 /**

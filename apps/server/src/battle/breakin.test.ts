@@ -608,7 +608,7 @@ describe('one raid on the whole district', () => {
 
   /**
    * ...and nothing else (maintainer ruling, 2026-09-29). A raid used to take a share off every
-   * positive percentage the crew held for the six hours, which taxed its fights, training and
+   * positive percentage the crew held for the six hours, which taxed its fights, mustering and
    * research for a raid on its warehouse and still missed the chair rungs. Measured through
    * `standingEffectsFor`, the fold every consumer of a crew's standing reads, with ground worth
    * holding so there are percentages to lose.
@@ -661,7 +661,7 @@ describe('what a raid leaves behind (§A4)', () => {
   /**
    * ...and the research that buys the other answer, end to end (maintainer, 2026-09-18).
    *
-   * `tech_carry_both` on the Chief Medic track sets `recoveredCarryLoot`, and the raid reads it to
+   * `tech_carry_both` on the Veteran's track sets `recoveredCarryLoot`, and the raid reads it to
    * decide whether the Infirmary's recovered were upright when the bags were filled. Both halves
    * were tested and neither end was: the research side pinned that the flag reaches
    * `standingEffectsFor`, the raid side pinned that recovered units do **not** carry by default,
@@ -894,7 +894,7 @@ describe('the district a raid breaks into', () => {
 
     expect(defending.razors ?? 0, 'the finished batch was not at home').toBe(5);
     const victim = world.app.repos.bases.findById(world.victim.baseId)!;
-    expect(victim.trainingQueue, 'the stale queue was written back').toEqual([]);
+    expect(victim.musterQueue, 'the stale queue was written back').toEqual([]);
     expect(victim.army.razors).toBe(5);
   });
 

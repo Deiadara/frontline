@@ -456,3 +456,13 @@ export const LOCATION_MARKS: Readonly<Record<string, Mark>> = {
   // On the lattice tower under its lit cabin, at the right edge, growing left.
   'blockhouse-towerbox': { x: 0.93, y: 0.5, side: 'left' },
 };
+
+/**
+ * The paintings whose "Held by" plaque hangs at the bottom right rather than the bottom left.
+ *
+ * Bottom left is the maintainer's corner (2026-09-30) and holds on every other plate. On these two
+ * a sign already stands in it: Ironmouth's Shafts at x 0.015 and the Blockhouse's Officers' Halt at
+ * x 0.15, both under the plaque at 1280x720. `painting.spec.ts` sweeps every plate at 1024 and 1280
+ * for the plaque over a sign, so a new plate that needs this is found there.
+ */
+export const HELD_BY_ON_THE_RIGHT: ReadonlySet<string> = new Set(['ironmouth', 'blockhouse']);

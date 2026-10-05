@@ -106,7 +106,7 @@ async function makeStack(username: string, taught: boolean): Promise<Stack> {
   pinOverseer(app, token);
   const repos = createRepositories(db);
   const base = repos.bases.findByOwnerId(user.id)!;
-  repos.bases.updateArmy(base.id, { razors: 80, wardens: 20, haulers: 20 }, base.trainingQueue);
+  repos.bases.updateArmy(base.id, { razors: 80, wardens: 20, haulers: 20 }, base.musterQueue);
   holdEveryBoard(repos, base.id);
   repos.bases.updateCommanders(base.id, [leaderOnCard(), ...(taught ? teachers() : [])]);
   return { app, repos, baseId: base.id, token };
@@ -212,11 +212,14 @@ describe('the sheet a leader leads on', () => {
 
   /**
    * And the lift is worth something in the fight: the same officer, the same force, the same
-   * practice seeds, once on the card and once lifted. Measured on two fights near the edge (a
-   * sweep of force sizes on 2026-09-29: 10 Razors at E- and 14 at E+, where 12 Razors or more win
-   * everything) and scored as the ranking scores them, wins plus half the survivors, so the
-   * assertion is about the direction over 240 fights and not one fight that happens to tip.
-   * Measured then: lifted 34.23 to 32.31, wins 164 to 155.
+   * practice seeds, once on the card and once lifted. Measured on two fights near the edge and
+   * scored as the ranking scores them, wins plus half the survivors, so the assertion is about the
+   * direction over 240 fights and not one fight that happens to tip.
+   *
+   * Re-swept 2026-10-05, when morale started reading wounds: 12 Razors at E- and 20 at E+, where
+   * 13 and 22 win nearly everything and 11 and 18 nearly nothing. Measured: lifted 34.87 to 29.89.
+   * It was 10 at E- and 14 at E+ from 2026-09-29, which had drifted into fights lost under either
+   * sheet before the morale change.
    */
   it('fights better lifted than on the card', async () => {
     const stack = await makeStack('lifted_practice', true);
@@ -230,8 +233,8 @@ describe('the sheet a leader leads on', () => {
     const scoreOf = (candidate: typeof lifted): number => {
       let score = 0;
       for (const [grade, razors] of [
-        ['E-', 10],
-        ['E+', 14],
+        ['E-', 12],
+        ['E+', 20],
       ] as const) {
         for (let sample = 0; sample < 20; sample += 1) {
           score += rankFightLeaders({

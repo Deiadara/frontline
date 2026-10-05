@@ -105,7 +105,7 @@ const PLACES: readonly {
     label: 'Held',
     ink: 'text-brass-300',
     fill: 'fill-brass-300/85',
-    tip: 'Posted on ground you hold',
+    tip: 'On ground you hold, or posted on the faction\u2019s',
     Mark: HeldMark,
   },
   {
@@ -121,7 +121,7 @@ const PLACES: readonly {
     label: 'Out',
     ink: 'text-tangerine-300',
     fill: 'fill-tangerine-300/85',
-    tip: 'At a fight, walking to one, or on a job',
+    tip: 'At a fight, on the road, or on a job',
     Mark: OutMark,
   },
 ];

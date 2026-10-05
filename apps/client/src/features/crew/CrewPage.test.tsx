@@ -1,4 +1,9 @@
-import { OFFICER_ROLES, type CrewResponse } from '@frontline/shared';
+import {
+  OFFICER_ROLES,
+  payrollLedger,
+  startingPayroll,
+  type CrewResponse,
+} from '@frontline/shared';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
@@ -30,6 +35,7 @@ const NOW = new Date('2026-08-26T12:00:00.000Z');
 const crew: CrewResponse = {
   level: 4,
   housing: { used: 0, capacity: 12 },
+  payroll: payrollLedger(startingPayroll(), 0),
   officers: [],
 };
 
@@ -117,7 +123,7 @@ beforeEach(() => {
   vi.useFakeTimers({ shouldAdvanceTime: true });
   vi.setSystemTime(NOW);
   fetchMock.mockReset();
-  useSession.setState({ token: 'session-token', user: null });
+  useSession.setState({ signedIn: true, user: null });
 });
 
 afterEach(() => {
@@ -208,7 +214,7 @@ describe('when the books refuse a change', () => {
 });
 
 /**
- * The order of the nineteen cards (maintainer pass, 2026-09-09).
+ * The order of the thirteen cards (maintainer pass, 2026-09-09).
  *
  * In catalogue order alone a crew of three opened this screen on four empty chairs and had every
  * officer it had hired below the fold, on the one screen whose subject is those officers. The
@@ -239,5 +245,134 @@ describe('which chairs are at the top', () => {
     // when somebody sits down in it.
     const empties = seats.slice(1).map((id) => (id ?? '').replace('seat-', ''));
     expect(empties).toEqual(OFFICER_ROLES.filter((role) => role !== seatedOfficer.role));
+  });
+});
+
+/**
+ * §H7: the book on the Crew screen (maintainer, 2026-09-30). It is a readout: the expansion moved
+ * to the Bar and the Nexus (maintainer, 2026-10-01: "take this increase payroll out of the crew").
+ */
+describe('the payroll line', () => {
+  it('shows the book in plain caps, with nothing to buy', async () => {
+    fetchMock.mockImplementation((path: string) => {
+      if (path.endsWith('/me')) return reply(meIn('Europe/Athens'));
+      if (path.endsWith('/crew')) return reply(crew);
+      throw new Error(`unstubbed request: ${path}`);
+    });
+    renderCrew();
+
+    const line = await screen.findByTestId('crew-payroll');
+    expect(line).toHaveTextContent('Payroll');
+    // The unit is spaced off by margin, not by a character.
+    expect(line).toHaveTextContent(`0 / ${crew.payroll.capacity}caps`);
+    expect(line).not.toHaveTextContent(/wk|week/i);
+    expect(line).not.toHaveTextContent(/once|increase/i);
+    expect(within(line).queryByRole('button')).toBeNull();
+  });
+});
+
+/**
+ * The Overseer on the grid (maintainer, 2026-10-04): first, always, in the filled seat's frame, and
+ * opening a file that offers no other chair, no wage and no way to let them go.
+ */
+describe('the Overseer on the crew screen', () => {
+  const overseer = F.crewFat.overseer;
+  if (!overseer) throw new Error('the fixture crew has no Overseer');
+  const withOverseer: CrewResponse = { ...staffed, overseer };
+
+  const stubOverseer = (): void => {
+    fetchMock.mockImplementation((path: string) => {
+      if (path.endsWith('/me')) return reply(meIn('Europe/Athens'));
+      if (path.endsWith('/crew')) return reply(withOverseer);
+      throw new Error(`unstubbed request: ${path}`);
+    });
+  };
+
+  it('leads the grid, and the chair count leaves them out', async () => {
+    stubOverseer();
+    renderCrew();
+    const books = await screen.findByTestId('crew-books');
+    const first = books.querySelector('[data-testid^="seat-"]');
+    expect(first?.getAttribute('data-testid')).toBe('seat-overseer');
+    const card = screen.getByTestId('seat-overseer');
+    expect(card).toHaveTextContent('Overseer');
+    expect(card).toHaveTextContent(overseer.name);
+    expect(card.querySelector(`[data-testid="mark-stamp-${overseer.mark}"]`)).not.toBeNull();
+    // One officer is seated; the Overseer holds no chair.
+    expect(screen.getByText(/of \d+ chairs filled/)).toHaveTextContent(
+      `1 of ${OFFICER_ROLES.length} chairs filled`,
+    );
+  });
+
+  it('opens a file with a printed chair, the passive, and nothing to pay or end', async () => {
+    stubOverseer();
+    renderCrew();
+    fireEvent.click(await screen.findByTestId('seat-overseer'));
+    const file = await screen.findByTestId('crew-detail-overseer');
+    const chair = within(file).getByTestId('overseer-chair');
+    expect(chair).toHaveTextContent('Overseer');
+    expect(chair.tagName).not.toBe('BUTTON');
+    expect(within(chair).queryByRole('combobox')).toBeNull();
+    expect(chair.querySelector('svg')).toBeNull();
+    expect(within(file).queryByTestId('reassign-role')).toBeNull();
+    expect(within(file).getByTestId('chair-passive')).toHaveTextContent(overseer.passive);
+    expect(within(file).queryByTestId('let-go')).toBeNull();
+    expect(file).not.toHaveTextContent('On the books');
+  });
+
+  it("prints a seated officer's chair passive in their file", async () => {
+    stubOverseer();
+    renderCrew();
+    fireEvent.click(await screen.findByTestId(`seat-${seatedOfficer.role ?? ''}`));
+    const passive = await screen.findByTestId('chair-passive');
+    expect(seatedOfficer.passive).toBeTruthy();
+    expect(passive).toHaveTextContent(seatedOfficer.passive ?? '');
+  });
+
+  it('counts down to the chair starting to give for somebody seated a moment ago', async () => {
+    const officer = seatedOfficer;
+    if (!officer) throw new Error('the fixture crew has nobody seated');
+    const chairFrom = new Date(Date.now() + (5 * 60 + 30) * 60_000).toISOString();
+    const settling: CrewResponse = {
+      ...withOverseer,
+      officers: withOverseer.officers.map((one) =>
+        one.officerId === officer.officerId ? { ...one, chairFrom } : one,
+      ),
+    };
+    fetchMock.mockImplementation((path: string) => {
+      if (path.endsWith('/me')) return reply(meIn('Europe/Athens'));
+      if (path.endsWith('/crew')) return reply(settling);
+      throw new Error(`unstubbed request: ${path}`);
+    });
+    renderCrew();
+    fireEvent.click(await screen.findByTestId(`seat-${officer.role ?? ''}`));
+    expect(await screen.findByTestId('chair-settling')).toHaveTextContent(
+      /gives nothing for another 5h 3\dm/,
+    );
+  });
+
+  it('says nothing about settling for a chair that is already giving', async () => {
+    // Past, as a window left open over the hour would have it: no "another 0s".
+    const chairFrom = new Date(Date.now() - 60_000).toISOString();
+    const settled: CrewResponse = {
+      ...withOverseer,
+      officers: withOverseer.officers.map((one) => ({ ...one, chairFrom })),
+    };
+    fetchMock.mockImplementation((path: string) => {
+      if (path.endsWith('/me')) return reply(meIn('Europe/Athens'));
+      if (path.endsWith('/crew')) return reply(settled);
+      throw new Error(`unstubbed request: ${path}`);
+    });
+    renderCrew();
+    fireEvent.click(await screen.findByTestId(`seat-${seatedOfficer?.role ?? ''}`));
+    await screen.findByTestId('chair-passive');
+    expect(screen.queryByTestId('chair-settling')).toBeNull();
+  });
+
+  it('draws no Overseer card while none is chosen', async () => {
+    stub('Europe/Athens');
+    renderCrew();
+    await screen.findByTestId('crew-books');
+    expect(screen.queryByTestId('seat-overseer')).toBeNull();
   });
 });

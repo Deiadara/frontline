@@ -39,13 +39,17 @@ const ZERO: DistrictEffects = Object.freeze(
  */
 export const MAX_EFFECT_REDUCTION = 70;
 
-/** Effects that are subtractions, and so need the {@link MAX_EFFECT_REDUCTION} ceiling. */
+/**
+ * Effects that are subtractions, and so need the {@link MAX_EFFECT_REDUCTION} ceiling here.
+ *
+ * Build cost, build time and research time are not on this list (maintainer, 2026-10-01: "make
+ * them add"). Their cards join the structure's level and the crew's own sum on the channel, and
+ * the one bound is the taper the consumer puts on that sum (`buildCostCut`, `buildTimeCut`,
+ * `researchTimeCut`). A ceiling here as well would be a second bound compounding with the first.
+ */
 const REDUCTIONS: readonly ModificationEffect[] = [
-  'build_cost_reduction',
-  'build_time_reduction',
-  'research_time_reduction',
-  'training_time_reduction',
-  'training_supplies_reduction',
+  'muster_time_reduction',
+  'muster_supplies_reduction',
 ];
 
 /**
@@ -109,16 +113,22 @@ export function districtEffects(buildings: readonly Building[]): DistrictEffects
       totals[spec.effect] += fittedMagnitude(spec, fitted);
     }
     /*
-     * The set bonus, paid once per structure that earned it.
+     * The set bonus, paid once per structure that earned it, to the whole district.
      *
      * Read here rather than folded into the cards so that a set is worth something the three cards
      * could not buy on their own: three Comfort cards raise housing, and completing the set buys
      * *more* housing on top, from the district rather than from the building.
+     *
+     * The Plumbing set too, although its channel is production (maintainer, 2026-10-01: "pay the
+     * whole district"). It used to be paid to the structure holding the three cards, and four of
+     * the six structures that can hold them make nothing. So `production_percent` on this total is
+     * the district-wide share only: a production *card* still pays its own structure and nothing
+     * else, and is read by {@link localProductionPercent}.
      */
     const set = completedSet(building);
     if (set !== null) {
       const bonus = SET_BONUSES[set];
-      if (!LOCAL_EFFECTS.includes(bonus.effect)) totals[bonus.effect] += bonus.magnitude;
+      totals[bonus.effect] += bonus.magnitude;
     }
   }
   for (const effect of REDUCTIONS) {
@@ -127,25 +137,17 @@ export function districtEffects(buildings: readonly Building[]): DistrictEffects
   return totals;
 }
 
-/** The `production_percent` a single structure's own modifications are worth to it. */
+/**
+ * The `production_percent` a single structure's own cards are worth to it.
+ *
+ * Cards only. The Plumbing set pays every producing structure and is on `districtEffects`.
+ */
 export function localProductionPercent(building: Building | undefined): number {
   if (!building) return 0;
   const fitted = fittedIn(building);
   let total = 0;
   for (const spec of fitted) {
     if (spec.effect === 'production_percent') total += fittedMagnitude(spec, fitted);
-  }
-  /*
-   * A local set pays locally.
-   *
-   * `production_percent` is the one effect that belongs to the structure rather than the district,
-   * so the Plumbing set, whose bonus is production, has to be read here. Paying it in
-   * `districtEffects` instead would have been a set bonus that silently did nothing, which is the
-   * failure this codebase has now had twice.
-   */
-  const set = completedSet(building);
-  if (set !== null && SET_BONUSES[set].effect === 'production_percent') {
-    total += SET_BONUSES[set].magnitude;
   }
   return total;
 }

@@ -7,6 +7,7 @@ import {
   committedWage,
   buildingLevel,
   cancelDrill,
+  chairPassiveOf,
   dismissalFee,
   officerPortraitId,
   payrollBonusPercent,
@@ -16,6 +17,7 @@ import {
   sessionFor,
   type Base,
   type Commander,
+  type CrewEffects,
   type JoinBlocker,
   type PayrollLedger,
 } from '@frontline/shared';
@@ -127,8 +129,8 @@ export function assessAgainst(
  *
  * ## The asking price is the city's, not this crew's
  *
- * `discountPercent` is `wageDiscountPercent`, the channel four perks, two attributes and a
- * technology feed, and every Bar path passes nothing here on purpose. An auction has **one**
+ * `discountPercent` is `wageDiscountPercent`, the channel four perks and six
+ * Lab rungs feed, and every Bar path passes nothing here on purpose. An auction has **one**
  * floor, because two crews bidding against each other have to be bidding against the same number:
  * a per-crew reserve would mean a bid that is legal for one crew and under the floor for the other
  * at the same table, and a close that has to pick which of two reserves the ranking is measured
@@ -176,14 +178,24 @@ export function bidCeilingFor(available: number, discountPercent: number): numbe
  * one that comes out of the stockpile, which is the worst kind of pricing bug because it looks
  * like a refund.
  */
-export function ledgerFor(base: Base, stepDiscountPercent = 0): PayrollLedger {
+export function ledgerFor(
+  base: Base,
+  effects: Pick<CrewEffects, 'payrollStepDiscountPercent' | 'chairPoints'> = NO_LEDGER_EFFECTS,
+): PayrollLedger {
   return payrollLedger(
     base.economy.payroll,
     buildingLevel(base.buildings, 'nexus'),
     payrollBonusPercent(base.buildings),
-    stepDiscountPercent,
+    effects.payrollStepDiscountPercent,
+    // The Fixer's passive (maintainer, 2026-10-04).
+    chairPassiveOf(effects, 'fixer', 'payroll'),
   );
 }
+
+const NO_LEDGER_EFFECTS: Pick<CrewEffects, 'payrollStepDiscountPercent' | 'chairPoints'> = {
+  payrollStepDiscountPercent: 0,
+  chairPoints: {},
+};
 
 /**
  * Every §H3 door, in the order a player should be told about it, as the reason the close records.
@@ -220,7 +232,9 @@ function refusalFor(
   admin: boolean,
 ): HireRefusal | null {
   if (base.commanders.some((officer) => officer.id === recruit.id)) return 'already_hired';
-  // §H8: 2 at the start, +1 per level, read off W6's grant table rather than restated here.
+  // §H8: one slot with the Bar, another every two levels, read off W6's grant table rather than
+  // restated here. `>=` rather than `===`: a crew already over the limit keeps everyone it holds
+  // and signs nobody new until it is back under.
   if (base.commanders.length >= room.slots && !adminWaives('no_slots', admin)) return 'no_slots';
   if (room.bedsFree < 1 && !adminWaives('no_unit_slots', admin)) return 'no_unit_slots';
   // The doors are waived under the table's name for them, `not_interested`, so admin mode opens
@@ -245,7 +259,7 @@ export function signRecruit(repos: Repositories, input: SignInput): SignResult {
 
   const { blockers } = assessAgainst(base, recruit, factionInfamyOf(repos, base));
   const room = {
-    slots: recruitSlotsFor(repos, base),
+    slots: recruitSlotsFor(base),
     bedsFree: districtUnitSlots(repos, base).spare,
   };
   const refusal = refusalFor(base, recruit, blockers, room, admin);
@@ -256,7 +270,7 @@ export function signRecruit(repos: Repositories, input: SignInput): SignResult {
   // pressed; the wage discount is what this crew's negotiators take off the contract.
   const effects = crewEffectsFor(repos, base);
   const wage = committedWage(price, effects.wageDiscountPercent);
-  const ledger = ledgerFor(base, effects.payrollStepDiscountPercent);
+  const ledger = ledgerFor(base, effects);
   if (!payrollFits(ledger, wage) && !adminWaives('no_payroll', admin)) {
     return { kind: 'refused', reason: 'no_payroll' };
   }
@@ -306,7 +320,7 @@ export function signRecruit(repos: Repositories, input: SignInput): SignResult {
     base: signed,
     officer,
     wage,
-    payroll: ledgerFor(signed, effects.payrollStepDiscountPercent),
+    payroll: ledgerFor(signed, effects),
   };
 }
 
@@ -357,10 +371,10 @@ export function releaseOfficer(
    * A session is keyed by `subjectId`, and nothing outside `base.commanders` ever removes one:
    * this path dropped the officer and left the drill standing on the board. Before the floor had
    * a bench limit that was invisible, because a stranded session only blocked the person who no
-   * longer existed. Now `trainingBlocker` counts `sessions.length` against `TRAINING_BENCHES`, so
-   * one of these jams the *whole floor* for the rest of the hour: every drill on every sheet
-   * answers "The floor is taken" while the screen, which counts the floor off the subjects it can
-   * see, reads "0 of 1 bench in use" and prints "The floor is empty". There is no way out from
+   * longer existed. Now `trainingBlocker` counts `sessions.length` against `TRAINING_QUEUE_SLOTS`,
+   * so one of these holds a place in the queue nobody can see: with the queue full every drill on
+   * every sheet answers "The queue is full" while the screen, which counts the floor off the
+   * subjects it can see, prints "The floor is empty". There is no way out from
    * the client either, because the only source of session ids on that screen is the subject list
    * the officer has just left.
    *
@@ -396,15 +410,15 @@ export function releaseOfficer(
     base: released,
     officer,
     fee,
-    payroll: ledgerFor(released, crewEffectsFor(repos, released).payrollStepDiscountPercent),
+    payroll: ledgerFor(released, crewEffectsFor(repos, released)),
   };
 }
 
 /**
- * How many officers the books hold: the level's chairs, plus the ones research has added (the
- * Right Hand's ninth rung, the Consigliere's tenth). Through the crew fold rather than the
- * territory one, because a chair at the Bar is nothing the ground grants.
+ * How many officers the books hold: the level's slots, one per chair at most (maintainer,
+ * 2026-09-30). The level is the only source since research stopped paying slots (maintainer,
+ * 2026-10-01).
  */
-export function recruitSlotsFor(repos: Repositories, base: Base): number {
-  return playerLevelGrants(base.level).recruitSlots + crewEffectsFor(repos, base).recruitSlotsFlat;
+export function recruitSlotsFor(base: Base): number {
+  return playerLevelGrants(base.level).recruitSlots;
 }

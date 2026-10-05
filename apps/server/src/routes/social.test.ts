@@ -5,9 +5,11 @@ import {
   FOUND_FACTION_PLAYER_LEVEL,
   INVITES_TO_ONE_PLAYER_PER_DAY,
   INVITES_TO_ONE_PLAYER_PER_WEEK,
+  LETTERS_TO_ONE_PLAYER_PER_DAY,
   MAILBOX_LIMIT,
   MAX_FACTION_MEMBERS,
   MESSAGES_PER_DAY,
+  featMeasureKey,
   notorietySpentTo,
   randomBadge,
   type FactionResponse,
@@ -216,6 +218,24 @@ describe('getting in', () => {
     expect(after.members.map((member) => member.username).sort()).toEqual(['joiner', 'leader']);
   });
 
+  // Every screen prints the display name, so that is what a leader types (bug pass, 2026-10-02).
+  it('finds the player by the name the screens show, not only by their login', async () => {
+    const leader = await player(app, 'leader');
+    const joiner = await player(app, 'wren_harlow');
+    app.repos.users.updateProfile(joiner.id, { displayName: 'Wren' });
+    await found(app, leader.token, 'Iron Wolves');
+
+    const invited = await app.inject({
+      method: 'POST',
+      url: '/api/factions/invite',
+      headers: auth(leader.token),
+      payload: { username: 'wren' },
+    });
+    expect(invited.statusCode, invited.body.slice(0, 200)).toBe(200);
+    const theirs = await faction(app, joiner.token);
+    expect(theirs.invites.some((entry) => entry.factionName === 'Iron Wolves')).toBe(true);
+  });
+
   it('will not take a sixth person', async () => {
     const leader = await player(app, 'leader');
     await found(app, leader.token, 'Iron Wolves');
@@ -372,6 +392,78 @@ describe('rank', () => {
     expect((await faction(app, member.token)).faction).toBeNull();
   });
 
+  /**
+   * The leader seats the table (maintainer ruling P3-C, 2026-10-02). A seat is a swap: whoever held
+   * the card takes the other's old one, and nobody but the leader may move anybody.
+   */
+  it('lets the leader seat a member at a card, swapping with whoever held it', async () => {
+    const { leader, member } = await table();
+    const seat = (token: string, userId: string, card: string | null) =>
+      app.inject({
+        method: 'POST',
+        url: '/api/factions/seat',
+        headers: auth(token),
+        payload: { userId, card },
+      });
+    const cardOf = async (userId: string) =>
+      (await faction(app, leader.token)).members.find((one) => one.userId === userId)?.card;
+
+    expect(await cardOf(leader.id)).toBe('ace_spades');
+    const before = await cardOf(member.id);
+
+    const refused = await seat(member.token, member.id, 'ace_spades');
+    expect(refused.json<{ error: { message: string } }>().error.message).toBe('not_allowed');
+
+    expect((await seat(leader.token, member.id, 'ace_spades')).statusCode).toBe(200);
+    expect(await cardOf(member.id)).toBe('ace_spades');
+    expect(await cardOf(leader.id)).toBe(before);
+
+    // The leader may seat themselves, too.
+    expect((await seat(leader.token, leader.id, 'joker')).statusCode).toBe(200);
+    expect(await cardOf(leader.id)).toBe('joker');
+    // A card somebody was seated at by name still swaps: the leader takes the member's old one.
+    expect((await seat(leader.token, member.id, 'joker')).statusCode).toBe(200);
+    expect(await cardOf(member.id)).toBe('joker');
+    expect(await cardOf(leader.id)).toBe('ace_spades');
+  });
+
+  // Review, 2026-10-02: seating somebody at a free card moves nobody else.
+  it('moves nobody else when the leader takes a card nobody holds', async () => {
+    const { leader, member } = await table();
+    const third = await player(app, 'third');
+    await app.inject({
+      method: 'POST',
+      url: '/api/factions/invite',
+      headers: auth(leader.token),
+      payload: { username: 'third' },
+    });
+    const invite = (await faction(app, third.token)).invites[0];
+    await app.inject({
+      method: 'POST',
+      url: '/api/factions/answer',
+      headers: auth(third.token),
+      payload: { inviteId: invite?.id, accept: true },
+    });
+    const cards = async () =>
+      new Map((await faction(app, leader.token)).members.map((one) => [one.userId, one.card]));
+    const before = await cards();
+    const free = ['joker', 'jack_clubs', 'queen_hearts', 'king_diamonds', 'ace_spades'].find(
+      (card) => ![...before.values()].includes(card as never),
+    )!;
+
+    const moved = await app.inject({
+      method: 'POST',
+      url: '/api/factions/seat',
+      headers: auth(leader.token),
+      payload: { userId: leader.id, card: free },
+    });
+    expect(moved.statusCode).toBe(200);
+    const after = await cards();
+    expect(after.get(leader.id)).toBe(free);
+    expect(after.get(member.id)).toBe(before.get(member.id));
+    expect(after.get(third.id)).toBe(before.get(third.id));
+  });
+
   /** ...unless they hand it on first, which is the whole point of being able to hand it on. */
   it('leaves the faction standing when the leader hands it over first', async () => {
     const { leader, member } = await table();
@@ -395,6 +487,61 @@ describe('rank', () => {
     const after = await faction(app, member.token);
     expect(after.faction?.name).toBe('Iron Wolves');
     expect(after.members).toHaveLength(1);
+  });
+
+  /**
+   * Maintainer, 2026-09-30: a leader with members is warned it will disband and may name who leads
+   * after them on the way out. One call, one transaction: the heir leads, the leaver is gone, and
+   * the faction is still there for everybody else.
+   */
+  it('hands it to the successor the leader names on the way out', async () => {
+    const { leader, member } = await table();
+    const left = await app.inject({
+      method: 'POST',
+      url: '/api/factions/leave',
+      headers: auth(leader.token),
+      payload: { successorId: member.id },
+    });
+    expect(left.statusCode, left.body.slice(0, 200)).toBe(200);
+    expect((await faction(app, leader.token)).faction).toBeNull();
+    const after = await faction(app, member.token);
+    expect(after.faction?.name).toBe('Iron Wolves');
+    expect(after.rank).toBe('leader');
+    expect(after.members.map((row) => row.username)).toEqual(['member']);
+
+    const told = app.repos.social.notifications(member.id, 20).map((row) => row.title);
+    expect(told).toContain('You lead the faction now');
+    expect(told).toContain('leader has left the faction');
+  });
+
+  it('refuses a successor who is not at the table, and changes nothing', async () => {
+    const { leader, member } = await table();
+    const stranger = await player(app, 'stranger');
+    for (const successorId of [stranger.id, leader.id]) {
+      const refused = await app.inject({
+        method: 'POST',
+        url: '/api/factions/leave',
+        headers: auth(leader.token),
+        payload: { successorId },
+      });
+      expect(refused.statusCode).toBe(409);
+      expect(refused.json<{ error: { message: string } }>().error.message).toBe('not_a_member');
+    }
+    expect((await faction(app, leader.token)).rank).toBe('leader');
+    expect((await faction(app, member.token)).rank).toBe('member');
+  });
+
+  it('lets nobody but the leader name a successor', async () => {
+    const { leader, member } = await table();
+    const refused = await app.inject({
+      method: 'POST',
+      url: '/api/factions/leave',
+      headers: auth(member.token),
+      payload: { successorId: leader.id },
+    });
+    expect(refused.statusCode).toBe(409);
+    expect(refused.json<{ error: { message: string } }>().error.message).toBe('not_allowed');
+    expect((await faction(app, member.token)).rank).toBe('member');
   });
 
   it('lets the leader disband on purpose, with people still at the table', async () => {
@@ -682,6 +829,32 @@ describe('the mailbox', () => {
     // The signature is what it was: the letter was written as `writer`.
     expect(letter?.senderName).toBe('writer');
     expect(letter?.replyTo).toBe('renamed');
+  });
+
+  /*
+   * Bug pass, 2026-10-02: letters and bells were signed with the login name, while the profile, the
+   * map and the faction table print the name a player goes by.
+   */
+  it('signs and addresses with the names players go by, and replies to the login', async () => {
+    const from = await player(app, 'vex_1987');
+    const to = await player(app, 'reader_99');
+    app.repos.users.updateProfile(from.id, { displayName: 'Vex' });
+    app.repos.users.updateProfile(to.id, { displayName: 'The Reader' });
+    await app.inject({
+      method: 'POST',
+      url: '/api/messages',
+      headers: auth(from.token),
+      payload: { toUsernames: ['reader_99'], subject: 'Hello', body: 'It is me.' },
+    });
+
+    const [letter] = (await messages(app, to.token)).inbox;
+    expect(letter?.senderName).toBe('Vex');
+    expect(letter?.addressedTo).toBe('The Reader');
+    expect(letter?.replyTo).toBe('vex_1987');
+    const bell = (await notifications(app, to.token)).notifications.find(
+      (one) => one.kind === 'message_received',
+    );
+    expect(bell?.title).toBe('Vex wrote to you');
   });
 });
 
@@ -1129,6 +1302,17 @@ describe('an invitation in the mailbox', () => {
     expect(after?.factionName).toBe('Iron Wolves');
   });
 
+  /**
+   * Who asked and what the table is for, and nothing after it (maintainer, 2026-09-30): the line
+   * about armies, rosters and help is gone from the letter.
+   */
+  it('says who asked and what they are for, and nothing more', async () => {
+    const { joiner } = await invited();
+    expect((await messages(app, joiner.token)).inbox[0]?.body).toBe(
+      'leader has asked you to join Iron Wolves.\n\nThey have not written down what they are for.',
+    );
+  });
+
   it('leaves no sent copy in the inviter’s folder', async () => {
     const { leader } = await invited();
     expect((await messages(app, leader.token)).sent).toHaveLength(0);
@@ -1152,7 +1336,7 @@ describe('how often an invitation may be sent', () => {
 
   it('counts an invitation against the day’s letters, both ways round', async () => {
     const leader = await player(app, 'leader');
-    await player(app, 'penpal');
+    const penpal = await player(app, 'penpal');
     await player(app, 'first_guest');
     await player(app, 'second_guest');
     await found(app, leader.token, 'Iron Wolves');
@@ -1164,8 +1348,21 @@ describe('how often an invitation may be sent', () => {
         payload: { toUsernames: ['penpal'], subject: 'Hello', body: 'Again.' },
       });
 
+    // The day's first 99 written straight in: one reader takes only ten a day from one sender
+    // through the route (2026-10-02), and this is about the sender's day, not the reader's.
     for (let sent = 0; sent < MESSAGES_PER_DAY - 1; sent += 1) {
-      expect((await letter()).statusCode).toBe(200);
+      sendMessage(app.repos, {
+        sender: { id: leader.id, signature: 'leader' },
+        senderFaction: null,
+        recipients: [penpal.id],
+        audience: 'player',
+        addressedTo: 'penpal',
+        subject: 'Hello',
+        body: 'Again.',
+        sentAt: new Date(),
+        notification: { kind: 'message_received', title: 'Mail', body: 'Hello', link: '/' },
+        keepSentCopy: true,
+      });
     }
     // The hundredth letter of the day is an invitation, and it goes.
     expect((await invite(leader, 'first_guest')).statusCode).toBe(200);
@@ -1244,7 +1441,7 @@ describe('a mailbox keeps a hundred letters', () => {
     minute: number,
   ): void {
     sendMessage(app.repos, {
-      sender: { id: from.id, username: from.username },
+      sender: { id: from.id, signature: from.username },
       senderFaction: null,
       recipients: to,
       audience: 'player',
@@ -1265,7 +1462,7 @@ describe('a mailbox keeps a hundred letters', () => {
         .get(userId, sentCopy ? 1 : 0) as { n: number }
     ).n;
 
-  it('drops the oldest as the hundred-and-first lands, read or not', async () => {
+  it('drops the oldest as the hundred-and-first lands, read letters before unread ones', async () => {
     expect(MAILBOX_LIMIT).toBe(100);
     // The day's letters are counted off the sent folder, so a trim under the day would refund some.
     expect(MAILBOX_LIMIT).toBeGreaterThanOrEqual(MESSAGES_PER_DAY);
@@ -1337,6 +1534,130 @@ describe('a mailbox keeps a hundred letters', () => {
     const [letter] = (await messages(app, writer.token)).sent;
     expect(letter).toMatchObject({ recipients: 2, readBy: 1 });
   });
+
+  // A flood pushed out the letters the reader had not opened yet (maintainer, 2026-10-02): read
+  // letters go before unread ones, whatever their age.
+  it('keeps an old unread letter and drops a newer read one when the box is full', async () => {
+    const writer = await player(app, 'writer');
+    const reader = await player(app, 'reader');
+    deliver(writer, [reader.id], 'Not opened yet', 0);
+    for (let n = 1; n < 100; n += 1) deliver(writer, [reader.id], `#${String(n)}`, n);
+    await app.inject({
+      method: 'POST',
+      url: '/api/messages/read-all',
+      headers: auth(reader.token),
+    });
+    // ...but one stays unread: the oldest, opened by nobody.
+    const oldest = (await messages(app, reader.token)).inbox.find(
+      (one) => one.subject === 'Not opened yet',
+    )!;
+    app.db.prepare('UPDATE messages SET read_at = NULL WHERE id = ?').run(oldest.id);
+    deliver(writer, [reader.id], 'One more', 100);
+
+    const subjects = (await messages(app, reader.token)).inbox.map((one) => one.subject);
+    expect(subjects).toHaveLength(100);
+    expect(subjects).toContain('Not opened yet');
+    expect(subjects).not.toContain('#1');
+  });
+});
+
+describe('one sender and one mailbox', () => {
+  const write = (from: { token: string }, to: string) =>
+    app.inject({
+      method: 'POST',
+      url: '/api/messages',
+      headers: auth(from.token),
+      payload: { toUsernames: [to], subject: 'Again', body: 'And again.' },
+    });
+
+  // Ten a day to one player (maintainer, 2026-10-02): one stranger could fill a mailbox.
+  it('takes ten letters a day to one player, and still writes to anybody else', async () => {
+    const from = await player(app, 'persistent');
+    await player(app, 'target');
+    await player(app, 'bystander');
+    for (let n = 0; n < LETTERS_TO_ONE_PLAYER_PER_DAY; n += 1) {
+      expect((await write(from, 'target')).statusCode).toBe(200);
+    }
+    const eleventh = await write(from, 'target');
+    expect(eleventh.statusCode).toBe(409);
+    expect(eleventh.json<{ error: { message: string } }>().error.message).toBe('too_many_to_them');
+    expect((await write(from, 'bystander')).statusCode).toBe(200);
+  });
+
+  it('puts nothing in the mailbox of a reader who blocked the sender, until they unblock', async () => {
+    const from = await player(app, 'unwanted');
+    const to = await player(app, 'blocker');
+    const block = (blocked: boolean) =>
+      app.inject({
+        method: 'POST',
+        url: '/api/messages/block',
+        headers: auth(to.token),
+        payload: { userId: from.id, blocked },
+      });
+    const listed = await block(true);
+    expect(listed.statusCode, listed.body.slice(0, 200)).toBe(200);
+    expect(
+      listed.json<{ messages: MessagesResponse }>().messages.blocked?.map((one) => one.userId),
+    ).toEqual([from.id]);
+
+    expect((await write(from, 'blocker')).statusCode).toBe(200);
+    expect((await messages(app, to.token)).inbox).toHaveLength(0);
+
+    await block(false);
+    await write(from, 'blocker');
+    expect((await messages(app, to.token)).inbox).toHaveLength(1);
+  });
+
+  // Review, 2026-10-02: the cap is on strangers' mail, not on a table writing to itself.
+  it('lets a member write to their own table more than ten times a day', async () => {
+    const leader = await player(app, 'chatty');
+    const member = await player(app, 'listener');
+    await found(app, leader.token, 'Loud Table');
+    await app.inject({
+      method: 'POST',
+      url: '/api/factions/invite',
+      headers: auth(leader.token),
+      payload: { username: 'listener' },
+    });
+    const invite = (await faction(app, member.token)).invites[0];
+    await app.inject({
+      method: 'POST',
+      url: '/api/factions/answer',
+      headers: auth(member.token),
+      payload: { inviteId: invite?.id, accept: true },
+    });
+    for (let index = 0; index < 11; index += 1) {
+      const sent = await app.inject({
+        method: 'POST',
+        url: '/api/messages',
+        headers: auth(leader.token),
+        payload: { toUsernames: null, subject: `Note ${index}`, body: 'For the table.' },
+      });
+      expect(sent.statusCode, `letter ${index}: ${sent.body.slice(0, 120)}`).toBe(200);
+    }
+  });
+
+  // Review, 2026-10-02: an invitation is a letter too, and the block covers it.
+  it('delivers no faction invitation from a sender the reader blocked', async () => {
+    const from = await player(app, 'recruiter');
+    const to = await player(app, 'not_interested');
+    await found(app, from.token, 'Glass Jaws');
+    await app.inject({
+      method: 'POST',
+      url: '/api/messages/block',
+      headers: auth(to.token),
+      payload: { userId: from.id, blocked: true },
+    });
+    const invited = await app.inject({
+      method: 'POST',
+      url: '/api/factions/invite',
+      headers: auth(from.token),
+      payload: { username: 'not_interested' },
+    });
+    expect(invited.statusCode, invited.body.slice(0, 200)).toBe(200);
+    expect((await faction(app, to.token)).invites).toHaveLength(0);
+    expect((await messages(app, to.token)).inbox).toHaveLength(0);
+  });
 });
 
 /**
@@ -1374,6 +1695,17 @@ describe('the leaderboard', () => {
     const names = standings.entries.map((entry) => ('username' in entry ? entry.username : ''));
     expect(names.indexOf('ahead')).toBeLessThan(names.indexOf('behind'));
     expect(standings.yourRank).toBe(1);
+  });
+
+  // Bug pass, 2026-10-02: the board printed login names; the profile and the map print the other.
+  it('carries the name each player goes by beside the login', async () => {
+    const one = await player(app, 'vex_1987');
+    app.repos.users.updateProfile(one.id, { displayName: 'Vex' });
+    const row = (await board(one.token)).entries.find(
+      (entry) => 'userId' in entry && entry.userId === one.id,
+    );
+    expect(row && 'displayName' in row ? row.displayName : null).toBe('Vex');
+    expect(row && 'username' in row ? row.username : null).toBe('vex_1987');
   });
 
   /** Two on the same score are both second, and the next one down is fourth. */
@@ -1427,6 +1759,19 @@ describe('the leaderboard', () => {
     // the hoarder is ahead on the wallet and behind on the total.
     expect(rowOf('hoarder').infamy).toBeGreaterThan(rowOf('spender').infamy);
     expect(rowOf('hoarder').totalInfamy).toBeLessThan(rowOf('spender').totalInfamy);
+  });
+
+  // The ladder stopped being the only thing infamy buys: calling fights, boosts and the back room
+  // spend it too, and none of that shows on the rank. The total is the gross the payouts counted.
+  it('counts infamy spent off the ladder in the total', async () => {
+    const caller = await player(app, 'caller');
+    setInfamy(caller.id, 1000);
+    const base = app.repos.bases.findByOwnerId(caller.id)!;
+    // Earned 6,000 over its life and spent 5,000 calling fights, with no rung bought.
+    app.repos.feats.bump(base.id, featMeasureKey('infamy_earned'), 6000);
+
+    const rows = (await board(caller.token)).entries as { username: string; totalInfamy: number }[];
+    expect(rows.find((row) => row.username === 'caller')?.totalInfamy).toBe(6000);
   });
 
   /**

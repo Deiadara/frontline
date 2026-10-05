@@ -26,15 +26,21 @@ const FIRST_RUNG = RESEARCH_ITEMS.find(
 
 /** The chairs every crew fills from the bench, on top of whoever the Bar gave them. */
 const BENCH_CHAIRS: readonly OfficerRole[] = [
-  'head_of_research',
+  'researcher',
   'right_hand',
   'trader',
   'field_commander',
-  'lead_engineer',
+  'engineer',
   'cartographer',
 ];
 
-/** Seats the bench's officers, so every track the later scenes need has somebody in its chair. */
+/**
+ * Seats the bench's officers, so every track the later scenes need has somebody in its chair.
+ *
+ * This puts a level-16 crew past its six officer slots, which is the state an old save is in
+ * (maintainer, 2026-09-30): the books keep everyone and only the next hire is refused. No scene
+ * after this one bids at the Bar, so nothing here is turned away.
+ */
 export function staffTheCrews(h: Harness, cast: Cast): void {
   for (const label of ['A', 'B', 'C', 'D'] as const) {
     const crew = player(cast, label);

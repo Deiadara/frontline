@@ -1,4 +1,4 @@
-import { makeAttributes } from '@frontline/shared';
+import { ATTRIBUTE_NAMES, attributeUse, makeAttributes } from '@frontline/shared';
 import { render, screen, within } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import { AttributeSheet } from './AttributeSheet';
@@ -55,5 +55,47 @@ describe('an officer lifted by the room', () => {
     expect(within(row).getByText('20')).toBeInTheDocument();
     // The chair's own line is still the tip, and it has not grown a stray full stop.
     expect(row.getAttribute('data-tip')).not.toContain('base');
+  });
+
+  /** The tier each tag wants (maintainer, 2026-09-30), on the row a player reads it from. */
+  it('says what each tag wants the skill brought up to', () => {
+    render(<AttributeSheet attributes={own} role="raid_boss" />);
+    // The Raid Boss: Intimidation irreplaceable, Strength essential, Resolve useful.
+    expect(screen.getByTestId('attr-intimidation').getAttribute('data-tip')).toBe(
+      'Irreplaceable. This chair wants it at 75 or better: a point short of 75 costs the grade more than a point past it earns',
+    );
+    expect(screen.getByTestId('attr-strength').getAttribute('data-tip')).toContain(
+      'at 50 or better',
+    );
+    expect(screen.getByTestId('attr-resolve').getAttribute('data-tip')).toContain(
+      'at 25 or better',
+    );
+    expect(screen.getByTestId('attr-cryptography').getAttribute('data-tip')).toBe(
+      "Insignificant. Counts for a little in this chair's grade",
+    );
+  });
+});
+
+/**
+ * No row says what the skill is good for (maintainer, 2026-10-04: removed from the Overseer,
+ * officer and Bar sheets). The chair's tier and the receipt are not that line and stay.
+ */
+describe('the hover on every attribute', () => {
+  it('draws no hover on a sheet with no chair and nothing lifted', () => {
+    const { container } = render(<AttributeSheet attributes={makeAttributes(20)} />);
+    expect(container.querySelectorAll('li[data-tip]')).toHaveLength(0);
+  });
+
+  it('never says what a skill is good for, chair or not', () => {
+    const { container } = render(
+      <AttributeSheet attributes={makeAttributes(20)} role="raid_boss" />,
+    );
+    const rows = container.querySelectorAll('li[data-tip]');
+    // Every row in a chair still has its tier to say, so this loop is never empty.
+    expect(rows).toHaveLength(ATTRIBUTE_NAMES.length);
+    for (const li of rows) {
+      const tip = li.getAttribute('data-tip') ?? '';
+      for (const name of ATTRIBUTE_NAMES) expect(tip).not.toContain(attributeUse(name));
+    }
   });
 });

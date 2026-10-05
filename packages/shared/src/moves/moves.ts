@@ -97,14 +97,17 @@ export const UnitMoveViewSchema = z.object({
 });
 export type UnitMoveView = z.infer<typeof UnitMoveViewSchema>;
 
-/** One entry in the Move dialog's list of places: yours first, then the faction's. */
+/**
+ * One entry in the Move dialog's list of places: yours first, then the faction's, then empty ground
+ * nobody holds, which a column claims by walking onto it (maintainer ruling P6-A, 2026-10-02).
+ */
 export const MoveDestinationSchema = z.object({
   place: MovePlaceSchema,
   /** "Your District", "Your Gate", or the location's name. */
   label: z.string(),
   /** The district it is in, for a location, so two places with one name read apart. */
   districtName: z.string().nullable(),
-  group: z.enum(['yours', 'faction']),
+  group: z.enum(['yours', 'faction', 'empty']),
   /** Who holds it, for a faction ally's ground. */
   holderName: z.string().nullable(),
 });

@@ -4,6 +4,7 @@ import { MODIFICATION_RARITIES } from '../modification-rarity.js';
 import { UNIT_MODIFICATIONS, unitModificationsOfRarity } from '../units/modifications.js';
 import { modificationPrice } from './addons.js';
 import { MODIFICATIONS } from './modifications.js';
+import { levelCeilingFor } from './kinds.js';
 import {
   MAX_SCRAPYARD_DISCOUNT,
   SCRAPYARD_DISCOUNT_PER_LEVEL,
@@ -52,33 +53,59 @@ describe('the Scrapyard discount', () => {
 
 describe('what each yard level opens', () => {
   /*
-   * "Even the yard ladder" (maintainer, 2026-09-29): a structure card waits on the same four rungs
-   * as a unit card of its grade. Literals, so the anchor does not move with the table it checks.
-   * By magnitude, 19 INTRICATE structure cards opened at 1 and 13 MASTERPIECE ones at 4.
+   * "Even the yard ladder" (maintainer, 2026-09-29): a structure card waits on the same bands as a
+   * unit card of its grade. Since 2026-10-02 (P13-A) a band is a run of levels and each card opens
+   * somewhere inside it, cheapest first. Literals, so the anchor does not move with the table.
    */
-  it('opens a structure card on the rung a unit card of its grade opens at', () => {
-    const ladder = { basic: 1, intricate: 3, advanced: 4, masterpiece: 7 };
+  it("opens every card inside its grade's band, structure and unit alike", () => {
+    const bands = { basic: [1, 3], intricate: [4, 8], advanced: [9, 13], masterpiece: [14, 20] };
+    // The one exception is written on the card: a card cut below its old band keeps the rung it
+    // opened at (`yardLevel`, the four supplies cards of 2026-10-01).
     for (const spec of MODIFICATIONS) {
-      expect(scrapyardLevelForModification(spec), spec.id).toBe(ladder[spec.rarity]);
+      const level = scrapyardLevelForModification(spec);
+      if (spec.yardLevel !== undefined) {
+        expect(level, spec.id).toBe(spec.yardLevel);
+        continue;
+      }
+      const [from, to] = bands[spec.rarity];
+      expect(level, spec.id).toBeGreaterThanOrEqual(from!);
+      expect(level, spec.id).toBeLessThanOrEqual(to!);
     }
+    expect(MODIFICATIONS.filter((spec) => spec.yardLevel !== undefined).length).toBe(4);
     for (const spec of UNIT_MODIFICATIONS) {
-      expect(scrapyardLevelForUpgrade(spec), spec.id).toBe(ladder[spec.rarity]);
+      const [from, to] = bands[spec.rarity];
+      expect(scrapyardLevelForUpgrade(spec), spec.id).toBeGreaterThanOrEqual(from!);
+      expect(scrapyardLevelForUpgrade(spec), spec.id).toBeLessThanOrEqual(to!);
     }
-    expect(SCRAPYARD_LEVEL_FOR_ADVANCED_MODIFICATION).toBe(ladder.advanced);
-    for (const rarity of MODIFICATION_RARITIES) {
-      expect(
-        MODIFICATIONS.filter((spec) => spec.rarity === rarity).length,
-        `${rarity} structure cards`,
-      ).toBeGreaterThan(0);
-    }
+    expect(SCRAPYARD_LEVEL_FOR_ADVANCED_MODIFICATION).toBe(bands.advanced[0]);
   });
 
   /**
-   * The unit bench's ladder reads the card's rarity and nothing else.
+   * Every level of the yard opens something (maintainer ruling P13-A, 2026-10-02). The catalogue
+   * was fully open at level 7, so levels 8 to 20 bought scrap and nothing else.
+   */
+  it('opens something at every one of its twenty levels, and the top traps at the top', () => {
+    const ladder = scrapyardUnlockLadder({
+      modifications: MODIFICATIONS,
+      upgrades: UNIT_MODIFICATIONS,
+      traps: TRAP_CATALOG,
+    });
+    expect(ladder.map((rung) => rung.level)).toEqual(
+      Array.from({ length: levelCeilingFor('scrapyard') }, (_, index) => index + 1),
+    );
+    // Both benches climb the whole way: the dearest unit and structure cards need the top level.
+    const top = levelCeilingFor('scrapyard');
+    expect(Math.max(...UNIT_MODIFICATIONS.map(scrapyardLevelForUpgrade))).toBe(top);
+    expect(Math.max(...MODIFICATIONS.map(scrapyardLevelForModification))).toBe(top);
+    expect(SCRAPYARD_LEVEL_FOR_TRAP.trap_flooded_cellar).toBe(top);
+  });
+
+  /**
+   * The unit bench's ladder reads the card's rarity and its price, nothing else.
    *
-   * Strictly climbing in the order the four words are listed, so BASIC opens first and MASTERPIECE
-   * last, and the bottom rung is the yard standing at all: a BASIC card a level-one yard could not
-   * cut would hide the mechanic on the day a crew takes its first plot.
+   * Band starts strictly climbing in the order the four words are listed, so BASIC opens first and
+   * MASTERPIECE last, and the bottom rung is the yard standing at all: a BASIC card a level-one
+   * yard could not cut would hide the mechanic on the day a crew takes its first plot.
    */
   it('opens each rarity of unit card at a level that climbs with the rarity', () => {
     expect(SCRAPYARD_LEVEL_FOR_RARITY.basic).toBe(SCRAPYARD_LEVEL_FOR_BASIC);
@@ -88,9 +115,14 @@ describe('what each yard level opens', () => {
       expect(SCRAPYARD_LEVEL_FOR_RARITY[above], `${above} above ${below}`).toBeGreaterThan(
         SCRAPYARD_LEVEL_FOR_RARITY[below],
       );
-    }
-    for (const spec of UNIT_MODIFICATIONS) {
-      expect(scrapyardLevelForUpgrade(spec), spec.id).toBe(SCRAPYARD_LEVEL_FOR_RARITY[spec.rarity]);
+      // ...and every card of the higher grade opens above every card of the lower one.
+      const highestBelow = Math.max(
+        ...unitModificationsOfRarity(below).map(scrapyardLevelForUpgrade),
+      );
+      const lowestAbove = Math.min(
+        ...unitModificationsOfRarity(above).map(scrapyardLevelForUpgrade),
+      );
+      expect(lowestAbove, `${above} above ${below}`).toBeGreaterThan(highestBelow);
     }
     // Every rung has cards on it, or a level on the ladder opens nothing.
     for (const rarity of MODIFICATION_RARITIES) {

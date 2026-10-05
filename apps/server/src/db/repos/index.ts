@@ -26,6 +26,7 @@ import {
 import { createAutomationsRepo, type AutomationsRepo } from './automations.js';
 import { createFeatsRepo, type FeatsRepo } from './feats.js';
 import { createRegrowthRepo, type RegrowthRepo } from './regrowth.js';
+import { createStackhouseRepo, type StackhouseRepo } from './stackhouse.js';
 
 /** The full set of persistence repositories, backed by a single sqlite connection. */
 export interface Repositories {
@@ -70,6 +71,8 @@ export interface Repositories {
   feats: FeatsRepo;
   /** The weeks the Combine's and the looters' garrisons have already grown back on. */
   regrowth: RegrowthRepo;
+  /** The Stackhouse's book: one private bet per crew on a declared fight (2026-10-05). */
+  stackhouse: StackhouseRepo;
   /**
    * Runs `work` so that either all of its writes land or none of them do.
    *
@@ -104,6 +107,7 @@ export function createRepositories(db: AppDatabase): Repositories {
     history: createHistoryRepo(db),
     feats: createFeatsRepo(db),
     regrowth: createRegrowthRepo(db),
+    stackhouse: createStackhouseRepo(db),
     spying: createSpyingRepo(db),
     moves: createMovesRepo(db),
     automations: createAutomationsRepo(db),

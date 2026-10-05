@@ -31,8 +31,8 @@ import { garrisonedUnits } from '../units/roster.js';
 import { controlsIn } from '../battle/ground.js';
 import { projectActions, projectBattles } from '../battle/view.js';
 import { projectCrewProfile } from '../routes/crews.js';
-import { trainingBreakdownFor } from '../units/breakdown.js';
-import { heldLocationLevels, unlockContextFor } from '../units/training.js';
+import { musterBreakdownFor } from '../units/breakdown.js';
+import { heldLocationLevels, unlockContextFor } from '../units/muster.js';
 
 /**
  * The second city is ground like any other ground (maintainer, 2026-09-24).
@@ -99,10 +99,10 @@ const AWAY_UNLOCKS: Location = districtsOfCity(TERMINUS_CITY_ID)
   .flatMap((district) => district.locations)
   .find((location) => unitsUnlockedByLocation(location.kind).length > 0)!;
 
-/** A Terminus block that takes something off a training bill, for the breakdown's ground lines. */
-const AWAY_TRAINING: Location = districtsOfCity(TERMINUS_CITY_ID)
+/** A Terminus block that takes something off a muster bill, for the breakdown's ground lines. */
+const AWAY_MUSTER: Location = districtsOfCity(TERMINUS_CITY_ID)
   .flatMap((district) => district.locations)
-  .find((location) => bonusesAt(location.kind, 1).some((bonus) => bonus.kind === 'training_cost'))!;
+  .find((location) => bonusesAt(location.kind, 1).some((bonus) => bonus.kind === 'muster_cost'))!;
 
 function stack(districtId = 'neon-docks'): { repos: Repositories; base: Base } {
   const db = openDatabase(':memory:');
@@ -123,7 +123,7 @@ function stack(districtId = 'neon-docks'): { repos: Repositories; base: Base } {
     buildings: [{ id: 'nexus', kind: 'nexus', level: 10, modifications: [] }],
     buildQueue: [],
     army: {},
-    trainingQueue: [],
+    musterQueue: [],
     training: startingTraining(HOUR),
     inventory: {},
     fittedUpgrades: [],
@@ -249,7 +249,7 @@ describe('ground held in the second city pays the crew that holds it', () => {
     });
 
     expect(garrisonedUnits(repos, base)).toEqual({ scavengers: 6 });
-    // `army` is the roster and every garrison on it, which is the figure a training order is
+    // `army` is the roster and every garrison on it, which is the figure a muster order is
     // refused against: six carriers standing on a Terminus platform used to be housed by nobody.
     expect(districtUnitSlots(repos, base).army).toBeGreaterThan(empty);
   });
@@ -340,7 +340,7 @@ describe('the roster and the file read the second city too', () => {
     expect(unlockContextFor(repos, base).heldPlaceKinds.has(AWAY_UNLOCKS.kind)).toBe(true);
   });
 
-  /** And the level it has been worked up to, which is what `homeTrainingBonus` prices. */
+  /** And the level it has been worked up to, which is what `homeMusterBonus` prices. */
   it('reads the level of a block held abroad', () => {
     const { repos, base } = stack();
     const control = repos.city.control(AWAY_UNLOCKS.id)!;
@@ -350,15 +350,15 @@ describe('the roster and the file read the second city too', () => {
   });
 
   /**
-   * The hover card that says where a training discount came from. It walked one city, so a crew
+   * The hover card that says where a muster discount came from. It walked one city, so a crew
    * paying less because of an armoury it holds in Terminus was shown a total with no line under it.
    */
-  it('names a block held abroad in the training breakdown', () => {
+  it('names a block held abroad in the muster breakdown', () => {
     const { repos, base } = stack();
-    take(repos, base.id, AWAY_TRAINING);
+    take(repos, base.id, AWAY_MUSTER);
 
-    const lines = trainingBreakdownFor(repos, base, new Date(HOUR)).cost;
-    expect(lines.map((line) => line.source)).toContain(AWAY_TRAINING.name);
+    const lines = musterBreakdownFor(repos, base, new Date(HOUR)).cost;
+    expect(lines.map((line) => line.source)).toContain(AWAY_MUSTER.name);
   });
 
   /** "Where is everybody right now" has to answer for people standing in a second city. */

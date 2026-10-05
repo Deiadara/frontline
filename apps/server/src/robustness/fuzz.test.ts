@@ -207,7 +207,7 @@ beforeAll(async () => {
   // Enough of everything that a request is refused for what it says rather than for being poor.
   const base = app.repos.bases.findById(baseId)!;
   app.repos.bases.updateEconomy(baseId, { ...base.economy, infamy: DECLARE_INFAMY_COST * 50 });
-  app.repos.bases.updateArmy(baseId, { ...base.army, razors: 50 }, base.trainingQueue);
+  app.repos.bases.updateArmy(baseId, { ...base.army, razors: 50 }, base.musterQueue);
 });
 
 afterAll(async () => {

@@ -1,6 +1,6 @@
 import {
   BUILDING_CATALOG,
-  TRAINING_MAX_BATCH,
+  MUSTER_MAX_BATCH,
   UNIT_HEADLINE_KEYS,
   UNIT_RATING_KEYS,
   UNIT_STAT_EXPLAINERS,
@@ -8,12 +8,12 @@ import {
   UNIT_TIER_LABELS,
   findUnit,
   isCombatUnit,
-  maxTrainable,
-  trainingCost,
-  trainingSeconds,
+  maxMusterable,
+  musterCost,
+  musterSecondsFor,
   type RatingKey,
   type StatKey,
-  type TrainingBreakdown,
+  type MusterBreakdown,
   type UnitOption,
 } from '@frontline/shared';
 import { useState } from 'react';
@@ -64,14 +64,14 @@ export interface UnitCardProps {
    */
   abroad: number;
   /**
-   * The price box at the foot of the card, and the Train control in it.
+   * The price box at the foot of the card, and the Muster control in it.
    *
    * Optional, and its absence is what the battle screen's hover card uses: the deploy dialog shows
-   * this same card to answer "who am I about to send", where a price and a Train button are a
+   * this same card to answer "who am I about to send", where a price and a Muster button are a
    * second decision made in the wrong window. Nothing above the box changes, so the two callers
    * still read one card rather than two that drift.
    */
-  training?: UnitCardTraining;
+  muster?: UnitCardMuster;
   /**
    * §E: whether this crew's porters may stand in a line (`carriers_fight`).
    *
@@ -92,13 +92,13 @@ export interface UnitCardProps {
    */
   deltas?: readonly DeltaMark[];
   /**
-   * The crew-wide training lines, for the Bonuses chip in the marks band.
+   * The crew-wide muster lines, for the Bonuses chip in the marks band.
    *
    * Optional, and its absence is what the hover cards use: the Scrapyard's unit rail and the deploy
-   * dialog both show this card to answer "who is this", where a page about training discounts is a
+   * dialog both show this card to answer "who is this", where a page about muster discounts is a
    * different question in the wrong window. The roster passes it.
    */
-  bonuses?: TrainingBreakdown;
+  bonuses?: MusterBreakdown;
   /**
    * A sheet the player meets but can never hold (maintainer, 2026-09-20).
    *
@@ -110,14 +110,14 @@ export interface UnitCardProps {
    * brackets (`modificationsForUnit` is empty for a legendary and always will be), and the
    * building in the tier line, which becomes the faction he fights for.
    *
-   * `training` is already optional and stays unset here, so the price box is gone for the same
+   * `muster` is already optional and stays unset here, so the price box is gone for the same
    * reason the Scrapyard's rail and the deploy dialog have none.
    */
   enemy?: boolean;
 }
 
 /** Everything the price box needs, and nothing anything above it does. */
-export interface UnitCardTraining {
+export interface UnitCardMuster {
   resources: Parameters<typeof CostLine>[0]['stock'];
   /** Beds left in the district, so **Max** can only offer a batch that will fit in them. */
   spare: number;
@@ -133,16 +133,18 @@ export interface UnitCardTraining {
    * price is the bug that makes a player think they were overcharged.
    */
   suppliesPercent: number;
+  /** The Veteran's passive, off every line after the other cuts (`musterCost`). */
+  veteranPercent: number;
   /**
    * §B6: what comes off the clock, crew-wide plus this unit's own ground.
    *
    * Here for the reason the two above are: the box has to print the figure the route will use.
-   * Without it the card quoted `unit.trainSeconds` straight off the catalogue, so a crew with a
+   * Without it the card quoted `unit.musterSeconds` straight off the catalogue, so a crew with a
    * level-12 Gauntlet and a drillmaster read 45 seconds beside the button and got 28.
    */
   speedPercent: number;
   pending: boolean;
-  onTrain: (count: number) => void;
+  onMuster: (count: number) => void;
 }
 
 /**
@@ -150,7 +152,7 @@ export interface UnitCardTraining {
  *
  * The board's complaint, and it was right: the cards used to be as tall as their own content, so a
  * unit with four ground affinities pushed its price box eighty pixels below its neighbour's and the
- * eye had to re-find the Train button on every entry. A roster is a list of comparable things, and
+ * eye had to re-find the Muster button on every entry. A roster is a list of comparable things, and
  * a list you cannot scan across is a list.
  *
  * So the card is a **fixed frame**: three rows that are always the same height, in the same order,
@@ -158,7 +160,7 @@ export interface UnitCardTraining {
  *
  *   1. The header. One line of name, one of tier and trade. Never wraps.
  *   2. The sheet. Twelve stats, always twelve, in two columns.
- *   3. The action. Price and Train, or the padlock and what is in the way. Same box, same place,
+ *   3. The action. Price and Muster, or the padlock and what is in the way. Same box, same place,
  *      whichever it is.
  *
  * The one part that is allowed to grow is the marks (maintainer request, 2026-09-08): every rule, every
@@ -178,7 +180,7 @@ export function UnitCard({
   garrisoned,
   abroad,
   atGate = 0,
-  training,
+  muster,
   deltas,
   bonuses,
   carriersFight = false,
@@ -261,7 +263,7 @@ export function UnitCard({
         // squash the price box rather than grow. The roster sweep in `visual.spec.ts` walks every
         // tier looking for a chip or a box pushed out, which is why the price box below is
         // `shrink-0`: left shrinkable it absorbs an overflow silently instead.
-        training ? 'h-[26.75rem]' : 'h-[22.5rem]',
+        muster ? 'h-[26.75rem]' : 'h-[22.5rem]',
         // And a ceiling on the width while it is one to a row, so a single card does not become a
         // 1200px band with a stat table stretched across it. 52rem is about what two of them
         // measure at 1440, so a card is the same object at every width: it just stops sharing.
@@ -376,7 +378,7 @@ export function UnitCard({
               </span>
               <span className="block truncate text-left font-display text-[11px] uppercase tracking-[0.14em] text-ink-300">
                 {UNIT_TIER_LABELS[unit.tier]} ·{' '}
-                {enemy ? 'The Combine' : BUILDING_CATALOG[unit.trainedAt].name}
+                {enemy ? 'The Combine' : BUILDING_CATALOG[unit.musteredAt].name}
               </span>
             </HoverCard>
           </span>
@@ -558,7 +560,7 @@ export function UnitCard({
            *
            * A `flex-1` item in a column will not shrink below its content (`min-height: auto`), so
            * the band did not clip, it **grew**, and everything under it went with it. Snipers is
-           * the only sheet in the game whose marks wrap at this width, so its Train button sat at
+           * the only sheet in the game whose marks wrap at this width, so its Muster button sat at
            * 324 where the other five specialists sat at 323, one pixel outside its own column.
            * `visual.spec.ts` calls that "the action box moves between cards".
            *
@@ -604,13 +606,13 @@ export function UnitCard({
             are centred in it. 92px is a two-line price, the stepper row, the box's padding and
             its border (36 + 6 + 35 + 12 + 2 = 91), and it is what closes the column to the
             portrait's height. */}
-        {training && (
+        {muster && (
           <div
             className="mt-1 flex h-[5.75rem] shrink-0 items-stretch"
             data-testid={`action-${unit.id}`}
           >
             {unit.unlocked ? (
-              <TrainBox unit={unit} training={training} />
+              <MusterBox unit={unit} muster={muster} />
             ) : (
               /* The same slot, the same height, the same place on the card. What changes when a
                  unit is locked is the content of the box, not where the box is: two clauses at most
@@ -656,7 +658,7 @@ export function UnitCard({
  * What a batch of these costs, how many of them, and the order.
  *
  * Its own component because the count is state: the card renders this box only where there is a
- * roster behind it to train from, and a hook cannot sit behind that condition.
+ * roster behind it to muster from, and a hook cannot sit behind that condition.
  */
 /**
  * A figure a carrier does not have yet: a drawn lock and the one sentence that explains it.
@@ -698,29 +700,41 @@ function LockedFigure() {
   );
 }
 
-function TrainBox({ unit, training }: { unit: UnitOption; training: UnitCardTraining }) {
-  const { resources, spare, discountPercent, suppliesPercent, speedPercent, pending, onTrain } =
-    training;
+function MusterBox({ unit, muster }: { unit: UnitOption; muster: UnitCardMuster }) {
+  const {
+    resources,
+    spare,
+    discountPercent,
+    suppliesPercent,
+    veteranPercent,
+    speedPercent,
+    pending,
+    onMuster,
+  } = muster;
   const [count, setCount] = useState(1);
   const spec = findUnit(unit.id);
-  const most = spec ? maxTrainable(spec, resources, spare, discountPercent, suppliesPercent) : 0;
+  const most = spec
+    ? maxMusterable(spec, resources, spare, discountPercent, suppliesPercent, veteranPercent)
+    : 0;
   /*
    * The price and the clock for *this order*, discounted, which is what the route will charge and
    * time it with (maintainer, 2026-09-17 consistency pass).
    *
-   * Both were read straight off the catalogue: `unit.cost` and `unit.trainSeconds`. So a crew that
+   * Both were read straight off the catalogue: `unit.cost` and `unit.musterSeconds`. So a crew that
    * had built a Gauntlet, a Greenhouse, three Lab rungs and hired a chemist saw none of it on the
-   * one box where they decide to press Train. Measured on this crew: Razors printed 40 caps and 10
+   * one box where they decide to press Muster. Measured on this crew: Razors printed 40 caps and 10
    * supplies at 45 seconds, and the order took 30 caps, 4 supplies and 28 seconds.
    *
    * For the batch rather than for one, because the count is in this box and the figure beside a
-   * Train button should be what pressing it costs. `trainingCost` and `trainingSeconds` are the
+   * Muster button should be what pressing it costs. `musterCost` and `musterSecondsFor` are the
    * route's own functions, so the two cannot round differently.
    */
-  const price = spec ? trainingCost(spec, count, discountPercent, suppliesPercent) : unit.cost;
+  const price = spec
+    ? musterCost(spec, count, discountPercent, suppliesPercent, veteranPercent)
+    : unit.cost;
   const seconds = spec
-    ? trainingSeconds(spec, count, speedPercent)
-    : unit.trainSeconds * Math.max(1, count);
+    ? musterSecondsFor(spec, count, speedPercent)
+    : unit.musterSeconds * Math.max(1, count);
 
   return (
     <div className="flex w-full flex-col items-center justify-center gap-1.5 rounded-sm border border-brass-500/35 bg-surface-950/45 px-3 py-1.5">
@@ -729,7 +743,7 @@ function TrainBox({ unit, training }: { unit: UnitOption; training: UnitCardTrai
         <NumberField
           label={`How many ${unit.name}`}
           min={1}
-          max={unit.unique ? 1 : TRAINING_MAX_BATCH}
+          max={unit.unique ? 1 : MUSTER_MAX_BATCH}
           value={count}
           onChange={setCount}
           data-testid={`count-${unit.id}`}
@@ -749,8 +763,8 @@ function TrainBox({ unit, training }: { unit: UnitOption; training: UnitCardTrai
             Max
           </Button>
         )}
-        <Button size="sm" disabled={pending} onClick={() => onTrain(count)}>
-          {pending ? 'Working…' : 'Train'}
+        <Button size="sm" disabled={pending} onClick={() => onMuster(count)}>
+          {pending ? 'Working…' : 'Muster'}
         </Button>
         <span className="font-display text-[11px] tabular-nums text-ink-300">
           {formatDuration(seconds)}

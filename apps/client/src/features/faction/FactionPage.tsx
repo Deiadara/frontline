@@ -9,6 +9,7 @@ import {
   useEditFactionIdentity,
   useFaction,
   useFactionMemberAction,
+  useSeatFactionMember,
   useInviteToFaction,
   useLeaveFaction,
   useMe,
@@ -67,6 +68,7 @@ export function FactionPage() {
   const leave = useLeaveFaction();
   const disband = useDisbandFaction();
   const memberAction = useFactionMemberAction();
+  const seatMember = useSeatFactionMember();
   const reinforce = useReinforceAlly();
   const identity = useEditFactionIdentity();
   const describe = useEditFactionDescription();
@@ -106,13 +108,17 @@ export function FactionPage() {
    * after it. `submittedAt` is when each was last fired; the latest is the one the player is
    * waiting on, and a success there clears the banner.
    */
-  const writes = [invite, leave, disband, memberAction, reinforce, identity, describe];
+  const writes = [invite, leave, disband, memberAction, seatMember, reinforce, identity, describe];
   const latest = writes.reduce((best, write) =>
     write.submittedAt > best.submittedAt ? write : best,
   );
   const error = latest.error;
   const pending =
-    invite.isPending || leave.isPending || memberAction.isPending || reinforce.isPending;
+    invite.isPending ||
+    leave.isPending ||
+    memberAction.isPending ||
+    seatMember.isPending ||
+    reinforce.isPending;
 
   if (!data.faction) {
     return (
@@ -192,7 +198,8 @@ export function FactionPage() {
           isSelf={openMember.userId === myUserId}
           pending={pending}
           onAction={(action) => memberAction.mutate({ userId: openMember.userId, action })}
-          onLeave={() => leave.mutate(undefined)}
+          onSeat={(card) => seatMember.mutate({ userId: openMember.userId, card })}
+          onLeave={(successorId) => leave.mutate(successorId)}
           onClose={() => setOpenMemberId(null)}
         />
       )}

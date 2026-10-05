@@ -92,6 +92,7 @@ function renderBoard(switches: { carriersFight?: boolean; anyRide?: boolean } = 
       fleet={{ armoured_car: 1 }}
       loadouts={{}}
       bagPercent={0}
+      notoriety={100}
       marks={{}}
       carriersFight={switches.carriersFight ?? false}
       anyRide={switches.anyRide ?? false}

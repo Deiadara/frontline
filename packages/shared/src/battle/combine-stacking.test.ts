@@ -18,7 +18,7 @@ import { MAX_RATING, capRating } from '../units/stats.js';
 import type { UnitLoadouts } from '../units/loadout.js';
 import { makeAttributes } from '../attributes.js';
 import { bareBattlefield, type Battlefield } from './battlefield.js';
-import { OUTNUMBERED_RATIO } from './effects.js';
+import { outnumberedWeight } from './effects.js';
 import { bareLineRules, fightingSlots } from './line.js';
 import type { BattleOfficer } from './officer.js';
 import {
@@ -212,12 +212,13 @@ describe('1. when the power lands, against everything that reads a sheet', () =>
 
     const attackSlots = fightingSlots({ razors: 100 }, bareLineRules());
     const defenceSlots = fightingSlots({ suppressor: 12, directive_xero: 1 }, bareLineRules());
-    expect(attackSlots / defenceSlots).toBeGreaterThanOrEqual(OUTNUMBERED_RATIO);
-    // ...and after the crossing the two sides are the other side of the ratio, which is the whole
+    const opening = outnumberedWeight(attackSlots, defenceSlots);
+    expect(opening).toBeGreaterThan(0);
+    // ...and after the crossing the defence is less outnumbered than that, which is the whole
     // point: the reading is taken once, off the rosters that opened the fight.
     const afterAttack = fightingSlots({ razors: 100 - crossing }, bareLineRules());
     const afterDefence = defenceSlots + fightingSlots({ razors: crossing }, bareLineRules());
-    expect(afterAttack / afterDefence).toBeLessThan(OUTNUMBERED_RATIO);
+    expect(outnumberedWeight(afterAttack, afterDefence)).toBeLessThan(opening);
     expect(sheetOf(sim, 'defender', 'directive_xero').effective.reasons).toContain('Last Stand');
 
     const even = fight({ razors: 10 }, { suppressor: 12, directive_xero: 1 }, ZERO, 'ratio', {
@@ -259,7 +260,7 @@ describe('2. stacking with the ground', () => {
   /**
    * A gate is a different channel and she does not touch it.
    *
-   * A gate buys toughness (percentage points on vitality, under `MAX_HELD_DEFENSE`) and her points
+   * A gate buys toughness (percentage points on vitality, under the `heldDefense` curve) and her points
    * are armour, so the two stack without either reading the other. It was dug-in fortification
    * until that left the game (2026-09-26); the gate is the toughness channel a holder has now. The
    * vitality figure is asserted equal on both arms, which is what makes this a measurement of
@@ -327,7 +328,7 @@ describe('3. stacking with buildings, which are the attacker’s in every Combin
   });
 
   /**
-   * The Infirmary's medics are Stitchers (`mends`, and the sheet wants an Infirmary 5 to train
+   * The Infirmary's medics are Stitchers (`mends`, and the sheet wants an Infirmary 5 to muster
    * one), so they stand in the **attacking** line, and what they undo never reaches the
    * Executioner's line.
    *

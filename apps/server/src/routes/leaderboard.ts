@@ -9,6 +9,8 @@ import {
   type FactionStanding,
   type LeaderboardResponse,
   type PlayerStanding,
+  displayNameOf,
+  featMeasureKey,
 } from '@frontline/shared';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
@@ -19,8 +21,8 @@ import type { Repositories } from '../db/repos/index.js';
  * The standings (maintainer request, §J9).
  *
  * One read-only route serving two boards, because they are one screen with two tabs and the scope
- * toggle applies to both. Nothing here settles anything: infamy does not tick, it is only ever
- * written by a fight resolving, so a leaderboard read is a read.
+ * toggle applies to both. Nothing here settles anything: infamy does not tick, it is written when a
+ * fight or a job comes home, and the world clock settles both, so a leaderboard read is a read.
  *
  * ## The scope
  *
@@ -50,12 +52,14 @@ export function standings(repos: Repositories): PlayerStanding[] {
    * per-crew read parsed a whole user row, and the board is callable ten times a second per account.
    */
   const factions = new Map(repos.factions.all().map((faction) => [faction.id, faction]));
-  const usernames = repos.users.usernames();
+  const names = new Map(repos.users.names().map((user) => [user.id, user]));
   const memberships = repos.factions.factionOfEveryone();
+  const earned = repos.feats.tallyOfEveryone(featMeasureKey('infamy_earned'));
   return repos.bases.listStandings().flatMap((base) => {
-    const username = usernames.get(base.ownerId);
+    const user = names.get(base.ownerId);
     // A half-registered account with no user row is not a player; it is a row nobody can be shown.
-    if (username === undefined) return [];
+    if (user === undefined) return [];
+    const { username } = user;
     const factionId = memberships.get(base.ownerId);
     const faction = factionId ? factions.get(factionId) : undefined;
     return [
@@ -65,15 +69,23 @@ export function standings(repos: Repositories): PlayerStanding[] {
         rank: 1,
         userId: base.ownerId,
         username,
+        displayName: displayNameOf(user),
         districtId: base.districtId,
         cityId: cityOf(base.districtId) ?? DEFAULT_CITY_ID,
         districtName: base.name,
         level: base.level,
         infamy: base.infamy,
-        // The wallet plus everything already spent climbing the ladder, which is what the board's
-        // "total infamy" sort means. The ladder is the only thing infamy is ever spent on, so the
-        // tier a crew stands on is a complete record of what left the wallet.
-        totalInfamy: base.infamy + notorietySpentTo(base.notoriety),
+        /*
+         * Everything ever paid, spent or not: the gross `infamy_earned` counter every payout bumps.
+         * It was the wallet plus the ladder, back when the ladder was the only thing infamy bought;
+         * calling fights, boosts and the back room spend it too, and a crew that spent there sank.
+         * The old sum stays as a floor for a crew with no counter yet (an older save, or a wallet
+         * set from the Console), since it can only undercount.
+         */
+        totalInfamy: Math.max(
+          earned.get(base.id) ?? 0,
+          base.infamy + notorietySpentTo(base.notoriety),
+        ),
         notoriety: base.notoriety,
         factionId: faction?.id ?? null,
         factionName: faction?.name ?? null,

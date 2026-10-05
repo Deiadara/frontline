@@ -1,4 +1,4 @@
-import { spyReportSource, spyReportSummary, type SpyReport } from '@frontline/shared';
+import { dayInZone, spyReportSource, spyReportSummary, type SpyReport } from '@frontline/shared';
 import type { ReactNode } from 'react';
 import { Button } from '../../components/ui/Button';
 import { DrawnGlyph } from '../../components/ui/DrawnMarks';
@@ -6,6 +6,7 @@ import { Insignia } from '../../components/ui/Insignia';
 import { Modal } from '../../components/ui/Modal';
 import { cn } from '../../lib/cn';
 import { UnitChip } from '../units/UnitChip';
+import { usePlayerZone } from '../settings/usePlayerZone';
 
 /**
  * One spy report, read (maintainer ruling, 2026-09-22).
@@ -23,9 +24,11 @@ import { UnitChip } from '../units/UnitChip';
  * than a tier nobody bought.
  */
 export function SpyReportModal({ report, onClose }: { report: SpyReport; onClose: () => void }) {
+  const zone = usePlayerZone();
   const units = Object.entries(report.exposed).filter(([, count]) => count > 0);
   const courier = report.tier === null;
-  const day = report.writtenAt.slice(0, 10);
+  // The player's day, not the UTC one: a report written at 01:30 Athens was dated yesterday.
+  const day = dayInZone(new Date(report.writtenAt), zone);
   const holder =
     report.holder.kind === 'crew'
       ? `${report.holder.name}${report.holder.player ? ` (${report.holder.player})` : ''}`
@@ -92,6 +95,14 @@ export function SpyReportModal({ report, onClose }: { report: SpyReport; onClose
             Your spies came back with nothing they would put their name to. Whoever holds this place
             keeps it quiet, or the job was too small for it. The caps are gone either way.
           </p>
+        ) : report.heldFromAway === true ? (
+          <p
+            className="font-body text-[13px] leading-relaxed text-ink-200"
+            data-testid="spy-held-from-away"
+          >
+            Nobody is standing at the gate right now. Whoever holds it lives elsewhere and brings
+            what they send to a fight, so nothing here says what would meet one.
+          </p>
         ) : !report.unitsShown ? (
           <p
             className="font-body text-[13px] leading-relaxed text-ink-200"
@@ -146,7 +157,10 @@ function Readouts({ report }: { report: SpyReport }) {
     lines.push({ label: 'Standing there', value: `${report.totalSlots} unit slots` });
   }
   if (!report.failed && report.accuracy !== null) {
-    lines.push({ label: 'Accuracy', value: `${Math.round(report.accuracy * 100)}%` });
+    // Rounded to a tenth by the server (maintainer, 2026-10-01), so short of a full read it is
+    // printed as the estimate it is.
+    const percent = `${Math.round(report.accuracy * 100)}%`;
+    lines.push({ label: 'Accuracy', value: report.accuracy >= 1 ? percent : `About ${percent}` });
   }
   if (!report.failed && report.unseen !== null) {
     lines.push({

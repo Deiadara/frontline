@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { IdSchema } from '../primitives.js';
+import type { ResourceKey } from '../resources.js';
 
 /**
  * The payroll book (GDD §H7): what the crew can commit to officers, and what it has committed.
@@ -8,25 +9,24 @@ import { IdSchema } from '../primitives.js';
  *
  * Officers used to draw caps out of the stockpile every Monday, which made hiring a good one a
  * slow bleed a player could not see coming and could not plan against. The book replaces that
- * outright: **payroll is a capacity**, like beds or power. It is a standing figure in caps per
- * week; every officer on the books commits a slice of it; and what is left is the only thing that
- * decides whether you can sign the next one. Nothing is deducted from the stockpile week to week.
+ * outright: **payroll is a capacity**, like beds or power. It is a standing figure in caps; every
+ * officer on the books commits a slice of it; and what is left is the only thing that decides
+ * whether you can sign the next one. Nothing is ever deducted from the stockpile for it.
  *
  * That turns a wage into a decision made once, at the table, about a resource the player can see
  * the whole of. The interesting question stops being "can I survive this" and becomes "is this
  * person worth a fifth of my book".
  *
- * ## Growing it costs caps, and the ladder runs out
+ * ## Growing it costs caps, and there is always another expansion
  *
- * `Increase Payroll` in the Nexus buys one `PAYROLL_STEP` of standing capacity for a flat price
- * that climbs by the same amount with every step already bought. The price is deliberately far
- * above the step: a step is permanent, so paying twenty weeks of it up front for the first one and
- * a hundred and twenty for the last is what stops the button being an obvious purchase every time
- * a player has spare caps.
+ * `Increase Payroll` buys `PAYROLL_STEP` of standing capacity (maintainer, 2026-10-01: "It should
+ * start at 300 caps for 30 extra payroll, and then scale, being 360 caps for another 30, then 420
+ * etc etc and keep going like that"). The price climbs by `PAYROLL_STEP_COST_RISE` with every
+ * expansion already bought and never stops climbing, so the sum of the first `n` is
+ * `300n + 30n(n - 1)`: a straight line on the button and a parabola on the bill.
  *
- * The ladder has `PAYROLL_STEPS_MAX` rungs and then it stops. A crew that has bought all of them
- * has nothing left to buy here, so `payrollStepCost` answers `null` rather than quoting a price
- * for a purchase that cannot happen, and every screen and route that reads it has to say so.
+ * What is bought is added after the district's payroll cards, not multiplied by them, so the
+ * button that says `+30` widens the book by exactly 30 whatever is fitted.
  *
  * ## Letting somebody go
  *
@@ -44,39 +44,29 @@ import { IdSchema } from '../primitives.js';
 
 // --- the book itself ---
 
-/** What every crew starts with, in caps per week, before a Nexus or a single purchase. */
+/** What every crew starts with, in caps, before a Nexus or a single purchase. */
 export const PAYROLL_BASE = 200;
 
-/** Caps per week the Nexus adds per level: the book grows with the district on its own. */
+/** Caps the Nexus adds per level: the book grows with the district on its own. */
 export const PAYROLL_PER_NEXUS_LEVEL = 25;
 
-/** Caps per week one purchase adds. The board's own example: 200 becomes 230. */
+/**
+ * Caps one expansion adds, flat: the payroll cards do not multiply it.
+ *
+ * Small on purpose (maintainer, 2026-10-01: "+30 exactly per purchase"). A late officer asks 820
+ * to 1,130, so the cards on the Nexus's own figure carry most of a late book and the expansions
+ * are the top-up a crew buys one chair's worth at a time.
+ */
 export const PAYROLL_STEP = 30;
 
-/** Caps the first purchase costs: twenty weeks of the 30 caps a week it buys. */
-export const PAYROLL_STEP_FIRST_COST = 600;
+/** What every expansion is paid in. */
+export const PAYROLL_STEP_RESOURCE = 'caps' satisfies ResourceKey;
 
-/**
- * How much dearer each further step is than the one before it, in caps.
- *
- * A flat 60 rather than a percentage, so the ladder is a straight line a player can hold in their
- * head: the tenth step costs 1,140 and the fiftieth 3,540, and the difference between any two
- * neighbours is always the same 60. The old curve compounded at 15% and ran to six figures by the
- * thirtieth rung, which priced the late game out of a mechanic it was supposed to still be using.
- */
+/** Caps the first expansion costs. */
+export const PAYROLL_STEP_FIRST_COST = 300;
+
+/** Caps each expansion costs over the one before it: 300, 360, 420 and on, with no ceiling. */
 export const PAYROLL_STEP_COST_RISE = 60;
-
-/**
- * How many rungs the ladder has, and then there is nothing more to buy.
- *
- * Fifty-one, whose price is 3,600. That buys 1,530 caps a week of standing capacity on top of the
- * Nexus and the district, for 107,100 caps across the whole ladder, which is a target a crew can
- * actually finish rather than an asymptote it pays into forever.
- *
- * The ceiling is on *buying*, not on holding. A book that already sits above it keeps every cap of
- * what it has; it simply cannot widen further.
- */
-export const PAYROLL_STEPS_MAX = 51;
 
 /**
  * Weeks of an officer's own commitment it costs to let them go, paid in caps on the spot.
@@ -91,7 +81,7 @@ export const DISMISSAL_WEEKS = 10;
 
 export const PayrollStateSchema = z.object({
   /**
-   * How many `PAYROLL_STEP` purchases the crew has made.
+   * How many `PAYROLL_STEP` expansions the crew has bought.
    *
    * Steps rather than caps, because the price of the next one is a function of how many have been
    * bought and storing the total would make that a second expression of the same fact. Defaulted
@@ -99,7 +89,7 @@ export const PayrollStateSchema = z.object({
    */
   purchasedSteps: z.number().int().nonnegative().default(0),
   /**
-   * What each officer's contract commits, in caps per week, keyed by officer id.
+   * What each officer's contract commits, in caps, keyed by officer id.
    *
    * Whole caps: a fee is a number two people agreed on out loud, and the `.int()` is here so a
    * hand-written row cannot smuggle a fraction into the committed total.
@@ -112,17 +102,18 @@ export function startingPayroll(): PayrollState {
   return { purchasedSteps: 0, commitments: {} };
 }
 
-/** Caps per week the crew may commit in total, before the district's own bonus. */
-export function basePayrollCapacity(nexusLevel: number, purchasedSteps: number): number {
-  return (
-    PAYROLL_BASE +
-    Math.max(0, Math.trunc(nexusLevel)) * PAYROLL_PER_NEXUS_LEVEL +
-    Math.max(0, Math.trunc(purchasedSteps)) * PAYROLL_STEP
-  );
+/**
+ * The part of the book the district's payroll cards multiply: the base and the Nexus.
+ *
+ * Expansions are not in it. They are added after the multiplier (`payrollCapacity`), so a `+30`
+ * on the button is 30 on the book.
+ */
+export function basePayrollCapacity(nexusLevel: number): number {
+  return PAYROLL_BASE + Math.max(0, Math.trunc(nexusLevel)) * PAYROLL_PER_NEXUS_LEVEL;
 }
 
 /**
- * The whole ceiling: the Nexus, what has been bought, and what the district adds on top.
+ * The whole ceiling: the Nexus with the district's bonus on it, then what has been bought.
  *
  * `bonusPercent` is `payrollBonusPercent` from `building/standing.ts`, passed in as a plain number
  * so this module never has to know what a building is.
@@ -131,37 +122,41 @@ export function payrollCapacity(
   nexusLevel: number,
   purchasedSteps: number,
   bonusPercent = 0,
+  /**
+   * The Fixer's passive (`passives.ts`, maintainer 2026-10-04): a share of the whole book, the
+   * bought expansions included, since it is "the payroll you have" that grows.
+   */
+  fixerPercent = 0,
 ): number {
-  const base = basePayrollCapacity(nexusLevel, purchasedSteps);
-  return Math.round(base * (1 + Math.max(0, bonusPercent) / 100));
+  const multiplied = Math.round(
+    basePayrollCapacity(nexusLevel) * (1 + Math.max(0, bonusPercent) / 100),
+  );
+  const book = multiplied + Math.max(0, Math.trunc(purchasedSteps)) * PAYROLL_STEP;
+  return Math.round(book * (1 + Math.max(0, fixerPercent) / 100));
 }
 
 /**
- * What the next `PAYROLL_STEP` costs, given how many have already been bought, or `null` when the
- * ladder has run out.
+ * Caps the next expansion costs, given how many have already been bought.
  *
- * `null` rather than a number nobody may pay. The alternative was to keep quoting the last rung's
- * price and refuse it at the till, which puts a live figure in front of a player on a button that
- * cannot work, and leaves every caller free to forget the ceiling exists. A nullable answer makes
- * the compiler walk the screens.
+ * Always a price, and always dearer than the last: there is no last rung, so every screen and
+ * route can quote it without a "bought out" case.
  *
  * `discountPercent` is `payrollStepDiscountPercent` off `CrewEffects`: the perk channel for
  * officers who make widening the book cheaper. Passed in as a plain number so this module never
  * has to know what a crew is, the same way `payrollCapacity` takes its bonus.
  */
-export function payrollStepCost(purchasedSteps: number, discountPercent = 0): number | null {
+export function payrollStepCost(purchasedSteps: number, discountPercent = 0): number {
   const bought = Math.max(0, Math.trunc(purchasedSteps));
-  if (bought >= PAYROLL_STEPS_MAX) return null;
   const full = PAYROLL_STEP_FIRST_COST + bought * PAYROLL_STEP_COST_RISE;
   const off = Math.min(MAX_PAYROLL_STEP_DISCOUNT, Math.max(0, discountPercent));
-  // At least one cap, so no stack of perks makes widening the book free.
+  // At least one, so no stack of perks makes widening the book free.
   return Math.max(1, Math.round(full * (1 - off / 100)));
 }
 
 /** However many ledger clerks a crew hires, the next step still costs something. */
 export const MAX_PAYROLL_STEP_DISCOUNT = 60;
 
-/** Caps per week already promised to officers. */
+/** Caps already promised to officers. */
 export function committedPayroll(commitments: PayrollState['commitments']): number {
   return Object.values(commitments).reduce((total, fee) => total + fee, 0);
 }
@@ -177,21 +172,12 @@ export const PayrollLedgerSchema = z.object({
   committed: z.number().int().nonnegative(),
   available: z.number().int().nonnegative(),
   purchasedSteps: z.number().int().nonnegative(),
+  /** Caps (`PAYROLL_STEP_RESOURCE`) the next expansion costs. There is always a next one. */
+  nextStepCost: z.number().int().positive(),
   /**
-   * Caps the next `Increase Payroll` costs, or `null` once the ladder is bought out.
-   *
-   * Nullable rather than a companion `stepsRemaining` beside a number that keeps lying. The price
-   * and whether there is anything to price are one fact, and the payroll state already refuses to
-   * hold the same fact twice: `purchasedSteps` is stored instead of the total it implies for
-   * exactly this reason.
-   */
-  nextStepCost: z.number().int().positive().nullable(),
-  /**
-   * Caps per week that purchase would add to `capacity`.
-   *
-   * `PAYROLL_STEP` before the district's bonus and the step after it, because the bonus multiplies
-   * the whole base including what was bought: with Quarters standing, the button that read `+30`
-   * widened the book by 33.
+   * Caps that purchase would add to `capacity`: `PAYROLL_STEP`, since the district's bonus no
+   * longer multiplies what was bought. Derived from the capacity rather than copied from the
+   * constant, so the button cannot promise a number the book does not move by.
    */
   stepSize: z.number().int().positive(),
 });
@@ -202,8 +188,9 @@ export function payrollLedger(
   nexusLevel: number,
   bonusPercent = 0,
   stepDiscountPercent = 0,
+  fixerPercent = 0,
 ): PayrollLedger {
-  const capacity = payrollCapacity(nexusLevel, payroll.purchasedSteps, bonusPercent);
+  const capacity = payrollCapacity(nexusLevel, payroll.purchasedSteps, bonusPercent, fixerPercent);
   const committed = committedPayroll(payroll.commitments);
   return {
     capacity,
@@ -214,7 +201,9 @@ export function payrollLedger(
     available: Math.max(0, capacity - committed),
     purchasedSteps: payroll.purchasedSteps,
     nextStepCost: payrollStepCost(payroll.purchasedSteps, stepDiscountPercent),
-    stepSize: payrollCapacity(nexusLevel, payroll.purchasedSteps + 1, bonusPercent) - capacity,
+    stepSize:
+      payrollCapacity(nexusLevel, payroll.purchasedSteps + 1, bonusPercent, fixerPercent) -
+      capacity,
   };
 }
 

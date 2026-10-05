@@ -1,7 +1,9 @@
 import {
+  chairPassiveOf,
+  MISSION_FORCE_REFUSAL_TEXT,
+  NAME_TOO_SMALL_TEXT,
   concurrentMissionSlots,
   unitsBeyondNotoriety,
-  cityOfDistrict,
   districtsOfCity,
   bestFitParty,
   MISC_AREA_ID,
@@ -20,12 +22,12 @@ import {
   missionOffers,
   nextJobKind,
   officerIsInjured,
-  templateTimings,
   bareBattlefield,
   carriedHome,
   missionCarry,
-  missionRewards,
   simulate,
+  RESOURCE_CAP_VALUE,
+  RESOURCE_KEYS,
   RESOURCE_KG,
   type Army,
   type BattleOfficer,
@@ -42,10 +44,14 @@ import {
   LEADER_HOLD_MESSAGES,
   NO_RIGHT_HAND_TEXT,
   missionSpeedPercentIn,
+  areaPayPercent,
+  missionWalkMinutes,
+  type MissionOffer,
 } from '@frontline/shared';
 import { randomUUID } from 'node:crypto';
 import type { Repositories } from '../db/repos/index.js';
-import { areaStatesFor } from '../missions/board.js';
+import { citiesFor } from '../city/stakes.js';
+import { areaStatesFor, offerFor } from '../missions/board.js';
 import { launchMission } from '../missions/launch.js';
 import { rampFor } from '../missions/pricing.js';
 import {
@@ -105,7 +111,7 @@ interface Candidate {
  * the right kind. `areaStatesFor` is the same reader the board screen uses, so the Right Hand
  * cannot see an area a player could not.
  */
-function candidates(
+export function candidates(
   repos: Repositories,
   base: Base,
   wants: 'mission' | 'battle',
@@ -132,15 +138,16 @@ function candidates(
    * screen that tells them why is the board it was not reading. The same rule the board itself
    * uses (`areaIsOpen`) decides what is offered; only the set it is applied to changed.
    *
-   * **The crew's own city, and not every board they could reach** (maintainer, 2026-09-24). By
-   * hand a crew may take work in any city it holds ground in, so the two doors deliberately differ.
-   * A standing order is a thing you set once and stop watching, and one that could quietly send
-   * your people two hours across the frontier while you were not looking is a different promise
-   * from the one the button makes. Working a second city stays something you do on purpose.
+   * **Every city the crew may stand in** (maintainer, 2026-10-02, reversing 2026-09-24). By hand a
+   * crew may take work in any city it holds ground in, and while a slot is on the player cannot
+   * launch by hand at all, so a home-only Right Hand left a crew whose best ground was abroad with
+   * no way to work it. The walk to another city is in the rate (`missionWalkMinutes`), so a far
+   * board is chosen only when it pays for the road.
    */
   const open = [
     MISC_AREA_ID,
-    ...districtsOfCity(cityOfDistrict(base.districtId))
+    ...citiesFor(repos, base)
+      .flatMap((cityId) => districtsOfCity(cityId))
       .filter((district) => {
         const state = states.get(district.id);
         return state !== undefined && areaIsOpen(district, state);
@@ -179,17 +186,25 @@ function candidates(
  * With nothing chosen it is the sum of what comes home over the minutes, every resource counted
  * once. Crude on purpose: a weighting table would be a second balance sheet nobody asked for.
  */
-function rateOf(candidate: Candidate, carry: number, optimiseFor: ResourceKey | null): number {
-  const minutes = templateTimings(candidate.template, candidate.grade).totalMinutes;
+function rateOf(
+  /**
+   * The job as its card prices it for this crew (`offerFor`): the district's premium, the crew's
+   * cut and Cap Counter's on the pay, the crew's speed and the road on the clock. It used to be the
+   * bare template, so a job on a difficulty-10 board, which pays 81% more, scored the same as the
+   * same job on the Misc board (bug pass, 2026-10-02).
+   */
+  offer: Pick<MissionOffer, 'rewards' | 'totalMinutes'>,
+  carry: number,
+  optimiseFor: ResourceKey | null,
+): number {
+  const minutes = offer.totalMinutes;
   if (minutes <= 0) return 0;
-  const home: PartialResources = carriedHome(
-    missionRewards(candidate.template, 'success', minutes, candidate.grade),
-    carry,
-    RESOURCE_KG,
-  );
+  const home: PartialResources = carriedHome(offer.rewards, carry, RESOURCE_KG);
+  // The best job overall is the one worth most per minute, each resource at the market's own rate,
+  // so a pile of scrap does not outrank a smaller haul of metal (P5-A, 2026-10-02).
   const total =
     optimiseFor === null
-      ? Object.values(home).reduce<number>((sum, amount) => sum + (amount ?? 0), 0)
+      ? RESOURCE_KEYS.reduce((sum, key) => sum + (home[key] ?? 0) * RESOURCE_CAP_VALUE[key], 0)
       : (home[optimiseFor] ?? 0);
   return total / minutes;
 }
@@ -267,7 +282,7 @@ function fightRanking(args: {
   return (unitId) => scores.get(unitId) ?? 0;
 }
 
-/** The force this slot is committing, or null when what it was told to send is not at home. */
+/** The force this slot is committing, or the reason it cannot send one, in the launch's words. */
 function forceFor(
   base: Base,
   automation: Automation,
@@ -276,7 +291,7 @@ function forceFor(
   rules: LineRules,
   /** How to order a fight's units, when there is a fight and a size to fill. */
   rank?: (army: Army, unitSlots: number) => (unitId: string) => number,
-): Army | null {
+): { force: Army } | { stall: string } {
   /*
    * §D7's ceiling, on this door too (bug pass, 2026-09-23).
    *
@@ -287,13 +302,25 @@ function forceFor(
    * the fitted branch needed it most: `bestFitParty` ranks by offense per slot, so it actively
    * *prefers* the heavy sheets the gate exists to withhold.
    */
-  const fieldable = (party: Army): Army | null =>
-    unitsBeyondNotoriety(party, base.economy.notoriety).length === 0 ? party : null;
+  /*
+   * Each stall says its own reason (bug pass, 2026-10-02): all four used to read "The party you
+   * named is not at home", so a party of porters on a fight sat at home under a sentence that
+   * blamed their absence, for ever.
+   */
+  const sendable = (party: Army): { force: Army } | { stall: string } => {
+    const refusal = missionForceRefusal(party, base.army, template.kind, rules);
+    if (refusal !== null) return { stall: MISSION_FORCE_REFUSAL_TEXT[refusal] };
+    if (unitsBeyondNotoriety(party, base.economy.notoriety).length > 0) {
+      return { stall: NAME_TOO_SMALL_TEXT };
+    }
+    return { force: party };
+  };
+  const notHome = { stall: 'The party you named is not at home' };
 
   if (automation.unitSlots === null) {
     // The third rung: exactly this party or nothing, which is the maintainer's rule for it.
     const asked = automation.force;
-    if (Object.keys(asked).length === 0) return null;
+    if (Object.keys(asked).length === 0) return notHome;
     for (const [unitId, count] of Object.entries(asked)) {
       /*
        * The id has to name a sheet before it is looked up on the roster (bug pass, 2026-09-24).
@@ -305,12 +332,10 @@ function forceFor(
        * the one deciding which keys it will read. A row written before that door was shut still
        * has to stall rather than send.
        */
-      if (findUnit(unitId) === undefined) return null;
-      if ((base.army[unitId] ?? 0) < count) return null;
+      if (findUnit(unitId) === undefined) return notHome;
+      if ((base.army[unitId] ?? 0) < count) return notHome;
     }
-    return missionForceRefusal(asked, base.army, template.kind, rules) === null
-      ? fieldable(asked)
-      : null;
+    return sendable(asked);
   }
 
   /*
@@ -328,8 +353,9 @@ function forceFor(
   ) as Army;
   // Filled once by the catalogue's own order first: it is free, and a yard that cannot fill the
   // size at all is refused here without a single practice fight being run for it.
+  const short = { stall: `Not enough units at home to fill ${String(automation.unitSlots)}` };
   const plain = bestFitParty(fieldableArmy, automation.unitSlots, template.kind);
-  if (!plain) return null;
+  if (!plain) return short;
   const picked =
     template.kind === 'battle' && rank
       ? bestFitParty(
@@ -339,10 +365,8 @@ function forceFor(
           rank(fieldableArmy, automation.unitSlots),
         )
       : plain;
-  if (!picked) return null;
-  return missionForceRefusal(picked, base.army, template.kind, rules) === null
-    ? fieldable(picked)
-    : null;
+  if (!picked) return short;
+  return sendable(picked);
 }
 
 /** An officer as the launch takes one. */
@@ -473,7 +497,7 @@ const missionsRunner: AutomationRunner = {
      * the grade, so the engine's ranking is made once per grade and shared by every job at it.
      */
     const rankings = new Map<string, (unitId: string) => number>();
-    const partyFor = (candidate: Candidate, leader: Leader): Army | null =>
+    const partyFor = (candidate: Candidate, leader: Leader): { force: Army } | { stall: string } =>
       forceFor(base, automation, candidate.template, effects, (army, unitSlots) => {
         const key = candidate.grade;
         let ranking = rankings.get(key);
@@ -493,11 +517,12 @@ const missionsRunner: AutomationRunner = {
       });
 
     /*
-     * Which job: the best rate when a resource has been chosen, and otherwise at random.
+     * Which job: two modes, by research (maintainer ruling P5-A, 2026-10-02).
      *
-     * Random is the third rung's rule and it stays the default for every slot that has not been
-     * told what to chase, because a slot that always took the richest job would quietly become
-     * the only sensible way to play the board. The rate is what the job pays *this* party per
+     * Until Field Promotions the Right Hand takes any job it can fill, at random, and its screen
+     * says so. From that rung it takes the best: the best job overall, by worth per minute, or the
+     * best rate in the resource it was told to chase. The dropdown said "The best job overall"
+     * while the pick was random, which was the bug. The rate is what the job pays *this* party per
      * minute (`rateOf`), so the party is filled before the job is chosen, and a job the slot
      * cannot fill is never the one it picks while another could be sent.
      */
@@ -508,14 +533,20 @@ const missionsRunner: AutomationRunner = {
       if ('stall' in named) return named.stall;
     }
     let leaderStall: string | null = null;
+    let forceStall: string | null = null;
+    const ramp = rampFor(repos, base);
     const scored = pool.flatMap((candidate) => {
       const lead = leaderFor(repos, base, automation, candidate.template, now, room);
       if ('stall' in lead) {
         leaderStall = lead.stall;
         return [];
       }
-      const force = partyFor(candidate, lead.leader);
-      if (!force) return [];
+      const party = partyFor(candidate, lead.leader);
+      if ('stall' in party) {
+        forceStall = party.stall;
+        return [];
+      }
+      const { force } = party;
       // A fight's leader, now that there is a party to lead: the engine's pick over the free
       // officers, unless the order named one.
       const leader =
@@ -530,19 +561,31 @@ const missionsRunner: AutomationRunner = {
             ) ?? lead.leader)
           : lead.leader;
       const carry = missionCarry(force, base.unitLoadouts, effects.lootCapacityPercent, effects);
-      const rate = rateOf(candidate, carry, automation.optimiseFor);
+      const offer = offerFor(
+        candidate.template,
+        candidate.grade,
+        candidate.boardKey,
+        // What the launch below freezes: the ground's premium, the crew's cut and the leader's.
+        areaPayPercent(candidate.areaId) +
+          effects.missionSpoilsPercent +
+          effects.leadLootPercent +
+          (ramp?.payPercent ?? 0),
+        missionSpeedPercentIn(effects, candidate.areaId),
+        ramp,
+        missionWalkMinutes(base.districtId, candidate.areaId),
+        effects.missionCapsPercent,
+      );
+      const rate = rateOf(offer, carry, automation.optimiseFor);
       return [{ candidate, force, leader, rate }];
     });
     if (scored.length === 0) {
       if (leaderStall !== null) return leaderStall;
-      return automation.unitSlots === null
-        ? 'The party you named is not at home'
-        : `Not enough units at home to fill ${String(automation.unitSlots)}`;
+      return forceStall ?? 'No open board has work';
     }
-    const picked =
-      automation.optimiseFor === null
-        ? scored[Math.floor(Math.random() * scored.length)]
-        : scored.reduce((best, one) => (one.rate > best.rate ? one : best));
+    const picksBest = automationPowers(base.research.technologies).optimise;
+    const picked = picksBest
+      ? scored.reduce((best, one) => (one.rate > best.rate ? one : best))
+      : scored[Math.floor(Math.random() * scored.length)];
     if (!picked) return 'No open board has work';
     const { candidate: chosen, force, leader } = picked;
     const officer = base.commanders.find((one) => one.id === leader.id);
@@ -586,10 +629,11 @@ const missionsRunner: AutomationRunner = {
       // order's party walks the same streets as a hand-sent one.
       travelSpeedPercent: effects.travelSpeedPercent,
       roadMinutesOff: effects.roadMinutesOff,
+      roadBaseCutPercent: chairPassiveOf(effects, 'cartographer', 'travel_time'),
       anyRide: effects.anyRide,
       // The opening band, for the same reason `admin` is here: a standing order and a hand-sent
       // party on the same job must run on the same clock and be paid the same premium.
-      ramp: rampFor(repos, base),
+      ramp,
     });
 
     /*
@@ -604,8 +648,7 @@ const missionsRunner: AutomationRunner = {
      */
     repos.tx(() => {
       repos.missions.insert(stored);
-      repos.bases.updateArmy(base.id, removeForce(base.army, force), base.trainingQueue);
-      tallyAutomatedParty(repos, base.id);
+      repos.bases.updateArmy(base.id, removeForce(base.army, force), base.musterQueue);
       repos.automations.put({
         ...automation,
         missionId: stored.mission.id,
@@ -709,6 +752,13 @@ export function settleAutomations(repos: Repositories, now: Date, admin = false)
       if (slot.missionId !== null) {
         const running = repos.missions.findById(slot.missionId);
         if (running && running.mission.status === 'active') return;
+        /*
+         * Counted here, home, rather than at the send (bug pass, 2026-10-02): "a run the crew was
+         * turned round on is not a run", as the mission ladders already rule. Counted at the send,
+         * recalling every party as it left farmed about 24 an hour and finished a month's ladder
+         * in under a day.
+         */
+        if (running && running.mission.recalledAt === null) tallyAutomatedParty(repos, slot.baseId);
         slot = {
           ...slot,
           missionId: null,

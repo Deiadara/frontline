@@ -1,4 +1,5 @@
 import type { FactionMember } from '@frontline/shared';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import * as F from '../../../e2e/fixtures';
@@ -78,11 +79,14 @@ describe('MemberFace', () => {
    */
   it('puts no block element inside the roster row, which is a button', () => {
     const { container } = render(
-      <Roster
-        members={[withPortrait('overseer-2')]}
-        myUserId="somebody-else"
-        onOpenMember={vi.fn()}
-      />,
+      // A client for the player's clock face, which the row dates the seat on.
+      <QueryClientProvider client={new QueryClient()}>
+        <Roster
+          members={[withPortrait('overseer-2')]}
+          myUserId="somebody-else"
+          onOpenMember={vi.fn()}
+        />
+      </QueryClientProvider>,
     );
     const trigger = container.querySelector('button');
     expect(trigger, 'the roster row is not a button any more').not.toBeNull();

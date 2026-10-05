@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { LEGENDARY_CAP, capLegendaries } from './training.js';
+import { LEGENDARY_CAP, capLegendaries } from './muster.js';
 import { UNIT_CATALOG } from './catalog.js';
 
 /**
@@ -9,8 +9,8 @@ import { UNIT_CATALOG } from './catalog.js';
  * remove any excess that the console / admin version currently gives you. If you have it already
  * for the same legendary unit you cannot train another one."
  *
- * The training door has always refused the second one: `trainUnits` checks `alreadyHolds` against
- * the queue as well as the roster, and `maxTrainable` offers at most one. What had no rule at all
+ * The muster door has always refused the second one: `musterUnits` checks `alreadyHolds` against
+ * the queue as well as the roster, and `maxMusterable` offers at most one. What had no rule at all
  * was **granting**, and the console granted twelve of every sheet in the catalogue.
  */
 

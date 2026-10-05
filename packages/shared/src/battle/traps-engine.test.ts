@@ -9,7 +9,7 @@ import {
   type TrapSpec,
   type TrapWire,
 } from './traps.js';
-import type { Army } from '../units/training.js';
+import type { Army } from '../units/muster.js';
 
 /**
  * What a trap does to a fight, through the real engine (maintainer, 2026-09-29).
@@ -116,9 +116,9 @@ describe('the trap kill feats', () => {
   );
   const perTrap = biting.reduce((sum, kills) => sum + kills, 0) / biting.length;
 
-  it('asks for no more sprung traps at the top than the trap-laying ladder lays at The Ground Bites', () => {
+  it('asks for no more sprung traps at the top than the top of the sprung-trap ladder', () => {
     const top = findFeat('snares_3')!;
-    const laid = findFeat('traps_5')!;
+    const laid = findFeat('sprung_4')!;
     expect(top.target / perTrap).toBeLessThan(laid.target);
   });
 

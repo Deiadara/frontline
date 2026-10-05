@@ -1,7 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { ATTRIBUTE_LABELS, ATTRIBUTE_NAMES, MAX_ATTRIBUTE } from './attributes.js';
 import { BUILDING_CATALOG, findModification, findVehicle } from './building/index.js';
-import { ATTRIBUTE_EFFECTS, CHANNEL_LABELS, EFFECT_CHANNELS } from './crew/effects.js';
+import {
+  ATTRIBUTE_EFFECTS,
+  CHANNEL_LABELS,
+  EFFECT_CHANNELS,
+  seatsWeighing,
+} from './crew/effects.js';
 import { ROLE_IMPORTANCE } from './crew/importance.js';
 import { PERK_IDS, findPerk } from './crew/perks.js';
 import { RESEARCH_ITEMS } from './research/tracks.js';
@@ -52,7 +57,7 @@ describe('every id points at something that exists', () => {
     it('names a real tier, building, modifier and damage type on every sheet', () => {
       for (const unit of UNIT_CATALOG) {
         expect(UNIT_TIERS, unit.id).toContain(unit.tier);
-        expect(BUILDING_CATALOG[unit.trainedAt], unit.id).toBeDefined();
+        expect(BUILDING_CATALOG[unit.musteredAt], unit.id).toBeDefined();
         expect(DAMAGE_TYPES, unit.id).toContain(unit.stats.damageType);
         for (const modifier of unit.modifiers) {
           expect(UNIT_MODIFIERS[modifier], `${unit.id}:${modifier}`).toBeDefined();
@@ -147,18 +152,18 @@ describe('every id points at something that exists', () => {
   });
 
   describe('crew and roles', () => {
-    it('gives every attribute a label, an effect on a real channel, and a drill', () => {
+    // Since 2026-10-04 an attribute reaches the crew through the grade of a seat that weighs it,
+    // so one no seat weighs would be a number on a sheet that buys nothing.
+    it('gives every attribute a label, a line, a drill and a seat that grades it', () => {
       for (const name of ATTRIBUTE_NAMES) {
         expect(ATTRIBUTE_LABELS[name], name).toBeDefined();
         expect(TRAINING_DRILLS[name], name).toBeDefined();
-        expect(EFFECT_CHANNELS, name).toContain(ATTRIBUTE_EFFECTS[name].channel);
+        expect(ATTRIBUTE_EFFECTS[name].summary, name).not.toBe('');
+        expect(seatsWeighing(name), name).not.toEqual([]);
       }
     });
 
-    /** A channel nothing drives is a bonus no crew can ever earn. */
-    it('leaves no effect channel without an attribute driving it, or without a label', () => {
-      const driven = new Set(ATTRIBUTE_NAMES.map((n) => ATTRIBUTE_EFFECTS[n].channel));
-      expect(EFFECT_CHANNELS.filter((c) => !driven.has(c))).toEqual([]);
+    it('labels every effect channel', () => {
       expect(EFFECT_CHANNELS.filter((c) => !CHANNEL_LABELS[c])).toEqual([]);
     });
 

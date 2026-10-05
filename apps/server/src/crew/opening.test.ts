@@ -11,13 +11,13 @@ import { chooseOverseer } from '../testing/overseer.js';
  *
  * Measured on 2026-09-18, before any of this: a new crew stood a Nexus and a Generator, held 600
  * caps against the 512 a second Nexus level costs, produced six oil an hour and no caps at all,
- * and **could not train a single unit**, because every unit in the catalogue answered to a
+ * and **could not muster a single unit**, because every unit in the catalogue answered to a
  * Gauntlet that answers to Nexus 3 and Quarters 2. The eight Razors it is handed were therefore
  * the only bodies it would ever have until missions paid for a barracks, and missions need
  * bodies to send.
  *
  * Three things had to be true to break that circle and all three are pinned here, against the
- * routes rather than against the catalogue: the opening district can train a carrier, the act of
+ * routes rather than against the catalogue: the opening district can muster a carrier, the act of
  * picking a character finishes a feat, and collecting it puts five of them on the roster.
  * `units/units.test.ts` and `feats/catalog.test.ts` hold the same facts from the data side; what
  * this file adds is that the wiring between them exists, which is the half that fails silently.
@@ -59,7 +59,7 @@ async function feats(app: FastifyInstance, token: string): Promise<FeatsResponse
 }
 
 describe('a brand new crew', () => {
-  it('can train the cheap carrier on its first second, and nothing else', async () => {
+  it('can muster the cheap carrier on its first second, and nothing else', async () => {
     const { app, token, base } = await newCrew();
     // The district really is the bare opening, or the rest of this proves nothing about it.
     expect(base.buildings.map((one) => `${one.kind}${one.level}`).sort()).toEqual([
@@ -78,7 +78,7 @@ describe('a brand new crew', () => {
     // ...and the route agrees: an order for five of them is taken.
     const ordered = await app.inject({
       method: 'POST',
-      url: '/api/units/train',
+      url: '/api/units/muster',
       headers: auth(token),
       payload: { unitId: 'scavengers', count: 5 },
     });

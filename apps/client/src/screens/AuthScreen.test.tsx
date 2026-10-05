@@ -44,7 +44,7 @@ const choose = (which: 'login' | 'register') =>
 beforeEach(() => {
   vi.stubGlobal('fetch', fetchMock);
   fetchMock.mockReset();
-  useSession.setState({ token: null, user: null });
+  useSession.setState({ signedIn: false, user: null });
   localStorage.clear();
 });
 
@@ -150,7 +150,9 @@ describe('AuthScreen', () => {
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
     const [url] = fetchMock.mock.calls[0] as [string, RequestInit];
     expect(url).toBe('/api/auth/register');
-    await waitFor(() => expect(useSession.getState().token).toBe('tok'));
+    await waitFor(() =>
+      expect(useSession.getState()).toMatchObject({ signedIn: true, user: USER }),
+    );
   });
 });
 
@@ -201,7 +203,7 @@ describe('AuthScreen sign-up rules', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Enlist' }));
 
     await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent(message));
-    expect(useSession.getState().token).toBeNull();
+    expect(useSession.getState().signedIn).toBe(false);
   });
 });
 

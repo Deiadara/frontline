@@ -31,7 +31,7 @@ export const CommanderSchema = z.object({
   /**
    * The chair they sit in, or `null` for somebody on the bench (§C2, maintainer request).
    *
-   * The bench is not a nineteenth kind of job, it is the absence of one: an officer you have signed
+   * The bench is not a fourteenth kind of job, it is the absence of one: an officer you have signed
    * and have not decided about yet. They are on the books, they are drawing a wage, and they are
    * doing no job in particular, which is exactly what `null` says.
    *
@@ -85,6 +85,16 @@ export const CommanderSchema = z.object({
    * only on an officer written before the column existed; the server backfills those on boot.
    */
   portraitId: z.string().nullable().default(null),
+  /**
+   * When they last took a chair, or null/absent for an officer seated before the clock existed.
+   *
+   * A chair gives nothing for its first `CHAIR_SETTLE_HOURS` (`crew/passives.ts`, maintainer, 2026-10-05):
+   * passives are read when they are spent and a reseat is instant, so one strong officer moved into
+   * the Engineer chair before a build and the Veteran chair before a muster would carry every
+   * chair's passive at once. Optional rather than defaulted, so every officer written before it
+   * reads as long since settled.
+   */
+  seatedAt: IsoDateTimeSchema.nullable().optional(),
 });
 export type Commander = z.infer<typeof CommanderSchema>;
 

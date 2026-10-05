@@ -427,9 +427,9 @@ describe('who is working', () => {
   const hurt = officerRecoveryAt(now);
 
   it('counts a seated officer out of bed, and nobody else', () => {
-    expect(officerIsWorking({ role: 'fabricator', injuredUntil: null }, now)).toBe(true);
+    expect(officerIsWorking({ role: 'salvager', injuredUntil: null }, now)).toBe(true);
     expect(officerIsWorking({ role: null, injuredUntil: null }, now)).toBe(false);
-    expect(officerIsWorking({ role: 'fabricator', injuredUntil: hurt }, now)).toBe(false);
+    expect(officerIsWorking({ role: 'salvager', injuredUntil: hurt }, now)).toBe(false);
     expect(officerIsWorking({ role: null, injuredUntil: hurt }, now)).toBe(false);
   });
 });

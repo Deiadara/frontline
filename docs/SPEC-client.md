@@ -12,8 +12,9 @@ being worth re-reading.
 Implement the existing `apiFetch(path, schema, init?)` stub:
 
 - Prefix `path` with `API_BASE_URL` (`/api`, proxied to `:4000` by Vite in dev).
-- `Content-Type: application/json`; if the session store holds a token, attach
-  `Authorization: Bearer <token>`.
+- `Content-Type: application/json` and `X-Requested-With: frontline` (`CSRF_HEADER`) on every
+  request, with `credentials: 'same-origin'`. The session is an httpOnly cookie the page never
+  reads, so there is no token to attach; the token in a sign-in answer is ignored.
 - 2xx → `schema.parse(await res.json())`: the return type is `z.infer<Schema>`; a malformed
   body must throw, never leak unvalidated data into the app.
 - non-2xx → parse with `ApiErrorSchema` and throw a typed `ApiRequestError {status, code,
@@ -32,9 +33,10 @@ message}`; on `401` also clear the session (logout).
 
 ## State management
 
-- **zustand** (`src/store/session.ts`): `{token: string | null, user: User | null}` +
-  `login/logout` actions. Persist ONLY the token to `localStorage` (key `frontline.token`);
-  rehydrate on boot and refetch the user via `GET /api/me`.
+- **zustand** (`src/store/session.ts`): `{signedIn: boolean, epoch: number, user: User | null}` +
+  `login/rotated/logout` actions. Persist ONLY `signedIn` to `localStorage` (key
+  `frontline.session`), never a token; rehydrate on boot and refetch the user via `GET /api/me`.
+  Signing out goes through `signOut()` in `lib/api.ts`, since only the server can clear the cookie.
 - **react-query** for ALL server data: no server state copied into zustand. Query keys live in
   one place (`lib/queries.ts`): `['me']`, `['city']`, `['base', id]`, `['missions']`, `['bar']`,
   `['research']`, `['assignees']`. Mount one `QueryClientProvider` in `main.tsx`.
@@ -73,7 +75,7 @@ link into a document lands on the document. **Only Programmes carries a count** 
 rungs in the game); the other two are their label alone, because a document count next to Blueprints
 reads as progress through the catalogue when it is progress through an inventory, and a page count next
 to Reimagining is the size of a bag rather than of anything the tab does. Programmes also takes
-`?track=<role>`, so a link can open one of the nineteen trades; an unknown value falls back to the
+`?track=<role>`, so a link can open one of the thirteen trades; an unknown value falls back to the
 first.
 
 Blueprints is one document per row: the cover, name, rarity and blurb in a fixed 14rem column, the
@@ -85,7 +87,7 @@ buttons under it choose the category, and only the chosen one is rendered. Neith
 
 Reimagining is the bench: a triangle of three brass sockets with gearing and an outfeed beside it,
 and the inventory's pages as a tray to its right. Shut, it is a door rather than a dead end: a crew
-with no Head of Research is sent to the Bar to hire one, because an empty chair shuts every rung on
+with no Researcher is sent to the Bar to hire one, because an empty chair shuts every rung on
 every trade, and a crew with the chair but not the rung is sent to `/game/research?track=` on the
 trade the rung actually sits on, read off the catalogue rather than written down. A tray tile puts its page in the first empty socket
 and a filled socket gives it back; a page can go in as many times as it is held. With all three in,
@@ -99,6 +101,21 @@ The Market is three tabs of one place: the Runner, the Broker and the supply run
 `/game/market`, trading between crews on `/game/market/offers`, and the back room on
 `/game/market/black`. The board is a page of its own rather than a panel on the front, because a
 listing is two piles of goods and a verdict on them, which does not read in a shared column.
+
+The Black Market is two equal halves from `xl` (maintainer, 2026-10-05): **On the shelf** on the
+left, six lots (`BLACK_MARKET_SLOTS`, five until 2026-10-05) in two rows of three that share the
+panel's height exactly, and **The Stackhouse** (`features/market/Stackhouse.tsx`) on the
+right; below `xl` they stack. Both are the drawn `soot` panel (the paper menu's frame and rule in
+tangerine ink on a soot sheet, `.ink-frame-tangerine`, `.card-soot`), and both run down to the
+sheet's foot with the same 20px gap as at their sides (`PageShell stretch`). The shelf's header
+carries its "Settles in" clock, which took the allowance chip's place; the allowance is the chip's
+hover. Nothing scrolls at 1440x900 and up. Every good has its own drawn mark (`GoodIcon`, one per good,
+one shared mark for every blueprint page), used on the card and the lot window; the battle stash's
+`StashGlyph` draws the five boosts through it. The Stackhouse lists the fights on the book (never
+one the crew called itself, which the server leaves out since 2026-10-05) with both sides (the crew's side marked "yours") and a countdown to the close, the bet riding, and the
+last bet's result. A fight opens a window in the room's colours: pick a side, a stake, "Place the
+bet", then a second step that names the stake and the side and "Lock it in". Locked, the panel
+says so until the Fixer's rung is done.
 
 On the board, **Your Offers** opens with what the board is holding for the crew (`claims` on
 `GET /market`, maintainer 2026-09-28): a listing somebody took keeps its card with Claim where
@@ -121,8 +138,14 @@ edge is the reader's standing, and its button reads Bid, Raise or Your table. Th
 standing figure, one bid control floored at the price with the server as the authority on the
 step, and every bid on the table. `POST /market/bid` answers with the whole board. The Broker
 says under his button how much of what he would hand over will not fit on the shelf, and leaves
-the button live: the till asks again before anything is thrown away. The supply run still offers no
-more than the shelf has room for.
+the button live: the till asks again before anything is thrown away. His two pickers carry caps as
+well as the five materials (maintainer, 2026-10-01), and the rate on his band is
+`brokerPayoutRate` for the side being taken, so a trade into caps reads the figure the till pays.
+The supply run still offers no more than the shelf has room for. Its header says the day's ration
+left in units of the material on the picker ("3,120 scrap left"; `supplyRationUnits`), since the
+ration itself is caps' worth and the field beside it counts units. The Runner's standing note adds
+the crew's effective market discount and the raw sum it came from when there is one
+(`effectiveMarketDiscount`); the cards that pay into it keep their own raw figures.
 
 ## Screens
 
@@ -216,7 +239,12 @@ more than the shelf has room for.
    four states (standing, being worked on, vacant, locked) and the name plate carries all four,
    because it is the only part of a plot guaranteed to be readable at the smallest supported size.
    Clicking a plot opens its dialog, the Grepolis move, so the scene never has to make room for a
-   detail column.
+   detail column. Its "What it gives" line (`structureBonus`) quotes the structure's own share:
+   where that share joins the crew's on one sum (the Generator's build points; maintainer,
+   2026-10-01) the label says it is added to the crew's, so a player can add the plot's figure to
+   the crew page's. The Lab's line is its cut off every research price and the tier of programmes
+   every two levels opens (2026-10-02). A complete Plumbing set reads as +10% production for the
+   whole district, wherever the three cards sit.
 
    The scene keeps the plate's aspect and is **contained**, never cropped: a cropped edge is a
    building you can see and cannot click. The faction's name sits on a plaque over it, and renaming
@@ -224,7 +252,9 @@ more than the shelf has room for.
 
    Everything written _about_ the district: build queue, power grid, production rates, the
    stockpile and its ceiling, standing, payroll, progression: is in a drawer that starts closed and
-   slides up over the scene. **Nothing on this page computes a game rule.** Every figure comes from a
+   slides up over the scene. While a raid's cut is running, the Production panel adds a row
+   "Raided: -30% for 4h" off `disruptionPercentAt(base.economy.disruption, now)` and the record's
+   `until`, the same stacked figure and window the settle charges; it is not drawn otherwise. **Nothing on this page computes a game rule.** Every figure comes from a
    shared function the server calls too (`districtProduction`, `powerGrid`, `storageCapacity`,
    `unitSlotCapacity`, `buildingCost`, `buildingBuildSeconds`), which is what keeps a dead
    button's _reason_ identical to the server's refusal.
@@ -246,13 +276,17 @@ more than the shelf has room for.
 6. **The Bar** (§H7): a room with a stool in it, and a city-wide daily auction behind the stool.
    There is no negotiation and no hire button. Every crew in the city reads the same eight people
    and bids on them; the highest bid at Athens midnight signs them at exactly that figure, and that
-   figure becomes their weekly wage on the payroll book.
+   figure becomes their wage on the payroll book, shown in plain caps.
 
    - **The room** (`PlateRoom`, `plate-bar`): `Sit down` on the empty stool, plus four things on
      the glass over the painting. The standing note, a **Your tables** strip (`your-tables`: the
      cap as `used of allowed`, one chip per auction this crew has money on, each carrying the
      person's name, `Leading` / `Outbid` / `Locked` and a live countdown), and three doors: the
-     payroll book, the crew, and **Last night** (`open-results`).
+     payroll book, the crew, and **Last night** (`open-results`). The payroll door
+     (`payroll-left`) is one box holding the **Payroll left** readout (`payroll-readout`), which
+     is a figure and opens nothing, and on its right a drawn **Increase payroll** button
+     (`bar-increase-payroll`), the only pressable part, which opens `PayrollBookDialog`: the same
+     window the Nexus's `Increase payroll` opens (`components/Payroll.tsx`).
    - **The roster** is unchanged behind the stool: one person at a time, an arrow either side, the
      portrait, the perks, the §H3 doors and the thirty-three-row sheet with the role highlighter.
      Who sits in which chair is the server's business and the screen does not label it: the first
@@ -354,7 +388,10 @@ more than the shelf has room for.
      what they take (maintainer, 2026-09-28), so there is no hold choice and none is sent; on a
      location the dialog says the survivors will garrison it. A fight that is only legal through a
      breach (a raid, or a location in a shut district) is offered only the marks before the gate
-     comes back up, the same line the server refuses on.
+     comes back up, the same line the server refuses on. Before the price the dialog states the
+     minimum (`declare-minimum`, maintainer 2026-10-05): the attack needs `MIN_ATTACK_UNIT_SLOTS`
+     (20) unit slots committed, the caller's and its allies', an hour before it starts, or it is
+     called off and what it cost stays spent.
    - **The battle page shows what is at the place.** Beside the muster (what has landed from
      columns), `Standing there` draws `muster.standing`: the garrison, the home army or gate
      garrison, faction postings and faction Sleepers that fight on the caller's side with no
@@ -382,6 +419,11 @@ more than the shelf has room for.
      off, rebuilt from the row (`offerOfMission`). The Monitor's job rows do the same, and a job's
      name there is a hover that shows the card it was taken off (`OfferCard` read-only, no Send);
      a click pins it open so the things on it can be hovered in turn, with a Close.
+   - **What the party carries home** (maintainer, 2026-09-30: keep the carry limit, but warn). The
+     send window's readout row says how much of the card's pay the picked party brings home, in the
+     loot slots the card prints its pay in (`Carries 25 of 100 loot slots`), trimmed the way the
+     settle trims it (`carriedHome`). It moves as units are picked and reads in the warning tone
+     until it is all of it. It replaced the separate `Can carry` and `Job pays` readouts.
    - **Room in the stores.** The send window quotes whether the stores could take the haul the
      chosen crew would carry (`Stores take: all of it / part of it`) against the stock held now,
      and names what would go to waste when some would. A warning, not a refusal: the stock moves
@@ -444,6 +486,60 @@ of each group in numbered ink boxes, then the four attribute groups on paper car
 in view, the record beside it, only the record scrolls. Under 820px tall the painting sits beside
 the words and the words scroll behind a fade rather than a cut.
 
+## Training clocks
+
+The Training tab (`features/overseer/TrainingPage.tsx`) carries a drawn `InfoNote` labelled "Train
+Faster" on the quotation's line, top right, in iris ink like Research's note (maintainer,
+2026-10-01). Its hover reads "Speed, Resolve and Organization all reduce the time it takes for an
+officer to train." The drill dialog's button quotes the subject's own `sessionSeconds` (falling
+back to the response's plain hour), which is what the route stores on the session.
+
+The four attribute columns are ruled into as many equal rows as the longest one has (Technical,
+eleven), and the rows grow with the screen past 900px of height, so Technical fills its box exactly
+on a tall screen (maintainer, 2026-10-05). The row's name and figure grow with it
+(`clamp(13px, 1.45vh, 16px)` and `clamp(14px, 1.55vh, 17px)`); up to 900px tall the sheet is as it
+was.
+
+The drill dialog says what a skill feeds for the person drilling it, with no figure (maintainer,
+2026-10-04: a skill pays no channel of its own): the grade of the seat they are graded on at the
+skill's tag, and through it the chair's passive or, for the Overseer, the lift on every seated
+officer; nothing from the bench; and, for Signals and Cryptography, the guard against spies anybody
+in the room gives.
+
+Every attribute carries one line on what it is good for, `attributeUse` in `crew/effects.ts`: the
+seats that grade it, and the spy guard for the two that give one. The Training tab's drill hover
+leads with it; the officer, Overseer and Bar sheets dropped it on 2026-10-04, and a sheet row's tip
+is the chair's tag line and the lift receipt, or nothing.
+
+A chair taken in the last six hours gives nothing yet (maintainer, 2026-10-05). The officer's file
+prints "Settling in: the chair gives nothing for another 5h 39m." under the chair's passive
+(`ChairSettling`, `data-testid="chair-settling"`), and the "What the chairs give" list prints the
+same under that chair's line, both off `chairFrom` and the browser's clock. Neither draws once the
+time has passed, so a window left open over the hour never reads "another 0s". The seat cards on
+the grid are unchanged.
+
+The crew effects page (`features/crew/CrewEffectsPage.tsx`) never draws the two spy channels, paid
+or not, and has no "Nothing there yet" list (maintainer, 2026-10-01: "these are not public
+values"). How hard a crew is to read, and the officers' Signals and Cryptography modifier, are
+printed nowhere; the attribute hovers are the only nudge. No spy figure of any kind is on a public
+screen: the plot dialog's Gate line reads `+N% defence`, the captured-gate panel on the city map
+`+N% holding it.`, and the battles board's gate block its Toughness alone. Perk cards describing
+their own bonus are the one exception. The building dialog's Nexus
+line quotes the payroll book its levels add beside the level it authorises, `Nexus 8 · +200 caps
+payroll` (`basePayrollCapacity` over the bare book, 25 caps a level).
+
+## Muster clocks
+
+The Units page chips and the building dialog's Gauntlet and Greenhouse lines print the tapered
+figure: `musterSpeedAfterTaper` of the raw speed, and `suppliesOnlyCut` of the raw supplies beside
+the cost cut, so the cost chip and the supplies chip add up to the supplies line. The building
+dialog does not know the crew's cost cut and reads the Greenhouse beside none. The breakdown pages
+end on the server's `Tapering` line, so their totals are the same figures, and a unit's Bonuses page
+adds its own `homeBonus.supplies` line to the crew's. A Scrapyard card on the muster clock prints
+its own cut of the clock, `timeSavingPercent(musterSpeedAfterTaper(n))` ("-14% muster time (tapers)"
+for Night Course's 16), the same reading the Gauntlet's line takes; the card's number is a speed,
+and printed bare it read as time off.
+
 ## Spying
 
 One panel (`features/city/SpyPanel.tsx`), opened as a window from a location sheet, a player's
@@ -452,7 +548,10 @@ the ones the Master of Whispers' track has not opened (`spyTiersOpen`) are drawn
 disabled, with "Opens with <rung>" in place of the price, so the ladder is visible before it is
 climbed (maintainer, 2026-09-28). Every job out is a line with its countdown and, inside its first
 tenth, the X that turns it round by id; while a party is free (`spyRuns.length < spyParties`, two
-with Two Sets of Eyes) the picker and the send stay under them.
+with Two Sets of Eyes) the picker and the send stay under them. One job per place (maintainer,
+2026-10-05): while one of the crew's jobs is out on this place (`sameSpyTarget`) the picker and the
+send are gone whatever parties are free, until the runners are called back or come home, and the
+server refuses a second send as `watching_here`.
 
 The report window (`features/battle/SpyReportModal.tsx`) draws what the report carries and nothing
 it does not: before Written Reports a count of unit slots and no unit cards (`spy-slots-only`), the
@@ -550,7 +649,7 @@ a screen drops in, naming its own screen (`<Tutorial screen="missions" />`).
 - **A wrapping row does not grow an auto grid row.** A `flex-wrap` band inside a grid item
   contributes its height as though it never wrapped, so the track keeps the one-line height and the
   item's own flex children shrink to fit inside it. The roster card hit this: the marks band went to
-  two lines and the frame stayed put, squashing the price box from 96px to 77px and moving the Train
+  two lines and the frame stayed put, squashing the price box from 96px to 77px and moving the Muster
   button on that card alone. `min-h` on the item does not help. Size the frame for the rows the
   content can take, put `shrink-0` on whatever must not give, and gate on it: the box that can
   shrink is the box that hides the overflow from every sweep.

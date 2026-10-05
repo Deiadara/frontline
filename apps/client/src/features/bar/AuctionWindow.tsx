@@ -65,7 +65,11 @@ export function AuctionWindow({
   wageDiscountPercent?: number;
   auctionsUsed: number;
   auctionsAllowed: number;
-  /** Chairs left on the books. A win with none free passes to the next crew at the close. */
+  /**
+   * Officer slots left on the books. A win with none free passes to the next crew at the close.
+   * Negative when the crew holds more officers than its slots allow (a save from before the
+   * 2026-09-30 slot ladder): it keeps them all and bids on nobody until it is back under.
+   */
   chairsFree: number;
   /** Beds left in the district. An officer takes one, so at zero the table refuses a bid. */
   bedsFree: number | undefined;
@@ -134,6 +138,7 @@ export function AuctionWindow({
             auctionsAllowed={auctionsAllowed}
             chairsFree={chairsFree}
             bedsFree={bedsFree}
+            zone={zone}
           />
           <BidHistory auction={auction} zone={zone} />
         </div>
@@ -163,7 +168,7 @@ function Dossier({ recruit }: { recruit: BarRecruit }) {
             <PerkTags perks={recruit.perks} tone="panel" />
           ) : (
             <p className="font-body text-[12px] italic leading-snug text-ink-400">
-              Nothing but the sheet. Some of the best of them are.
+              Nothing special
             </p>
           )}
           {!recruit.assessment.interested && (
@@ -232,7 +237,9 @@ function Standing({ auction, now }: { auction: BarAuction; now: Date }) {
       ? 'Nobody has bid'
       : standing === 'leading'
         ? 'You are leading'
-        : 'You have been outbid';
+        : standing === 'outbid'
+          ? 'You have been outbid'
+          : 'Somebody is in front';
   return (
     <div
       className={cn(
@@ -265,7 +272,7 @@ function Standing({ auction, now }: { auction: BarAuction; now: Date }) {
           {(auction.leading?.amount ?? auction.reserve).toLocaleString()}
         </span>
         <span className="font-display text-[10px] uppercase tracking-[0.16em] text-ink-300">
-          caps / wk
+          caps
         </span>
       </span>
       <span className="min-w-0 truncate font-body text-[12px] leading-snug text-ink-200">
@@ -347,6 +354,7 @@ function BidPanel({
   auctionsAllowed,
   chairsFree,
   bedsFree,
+  zone,
 }: {
   recruit: BarRecruit;
   auction: BarAuction;
@@ -360,9 +368,12 @@ function BidPanel({
   auctionsAllowed: number;
   chairsFree: number;
   bedsFree: number | undefined;
+  /** The reader's clock face: the close is printed on it, as every bid time is. */
+  zone: string;
 }) {
   const bid = usePlaceBid();
   const seal = useSealBid();
+  const reveal = formatClock(new Date(auction.closesAt), zone);
 
   const [amount, setAmount] = useState(auction.nextBid);
   /*
@@ -396,13 +407,15 @@ function BidPanel({
    */
   const shut = !recruit.assessment.interested
     ? 'They will not sit down with your crew. Nothing you bid changes that.'
-    : chairsFree <= 0
-      ? 'Your books are full. Let somebody go before you bid on anybody.'
-      : bedsFree === 0
-        ? NO_FREE_BED_TEXT
-        : atCap
-          ? `You are at ${auctionsAllowed} tables already. Let one close first.`
-          : null;
+    : chairsFree < 0
+      ? 'You hold more officers than your slots allow. They all stay, but you cannot bid until you are under the limit.'
+      : chairsFree === 0
+        ? 'Your books are full. Let somebody go before you bid on anybody.'
+        : bedsFree === 0
+          ? NO_FREE_BED_TEXT
+          : atCap
+            ? `You are at ${auctionsAllowed} tables already. Let one close first.`
+            : null;
   // A win the crew cannot seat passes to the next final at the close. Said before the bid, not
   // after midnight: two tables and one chair is a choice, and it should be made on purpose.
   const tables = auctionsUsed + (inThisOne ? 0 : 1);
@@ -477,7 +490,7 @@ function BidPanel({
               testId="bid-you-pay"
             />
             <span className="shrink-0 font-display text-[10px] uppercase tracking-[0.16em] text-ink-300">
-              / wk
+              caps
             </span>
           </div>
           <Button
@@ -500,7 +513,8 @@ function BidPanel({
               className="font-body text-[12px] leading-relaxed text-oxblood-300"
               data-testid="bid-refusal"
             >
-              Your book holds up to {headroom.toLocaleString()} a week. Raise it at the Nexus.
+              Your book holds up to {headroom.toLocaleString()} caps. Increase it at the foot of the
+              Bar.
             </p>
           )}
           {refusal === null && !overBook && amount < auction.nextBid && (
@@ -530,7 +544,7 @@ function BidPanel({
               {auction.yourSealed.toLocaleString()}
             </span>
             <p className="font-body text-[12px] leading-relaxed text-ink-200">
-              Revealed at midnight. Nobody sees it before then, and it cannot be changed.
+              Revealed at {reveal}. Nobody sees it before then, and it cannot be changed.
             </p>
           </div>
         ) : (
@@ -539,7 +553,7 @@ function BidPanel({
               Your final value
             </span>
             <p className="font-body text-[12px] leading-relaxed text-ink-200">
-              One number, locked, revealed at midnight. It cannot be raised afterwards and it cannot
+              One number, locked, revealed at {reveal}. It cannot be raised afterwards and it cannot
               be taken back.
             </p>
             <div className="flex min-w-0 items-center gap-2">
@@ -560,7 +574,7 @@ function BidPanel({
                 testId="seal-you-pay"
               />
               <span className="shrink-0 font-display text-[10px] uppercase tracking-[0.16em] text-ink-300">
-                / wk
+                caps
               </span>
             </div>
             <Button
@@ -583,7 +597,8 @@ function BidPanel({
                 className="font-body text-[12px] leading-relaxed text-oxblood-300"
                 data-testid="bid-refusal"
               >
-                Your book holds up to {headroom.toLocaleString()} a week. Raise it at the Nexus.
+                Your book holds up to {headroom.toLocaleString()} caps. Increase it at the foot of
+                the Bar.
               </p>
             )}
           </div>
@@ -598,12 +613,20 @@ function BidPanel({
         </p>
       )}
 
+      {/* Maintainer, 2026-10-04: every bid holds its wage until the close, won or lost. */}
+      {phase !== 'closed' && (
+        <p className="font-body text-[11px] leading-snug text-ink-400" data-testid="bid-holds">
+          A bid cannot be taken back. Your highest bid here holds its wage on your book until
+          midnight, win or lose, and whatever you do not win comes back then.
+        </p>
+      )}
+
       {error !== null && <ErrorNote>{error}</ErrorNote>}
 
       {confirming && (
         <Confirm
           title="Lock this in?"
-          body={`${sealAmount.toLocaleString()} caps a week, sealed until midnight. You get one final value on this table and this is it: it cannot be changed, raised or withdrawn.`}
+          body={`${sealAmount.toLocaleString()} caps, sealed until ${reveal}. You get one final value on this table and this is it: it cannot be changed, raised or withdrawn.`}
           confirm="Lock it"
           testId="confirm-seal"
           onConfirm={() => {

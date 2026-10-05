@@ -1,14 +1,16 @@
 import {
+  markFromPoints,
   ATTRIBUTE_LABELS,
   BENCH_LABEL,
   OFFICER_ROLE_LABELS,
   OVERSEER_SUBJECT,
   TRAINING_GAIN,
-  TRAINING_BENCHES,
+  TRAINING_QUEUE_SLOTS,
   TRAINING_SECONDS,
   TRAININGS_PER_DAY,
   applyGain,
   drillEndsAt,
+  drillSeconds,
   officerPortraits,
   rollDay,
   sessionFor,
@@ -16,6 +18,7 @@ import {
   trainingsLeft,
   type Base,
   type Commander,
+  type OfficerMark,
   type Overseer,
   type TrainingGain,
   type TrainingSession,
@@ -24,6 +27,8 @@ import {
 } from '@frontline/shared';
 import type { Repositories } from '../db/repos/index.js';
 import { notifyBase } from '../social/notify.js';
+import { projectCrewOfficer } from './roster.js';
+import { liftedOfficerSheet, liftedOverseerSheet, officerLiftRoom } from './standing.js';
 
 /**
  * Paying out the drilling (§F2).
@@ -107,7 +112,7 @@ function lastDrillEnded(sessions: readonly TrainingSession[], now: string): Date
  * `training_done` has been in the catalogue since notifications were written, with a label, a
  * blurb, an icon and a switch of its own on the settings screen, and **nothing has ever sent
  * one**: a player could turn "Training" off and on and change nothing either way. The same bug
- * `unit_trained` had, fixed the same way and in the same place, at the settler that already knows
+ * `unit_mustered` had, fixed the same way and in the same place, at the settler that already knows
  * the work landed (`district/settle.ts` says so in as many words).
  *
  * One per settle rather than one per session. Drilling is lazy like every other clock here, so a
@@ -150,6 +155,56 @@ export function overseerOf(repos: Repositories, base: Base): Overseer | undefine
 }
 
 /**
+ * How long an hour on the floor takes each person on these books, by subject id (2026-10-01).
+ *
+ * `drillSeconds` of the sheet the crew fields them with: the lifted one, which their march and
+ * their spy work already read (maintainer, 2026-09-30), so a Right Hand who makes everybody
+ * quicker on the road makes them quicker at the bench too. The Overseer is lifted by the Right
+ * Hand alone, as everywhere else. The route stores the answer on the session when it starts.
+ */
+export function drillSecondsBySubject(
+  repos: Repositories,
+  base: Base,
+  overseer: Overseer | undefined,
+  now: Date,
+): Map<string, number> {
+  const room = officerLiftRoom(repos, base, now);
+  const seconds = new Map<string, number>();
+  if (overseer) {
+    seconds.set(OVERSEER_SUBJECT, drillSeconds(liftedOverseerSheet(overseer.attributes, room)));
+  }
+  for (const officer of base.commanders) {
+    seconds.set(officer.id, drillSeconds(liftedOfficerSheet(officer, room).attributes));
+  }
+  return seconds;
+}
+
+/**
+ * Each officer's mark for the chair they are in, by subject id, for the portraits on the tab.
+ *
+ * Through `projectCrewOfficer` on the same lifted sheet the crew screen projects, so the stamp on
+ * the training rail is the stamp on the crew card and cannot drift from it. The bench has no chair
+ * and so no mark; the Overseer's mark is their own grade, on the Overseer's seat.
+ */
+export function officerMarksBySubject(
+  repos: Repositories,
+  base: Base,
+  now: Date,
+): Map<string, OfficerMark> {
+  const room = officerLiftRoom(repos, base, now);
+  const marks = new Map<string, OfficerMark>();
+  for (const officer of base.commanders) {
+    const { mark } = projectCrewOfficer(officer, liftedOfficerSheet(officer, room));
+    if (mark !== null) marks.set(officer.id, mark);
+  }
+  // The Overseer's own grade, on their own seat (maintainer, 2026-10-04).
+  if (room.overseerPoints !== null) {
+    marks.set(OVERSEER_SUBJECT, markFromPoints(room.overseerPoints));
+  }
+  return marks;
+}
+
+/**
  * The Training tab, as a response.
  *
  * The Overseer leads the list because they are the person a player thinks of first and the only
@@ -162,8 +217,12 @@ export function projectTraining(
   now: string,
   /** §A4: sessions the ground adds on top of the day's allowance. The Gym. */
   extraSessions = 0,
-  /** People allowed on the floor at once: `TRAINING_BENCHES` plus the Professor's rung. */
-  benches = TRAINING_BENCHES,
+  /** Drills the queue holds: `TRAINING_QUEUE_SLOTS` plus the Professor's rung. */
+  queueSlots = TRAINING_QUEUE_SLOTS,
+  /** Each person's own hour, from {@link drillSecondsBySubject}. Absent is the plain hour. */
+  sessionSeconds: ReadonlyMap<string, number> = new Map(),
+  /** Each person's stamp, from {@link officerMarksBySubject}. Absent is no stamp. */
+  marks: ReadonlyMap<string, OfficerMark> = new Map(),
 ): TrainingResponse {
   const state = rollDay(base.training, now);
   const subjects: TrainingSubject[] = [];
@@ -179,12 +238,14 @@ export function projectTraining(
       // No chair, so no skill is more or less useful than another: the sheet draws plain.
       officerRole: null,
       portraitId: overseer.portraitId,
+      mark: marks.get(OVERSEER_SUBJECT) ?? null,
       attributes: overseer.attributes,
       perks: overseer.perks,
       session: sessionFor(state, OVERSEER_SUBJECT) ?? null,
       lastAttribute: state.last[OVERSEER_SUBJECT] ?? null,
       // The player is never a casualty: §D4 is about officers, and the Overseer leads nothing.
       injuredUntil: null,
+      sessionSeconds: sessionSeconds.get(OVERSEER_SUBJECT) ?? TRAINING_SECONDS,
     });
   }
 
@@ -199,6 +260,7 @@ export function projectTraining(
       // The stored face (maintainer, 2026-09-11), with the old derived one behind it for an officer
       // written before the column existed and not yet backfilled.
       portraitId: officer.portraitId ?? faces.get(officer.id) ?? null,
+      mark: marks.get(officer.id) ?? null,
       attributes: officer.attributes,
       perks: officer.perks,
       session: sessionFor(state, officer.id) ?? null,
@@ -206,6 +268,7 @@ export function projectTraining(
       // §D4: an injured officer still trains. What is off is their services to the crew, and an
       // hour in a bed reading is exactly the hour somebody laid up has going spare.
       injuredUntil: officer.injuredUntil,
+      sessionSeconds: sessionSeconds.get(officer.id) ?? TRAINING_SECONDS,
     });
   }
 
@@ -213,7 +276,7 @@ export function projectTraining(
     serverNow: now,
     sessionsLeft: trainingsLeft(state, now, extraSessions),
     perDay: TRAININGS_PER_DAY + Math.max(0, extraSessions),
-    benches,
+    queueSlots,
     gainPerSession: TRAINING_GAIN,
     sessionSeconds: TRAINING_SECONDS,
     subjects,

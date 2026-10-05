@@ -13,6 +13,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import * as F from '../../../e2e/fixtures';
 import { BlackMarketPage } from './BlackMarketPage';
 import { useSession } from '../../store/session';
 
@@ -144,7 +145,7 @@ beforeEach(() => {
   vi.stubGlobal('fetch', fetchMock);
   fetchMock.mockReset();
   serve(shelf);
-  useSession.setState({ token: 'session-token', user: null });
+  useSession.setState({ signedIn: true, user: null });
 });
 
 afterEach(() => {
@@ -187,6 +188,48 @@ describe('the shelf as five lots', () => {
     expect(screen.queryByText(shelf.infamy.toLocaleString())).toBeNull();
   });
 
+  // Bug pass, 2026-10-02: a crate out of reach on price was blamed on rank whenever it had a rank gate.
+  it('blames rank only when the crew is short of it', async () => {
+    const at = (rank: number) =>
+      fetchMock.mockImplementation((path: string) => {
+        if (path.endsWith('/black-market'))
+          return reply({
+            ...roomy,
+            offers: roomy.offers.map((offer, index) =>
+              index === 0 ? { ...offer, affordable: false, minNotoriety: 4 } : offer,
+            ),
+          });
+        if (path.endsWith('/me'))
+          return reply({
+            ...F.lateGame,
+            base: {
+              ...F.lateGame.base!,
+              economy: { ...F.lateGame.base!.economy, notoriety: rank },
+            },
+          });
+        throw new Error(`unstubbed request: ${path}`);
+      });
+
+    at(6);
+    const view = renderShelf();
+    await waitFor(() =>
+      expect(screen.getByTestId('black-lot-tag-0')).toHaveAttribute(
+        'data-tip',
+        'More than you have to say',
+      ),
+    );
+    view.unmount();
+
+    at(2);
+    renderShelf();
+    await waitFor(() =>
+      expect(screen.getByTestId('black-lot-tag-0')).toHaveAttribute(
+        'data-tip',
+        'He keeps this for rank 4 and better',
+      ),
+    );
+  });
+
   it('tells a crew that already holds the plans why the lot is shut to it', async () => {
     serve({
       ...roomy,
@@ -207,7 +250,10 @@ describe('the shelf as five lots', () => {
 
   it('says how many the crew may walk out with, rather than how many it may take', async () => {
     renderShelf();
-    expect(await screen.findByTestId('black-allowance')).toHaveTextContent('1 to win tonight');
+    // On the shelf's clock since 2026-10-05: the chip says when it settles, its hover the allowance.
+    const chip = await screen.findByTestId('black-allowance');
+    expect(chip).toHaveTextContent('Settles in');
+    expect(chip.getAttribute('data-tip')).toContain('1 to win tonight');
   });
 
   it('sends the number, the slot and what was standing in it', async () => {

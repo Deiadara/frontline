@@ -1,4 +1,7 @@
 import {
+  makeAttributes,
+  createCommander,
+  featMeasureKey,
   DECLARE_INFAMY_COST,
   DEFAULT_BADGE,
   findDistrict,
@@ -126,7 +129,7 @@ async function makeStack(username = 'caller', engine?: SkirmishEngine): Promise<
    * expires the day that default moves, which is exactly what happened.
    */
   const armed = app.repos.bases.findById(baseId)!;
-  app.repos.bases.updateArmy(baseId, { ...armed.army, razors: 20 }, armed.trainingQueue);
+  app.repos.bases.updateArmy(baseId, { ...armed.army, razors: 20 }, armed.musterQueue);
 
   // Every district in the city starts wholly held by one NPC party, which means every gate in the
   // city starts armed: see the test that pins exactly that. Most of what is worth testing here is
@@ -262,7 +265,7 @@ function plantRival(
     ],
     buildQueue: [],
     army: over.army ?? {},
-    trainingQueue: [],
+    musterQueue: [],
     training: startingTraining(now),
     inventory: {},
     fittedUpgrades: [],
@@ -545,7 +548,7 @@ describe('moving people up to it (§A4)', () => {
   it('refuses to field a unit the crew has not earned the name for', async () => {
     const stack = await makeStack();
     const base = stack.repos.bases.findById(stack.baseId)!;
-    stack.repos.bases.updateArmy(base.id, { ...base.army, the_colossus: 1 }, base.trainingQueue);
+    stack.repos.bases.updateArmy(base.id, { ...base.army, the_colossus: 1 }, base.musterQueue);
 
     const declared = await declare(stack);
     const battleId = declared.json<BattleMutationResponse>().battles.coming[0]!.battle.id;
@@ -843,6 +846,24 @@ describe('resolving it (§A4)', () => {
     );
   });
 
+  /*
+   * Bug pass, 2026-10-02: the report's "Infamy earned" and the `infamy_earned` feat read the bare
+   * kill ledger (6 here), while the wallet banked the ground's premium as well (71).
+   */
+  it('reports and counts the infamy the crew banked, not the kill ledger alone', async () => {
+    const stack = await makeStack('told_right', decided('attacker', { killed: { razors: 6 } }));
+    await readyFight(stack);
+    const before = stack.repos.bases.findById(stack.baseId)!.economy.infamy;
+
+    settleBattles(stack.repos, stack.app.skirmishEngine, new Date());
+
+    const banked = stack.repos.bases.findById(stack.baseId)!.economy.infamy - before;
+    expect(banked).toBeGreaterThan(6 * infamyForKill('razors'));
+    const report = (await board(stack)).reports[0]!;
+    expect(report.analysis?.attacker.infamy).toBe(banked);
+    expect(stack.repos.feats.tallies(stack.baseId)[featMeasureKey('infamy_earned')]).toBe(banked);
+  });
+
   /**
    * A fight is atomic, and the trap is what proves it.
    *
@@ -928,6 +949,23 @@ describe('resolving it (§A4)', () => {
     // Pinned to the board's number rather than only to the constant: an assertion written against
     // `GATE_BREACH_HOURS` alone is true whatever the constant says, and the number is the rule.
     expect(GATE_BREACH_HOURS).toBe(24);
+  });
+
+  // Bug pass, 2026-10-02: the day ran from whenever the tick settled the fight, not from its mark.
+  it('runs the breach from the mark, however late the fight is settled', async () => {
+    const stack = await makeStack('late_breacher', decided('attacker'));
+    shutTheRustyard(stack);
+
+    const declared = await declare(stack, { kind: 'gate', districtId: 'steelbelt' });
+    expect(declared.statusCode).toBe(200);
+    const battle = declared.json<BattleMutationResponse>().battles.coming[0]!.battle;
+    const mark = new Date(Date.now() - 3 * 3_600_000);
+    bringForward(stack, battle, mark);
+
+    settleBattles(stack.repos, stack.app.skirmishEngine, new Date());
+
+    const gate = stack.repos.sieges.gate('steelbelt')!;
+    expect(Date.parse(gate.brokenUntil!)).toBe(mark.getTime() + 24 * 3_600_000);
   });
 
   /**
@@ -1032,6 +1070,32 @@ describe('losing a location behind a broken gate (§A4)', () => {
     expect(gateFor(stack.repos, 'steelbelt').level).toBe(9);
     expect(holdsDistrictWhole(stack.repos, rivalId, 'steelbelt')).toBe(false);
   });
+
+  /**
+   * Bug pass, 2026-10-05: the breach is read at the fight's mark, not at the settle. A fight marked
+   * inside the breach and settled after it closed (a server down over the mark) kept a level 9 gate
+   * on a district nobody held whole any more.
+   */
+  it('judges the breach at the mark, however late the fight is settled', async () => {
+    const stack = await makeStack('holder', decided('attacker'));
+    const rivalId = plantRival(stack);
+    rivalHoldsItAll(stack, rivalId, 9);
+    stack.repos.sieges.breakGate('steelbelt', breachExpiry(new Date()));
+    const declared = await declare(stack, {
+      kind: 'location',
+      districtId: 'steelbelt',
+      locationId: RUSTYARD_LOCATIONS[0]!,
+    });
+    expect(declared.statusCode).toBe(200);
+    const battle = declared.json<BattleMutationResponse>().battles.coming[0]!.battle;
+    // Marked three hours ago, inside the breach; the breach closed an hour after the mark.
+    bringForward(stack, battle, new Date(Date.now() - 3 * 3_600_000));
+    stack.repos.sieges.breakGate('steelbelt', new Date(Date.now() - 2 * 3_600_000).toISOString());
+    settleBattles(stack.repos, stack.app.skirmishEngine, new Date());
+
+    expect(gateFor(stack.repos, 'steelbelt').level).toBe(CAPTURED_GATE_START_LEVEL);
+    expect(holdsDistrictWhole(stack.repos, rivalId, 'steelbelt')).toBe(false);
+  });
 });
 
 describe('what a name buys (§D7)', () => {
@@ -1060,6 +1124,8 @@ describe('what a name buys (§D7)', () => {
     const refused = await buy(stack, battleId, spec.id);
     expect(refused.statusCode).toBe(409);
     expect(errorCode(refused)).toBe('NOT_ENOUGH_INFAMY');
+    const burned = () => stack.repos.feats.tallies(stack.baseId)['names_burned'] ?? 0;
+    expect(burned(), 'a refused name was counted as burned').toBe(0);
 
     const base = stack.repos.bases.findById(stack.baseId)!;
     stack.repos.bases.updateEconomy(base.id, { ...base.economy, infamy: spec.cost + 10 });
@@ -1069,6 +1135,8 @@ describe('what a name buys (§D7)', () => {
     const after = paid.json<BattleMutationResponse>();
     expect(after.base.economy.infamy).toBe(10);
     expect(after.battles.coming[0]!.boostIds).toEqual([spec.id]);
+    // P11-B: the names ladder counts it.
+    expect(burned()).toBe(1);
   });
 
   it('offers nothing an officer or the Lab has not put on the table', async () => {
@@ -1282,19 +1350,18 @@ describe('holding a district (§A4)', () => {
     const structures = (await board(stack)).structures;
     const row = structures.find((entry) => entry.buildingId === gate.id)!;
     expect(row.level).toBe(1);
+    // No points against spies: spy strength is not public (maintainer, 2026-10-01).
     expect(Object.keys(row).sort()).toEqual(
-      ['buildingId', 'defensePercent', 'intelResistancePercent', 'kind', 'label', 'level'].sort(),
+      ['buildingId', 'defensePercent', 'kind', 'label', 'level'].sort(),
     );
     /*
-     * The two figures are the Gate's alone (maintainer request, 2026-09-12: the section says what the
+     * The figure is the Gate's alone (maintainer request, 2026-09-12: the section says what the
      * gate provides). Everything else defends a district by standing in it rather than by a
      * percentage of its own, and a zero there would read as a Gate that is worth nothing.
      */
     expect(row.defensePercent).toBeGreaterThan(0);
-    expect(row.intelResistancePercent).toBeGreaterThan(0);
     for (const other of structures.filter((entry) => entry.kind !== 'gate')) {
       expect(other.defensePercent, other.kind).toBeNull();
-      expect(other.intelResistancePercent, other.kind).toBeNull();
     }
   });
 
@@ -1322,14 +1389,14 @@ describe('holding a district (§A4)', () => {
  * reason it counts garrisons is written on it: leaving them out "would make emptying the district
  * into the city a way to house an army for free". A column on the road and a muster standing on a
  * battlefield are the same argument and were not in the same sum, so sending units out freed their
- * beds, the freed beds took a training order, and the fight handed the units back into a district
+ * beds, the freed beds took a muster order, and the fight handed the units back into a district
  * that no longer had room for them.
  */
 describe('the beds an army abroad still occupies (§A1, §A4)', () => {
   it('frees no housing by sending units to a fight, walking or landed', async () => {
     const stack = await makeStack();
     const base = stack.repos.bases.findById(stack.baseId)!;
-    stack.repos.bases.updateArmy(base.id, { razors: 10 }, base.trainingQueue);
+    stack.repos.bases.updateArmy(base.id, { razors: 10 }, base.musterQueue);
 
     const home = await units(stack);
     expect(home.unitSlotsUsed).toBeGreaterThan(0);
@@ -1346,10 +1413,10 @@ describe('the beds an army abroad still occupies (§A1, §A4)', () => {
     expect((await units(stack)).unitSlotsUsed).toBe(home.unitSlotsUsed);
   });
 
-  it('refuses a training order that only fits while the army is away', async () => {
+  it('refuses a muster order that only fits while the army is away', async () => {
     const stack = await makeStack();
     const base = stack.repos.bases.findById(stack.baseId)!;
-    stack.repos.bases.updateArmy(base.id, { razors: 10 }, base.trainingQueue);
+    stack.repos.bases.updateArmy(base.id, { razors: 10 }, base.musterQueue);
     stack.repos.bases.updateResources(base.id, {
       caps: 900_000,
       supplies: 900_000,
@@ -1369,7 +1436,7 @@ describe('the beds an army abroad still occupies (§A1, §A4)', () => {
     // The four are away, so a naive count says there are four more beds than there are.
     const res = await stack.app.inject({
       method: 'POST',
-      url: '/api/units/train',
+      url: '/api/units/muster',
       headers: auth(stack.token),
       payload: { unitId: 'razors', count: room + 4 },
     });
@@ -1800,5 +1867,49 @@ describe('a gate held from a district you do not live in', () => {
       standingUnits(stack.repos.bases.findById(holder.id)!.army),
       'the winning holder did not get their column back',
     ).toBe(10);
+  });
+});
+
+/**
+ * The Field Commander's passive (maintainer, 2026-10-04): infamy from fights against another crew,
+ * up to double at a perfect sheet, and nothing extra against looters or the Combine.
+ */
+describe("the Field Commander's share of a name", () => {
+  const banked = async (username: string, against: 'looters' | 'crew', commander: boolean) => {
+    const stack = await makeStack(username, decided('attacker', { killed: { razors: 6 } }));
+    if (commander) {
+      const base = stack.repos.bases.findById(stack.baseId)!;
+      stack.repos.bases.updateCommanders(stack.baseId, [
+        ...base.commanders,
+        createCommander('fc', 'Marshal', 'field_commander', makeAttributes(100)),
+      ]);
+    }
+    if (against === 'crew') {
+      const rival = plantRival(stack);
+      const control = stack.repos.city.control(SQUATTED_RUSTYARD_LOCATION)!;
+      stack.repos.city.put({
+        ...control,
+        holder: { kind: 'crew', baseId: rival },
+        garrison: { razors: 2 },
+      });
+    }
+    await readyFight(stack);
+    const before = stack.repos.bases.findById(stack.baseId)!.economy.infamy;
+    settleBattles(stack.repos, stack.app.skirmishEngine, new Date());
+    return stack.repos.bases.findById(stack.baseId)!.economy.infamy - before;
+  };
+
+  it('pays nothing extra against looters', async () => {
+    const plain = await banked('fc_plain_l', 'looters', false);
+    expect(plain).toBeGreaterThan(0);
+    expect(await banked('fc_led_l', 'looters', true)).toBe(plain);
+  });
+
+  it('pays more against another crew, up to double at a perfect sheet', async () => {
+    const plain = await banked('fc_plain_c', 'crew', false);
+    expect(plain).toBeGreaterThan(0);
+    const led = await banked('fc_led_c', 'crew', true);
+    expect(led).toBeGreaterThan(plain);
+    expect(led).toBeLessThanOrEqual(plain * 2 + 1);
   });
 });

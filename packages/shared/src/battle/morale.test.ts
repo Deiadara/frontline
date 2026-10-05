@@ -144,7 +144,7 @@ describe('who gets away', () => {
       effective: effectiveStats(
         unit,
         bareBattlefield(),
-        { defending: false, outnumbered: false },
+        { defending: false, outnumbered: 0 },
         noTerritoryEffects(),
       ),
       alive,

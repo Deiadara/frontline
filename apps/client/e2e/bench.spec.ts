@@ -1,9 +1,9 @@
 import { expect, test } from '@playwright/test';
 import {
-  TRAINING_CANCEL_WINDOW,
+  MUSTER_CANCEL_WINDOW,
   findUnit,
-  maxTrainable,
-  trainingCancellable,
+  maxMusterable,
+  musterCancellable,
 } from '@frontline/shared';
 import { actionsResponse, lateGame, unitsResponse } from './fixtures';
 import { installApi, settleFonts } from './harness';
@@ -38,11 +38,11 @@ test('orders a batch, and Max asks for what the crew can actually afford and hou
   await expect(stepper).toHaveValue('7');
 
   // ...and by the button, which must land on the same number the shared rule computes.
-  const expected = maxTrainable(
+  const expected = maxMusterable(
     findUnit('razors')!,
     unitsResponse.resources,
     Math.max(0, unitsResponse.unitSlotsCap - unitsResponse.unitSlotsUsed),
-    unitsResponse.trainingCostReduction,
+    unitsResponse.musterCostReduction,
   );
   expect(expected, 'the fixture must leave room for a batch').toBeGreaterThan(1);
   await card.getByTestId('max-razors').click();
@@ -50,11 +50,11 @@ test('orders a batch, and Max asks for what the crew can actually afford and hou
 
   const sent: string[] = [];
   page.on('request', (request) => {
-    if (request.url().endsWith('/api/units/train') && request.method() === 'POST') {
+    if (request.url().endsWith('/api/units/muster') && request.method() === 'POST') {
       sent.push(request.postData() ?? '');
     }
   });
-  await card.getByRole('button', { name: 'Train' }).click();
+  await card.getByRole('button', { name: 'Muster' }).click();
   await expect.poll(() => sent.length).toBeGreaterThan(0);
   expect(sent[0]).toContain(`"count":${expected}`);
 });
@@ -69,15 +69,15 @@ test('offers Cancel only on a batch still inside its window, and sends the order
 }) => {
   await installApi(page, lateGame);
   await page.goto('/game/units');
-  await expect(page.getByTestId('training-queue')).toBeVisible();
+  await expect(page.getByTestId('muster-queue')).toBeVisible();
   await settleFonts(page);
 
   const now = new Date(unitsResponse.serverNow);
-  const open = unitsResponse.queue.filter((order) => trainingCancellable(order, now));
-  const shut = unitsResponse.queue.filter((order) => !trainingCancellable(order, now));
+  const open = unitsResponse.queue.filter((order) => musterCancellable(order, now));
+  const shut = unitsResponse.queue.filter((order) => !musterCancellable(order, now));
   expect(open.length, 'the fixture needs a cancellable order').toBeGreaterThan(0);
   expect(shut.length, 'and one past its window').toBeGreaterThan(0);
-  expect(TRAINING_CANCEL_WINDOW).toBe(0.1);
+  expect(MUSTER_CANCEL_WINDOW).toBe(0.1);
 
   for (const order of shut) {
     await expect(page.getByTestId(`cancel-${order.id}`)).toHaveCount(0);

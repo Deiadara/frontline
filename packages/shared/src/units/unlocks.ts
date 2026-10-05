@@ -39,7 +39,7 @@ export interface BlueprintRequirement {
   blueprintId: string;
 }
 
-/** Everything that has to hold before a unit can be trained: what a screen lists. */
+/** Everything that has to hold before a unit can be mustered: what a screen lists. */
 export type UnitUnlockClause = UnitRequirement | BlueprintRequirement;
 
 export interface UnlockContext {

@@ -1,4 +1,7 @@
 import {
+  makeAttributes,
+  createCommander,
+  cancelRefund,
   DECLARE_INFAMY_COST,
   MAX_LOCATION_LEVEL,
   bonusesAt,
@@ -20,7 +23,7 @@ import { loadConfig } from '../config.js';
 import { openDatabase, runMigrations, type AppDatabase } from '../db/index.js';
 import { settleBattles } from '../battle/resolve.js';
 import { settleMoves } from '../moves/moves.js';
-import { UPGRADE_SECONDS_SCALE, upgradeSeconds } from './upgrade.js';
+import { UPGRADE_SECONDS_SCALE, cancelUpgrade, startUpgrade, upgradeSeconds } from './upgrade.js';
 import { chooseOverseer } from '../testing/overseer.js';
 
 /**
@@ -163,10 +166,15 @@ describe('working a location up (§A4)', () => {
     expect(during.level).toBe(1);
     expect(during.upgradingUntil).not.toBeNull();
 
+    const tally = (key: string) => stack.app.repos.feats.tallies(stack.baseId)[key] ?? 0;
+    expect(tally('location_levels_raised'), 'counted before the work landed').toBe(0);
+
     finishWork(stack);
     const after = await read(stack);
     expect(after.level).toBe(2);
     expect(after.upgradingUntil).toBeNull();
+    // P8-C: the workings ladder counts the level when it lands, for whoever holds the ground.
+    expect(tally('location_levels_raised')).toBe(1);
   });
 
   it('pays more at the new level, and says so on the card', async () => {
@@ -380,7 +388,7 @@ describe('who will stand on your ground (§D7)', () => {
     const stack = await makeStack();
     const base = stack.app.repos.bases.findById(stack.baseId)!;
     // A legend on the roster, and a name nobody has heard of.
-    stack.app.repos.bases.updateArmy(base.id, { the_specter: 1 }, base.trainingQueue);
+    stack.app.repos.bases.updateArmy(base.id, { the_specter: 1 }, base.musterQueue);
     stack.app.repos.bases.updateEconomy(base.id, { ...base.economy, notoriety: 0 });
     expect(NOTORIETY_TO_FIELD.legendary).toBeGreaterThan(0);
 
@@ -399,7 +407,7 @@ describe('who will stand on your ground (§D7)', () => {
   it('lets the same crew garrison anything its rank does cover', async () => {
     const stack = await makeStack();
     const base = stack.app.repos.bases.findById(stack.baseId)!;
-    stack.app.repos.bases.updateArmy(base.id, { razors: 2 }, base.trainingQueue);
+    stack.app.repos.bases.updateArmy(base.id, { razors: 2 }, base.musterQueue);
     stack.app.repos.bases.updateEconomy(base.id, { ...base.economy, notoriety: 0 });
 
     const res = await stack.app.inject({
@@ -445,7 +453,7 @@ describe('a garrison order names units, and only units', () => {
     it(`refuses a withdrawal of "${key}"`, async () => {
       const stack = await makeStack();
       const base = stack.app.repos.bases.findById(stack.baseId)!;
-      stack.app.repos.bases.updateArmy(base.id, { razors: 10 }, base.trainingQueue);
+      stack.app.repos.bases.updateArmy(base.id, { razors: 10 }, base.musterQueue);
       const before = stack.app.repos.bases.findById(stack.baseId)!.army;
 
       // The move door now, from the plot home: the withdrawal this case was written about.
@@ -529,5 +537,53 @@ describe('working up ground anywhere in the city', () => {
     // And there is no offer on it, because it is not ours to work on.
     const refused = await upgrade(stack, PRESS.locationId);
     expect(refused.statusCode).toBe(409);
+  });
+});
+
+/**
+ * Calling an upgrade off hands back ninety percent of what it was charged, not of today's price
+ * (bug pass, 2026-10-04). The Engineer's cut is read live: seat a perfect one to start the work,
+ * bench them, cancel, and the refund was priced without the cut, about 1.8 times what was spent.
+ */
+describe('a cancelled upgrade refunds what it was charged', () => {
+  const engineerAt = (stack: Stack, role: 'engineer' | null) =>
+    stack.app.repos.bases.updateCommanders(stack.baseId, [
+      createCommander('wright', 'Wright', role, makeAttributes(100)),
+    ]);
+
+  it('pays back the cut price after the Engineer who cut it has left the chair', async () => {
+    const stack = await makeStack();
+    engineerAt(stack, 'engineer');
+    const location = findLocation(MINE)!;
+    const now = new Date();
+    const base = stack.app.repos.bases.findById(stack.baseId)!;
+    const started = startUpgrade(stack.app.repos, {
+      base,
+      location,
+      control: stack.app.repos.city.control(MINE)!,
+      now,
+    });
+    if (started.kind !== 'started') throw new Error(`refused: ${started.reason}`);
+    const listed = upgradeCost(location.kind, 1)!;
+    const paid = stack.app.repos.city.control(MINE)!.upgradePaid!;
+    // The premise: the Engineer's cut was taken.
+    expect(paid.caps ?? 0).toBeLessThan(listed.caps ?? 0);
+
+    engineerAt(stack, null);
+    const cancelled = cancelUpgrade(stack.app.repos, {
+      base: stack.app.repos.bases.findById(stack.baseId)!,
+      location,
+      control: stack.app.repos.city.control(MINE)!,
+      now: new Date(now.getTime() + 1000),
+      // The fixture is rich past its stores; what is under test is the refund, not the room.
+      acceptWaste: true,
+    });
+    if (cancelled.kind !== 'cancelled') throw new Error(`refused: ${cancelled.reason}`);
+    expect(cancelled.refund).toEqual(cancelRefund(paid));
+    // Never more than was spent, line by line.
+    for (const [key, amount] of Object.entries(cancelled.refund)) {
+      expect(amount, key).toBeLessThanOrEqual(paid[key as keyof typeof paid] ?? 0);
+    }
+    expect(stack.app.repos.city.control(MINE)!.upgradePaid ?? null).toBeNull();
   });
 });

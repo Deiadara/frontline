@@ -20,8 +20,8 @@ import {
   REIMAGINING_COMPLETE_XP,
   dismissalFee,
   findUnit,
-  trainingCost,
-  trainingRefund,
+  musterCost,
+  musterRefund,
   unseenPages,
   type Inventory,
   type PartialResources,
@@ -63,6 +63,7 @@ import {
   trainingResponse,
   market,
   blackMarket,
+  stackhouseBook,
   settings,
   adminSnapshot,
   garage,
@@ -73,7 +74,6 @@ import {
   startedResearch,
   featsBoard,
   overseerChoices,
-  TOKEN,
 } from './fixtures';
 
 /** The display webfont every geometry assertion has to be measured against. */
@@ -558,7 +558,7 @@ export async function expectNoImagesClipped(page: Page, root = 'body'): Promise<
 }
 
 /**
- * Make a screen self-contained: seed the persisted token and intercept every
+ * Make a screen self-contained: seed the persisted sign-in and intercept every
  * `/api/**` call with fixtures that satisfy the shared Zod schemas.
  */
 /**
@@ -585,13 +585,14 @@ export interface UnderWay {
   /** Re-times the first subject's running drill to this start. */
   drill?: { startedAt: string };
   /**
-   * A crowded gym: this many subjects on the floor at once, at staggered points in their hours.
+   * A full queue: this many subjects on the list, the first running and the rest waiting behind it.
    *
    * The training fixture has two people and one drill, which is right for the screen it was made
-   * for and says nothing about the strip along the foot of the sheet. That strip has to hold up
-   * to `TRAININGS_PER_DAY` rows at once, and the failures it can have are all plural: a chip that
-   * stretches when it is alone, rows that wrap into a second line and take a drill row off the
-   * sheet, a name that collides with the bar beside it. Subjects past the fixture's two are
+   * for and says nothing about the strip along the foot of the sheet. That strip has to hold a
+   * full queue (`TRAINING_QUEUE_SLOTS` plus the Second Chair), and the failures it can have are
+   * all plural: a chip that stretches when it is alone, rows that wrap into a second line and take
+   * a drill row off the sheet, a name that collides with the bar beside it. Subjects past the
+   * fixture's two are
    * synthesised here rather than added to `trainingResponse`, which would change the roster,
    * the day's tally and the crew sheet for every other spec that reads it.
    */
@@ -599,22 +600,23 @@ export interface UnderWay {
 }
 
 /**
- * The training fixture with `wanted` people on the floor at once.
+ * The training fixture with `wanted` people in the queue.
  *
  * Built by cloning the fixture's own officer rather than by writing a new subject from scratch,
  * so the synthesised ones carry whatever shape the real response has and cannot drift from it
  * when a field is added. Their names are deliberately long and short by turns: a chip has to hold
  * "Bartholomew Achterberg-Vance" and "Ox" in the same row of the same grid.
  *
- * The hours are staggered by four minutes each, so the bars are at visibly different lengths and
- * a strip that drew one width for all of them would be obvious rather than plausible.
+ * Chained the way the server queues them (2026-10-04): each synthesised drill starts as the one
+ * ahead of it ends, so only the fixture's own drill is under way and the rest are waiting.
  */
 function crowdTheFloor(training: TrainingResponse, wanted: number): TrainingResponse {
   const [first, officer] = training.subjects;
   if (!first?.session || !officer) throw new Error('the training fixture lost its shape');
-  // Benches to stand them on. The floor takes one person per bench (`TRAINING_BENCHES`), so a
-  // fixture with five hours running and two benches is a screen saying "5 of 2 benches in use".
-  const benches = Math.max(training.benches, wanted);
+  // Places to queue them in, so the line does not read "3 of 2 in the queue".
+  const queueSlots = Math.max(training.queueSlots, wanted);
+  const endOf = (index: number): number =>
+    Date.parse(first.session!.startedAt) + (index + 1) * first.session!.durationSeconds * 1000;
 
   const names = ['Ox', 'Bartholomew Achterberg-Vance', 'Isolde Ferrier', 'Kit'];
   const extra = names.slice(0, Math.max(0, wanted - 1)).map((name, index) => ({
@@ -626,12 +628,10 @@ function crowdTheFloor(training: TrainingResponse, wanted: number): TrainingResp
       ...first.session!,
       id: `floor-drill-${index}`,
       subjectId: `floor-${index}`,
-      startedAt: new Date(
-        Date.parse(first.session!.startedAt) - (index + 1) * 4 * 60 * 1000,
-      ).toISOString(),
+      startedAt: new Date(endOf(index)).toISOString(),
     },
   }));
-  return { ...training, benches, subjects: [...training.subjects, ...extra] };
+  return { ...training, queueSlots, subjects: [...training.subjects, ...extra] };
 }
 
 export async function installApi(
@@ -647,9 +647,14 @@ export async function installApi(
    */
   options: { inventory?: Inventory; underWay?: UnderWay } = {},
 ): Promise<void> {
-  await page.addInitScript((token) => {
-    localStorage.setItem('frontline.token', JSON.stringify({ state: { token }, version: 0 }));
-  }, TOKEN);
+  // Signed in as far as the page knows. The real session is an httpOnly cookie the page never
+  // reads, and every request it would carry is answered below, so no cookie is needed here.
+  await page.addInitScript(() => {
+    localStorage.setItem(
+      'frontline.session',
+      JSON.stringify({ state: { signedIn: true }, version: 0 }),
+    );
+  });
 
   /*
    * The session, and it moves.
@@ -661,6 +666,8 @@ export async function installApi(
    * whichever assertion happened to run first.
    */
   let session = meResponse;
+  // The Stackhouse's book for this install: a bet laid down stays riding on the reads after it.
+  let book = stackhouseBook;
   /*
    * The roster this page sees, copied per install.
    *
@@ -985,13 +992,13 @@ export async function installApi(
     }
     /*
      * §A5, and method-aware for the same reason `/api/missions` is: the two writes answer with a
-     * `TrainUnitsResponse`, which is a different shape from the roster, and a handler that served
+     * `MusterUnitsResponse`, which is a different shape from the roster, and a handler that served
      * the roster to a POST would let a client that sent the wrong body pass every run.
      *
      * `cancel` answers with the bench minus the order it was given, so a run can assert that the
      * row actually left rather than that the button was clickable.
      */
-    if (pathname.endsWith('/api/units/train') || pathname.endsWith('/api/units/cancel')) {
+    if (pathname.endsWith('/api/units/muster') || pathname.endsWith('/api/units/cancel')) {
       const own = session.base ?? baseDetail.base;
       /*
        * Both writes move the stockpile, and until now neither did.
@@ -1006,11 +1013,11 @@ export async function installApi(
         const body = route.request().postDataJSON() as { unitId: string; count: number };
         const spec = findUnit(body.unitId);
         if (!spec) return json({ error: { code: 'NOT_FOUND', message: 'No such unit' } }, 404);
-        const bill = trainingCost(
+        const bill = musterCost(
           spec,
           body.count,
-          unitsResponse.trainingCostReduction,
-          unitsResponse.trainingSuppliesReduction ?? 0,
+          unitsResponse.musterCostReduction,
+          unitsResponse.musterSuppliesReduction ?? 0,
         );
         // Admin mode waives the bill and quotes it anyway (`admin/mode.ts`): the fixture does what
         // the server does, so a spec on the testing build sees a stockpile that did not move.
@@ -1022,7 +1029,7 @@ export async function installApi(
       }
       const body = route.request().postDataJSON() as { orderId: string };
       const order = unitsResponse.queue.find((entry) => entry.id === body.orderId);
-      const back = order ? trainingRefund(order) : {};
+      const back = order ? musterRefund(order) : {};
       const paid: Base = { ...own, resources: movedStock(own.resources, back, 1) };
       session = { ...session, base: paid };
       return json({
@@ -1368,6 +1375,32 @@ export async function installApi(
     // The back room. Read and write answer with the same shape wrapped differently, exactly as the
     // front of the market does: the fixture *is* the contract, so a write that answered with
     // something else would be a hole in it.
+    // The Stackhouse answers its whole book from both doors; a bet lays down what was asked.
+    if (pathname.includes('/api/black-market/stackhouse')) {
+      if (route.request().method() === 'GET') return json(book);
+      const asked = route.request().postDataJSON() as {
+        battleId: string;
+        side: 'attacker' | 'defender';
+        stake: number;
+      };
+      const fight = book.fights.find((one) => one.battleId === asked.battleId);
+      book = {
+        ...book,
+        fights: [],
+        activeBet: fight
+          ? {
+              battleId: fight.battleId,
+              side: asked.side,
+              stake: asked.stake,
+              placedAt: book.serverNow,
+              place: fight.place,
+              backing: fight[asked.side].name,
+              startsAt: fight.startsAt,
+            }
+          : null,
+      };
+      return json(book);
+    }
     if (pathname.includes('/api/black-market')) {
       return json(route.request().method() === 'GET' ? blackMarket : { blackMarket });
     }
@@ -1480,6 +1513,7 @@ export async function installApi(
       };
       return json(createOverseerResponse, 201);
     }
+    if (pathname.endsWith('/api/auth/logout')) return json({ ok: true });
     if (pathname.endsWith('/api/auth/login')) return json(authResponse);
     if (pathname.endsWith('/api/auth/register')) return json(authResponse, 201);
     return json({ error: { code: 'NOT_FOUND', message: 'unmapped route' } }, 404);

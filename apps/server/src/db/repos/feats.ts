@@ -35,6 +35,8 @@ export interface FeatsRepo {
   bumpMany(baseId: string, bumps: readonly TallyBump[]): void;
   /** Every counter this crew has, as the flat record the evaluator reads. */
   tallies(baseId: string): Record<string, number>;
+  /** One counter for every crew that has it, by base id. The Standings read it in one query. */
+  tallyOfEveryone(tally: string): Map<string, number>;
 
   /** The feats this crew has collected. */
   claimed(baseId: string): Set<string>;
@@ -74,6 +76,7 @@ export function createFeatsRepo(db: AppDatabase): FeatsRepo {
        ON CONFLICT(base_id, tally) DO UPDATE SET value = value + excluded.value`,
   );
   const talliesStmt = db.prepare('SELECT tally, value FROM crew_tallies WHERE base_id = ?');
+  const everyoneStmt = db.prepare('SELECT base_id, value FROM crew_tallies WHERE tally = ?');
   const claimedStmt = db.prepare('SELECT feat_id FROM crew_feats WHERE base_id = ?');
   const claimStmt = db.prepare(
     'INSERT OR IGNORE INTO crew_feats (base_id, feat_id, claimed_at) VALUES (?, ?, ?)',
@@ -115,6 +118,11 @@ export function createFeatsRepo(db: AppDatabase): FeatsRepo {
     tallies(baseId) {
       const rows = talliesStmt.all(baseId) as TallyRow[];
       return Object.fromEntries(rows.map((row) => [row.tally, row.value]));
+    },
+
+    tallyOfEveryone(tally) {
+      const rows = everyoneStmt.all(tally) as { base_id: string; value: number }[];
+      return new Map(rows.map((row) => [row.base_id, row.value]));
     },
 
     claimed(baseId) {

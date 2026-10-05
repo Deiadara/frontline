@@ -321,8 +321,8 @@ function Destination({
        * Every tile already prints its own name under the icon, so the tooltip was a black box that
        * appeared over the world to repeat the word six pixels below it, and it did so on the row a
        * player's pointer crosses on the way to everywhere. A hover hint earns its place where the
-       * control cannot say what it is; this one can. What a locked door costs is on the tile too,
-       * as `Lv N`, so nothing goes with it.
+       * control cannot say what it is; this one can. A locked door wears its padlock on the tile and
+       * its sign says what opens it, so nothing goes with it.
        *
        * The lit frame on hover is the `door-tile` styling and is untouched: that is the feedback
        * worth having.

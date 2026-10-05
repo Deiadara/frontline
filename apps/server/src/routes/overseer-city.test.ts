@@ -130,7 +130,7 @@ function plantBot(app: FastifyInstance, districtId: string): void {
     buildQueue: [],
     army: {},
     gateArmy: {},
-    trainingQueue: [],
+    musterQueue: [],
     training: startingTraining(now),
     inventory: {},
     fittedUpgrades: [],

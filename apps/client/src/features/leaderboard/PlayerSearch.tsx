@@ -1,4 +1,4 @@
-import type { PlayerStanding } from '@frontline/shared';
+import { standingName, type PlayerStanding } from '@frontline/shared';
 import { useEffect, useId, useRef, useState, type KeyboardEvent } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { crewFileHref } from '../city/LocationSheet';
@@ -233,7 +233,7 @@ export function PlayerSearch({
                     data-testid={`standings-suggestion-name-${entry.username}`}
                     className="min-w-0 flex-1 truncate font-stamp text-[14px] leading-tight text-ink-100 underline decoration-ink-500/50 underline-offset-2 hover:decoration-brass-300"
                   >
-                    {entry.username}
+                    {standingName(entry)}
                   </Link>
                   <span className="shrink-0 font-display text-[10px] uppercase tracking-[0.16em] text-ink-400">
                     #<span className="tabular-nums">{entry.rank}</span>

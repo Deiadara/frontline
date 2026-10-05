@@ -156,7 +156,7 @@ const POWER_MARK_ID = 'combine_power';
  * this is*, which is the rule every other card in the game follows.
  *
  * The four ownership fields are the honest empties: nobody holds one, nothing fits one, nothing
- * gates one, and it trains nowhere. `enemy` on the card is what stops them being drawn as zeroes.
+ * gates one, and it musters nowhere. `enemy` on the card is what stops them being drawn as zeroes.
  */
 export function leaderOption(sheet: UnitSpec, leader: CombineLeaderView): UnitOption {
   /*

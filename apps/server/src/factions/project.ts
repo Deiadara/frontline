@@ -1,5 +1,6 @@
 import {
   MAX_FACTION_MEMBERS,
+  displayNameOf,
   deployedSize,
   isBattleDue,
   unitSlotsUsed,
@@ -25,7 +26,7 @@ import { cardsAtTable } from './cards.js';
  * All of it is derived: a faction owns a name, a tag and a list of user ids, and everything the
  * screen shows about a member (their district, their army, their fights) is read off the district
  * that member already has. Storing any of it on the membership row would be a second copy of a
- * number that changes every time somebody trains a unit.
+ * number that changes every time somebody musters a unit.
  */
 
 /** One member's row, assembled from their account and their district. */
@@ -49,6 +50,7 @@ function projectMember(
     userId,
     baseId: base.id,
     username: user.username,
+    displayName: displayNameOf(user),
     districtName: base.name,
     districtId: base.districtId,
     rank,
@@ -93,7 +95,7 @@ function projectInvite(
     factionId: faction.id,
     factionName: faction.name,
     factionBadge: faction.badge,
-    invitedBy: by.username,
+    invitedBy: displayNameOf(by),
     invitedUserId: row.invitedUserId,
     sentAt: row.sentAt,
   };

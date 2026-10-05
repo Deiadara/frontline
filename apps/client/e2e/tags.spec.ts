@@ -12,7 +12,7 @@
  * rule which takes something away still reads red.
  */
 import { expect, test, type Page } from '@playwright/test';
-import { findUnit, trainingCost, trainingSeconds } from '@frontline/shared';
+import { findUnit, musterCost, musterSecondsFor } from '@frontline/shared';
 import { formatDuration } from '../src/features/base/format';
 import { installApi, settleFonts } from './harness';
 import { lateGame, unitsResponse } from './fixtures';
@@ -107,7 +107,7 @@ test('a rule that takes something away still reads red', async ({ page }) => {
  * server; what only a browser answers is whether the page a player actually opens carries that sum
  * to the screen beside the chip it came off, rather than a rounded or re-derived figure.
  */
-test('breaks the three training figures down into where they came from', async ({ page }) => {
+test('breaks the three muster figures down into where they came from', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await installApi(page, lateGame);
   await page.goto('/game/units');
@@ -115,13 +115,14 @@ test('breaks the three training figures down into where they came from', async (
   await settleFonts(page);
 
   const chips = [
-    { id: 'training-bonus-cost', total: '10%', names: ['Unit Costing'] },
-    // The one list with a line that takes something back: the modifications past their ceiling.
-    { id: 'training-bonus-supplies', total: '22%', names: ['The Greenhouse'], takesBack: true },
+    { id: 'muster-bonus-cost', total: '10%', names: ['Unit Costing'] },
+    // The one list with a line that takes something back: the taper the supplies line runs on.
+    { id: 'muster-bonus-supplies', total: '12.5%', names: ['The Greenhouse'], takesBack: true },
     {
-      id: 'training-bonus-speed',
-      total: '33%',
-      // The two the maintainer named: a person, and the structure that drills for everybody.
+      id: 'muster-bonus-speed',
+      total: '34%',
+      // The two the maintainer named: a person (through a perk since 2026-10-04), and the
+      // structure that drills for everybody.
       names: ['Ola Nkemdirim', 'The Gauntlet'],
     },
   ];
@@ -148,7 +149,7 @@ test('breaks the three training figures down into where they came from', async (
   await page.getByTestId(chips[2]!.id).hover();
   await expect(page.getByTestId('bonus-breakdown')).toBeVisible();
   await settleFonts(page);
-  await page.screenshot({ path: 'screenshots/training-breakdown.png' });
+  await page.screenshot({ path: 'screenshots/muster-breakdown.png' });
 });
 
 /**
@@ -194,11 +195,11 @@ test('gives every unit a Bonuses tag carrying the crew-wide lines and its own', 
 /**
  * The price box says what pressing the button will actually cost (maintainer, 2026-09-17).
  *
- * It did not. `unit.cost` and `unit.trainSeconds` come off the catalogue, so every discount a crew
+ * It did not. `unit.cost` and `unit.musterSeconds` come off the catalogue, so every discount a crew
  * had bought, the Gauntlet, the Greenhouse, the Lab, a chemist in the right chair, the unit's own
  * ground, was invisible on the one box where the decision is made: a crew reading 40 caps and 45
- * seconds was charged 30 caps and waited 28. The figures are computed with `trainingCost` and
- * `trainingSeconds`, which are the route's own functions, so the box and the bill cannot round
+ * seconds was charged 30 caps and waited 28. The figures are computed with `musterCost` and
+ * `musterSecondsFor`, which are the route's own functions, so the box and the bill cannot round
  * apart.
  *
  * Checked against the arithmetic rather than against a pinned string: a retuned discount should
@@ -209,28 +210,28 @@ test('quotes the discounted price and clock, not the catalogue ones', async ({ p
   const card = page.getByTestId('unit-razors');
   const spec = findUnit('razors')!;
 
-  const discount = unitsResponse.trainingCostReduction;
-  const supplies = unitsResponse.trainingSuppliesReduction ?? 0;
-  const speed = unitsResponse.trainingSpeedBonus;
+  const discount = unitsResponse.musterCostReduction;
+  const supplies = unitsResponse.musterSuppliesReduction ?? 0;
+  const speed = unitsResponse.musterSpeedBonus;
   // The premise: there is a discount to be hidden. Without one this passes on the catalogue price.
   expect(discount + supplies + speed).toBeGreaterThan(0);
 
   // Scoped to the price itself: the sheet two inches above it prints `Morale 40`, and the
   // catalogue price is 40 caps, so a card-wide match answers about the wrong number.
   const line = card.getByTestId('cost-line');
-  const one = trainingCost(spec, 1, discount, supplies);
+  const one = musterCost(spec, 1, discount, supplies);
   await expect(line).toContainText(String(one.caps));
   await expect(line, 'the box is still quoting the catalogue price').not.toContainText(
     String(spec.cost.caps),
   );
-  await expect(card).toContainText(formatDuration(trainingSeconds(spec, 1, speed)));
+  await expect(card).toContainText(formatDuration(musterSecondsFor(spec, 1, speed)));
 
   // ...and it follows the count, because the count is what the order will be.
   // The testid is on the input itself, not a wrapper around it.
   await card.getByTestId('count-razors').fill('3');
-  const three = trainingCost(spec, 3, discount, supplies);
+  const three = musterCost(spec, 3, discount, supplies);
   await expect(line).toContainText(String(three.caps));
-  await expect(card).toContainText(formatDuration(trainingSeconds(spec, 3, speed)));
+  await expect(card).toContainText(formatDuration(musterSecondsFor(spec, 3, speed)));
 });
 
 /**

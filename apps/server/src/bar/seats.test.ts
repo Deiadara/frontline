@@ -100,7 +100,7 @@ describe('the chairs', () => {
 
 describe('a city of three veterans and a beginner', () => {
   it('seats somebody the beginner can clear and afford, every night', () => {
-    const book = basePayrollCapacity(1, 0);
+    const book = basePayrollCapacity(1);
     for (const day of DAYS) {
       const low = barRoster(day, SPLIT_CITY)[LOW_SEAT]!;
       expect(assessJoin(low.requirement, NEW_CREW).interested, day).toBe(true);
@@ -122,7 +122,7 @@ describe('a city of three veterans and a beginner', () => {
       expect(split?.attributes, day).toEqual(alone?.attributes);
     }
     const middle = sitters(SPLIT_CITY, 'average').map((one) => reserveFor(one));
-    expect(mean(middle)).toBeGreaterThan(basePayrollCapacity(1, 0));
+    expect(mean(middle)).toBeGreaterThan(basePayrollCapacity(1));
   });
 
   it('puts the high seat behind the top crew’s own rank, or one under it', () => {

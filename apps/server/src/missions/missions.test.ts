@@ -1,4 +1,7 @@
 import {
+  seatPoints,
+  chairPassivePercent,
+  chairPassiveOf,
   concurrentMissionSlots,
   BASE_CONCURRENT_MISSIONS,
   CITY_DISTRICTS,
@@ -16,7 +19,7 @@ import {
   MISSION_INFAMY_DELTA,
   PLAYER_XP_AWARDS,
   infamyForKills,
-  missionInfamyForFled,
+  missionInfamyForBattle,
   missionInfamyForKills,
   applyPlayerXp,
   createCommander,
@@ -306,7 +309,7 @@ async function makeStack(username = 'runner'): Promise<Stack> {
   if (!minted) throw new Error('overseer creation did not mint a base');
   // Somebody to send. A mission takes actual units now, so a stack with an empty roster refuses
   // every launch below for the right reason and tells us nothing about the thing under test.
-  repos.bases.updateArmy(minted.id, { razors: 20, haulers: 20 }, minted.trainingQueue);
+  repos.bases.updateArmy(minted.id, { razors: 20, haulers: 20 }, minted.musterQueue);
   // A place in every district. Work is offered per district only to a crew that holds a place in
   // it, so a stack that holds nothing refuses most launches for a reason none of these tests are
   // about. The rule itself is `board.test.ts`.
@@ -603,6 +606,27 @@ describe('mission timers are authoritative server-side (§E2, §E8)', () => {
     expect(settlement.resolved.map((m) => m.templateId)).toEqual(['scrap-run', 'ration-run']);
     expect(stack.repos.missions.countActiveByBaseId(stack.base.id)).toBe(0);
   });
+
+  // One run the build cannot settle must not lock the crew out of its screens (maintainer,
+  // 2026-10-02): the others still come home, and the bad one is left for somebody to look at.
+  it('brings the others home on a read when one run cannot be settled', async () => {
+    const stack = await makeStack();
+    const bad = planted(stack, scrapRun, ALWAYS_SUCCEEDS, T0);
+    const later = findMissionTemplate('ration-run') as MissionTemplate;
+    planted(stack, later, ALWAYS_SUCCEEDS, after(1));
+    const write = stack.repos.missions.markResolved.bind(stack.repos.missions);
+    stack.repos.missions.markResolved = (id, resolution) => {
+      if (id === bad.id) throw new Error('a row this build cannot settle');
+      write(id, resolution);
+    };
+
+    const settlement = settleAndResolveMissions(stack.repos, stack.base, after(10_000));
+
+    expect(settlement.resolved.map((m) => m.templateId)).toEqual(['ration-run']);
+    expect(stack.repos.missions.listActiveByBaseId(stack.base.id).map((s) => s.mission.id)).toEqual(
+      [bad.id],
+    );
+  });
 });
 
 describe('mission payout (§E1, §E5)', () => {
@@ -702,7 +726,7 @@ describe('mission payout (§E1, §E5)', () => {
     const { fought, slots } = replayed(stack, strike, ALWAYS_SUCCEEDS, BATTLE_FORCE, settledAt);
     expect(fought.outcome).toBe('success');
 
-    const { base } = resolveDueMissions(stack.repos, stack.base, settledAt);
+    const { base, resolved } = resolveDueMissions(stack.repos, stack.base, settledAt);
 
     /*
      * The flat two a battle job used to pay for landing is gone: the table is pinned at zero so a
@@ -710,13 +734,19 @@ describe('mission payout (§E1, §E5)', () => {
      * stated as arithmetic rather than read back through the function that implements it.
      */
     expect(MISSION_INFAMY_DELTA.battle.success).toBe(0);
-    // ...plus half, floored on the bulk, for the enemy's units that broke and ran (2026-09-23).
+    // ...plus half a kill for each of the enemy's units that broke and ran (2026-09-23), the whole
+    // ledger at the job's half rate and rounded up once.
+    const routedSlots = infamyForKills(fought.fledEnemy);
     expect(base.economy.infamy).toBe(
-      stack.base.economy.infamy + Math.ceil(slots / 2) + missionInfamyForFled(fought.fledEnemy),
+      stack.base.economy.infamy + Math.ceil((slots + routedSlots / 2) / 2),
     );
     expect(base.economy.infamy - stack.base.economy.infamy).toBe(
-      missionInfamyForKills(fought.killed) + missionInfamyForFled(fought.fledEnemy),
+      missionInfamyForBattle(fought.killed, fought.fledEnemy),
     );
+    // ...and the report can say so: the figure is kept on the row (bug pass, 2026-10-02).
+    const paid = base.economy.infamy - stack.base.economy.infamy;
+    expect(resolved[0]?.infamyPaid).toBe(paid);
+    expect(stack.repos.missions.findById(resolved[0]!.id)?.mission.infamyPaid).toBe(paid);
   });
 
   /**
@@ -792,9 +822,7 @@ describe('mission payout (§E1, §E5)', () => {
 
     // Past the old ceiling and by the whole of what the job killed: a clamp at a hundred would
     // leave the crew at 480 and a clamp anywhere would leave it short of this.
-    expect(base.economy.infamy).toBe(
-      480 + missionInfamyForKills(fought.killed) + missionInfamyForFled(fought.fledEnemy),
-    );
+    expect(base.economy.infamy).toBe(480 + missionInfamyForBattle(fought.killed, fought.fledEnemy));
     expect(base.economy.infamy).toBeGreaterThan(480);
   });
 
@@ -859,6 +887,40 @@ describe('mission payout (§E1, §E5)', () => {
       resolved[0]?.lost,
       `seed ${felt}: settled ${JSON.stringify(resolved[0]?.lost)}, bare ${JSON.stringify(bare.lost)}, fitted ${JSON.stringify(withGrips.lost)}, outcome ${resolved[0]?.outcome}`,
     ).toEqual(withGrips.lost);
+  });
+
+  // P14-B (2026-10-02): the medics' work is a ladder, counted off the same fight the settle runs.
+  it('counts the dead the medics bring round on a battle job', async () => {
+    const stack = await makeStack();
+    stack.repos.bases.updateBuildings(stack.base.id, [
+      ...stack.base.buildings,
+      { id: 'medics', kind: 'infirmary', level: 10, modifications: [] },
+    ]);
+    const fitted = stack.repos.bases.findById(stack.base.id)!;
+    const strike = findMissionTemplate('convoy-ambush') as MissionTemplate;
+    // Small enough that the job costs lives, which the main battle fixture's 360 never do.
+    const MEDICS_FORCE: Army = { razors: 12 };
+    const settledAt = after(templateTimings(strike).totalMinutes);
+    const seed = (() => {
+      for (let candidate = 1; candidate < 2000; candidate += 1) {
+        if (createRng(candidate)() >= 0.5) continue;
+        const { fought } = replayed(
+          { ...stack, base: fitted },
+          strike,
+          candidate,
+          MEDICS_FORCE,
+          settledAt,
+        );
+        if (fought.outcome === 'success' && fought.recovered > 0) return candidate;
+      }
+      throw new Error('fixture: no seed wins the job with somebody for the medics');
+    })();
+    const { fought } = replayed({ ...stack, base: fitted }, strike, seed, MEDICS_FORCE, settledAt);
+    planted({ ...stack, base: fitted }, strike, seed, T0, {}, MEDICS_FORCE);
+
+    resolveDueMissions(stack.repos, fitted, settledAt);
+
+    expect(stack.repos.feats.tallies(stack.base.id)['casualties_recovered']).toBe(fought.recovered);
   });
 
   it('leaves infamy alone for standard work however well it went', async () => {
@@ -990,7 +1052,7 @@ describe('the mission routes', () => {
    *
    * `notorietyToField` says a unit past the crew's rank "will not take the field". The deployment
    * screen refuses it and the city refuses it; the launch route checked the roster and the tier
-   * and never the name, so a rank-nothing crew that trained a Colossus could not send it to a
+   * and never the name, so a rank-nothing crew that mustered a Colossus could not send it to a
    * declared fight and could send it to a battle job against the same engine.
    */
   it('refuses a unit the crew has not earned the name to field', async () => {
@@ -1001,7 +1063,7 @@ describe('the mission routes', () => {
     const heavy = UNIT_CATALOG.find((unit) => notorietyToField(unit) > 0);
     if (!heavy) throw new Error('fixture: nothing in the catalogue is rank gated');
     const base = app.repos.bases.findById(stack.base.id)!;
-    app.repos.bases.updateArmy(base.id, { ...base.army, [heavy.id]: 1 }, base.trainingQueue);
+    app.repos.bases.updateArmy(base.id, { ...base.army, [heavy.id]: 1 }, base.musterQueue);
     expect(base.economy.notoriety, 'the fixture crew must be a nobody').toBeLessThan(
       notorietyToField(heavy),
     );
@@ -1300,7 +1362,7 @@ describe('a crew on a mission still eats (§A1, §E)', () => {
     });
     // The launch route is what takes them off the roster; `launchMission` only writes the row.
     const sent = freshBase(stack);
-    stack.repos.bases.updateArmy(sent.id, removeForce(sent.army, force), sent.trainingQueue);
+    stack.repos.bases.updateArmy(sent.id, removeForce(sent.army, force), sent.musterQueue);
     stack.repos.missions.insert(
       launchMission({
         id: 'mission-supply',
@@ -1397,6 +1459,44 @@ describe('mission XP feeds W6 progression (§I1, INTERFACES R7)', () => {
    * that a failure is a setback rather than a wasted afternoon, little enough that the safest job
    * on the board is not the only one worth taking.
    */
+  /*
+   * Bug pass, 2026-10-02: the award adds the district's and the crew's XP bonus, and the report
+   * printed the frozen figure without it. The row keeps what was banked.
+   */
+  it('keeps on the row the XP the return banked, bonus on', async () => {
+    const stack = await makeStack();
+    // Field Debriefs, +7% experience, on a crew whose district adds nothing yet.
+    stack.repos.bases.updateResearch(stack.base.id, {
+      ...stack.base.research,
+      technologies: [...stack.base.research.technologies, 'tech_field_debriefs'],
+    });
+    const before = freshBase(stack);
+    const expedition = findMissionTemplate('deep-expedition') as MissionTemplate;
+    const run = planted(stack, expedition, ALWAYS_SUCCEEDS);
+    const raw = missionXp(
+      expedition,
+      templateTimings(expedition).totalMinutes,
+      expedition.grades[0],
+    );
+
+    const { resolved } = resolveDueMissions(
+      stack.repos,
+      before,
+      after(templateTimings(expedition).totalMinutes),
+    );
+
+    expect(resolved[0]?.xpPaid).toBe(Math.round(raw * 1.07));
+    expect(resolved[0]?.xpPaid).toBeGreaterThan(raw);
+    expect(stack.repos.missions.findById(run.id)?.mission.xpPaid).toBe(resolved[0]?.xpPaid);
+    // ...and it is the figure the award banked, not a second sum beside it.
+    const banked = applyPlayerXp(
+      { level: before.level, xpIntoLevel: before.progression.xpIntoLevel },
+      resolved[0]?.xpPaid ?? 0,
+    );
+    expect(freshBase(stack).level).toBe(banked.level);
+    expect(freshBase(stack).progression.xpIntoLevel).toBe(banked.xpIntoLevel);
+  });
+
   it('pays a fifth of the XP to a crew that came home empty, and no resources at all', async () => {
     const stack = await makeStack();
     const before = freshBase(stack);
@@ -1412,10 +1512,10 @@ describe('mission XP feeds W6 progression (§I1, INTERFACES R7)', () => {
     expect(resolved[0]?.outcome).toBe('failure');
     expect(base.resources).toEqual(before.resources);
     expect(base.progression.xpIntoLevel).toBe(expectedAfter(before, [lost(raid)]).xpIntoLevel);
-    // And it is genuinely a fifth: a win on the same job pays five times as much.
-    expect(expectedAfter(before, [lost(raid)]).xpIntoLevel).toBeLessThan(
-      expectedAfter(before, [won(raid)]).xpIntoLevel,
-    );
+    // And it is genuinely a fifth: a win on the same job pays five times as much. Compared as XP
+    // rather than as `xpIntoLevel`, which a win that crosses a level resets.
+    const full = missionXp(raid, templateTimings(raid).totalMinutes, raid.grades[0]);
+    expect(Math.round(full * FAILED_MISSION_XP_SHARE)).toBe(Math.round(full / 5));
   });
 
   it('pays XP exactly once, however many times the board is read', async () => {
@@ -1483,17 +1583,18 @@ describe('a settlement announces its level-up on the response that caused it (§
   });
 
   /**
-   * The aggregation, on a fixture built to need it: parked at 100 of level 2's 158, the three awards
-   * cross it, then miss level 3's (302), then clear it. So the run is 1, 0, 1: a total of 2 that
+   * The aggregation, on a fixture built to need it: parked at 80 of level 2's 138, the three awards
+   * cross it, then miss level 3's (245), then clear it. So the run is 1, 0, 1: a total of 2 that
    * neither the first nor the last award reports on its own.
    */
   it('adds the levels up across crews, so two thresholds are one announcement', async () => {
     const stack = await makeStack();
-    stack.repos.bases.updateProgression(stack.base.id, 2, { xpIntoLevel: 100 });
+    stack.repos.bases.updateProgression(stack.base.id, 2, { xpIntoLevel: 80 });
     // Standard work: a battle job fights at the settle, and a crew of porters loses that fight,
     // which pays the failure's share of the XP and takes this fixture to one level instead of two.
-    // The three are chosen for what they pay: 61 clears level 2 from 100, 94 misses level 3, and
-    // 388 clears it, which is the 1, 0, 1 run the aggregation is about.
+    // The three are chosen for what they pay: 61 clears level 2 from 80, 94 misses level 3, and
+    // 504 clears it and stops 11 short of level 5, which is the 1, 0, 1 run the aggregation is
+    // about.
     for (const templateId of ['scrap-run', 'ration-run', 'courier-contract']) {
       planted(stack, findMissionTemplate(templateId) as MissionTemplate, ALWAYS_SUCCEEDS, LONG_AGO);
     }
@@ -1509,7 +1610,7 @@ describe('a settlement announces its level-up on the response that caused it (§
     // Three separate awards, not one lump: the engine carries the remainder between them.
     const expected = [1, 2, 3].reduce(
       (at) => applyPlayerXp(at, PLAYER_XP_AWARDS.missionCompleted),
-      { level: 2, xpIntoLevel: 100 } as ReturnType<typeof applyPlayerXp>,
+      { level: 2, xpIntoLevel: 80 } as ReturnType<typeof applyPlayerXp>,
     );
     expect(expected.level).toBe(4);
     expect(body.levelUp?.levelsGained).toBe(2);
@@ -2396,6 +2497,10 @@ describe('§D5: a leader shortens the road and not the cheque', () => {
       'fixture: the Short Way does not move this road, so nothing here is measured',
     ).toBeLessThan(without.travelMinutes);
 
+    // The road only (maintainer, 2026-10-01): the card says "off the road", so the job's own
+    // clock is the same whoever leads it.
+    expect(withLeader.durationMinutes).toBe(without.durationMinutes);
+
     // ...and none of what it is worth reaches the cheque.
     expect(withLeader.pricedMinutes).toBe(without.pricedMinutes);
     expect(withLeader.xp).toBe(without.xp);
@@ -2442,6 +2547,41 @@ describe('§D5: a leader shortens the road and not the cheque', () => {
     // And the run really is shorter than the quote, which is what the officer was brought for.
     expect(mission.travelMinutes).toBeLessThan(quoted.travelMinutes);
   });
+
+  it('quotes the take an officer with a loot perk brings home, and pays it', async () => {
+    const { template, areaId } = aLongRoadToday();
+    const stack = await makeStack('picks_the_crate');
+    pastTheOpening(stack);
+    const officer = createCommander('off-crate', 'Dace Orrin', 'field_commander', {}, [
+      'picks_the_crate',
+    ]);
+    stack.repos.bases.updateCommanders(stack.base.id, [officer]);
+
+    const board = await stack.app.inject({
+      method: 'GET',
+      url: '/api/missions',
+      headers: auth(stack.token),
+    });
+    const quoted = board
+      .json<MissionsResponse>()
+      .areas.find((area) => area.id === areaId)
+      ?.offers.find((offer) => offer.templateId === template.id);
+    if (!quoted?.ledRewards) throw new Error(`fixture: ${template.id} quotes no led take`);
+    expect(quoted.ledRewards).not.toEqual(quoted.rewards);
+
+    const mission = await launch(stack, template, areaId, officer.id);
+    expect(
+      scaledSpoils(
+        missionRewards(
+          template,
+          'success',
+          pricedTotalMinutes(mission),
+          mission.grade ?? undefined,
+        ),
+        mission.payPercent,
+      ),
+    ).toEqual(quoted.ledRewards);
+  });
 });
 
 /**
@@ -2454,6 +2594,12 @@ describe('§D5: a leader shortens the road and not the cheque', () => {
 describe('§C3: the road the send dialog is handed', () => {
   it('is the launch’s own three road figures', async () => {
     const stack = await makeStack('road_on_the_wire');
+    // A Cartographer in the chair, so the base cut is a figure and not a nought on both sides.
+    const seated = stack.repos.bases.findById(stack.base.id)!;
+    stack.repos.bases.updateCommanders(stack.base.id, [
+      ...seated.commanders,
+      createCommander('maps', 'Maps', 'cartographer', makeAttributes(70)),
+    ]);
     const board = await stack.app.inject({
       method: 'GET',
       url: '/api/missions',
@@ -2466,7 +2612,14 @@ describe('§C3: the road the send dialog is handed', () => {
       travelSpeedPercent: Math.max(0, effects.travelSpeedPercent),
       roadMinutesOff: Math.max(0, effects.roadMinutesOff),
       unitSpeedPercent: effects.unitSpeedPercent,
+      // The Cartographer's cut off the road's base (2026-10-04).
+      baseCutPercent: chairPassiveOf(effects, 'cartographer', 'travel_time'),
     });
+    // At least what the officer's own sheet is worth in the chair: the lifts only add.
+    expect(board.json<MissionsResponse>().road?.baseCutPercent ?? 0).toBeGreaterThanOrEqual(
+      chairPassivePercent('travel_time', seatPoints(makeAttributes(70), 'cartographer')),
+    );
+    expect(board.json<MissionsResponse>().road?.baseCutPercent ?? 0).toBeGreaterThan(0);
   });
 });
 

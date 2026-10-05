@@ -17,6 +17,8 @@ import {
   type LocationHolder,
   type ScheduledBattle,
   type ScheduleRefusal,
+  GAME_TIMEZONE,
+  LOST_CALL_COOLDOWN_HOURS,
 } from '@frontline/shared';
 import { adminWaives } from '../admin/mode.js';
 import type { Repositories } from '../db/repos/index.js';
@@ -71,8 +73,12 @@ export const DECLARE_REFUSALS = [
   /** The district is in a city that is authored but not open yet (`City.open`). */
   'city_closed',
   'already_declared',
+  /** This crew called a fight here and lost it less than a day ago (`LOST_CALL_COOLDOWN_HOURS`). */
+  'lost_here',
   'too_many_pending',
   'own_ground',
+  /** Nobody holds the place: it is walked onto, never fought for (maintainer, 2026-10-04). */
+  'empty_ground',
   /** §D7: the call's price in infamy, which this crew has not got. */
   'cannot_afford',
   /** A fight through a breach, called for after the gate is back up. */
@@ -102,6 +108,29 @@ export interface DeclareInput {
   now: Date;
   /** Admin mode, which waives the call's price along with every other one (`admin/mode.ts`). */
   admin?: boolean;
+}
+
+/**
+ * Whether this crew called a fight on `target` and lost it within `LOST_CALL_COOLDOWN_HOURS` of
+ * `now`, counted from the fight's mark (maintainer, 2026-10-05). Only the losing caller waits:
+ * anybody else may call the place at once. A fight called off with no winner is not a loss.
+ */
+function lostHereRecently(
+  repos: Repositories,
+  baseId: string,
+  target: BattleTarget,
+  now: Date,
+): boolean {
+  const since = now.getTime() - LOST_CALL_COOLDOWN_HOURS * 3_600_000;
+  return repos.sieges
+    .resolvedFor(baseId, 50)
+    .some(
+      ({ battle, analysis }) =>
+        battle.attackerBaseId === baseId &&
+        analysis.winner === 'defender' &&
+        sameTarget(battle.target, target) &&
+        Date.parse(battle.scheduledFor) > since,
+    );
 }
 
 /** True when the target is already the subject of a call nobody has resolved yet. */
@@ -151,6 +180,12 @@ export function declareBattle(repos: Repositories, input: DeclareInput): Declare
   if (target.kind === 'location') {
     const control = repos.city.control(target.locationId);
     if (control && isHeldBy(control, base.id)) return { kind: 'refused', reason: 'own_ground' };
+    /*
+     * Ground nobody holds is taken by walking onto it (maintainer, 2026-10-04: "Don't allow
+     * calling a fight on an empty ground. Make it so you just have to send units instead"). A call
+     * there was a fight against nobody, and it shut the place to every walk-in for eight hours.
+     */
+    if (control?.holder.kind === 'unoccupied') return { kind: 'refused', reason: 'empty_ground' };
   }
   /*
    * Your own home is not a target either, at the gate or behind it.
@@ -169,8 +204,10 @@ export function declareBattle(repos: Repositories, input: DeclareInput): Declare
   }
 
   if (alreadyCalled(repos, target)) return { kind: 'refused', reason: 'already_declared' };
-  // The cap, widened by what research has opened (the Field Commander's and the Raid Boss's last
-  // rungs each call one more fight at once).
+  if (lostHereRecently(repos, base.id, target, now))
+    return { kind: 'refused', reason: 'lost_here' };
+  // The cap, widened by what research has opened (the Raid Boss's last rung, The Name, calls one
+  // more fight at once).
   const cap = MAX_PENDING_DECLARATIONS + standingEffectsFor(repos, base, now).declarationsFlat;
   if (repos.sieges.pendingCountFor(base.id) >= cap) {
     return { kind: 'refused', reason: 'too_many_pending' };
@@ -296,12 +333,13 @@ function tellTheDefender(
   const defending = defendingBaseOf(repos, battle);
   // A crew cannot declare on its own ground (`own_ground` above), so this is never self-addressed.
   if (!defending || defending.id === attacker.id) return;
+  // On the defender's own clock face, the one their board and Fights tab print the same mark on
+  // (bug pass, 2026-10-02): the house clock here read 18:30 to a defender whose screens said 00:30.
+  const zone = repos.users.findById(defending.ownerId)?.timezone ?? GAME_TIMEZONE;
   notifyBase(repos, defending.id, {
     kind: 'district_attacked',
     title: `${attacker.name} has called a fight on you`,
-    // The house clock (`time/zone.ts`): a mark quoted in anything else is a mark two players
-    // read differently.
-    body: `${targetName(battle.target, defending)}, at ${formatDayClock(new Date(battle.scheduledFor))}.`,
+    body: `${targetName(battle.target, defending)}, at ${formatDayClock(new Date(battle.scheduledFor), zone)}.`,
     link: '/game/battles',
     subjectId: battle.id,
     at: now,

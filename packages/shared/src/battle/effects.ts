@@ -10,6 +10,7 @@ import {
   type UnitStats,
 } from '../units/index.js';
 import { effectiveSpeed } from '../time/speed.js';
+import { softCap } from './soft-cap.js';
 import type { Battlefield } from './battlefield.js';
 import type { UnitTierStat } from '../units/tiers.js';
 
@@ -32,21 +33,49 @@ import type { UnitTierStat } from '../units/tiers.js';
 export interface SideContext {
   /** Holding the location, rather than coming for it. */
   defending: boolean;
-  /** Fewer units than the other side, by {@link OUTNUMBERED_RATIO} or worse. */
-  outnumbered: boolean;
+  /**
+   * How far "when outnumbered" holds, 0 to 1 (`outnumberedWeight`): nothing at even numbers, in
+   * full at {@link OUTNUMBERED_FULL} to one or worse.
+   */
+  outnumbered: number;
 }
 
-/** Facing this many times your own number is what a sheet means by "when outnumbered". */
-export const OUTNUMBERED_RATIO = 1.5;
+/** Facing this many times your own unit slots is where "when outnumbered" holds in full. */
+export const OUTNUMBERED_FULL = 2;
 
 /**
- * The most that holding ground can be worth, in percentage points of toughness.
+ * How far a side facing `enemySlots` with `ownSlots` is outnumbered, 0 to 1.
  *
- * Fortification and a Gate stack, and both scale with investment, so without a ceiling a maxed
- * defender reaches a point where no force can be assembled to take them. Every defence in this game
- * has to be beatable by bringing enough.
+ * A straight ramp from even numbers to {@link OUTNUMBERED_FULL}, the way the outnumbered morale
+ * shock already ramps (`morale.ts`). It was a step at 1.5 to 1 until 2026-10-02, and a step made
+ * one more unit able to lose a fight: Wardens holding against 90 Razors won 55% with 29, 74% with
+ * 30 and 39% with 31, because the 31st switched Last Stand off for the whole line (maintainer
+ * ruling P10-A: more units must always be a bit better).
  */
-export const MAX_HELD_DEFENSE = 65;
+export function outnumberedWeight(enemySlots: number, ownSlots: number): number {
+  if (ownSlots <= 0 || enemySlots <= ownSlots) return 0;
+  return Math.min(1, (enemySlots / ownSlots - 1) / (OUTNUMBERED_FULL - 1));
+}
+
+/**
+ * What holding ground is worth, in percentage points of toughness: in full up to the knee, then
+ * less for every point after, closing on the ceiling and never reaching it.
+ *
+ * A Gate and everything else that makes a holder hard to shift stack, and both scale with
+ * investment, so without a curve a maxed defender reaches a point where no force can be assembled
+ * to take them: every defence in this game has to be beatable by bringing enough. It was a hard
+ * 65 until 2026-10-01, and a level 20 Gate filled 50 of that alone, so Strategy, the defence perks
+ * and the Gate perks paid nothing to a well-built defender. The maintainer's ruling that day: a
+ * curve, anchored so that ordinary figures barely move and every extra point still adds a little.
+ * Measured on it: 50 is 50, the old ceiling of 65 is 63.5, 100 is 78.3, and nothing reaches 85.
+ */
+export const HELD_DEFENSE_KNEE = 55;
+export const HELD_DEFENSE_CEILING = 85;
+
+/** Held-ground toughness after the curve. See {@link HELD_DEFENSE_KNEE}. */
+export function heldDefense(percent: number): number {
+  return softCap(Math.max(0, percent), HELD_DEFENSE_KNEE, HELD_DEFENSE_CEILING);
+}
 
 /**
  * What one syringe is worth, in percentage points of offense.
@@ -57,8 +86,8 @@ export const MAX_HELD_DEFENSE = 65;
 export const STIM_PERCENT_EACH = 3;
 
 /**
- * The syringes a side has on hand (`battleStims`: the Black Clinic, the Chief Medic's Blood Bank,
- * the Wetware Chief's Salvage Grafts), handed out before the fight.
+ * The syringes a side has on hand (`battleStims`: the Black Clinic and the Stim Chemist
+ * perk), handed out before the fight.
  *
  * On the offense and morale channels the engine already reads, so the report explains them the
  * way it explains a bought boost. Here rather than in the declared-battle settler, because a battle
@@ -113,11 +142,15 @@ export interface Effective {
  *
  * Summed, not multiplied: see the module note. Contexts that do not hold contribute nothing at
  * all rather than a fraction: a sheet that says "in urban ground" is a promise about urban
- * ground, and partial credit for fighting *near* some would make it unreadable.
+ * ground, and partial credit for fighting *near* some would make it unreadable. The one exception
+ * is a context that holds by degree, which `weights` names: being outnumbered ramps from even odds
+ * to two to one (`outnumberedWeight`), so Last Stand pays that share of itself.
  */
 export function contextBonusPercent(
   unit: UnitSpec,
   contexts: readonly CombatContext[],
+  /** How far a context holds where it holds by degree (`outnumbered`); 1 where left out. */
+  weights: Partial<Record<CombatContext, number>> = {},
 ): { percent: number; toughness: number; reasons: string[] } {
   let percent = 0;
   let toughness = 0;
@@ -132,8 +165,9 @@ export function contextBonusPercent(
     if (!contexts.includes(modifier.context)) continue;
     // `affects` is optional and defaults to damage: every modifier written before a defensive
     // sheet existed is an attack bonus and stays one.
-    if (modifier.affects === 'toughness') toughness += modifier.percent;
-    else percent += modifier.percent;
+    const worth = modifier.percent * (weights[modifier.context] ?? 1);
+    if (modifier.affects === 'toughness') toughness += worth;
+    else percent += worth;
     reasons.push(modifier.label);
   }
   return { percent, toughness, reasons };
@@ -180,9 +214,11 @@ export function effectiveStats(
 ): Effective {
   const contexts: CombatContext[] = [...battlefield.contexts];
   if (side.defending) contexts.push('defending');
-  if (side.outnumbered) contexts.push('outnumbered');
+  if (side.outnumbered > 0) contexts.push('outnumbered');
 
-  const { percent, toughness, reasons } = contextBonusPercent(unit, contexts);
+  const { percent, toughness, reasons } = contextBonusPercent(unit, contexts, {
+    outnumbered: side.outnumbered,
+  });
   const sheet = upgrades.length === 0 ? unit.stats : upgradedStats(unit.stats, upgrades);
 
   /*
@@ -226,19 +262,19 @@ export function effectiveStats(
   // harder. This is the one place percentages land on vitality rather than on offense.
   //
   // The gate (`gatePercent`) and everything else the holder has that makes them harder to shift
-  // (`defensePercent`), capped together, because a Gate at 20 produces 120 and a defender at +120%
+  // (`defensePercent`), curved together (`heldDefense`), because a Gate at 20 produces 120 and a defender at +120%
   // toughness on top of the rest is a district nobody can raid. Dug-in fortification was a third
   // term here until the maintainer took it out of the game (2026-09-26): a location is made
   // tougher by its gate and by bonuses, not by digging.
   const held = side.defending ? territory.defensePercent + territory.gatePercent : 0;
   const heldWithoutGate = side.defending ? territory.defensePercent : 0;
-  // The unit's own toughness modifiers are added *outside* the held-ground cap on purpose. That
-  // ceiling exists so no amount of building makes a district untakeable; a sheet that says it is
+  // The unit's own toughness modifiers are added *outside* the held-ground curve on purpose. That
+  // curve exists so no amount of building makes a district untakeable; a sheet that says it is
   // hard to shift is a unit you can be sent to kill, and it is bought one unit at a time.
   const ownToughness =
     territory.unitVitalityPercent + (tier.vitality ?? 0) + (kind.vitality ?? 0) + toughness;
-  const vitalityBonus = ownToughness + Math.min(MAX_HELD_DEFENSE, held);
-  const withoutGateBonus = ownToughness + Math.min(MAX_HELD_DEFENSE, heldWithoutGate);
+  const vitalityBonus = ownToughness + heldDefense(held);
+  const withoutGateBonus = ownToughness + heldDefense(heldWithoutGate);
   const withoutGate = 1 + withoutGateBonus / 100;
 
   return {

@@ -256,7 +256,7 @@ export function weightOf(bundle: PartialResources): number {
  * Structures and nothing else. The held ground's own output runs at full rate, and so does every
  * bonus the crew holds: the chairs' rungs, the Lab, the table, the Gate. The rule this replaced
  * (2026-09-09) took a share off every positive percentage as well, which missed the chair rungs
- * because they are a list rather than a channel, and taxed a raided crew's fights, training and
+ * because they are a list rather than a channel, and taxed a raided crew's fights, mustering and
  * research for a raid on its warehouse.
  *
  * ## How hard it hit

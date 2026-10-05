@@ -11,6 +11,7 @@ import {
   type Building,
   type ResourceKey,
   type Resources,
+  displayNameOf,
 } from '@frontline/shared';
 import type { Repositories } from '../db/repos/index.js';
 import { sendMessage } from '../social/send.js';
@@ -111,7 +112,7 @@ export function unlockedResources(buildings: readonly Building[]): Resources {
  *
  * ...except the legendaries, which are one each (maintainer, 2026-09-19: "you can have up to 1 of
  * each legendary unit, no more, and remove any excess that the console gives you"). This was the
- * one door in the game that broke the rule: `trainUnits` has refused a second unique since they
+ * one door in the game that broke the rule: `musterUnits` has refused a second unique since they
  * existed, and this handed out twelve of all seven.
  */
 export function fullArmy(): Army {
@@ -143,13 +144,13 @@ function atLeast<Key extends string>(
  * Every figure is the higher of what the account has and what the sandbox sets: the level, each
  * structure's level, each shelf of the stockpile and each unit on the roster. Structure ids and
  * fitted cards stay. It used to *set* them all, every boot, so a restart undid the session: cards
- * fitted and paid for, units trained, a level above the sandbox's, both queues. So restarting with
+ * fitted and paid for, units mustered, a level above the sandbox's, both queues. So restarting with
  * the flag on is a no-op after the first time, and turning the flag *off* leaves the account where
  * the switch left it, because an unlock that un-unlocks is a data-loss bug wearing a feature's
  * clothes.
  *
  * A build order for a level the structure now stands at or past builds nothing, so it goes; any
- * other order, and the training queue, are left to land.
+ * other order, and the muster queue, are left to land.
  */
 export function applyUnlockedSandbox(repos: Repositories, username: string): SandboxSummary {
   const user = repos.users.findByUsername(username);
@@ -167,11 +168,7 @@ export function applyUnlockedSandbox(repos: Repositories, username: string): San
   }
   repos.bases.updateResources(base.id, atLeast(base.resources, unlockedResources(buildings)));
   repos.bases.updateDistrict(base.id, buildings, queue);
-  repos.bases.updateArmy(
-    base.id,
-    capLegendaries(atLeast(base.army, fullArmy())),
-    base.trainingQueue,
-  );
+  repos.bases.updateArmy(base.id, capLegendaries(atLeast(base.army, fullArmy())), base.musterQueue);
   seedMailbox(repos, user.id, new Date());
   return { applied: true, baseId: base.id };
 }
@@ -232,7 +229,7 @@ function seedMailbox(repos: Repositories, userId: string, now: Date): void {
     if (!sender) continue;
     const sentAt = new Date(now.getTime() - letter.minutesAgo * 60_000);
     sendMessage(repos, {
-      sender: { id: sender.id, username: sender.username },
+      sender: { id: sender.id, signature: displayNameOf(sender) },
       senderFaction: letter.faction,
       recipients: [userId],
       audience: 'player',

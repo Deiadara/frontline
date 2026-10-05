@@ -21,7 +21,7 @@ vi.mock('./lib/queries', async (importOriginal) => ({
 const { BootGate } = await import('./App');
 
 afterEach(() => {
-  useSession.setState({ token: null, user: null });
+  useSession.setState({ signedIn: false, user: null });
 });
 
 /**
@@ -31,7 +31,7 @@ afterEach(() => {
  */
 describe('the boot gate', () => {
   it('keeps the game up when a poll fails but the last read is still in hand', () => {
-    useSession.setState({ token: 'token', user: null });
+    useSession.setState({ signedIn: true, user: null });
     meState.current = { isLoading: false, isError: true, data: { user: {} } };
     render(
       <BootGate>
@@ -42,7 +42,7 @@ describe('the boot gate', () => {
   });
 
   it('says the uplink failed when the first read never arrived', () => {
-    useSession.setState({ token: 'token', user: null });
+    useSession.setState({ signedIn: true, user: null });
     meState.current = { isLoading: false, isError: true, data: undefined };
     render(
       <BootGate>

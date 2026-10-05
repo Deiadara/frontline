@@ -79,3 +79,30 @@ describe('the card on this ground', () => {
     expect(shown('armor')).toBe(before + vest.effect.armor!);
   });
 });
+
+/**
+ * Last Stand on the card reads the odds in unit slots, as the engine does (bug pass, 2026-10-02).
+ * Twenty Wardens are forty slots, so forty named Razors are even odds and pay nothing.
+ */
+describe('Last Stand on the card', () => {
+  const wardensAgainst = (razors: number): BattleView => ({
+    ...view,
+    muster: { army: { wardens: 20 }, perimeter: {}, size: 20 },
+    enemySize: razors,
+    enemyArmy: { razors },
+  });
+  const offense = (against: BattleView) => {
+    const card = render(<EffectiveCard unitId="wardens" view={against} />);
+    const cells = within(screen.getByTestId('effective-wardens-offense')).getAllByRole('cell');
+    const value = Number(cells[2]!.textContent);
+    card.unmount();
+    return value;
+  };
+
+  it('pays nothing at even weight and the full share at two to one', () => {
+    const even = offense(wardensAgainst(40));
+    const double = offense(wardensAgainst(80));
+    expect(double).toBeGreaterThan(even);
+    expect(even).toBe(offense(wardensAgainst(20)));
+  });
+});

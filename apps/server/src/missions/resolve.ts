@@ -3,14 +3,15 @@ import {
   mergeFleets,
   earnedInfamy,
   gainInfamy,
-  missionInfamyForFled,
-  missionInfamyForKills,
+  missionInfamyForBattle,
   MISSION_INFAMY_DELTA,
+  boostedXp,
   missionXpEarned,
   RESOURCE_KG,
   carriedHome,
   missionCarry,
   scaledSpoils,
+  withMissionCaps,
   findMissionTemplate,
   isMissionDue,
   missionCompletesAt,
@@ -49,18 +50,21 @@ import {
 } from '../crew/standing.js';
 import { overseerOf } from '../crew/training.js';
 import { refundFor } from '../battle/resolve.js';
+import { musterRatesFor } from '../units/muster.js';
 import { fightMissionBattle } from './battle.js';
 import type { Repositories } from '../db/repos/index.js';
 import { notifyBase } from '../social/notify.js';
 import { creditBaseInTurn } from '../district/stores.js';
 import { settleBase } from '../district/settle.js';
+import { reportTickFailure } from '../world/guard.js';
 import { tellPagesFound } from '../social/pages.js';
 import type { StoredMission } from '../db/repos/missions.js';
-import { awardPlayerXp } from '../progression/award.js';
+import { awardPlayerXp, missionXpBonusPercent, professorXpPercent } from '../progression/award.js';
 import {
   tallyInfamyEarned,
   tallyUnitsRouted,
   tallyMissionHome,
+  tallyCasualtiesRecovered,
   tallyPagesIn,
   tallyResourcesEarned,
 } from '../feats/tally.js';
@@ -144,7 +148,40 @@ export function settleAndResolveMissions(
   base: Base,
   now: Date,
 ): MissionSettlement {
-  return repos.tx(() => resolveDueMissions(repos, settleBase(repos, base, now).base, now));
+  try {
+    return repos.tx(() => resolveDueMissions(repos, settleBase(repos, base, now).base, now));
+  } catch (error) {
+    /*
+     * One run this build cannot settle must not lock the crew out of its own screens (maintainer,
+     * 2026-10-02). The world clock already skips a bad row; the read paths settled every due run
+     * in one go and threw on the first bad one, so every read of that crew failed until the row was
+     * fixed by hand. Here the runs go one at a time, in the order they came home, and the one that
+     * throws is reported and left where it is.
+     */
+    reportTickFailure({ stage: 'missions on read', item: base.id, error });
+    let current = repos.tx(() => settleBase(repos, base, now).base);
+    const resolved: Mission[] = [];
+    for (const stored of dueInOrder(repos, current, now)) {
+      try {
+        const one = repos.tx(() => resolveDueMissions(repos, current, now, stored.mission.id));
+        current = one.base;
+        resolved.push(...one.resolved);
+      } catch (failure) {
+        reportTickFailure({ stage: 'missions on read', item: stored.mission.id, error: failure });
+      }
+    }
+    return { base: current, resolved };
+  }
+}
+
+/** The runs due by `now`, in the order they walked in. */
+function dueInOrder(repos: Repositories, base: Base, now: Date): StoredMission[] {
+  return repos.missions
+    .listActiveByBaseId(base.id)
+    .filter((stored) => isMissionDue(stored.mission, now))
+    .sort(
+      (a, b) => missionCompletesAt(a.mission).getTime() - missionCompletesAt(b.mission).getTime(),
+    );
 }
 
 /**
@@ -155,18 +192,21 @@ export function settleAndResolveMissions(
  * alive, and a base nobody looks at owes exactly the same payout whenever it is next opened.
  * Writes only happen when a mission actually came home.
  */
-export function resolveDueMissions(repos: Repositories, base: Base, now: Date): MissionSettlement {
+export function resolveDueMissions(
+  repos: Repositories,
+  base: Base,
+  now: Date,
+  /** One run only, for the read paths' one-at-a-time fallback. Every due run when absent. */
+  onlyId?: string,
+): MissionSettlement {
   /*
    * In the order they walked in, not the order they left (audit, 2026-09-28): the credits below
    * take store room in this order (`creditBaseInTurn`), so a long run launched first and home last
    * used to take the room ahead of a short one that was back hours earlier.
    */
-  const due = repos.missions
-    .listActiveByBaseId(base.id)
-    .filter((stored) => isMissionDue(stored.mission, now))
-    .sort(
-      (a, b) => missionCompletesAt(a.mission).getTime() - missionCompletesAt(b.mission).getTime(),
-    );
+  const due = dueInOrder(repos, base, now).filter(
+    (stored) => onlyId === undefined || stored.mission.id === onlyId,
+  );
   if (due.length === 0) return { base, resolved: [] };
 
   const resolvedAt = now.toISOString();
@@ -289,9 +329,14 @@ export function resolveDueMissions(repos: Repositories, base: Base, now: Date): 
     const pricedMinutes = pricedTotalMinutes(stored.mission);
     const paid =
       template && !recalled && reported
-        ? scaledSpoils(
-            missionRewards(template, outcome, pricedMinutes, grade),
-            stored.mission.payPercent,
+        ? // Cap Counter's cut, off the fold at the return like the bag below: not frozen at the
+          // launch, so a counter hired while the crew is out counts what they bring in.
+          withMissionCaps(
+            scaledSpoils(
+              missionRewards(template, outcome, pricedMinutes, grade),
+              stored.mission.payPercent,
+            ),
+            crewCarry?.missionCapsPercent ?? 0,
           )
         : {};
     // Off the crew's loadouts as they stand at the mark, the same way the roster folds them.
@@ -384,14 +429,14 @@ export function resolveDueMissions(repos: Repositories, base: Base, now: Date): 
        */
       /** Enemy units the crew made run, for the `units_routed` ladder. Zero on plain work. */
       routed: battle && reported ? forceSize(battle.fledEnemy) : 0,
+      /** The crew's dead the medics brought round, for the `casualties_recovered` ladder. */
+      recovered: battle && reported ? battle.recovered : 0,
       infamyDelta:
         template && reported
           ? Math.round(
               earnedInfamy(
                 MISSION_INFAMY_DELTA[template.kind][outcome] +
-                  (battle
-                    ? missionInfamyForKills(battle.killed) + missionInfamyForFled(battle.fledEnemy)
-                    : 0),
+                  (battle ? missionInfamyForBattle(battle.killed, battle.fledEnemy) : 0),
                 crew?.infamyGainPercent ?? 0,
               ),
             )
@@ -416,7 +461,10 @@ export function resolveDueMissions(repos: Repositories, base: Base, now: Date): 
       // Gated on `reported` like every other payout on this object (bug pass, 2026-09-23). The
       // spec's rule is that a run nobody came home from "banks nothing: no pay, no salvage, no page,
       // no XP, no infamy", and the Bone Market's caps-for-bodies was the one line that ignored it.
-      refund: battle && reported ? refundFor(battle.lost, crew?.salvageRefundPercent ?? 0) : {},
+      refund:
+        battle && reported && crew
+          ? refundFor(battle.lost, crew.salvageRefundPercent, musterRatesFor(repos, base, now))
+          : {},
       /*
        * §C3: and so do the machines, every time.
        *
@@ -463,6 +511,12 @@ export function resolveDueMissions(repos: Repositories, base: Base, now: Date): 
   );
   const paidIn = (at: number) => banked.credits[at * 2];
   const wastedBy = (at: number) => paidIn(at)?.wasted ?? {};
+  // What the award below will bank for each run, kept on the row so the report prints it rather
+  // than the figure before the district's and the crew's bonus. One sum for every run in this
+  // settle: nothing between here and the award moves the buildings or the people.
+  const xpBonus = missionXpBonusPercent(repos, base, now);
+  const professor = professorXpPercent(repos, base, now);
+  const xpPaidBy = (at: number) => boostedXp(settlements[at]?.xp ?? 0, xpBonus);
 
   // Missions are closed out before the payout lands on purpose. Both writes are synchronous and
   // only a real sqlite failure can split them, but if one does, the failure mode that leaves a
@@ -480,6 +534,9 @@ export function resolveDueMissions(repos: Repositories, base: Base, now: Date): 
       lost: mission.lost,
       reported: mission.reported,
       wasted: wastedBy(at),
+      xpPaid: xpPaidBy(at),
+      infamyPaid: settlements[at]?.infamyDelta ?? 0,
+      refund: settlements[at]?.refund ?? {},
     });
   }
 
@@ -509,7 +566,7 @@ export function resolveDueMissions(repos: Repositories, base: Base, now: Date): 
   repos.bases.updateEconomy(settled.id, settled.economy);
   // The crews are home. Written whenever anything came back, which is every settlement that got
   // this far: a run with an empty force is a pre-areas row and merges to the same army.
-  repos.bases.updateArmy(settled.id, settled.army, settled.trainingQueue);
+  repos.bases.updateArmy(settled.id, settled.army, settled.musterQueue);
   // And the yard. Separate from the roster because a vehicle is not a unit and lives in its own
   // column; written unconditionally for the same reason the army is, so a run that took nothing
   // writes the fleet back unchanged rather than branching.
@@ -551,6 +608,7 @@ export function resolveDueMissions(repos: Repositories, base: Base, now: Date): 
       });
     }
     tallyUnitsRouted(repos, base.id, settlement.routed);
+    tallyCasualtiesRecovered(repos, base.id, settlement.recovered);
     tallyResourcesEarned(repos, base.id, paidIn(at)?.landed ?? {});
     tallyInfamyEarned(repos, base.id, settlement.infamyDelta);
     // Pages only. `found` is the whole inventory haul, so it carries salvaged components too, and
@@ -571,7 +629,13 @@ export function resolveDueMissions(repos: Repositories, base: Base, now: Date): 
     // Priced per run rather than off the table: a day-long expedition is worth more than a scrap
     // run, a battle more than a standard job of the same length, and a run that came home empty
     // still pays a fifth. `missionXp` owns all three; this only banks what it said.
-    progressed = awardPlayerXp(repos, progressed, 'missionCompleted', 0, settlement.xp).base;
+    progressed = awardPlayerXp(
+      repos,
+      progressed,
+      'missionCompleted',
+      professor,
+      settlement.xp,
+    ).base;
   }
 
   // §H6 used to pay the officer who led each run their own character XP here. Officers have no
@@ -623,6 +687,12 @@ export function resolveDueMissions(repos: Repositories, base: Base, now: Date): 
    */
   return {
     base: progressed,
-    resolved: settlements.map((s, at) => ({ ...s.mission, wasted: wastedBy(at) })),
+    resolved: settlements.map((s, at) => ({
+      ...s.mission,
+      wasted: wastedBy(at),
+      xpPaid: xpPaidBy(at),
+      infamyPaid: s.infamyDelta,
+      refund: s.refund,
+    })),
   };
 }

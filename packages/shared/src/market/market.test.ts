@@ -5,6 +5,7 @@ import { hourInZone, instantAtHourInZone } from '../time/zone.js';
 import { addItems, hasItems, heldItems, removeItems } from '../items/inventory.js';
 import { RESOURCE_KEYS, STARTING_RESOURCES, type ResourceKey } from '../resources.js';
 import { STORAGE_SHARES } from '../building/production.js';
+import { TRADER_EVEN_POINTS } from '../crew/passives.js';
 import {
   MAX_OPEN_OFFERS,
   bundleValue,
@@ -28,16 +29,21 @@ import {
   supplyAllowance,
   supplyAllowancePercent,
   supplyBoard,
+  supplyMarkup,
   supplyPrice,
   supplyRationCost,
   supplyRefusal,
+  supplyRationUnits,
+  supplyUnitPrice,
 } from './supply.js';
-import { MAX_MARKET_DISCOUNT } from './discount.js';
+import { MARKET_DISCOUNT_ASYMPTOTE, discountedCaps, effectiveMarketDiscount } from './discount.js';
 import {
   BARTER_RATE,
   BARTER_RATE_RESPECTED,
   barterRateFor,
+  brokerPayoutRate,
   brokerRate,
+  BARTER_MINIMUM,
   VENDOR_SESSIONS_PER_DAY,
   VENDOR_SESSION_HOURS,
   VENDOR_STOCK_SIZE,
@@ -63,6 +69,12 @@ const DAYS = Array.from({ length: 60 }, (_, index) => {
   date.setUTCDate(date.getUTCDate() + index);
   return marketDay(date);
 });
+
+/**
+ * A raw discount sum no crew will ever stack, which puts the effective figure a hair under the
+ * curve's asymptote: the best rate there is, for every loop below.
+ */
+const NEAR_ASYMPTOTE = 1_000_000_000;
 
 /** Half past `hour` on `day`, on the game's clock: the same clock the Runner's hours are drawn on. */
 const at = (day: string, hour: number): Date =>
@@ -272,10 +284,9 @@ describe('the Runner', () => {
 
 describe('the Broker', () => {
   it('gives back half the value, rounded down, between two things worth the same', () => {
-    // Materials only: caps are the one key the Broker will not deal in, and the list is every
-    // other resource so a seventh material joins on its own.
-    expect(BARTER_RESOURCES).not.toContain('caps');
-    expect(BARTER_RESOURCES).toHaveLength(RESOURCE_KEYS.length - 1);
+    // Every resource, caps included (maintainer, 2026-10-01), so a seventh one joins on its own.
+    expect(BARTER_RESOURCES).toContain('caps');
+    expect(BARTER_RESOURCES).toHaveLength(RESOURCE_KEYS.length);
     // A material into itself is the cut alone, which is the rate the rest of this reads against.
     expect(barterQuote('oil', 'oil', 100)).toBe(100 * BARTER_RATE);
     expect(barterQuote('oil', 'oil', 101)).toBe(50);
@@ -569,7 +580,7 @@ describe('the supply run: caps into materials', () => {
    */
   it('lets no dear material bartered down beat buying the cheap one directly', () => {
     for (const level of [15, 36, 60, 70]) {
-      for (const discount of [0, MAX_MARKET_DISCOUNT]) {
+      for (const discount of [0, 45, NEAR_ASYMPTOTE]) {
         const ration = supplyAllowance(level, 860);
         const rate = brokerRate(level, discount);
         for (const dear of SUPPLY_RESOURCES) {
@@ -686,15 +697,17 @@ describe('the supply run: caps into materials', () => {
    * Maintainer, 2026-09-29: "market prices" discounts reach every shop. The supply run's price is
    * quoted after the discount, the till charges the same figure, and the stack stops at the cap.
    */
-  it('quotes and charges the supply run after the market discount, capped', () => {
+  it('quotes and charges the supply run after the market discount, through the curve once', () => {
     const plain = supplyBoard(20, rich, 2_000, 0, shelf);
     const cheap = supplyBoard(20, rich, 2_000, 0, shelf, 20);
     for (const [index, line] of cheap.lines.entries()) {
       const full = plain.lines[index]!;
-      expect(line.capsPerUnit).toBeCloseTo(full.capsPerUnit * 0.8, 6);
-      expect(supplyPrice(line.key, 100, 20)).toBe(Math.ceil(full.capsPerUnit * 0.8 * 100 - 1e-6));
+      // 20 raw is 15% off. Curved twice it would be 12%, which is what the board used to quote.
+      expect(line.capsPerUnit).toBeCloseTo(full.capsPerUnit * 0.85, 6);
+      expect(supplyPrice(line.key, 100, 20)).toBe(Math.ceil(full.capsPerUnit * 0.85 * 100 - 1e-6));
     }
-    expect(supplyPrice('scrap', 100, 90)).toBe(supplyPrice('scrap', 100, MAX_MARKET_DISCOUNT));
+    // Past the old ceiling of 45, more raw discount still makes the run cheaper.
+    expect(supplyPrice('scrap', 1_000, 90)).toBeLessThan(supplyPrice('scrap', 1_000, 45));
     // A purse that covers the discounted order is sold it, and refused one cap short.
     const price = supplyPrice('oil', 50, 20);
     const purse = { ...STARTING_RESOURCES, caps: price };
@@ -708,15 +721,16 @@ describe('the Broker after the market discount', () => {
   it('takes the discount off his cut, so a trade gets nearer even and never past it', () => {
     expect(brokerRate(1)).toBe(BARTER_RATE);
     expect(brokerRate(60)).toBe(BARTER_RATE_RESPECTED);
-    expect(brokerRate(1, 20)).toBeCloseTo(1 - (1 - BARTER_RATE) * 0.8, 6);
+    // 20 raw is 15% off through the curve, so the cut is 85% of what it was.
+    expect(brokerRate(1, 20)).toBeCloseTo(1 - (1 - BARTER_RATE) * 0.85, 6);
     for (const level of [1, 60]) {
-      for (const discount of [0, 10, MAX_MARKET_DISCOUNT, 100, 500]) {
+      for (const discount of [0, 10, 45, 100, 500, NEAR_ASYMPTOTE]) {
         expect(brokerRate(level, discount)).toBeLessThan(1);
         expect(brokerRate(level, discount)).toBeGreaterThanOrEqual(barterRateFor(level));
       }
     }
     // Round and round the Broker at the best rate a crew can reach still loses goods.
-    const rate = brokerRate(60, MAX_MARKET_DISCOUNT);
+    const rate = brokerRate(60, NEAR_ASYMPTOTE);
     expect(
       barterQuote('oil', 'scrap', barterQuote('scrap', 'oil', 1_000, rate), rate),
     ).toBeLessThan(1_000);
@@ -736,5 +750,250 @@ describe('§I3: the Broker’s cut', () => {
   it('still floors, so a single scrap through the window is never a free unit', () => {
     expect(barterQuote('oil', 'oil', 1, BARTER_RATE_RESPECTED)).toBe(0);
     expect(Number.isInteger(barterQuote('oil', 'scrap', 37, BARTER_RATE_RESPECTED))).toBe(true);
+  });
+});
+
+/*
+ * Maintainer, 2026-10-01: the market discount is a curve, `60 x s / (s + 60)` on the raw sum, where
+ * it was the sum clamped at 45. Every source always pays something and the total never reaches 60.
+ */
+describe('the market discount curve', () => {
+  it('turns the raw sum into the figures the ruling quoted', () => {
+    // Independent anchors: the ruling's own numbers, not a recomputation of the formula.
+    expect(effectiveMarketDiscount(0)).toBe(0);
+    expect(effectiveMarketDiscount(10)).toBeCloseTo(60 / 7, 6);
+    expect(effectiveMarketDiscount(20)).toBeCloseTo(15, 6);
+    expect(effectiveMarketDiscount(45)).toBeCloseTo(25.714286, 5);
+    expect(effectiveMarketDiscount(60)).toBeCloseTo(30, 6);
+    expect(effectiveMarketDiscount(100)).toBeCloseTo(37.5, 6);
+    expect(effectiveMarketDiscount(-20), 'a penalty is no discount, not a surcharge').toBe(0);
+  });
+
+  it('pays something for every point, less for each, and never reaches the asymptote', () => {
+    let previous = 0;
+    let step = Number.POSITIVE_INFINITY;
+    for (let raw = 1; raw <= 600; raw++) {
+      const now = effectiveMarketDiscount(raw);
+      expect(now, `raw ${raw}`).toBeGreaterThan(previous);
+      expect(now - previous, `raw ${raw}`).toBeLessThan(step);
+      step = now - previous;
+      previous = now;
+    }
+    expect(effectiveMarketDiscount(NEAR_ASYMPTOTE)).toBeLessThan(MARKET_DISCOUNT_ASYMPTOTE);
+    expect(discountedCaps(1_000, NEAR_ASYMPTOTE)).toBeGreaterThanOrEqual(400);
+    // Past the old clamp a Lab rung still moves the price.
+    expect(discountedCaps(10_000, 55)).toBeLessThan(discountedCaps(10_000, 45));
+  });
+});
+
+/*
+ * Bug pass, 2026-10-01: the supply run's header said "450 left" in caps' worth, beside a field
+ * counted in units. It says it in units of the material on the picker now.
+ */
+describe('the supply run ration in units', () => {
+  it('says how many of the picked material the rest of the ration carries', () => {
+    expect(supplyRationUnits('supplies', 450)).toBe(300);
+    expect(supplyRationUnits('scrap', 450)).toBe(180);
+    expect(supplyRationUnits('highQualityMetal', 450)).toBe(37);
+    expect(supplyRationUnits('highQualityMetal', 11)).toBe(0);
+    expect(supplyRationUnits('oil', -5)).toBe(0);
+    // And it is the ration's share of what the run would sell, never more.
+    const rich = { ...STARTING_RESOURCES, caps: 1_000_000 };
+    for (const key of SUPPLY_RESOURCES) {
+      expect(supplyAffordable(key, rich, 450, 1_000_000)).toBe(supplyRationUnits(key, 450));
+    }
+  });
+});
+
+/*
+ * Maintainer, 2026-10-01: "the broker also gives and gets caps", valued at `RESOURCE_CAP_VALUE` and
+ * cut like any other trade, so the player always loses on it. Every loop a player could run through
+ * him and the supply run, at every level and discount that matters, down to the best rate there is.
+ */
+describe('the Broker trading caps', () => {
+  const MATERIALS = SUPPLY_RESOURCES;
+  const LEVELS = [1, 59, 60, 70];
+  /** Raw sums: none, the old ceiling, the crossings at level 60 and before it, and the limit. */
+  const DISCOUNTS = [0, 20, 45, 100, 196, 300, 532, NEAR_ASYMPTOTE];
+  const AMOUNTS = [10, 11, 37, 100, 999, 12_345, 1_000_000];
+  const rates = () =>
+    LEVELS.flatMap((level) =>
+      DISCOUNTS.map((discount) => ({
+        level,
+        discount,
+        rate: brokerRate(level, discount),
+        caps: brokerPayoutRate('caps', brokerRate(level, discount), discount),
+        label: `level ${level}, ${discount} raw`,
+      })),
+    );
+
+  it('values caps at one and cuts them like anything else', () => {
+    // A hundred oil is two hundred caps of worth: half of it at the default rate, 65% at level 60.
+    expect(barterQuote('oil', 'caps', 100, brokerPayoutRate('caps', brokerRate(1)))).toBe(100);
+    expect(barterQuote('oil', 'caps', 100, brokerPayoutRate('caps', brokerRate(60)))).toBe(130);
+    expect(barterQuote('caps', 'highQualityMetal', 2_400, brokerRate(1))).toBe(100);
+    expect(barterQuote('caps', 'highQualityMetal', 2_400, brokerRate(60))).toBe(130);
+    // The guard leaves every other trade alone, and caps out alone below the crossing.
+    expect(brokerPayoutRate('scrap', 0.8, NEAR_ASYMPTOTE)).toBe(0.8);
+    expect(brokerPayoutRate('caps', brokerRate(60, 100), 100)).toBe(brokerRate(60, 100));
+  });
+
+  it('loses on caps into a material and back', () => {
+    for (const { rate, caps, label } of rates()) {
+      for (const material of MATERIALS) {
+        for (const amount of AMOUNTS) {
+          const goods = barterQuote('caps', material, amount, rate);
+          const back = barterQuote(material, 'caps', goods, caps);
+          expect(back, `${amount} caps through ${material}, ${label}`).toBeLessThan(amount);
+        }
+      }
+    }
+  });
+
+  it('never pays more for a material bought off the supply run than the run charged', () => {
+    for (const { discount, caps, label } of rates()) {
+      for (const material of MATERIALS) {
+        for (const units of [1, 2, 7, 100, 999, 40_000]) {
+          const paid = supplyPrice(material, units, discount);
+          const back = barterQuote(material, 'caps', units, caps);
+          expect(back, `${units} ${material} off the run and sold, ${label}`).toBeLessThanOrEqual(
+            paid,
+          );
+          // Where his own cut decides it rather than the run's price, the loop is a plain loss.
+          if (caps * RESOURCE_CAP_VALUE[material] < supplyUnitPrice(material, discount) - 1e-6) {
+            expect(back, `${units} ${material}, ${label}`).toBeLessThan(paid);
+          }
+        }
+      }
+    }
+  });
+
+  it('sells a material dearer than the supply run, at every level and discount', () => {
+    for (const { discount, rate, label } of rates()) {
+      for (const material of MATERIALS) {
+        // Caps a unit costs from him against what the run charges for it.
+        const fromBroker = RESOURCE_CAP_VALUE[material] / rate;
+        expect(fromBroker, `${material}, ${label}`).toBeGreaterThan(
+          supplyUnitPrice(material, discount),
+        );
+        const purse = 100_000;
+        const broker = barterQuote('caps', material, purse, rate);
+        const run = Math.floor(purse / supplyUnitPrice(material, discount));
+        expect(broker, `${purse} caps of ${material}, ${label}`).toBeLessThan(run);
+      }
+    }
+  });
+
+  it('pays no more going through caps than trading the two materials directly', () => {
+    for (const { rate, caps, label } of rates()) {
+      for (const from of MATERIALS) {
+        for (const to of MATERIALS) {
+          if (from === to) continue;
+          for (const amount of AMOUNTS) {
+            const direct = barterQuote(from, to, amount, rate);
+            const via = barterQuote('caps', to, barterQuote(from, 'caps', amount, caps), rate);
+            expect(
+              via,
+              `${amount} ${from} into ${to} by way of caps, ${label}`,
+            ).toBeLessThanOrEqual(direct);
+          }
+        }
+      }
+    }
+  });
+
+  it('lets no loop gain at the best rate there is: level 60 and the curve at its limit', () => {
+    const rate = brokerRate(60, NEAR_ASYMPTOTE);
+    const caps = brokerPayoutRate('caps', rate, NEAR_ASYMPTOTE);
+    expect(rate).toBeLessThan(1);
+    expect(caps).toBeLessThan(1);
+    for (const material of MATERIALS) {
+      const worth = RESOURCE_CAP_VALUE[material];
+      // Caps, material, caps.
+      expect(
+        barterQuote(material, 'caps', barterQuote('caps', material, 1e6, rate), caps),
+      ).toBeLessThan(1e6);
+      // Material, caps, material.
+      expect(
+        barterQuote('caps', material, barterQuote(material, 'caps', 1e5, caps), rate),
+      ).toBeLessThan(1e5);
+      // Off the run and back to him, per unit and in bulk.
+      expect(caps * worth).toBeLessThanOrEqual(supplyUnitPrice(material, NEAR_ASYMPTOTE) + 1e-9);
+      expect(barterQuote(material, 'caps', 10_000, caps)).toBeLessThanOrEqual(
+        supplyPrice(material, 10_000, NEAR_ASYMPTOTE),
+      );
+    }
+  });
+
+  it('floors what it hands back, so no rounding makes a free cap, and the minimum still buys', () => {
+    const best = brokerPayoutRate('caps', brokerRate(60, NEAR_ASYMPTOTE), NEAR_ASYMPTOTE);
+    for (const material of MATERIALS) {
+      for (let amount = 1; amount <= 200; amount++) {
+        const back = barterQuote(material, 'caps', amount, best);
+        expect(Number.isInteger(back)).toBe(true);
+        expect(back, `${amount} ${material}`).toBeLessThan(amount * RESOURCE_CAP_VALUE[material]);
+      }
+    }
+    // The minimum is a count of what is handed over. Ten caps is a few supplies and no metal at
+    // all, which the screen and the server both refuse as worth nothing back.
+    expect(barterQuote('caps', 'supplies', BARTER_MINIMUM, brokerRate(1))).toBe(3);
+    expect(barterQuote('caps', 'highQualityMetal', BARTER_MINIMUM, brokerRate(1))).toBe(0);
+    expect(barterQuote('supplies', 'caps', BARTER_MINIMUM, brokerRate(1))).toBe(7);
+  });
+});
+
+/**
+ * The Trader's edge, and where it stops (maintainer, 2026-10-04): past C+ the broker pays over value
+ * on a sale for caps, which with the supply run is a profit the run's daily ration bounds. A trade
+ * into goods stops at even, or two barters in a loop would print materials with nothing to stop them.
+ */
+describe("the Trader's edge at the broker", () => {
+  const top = brokerRate(1, 0, 100);
+
+  it('pays over value for goods sold for caps with a Trader past C+', () => {
+    expect(top).toBeCloseTo(1.25, 10);
+    expect(brokerPayoutRate('caps', top, 0, 100)).toBeCloseTo(1.25, 10);
+  });
+
+  it('stops at even on a trade into goods, whoever is in the chair', () => {
+    for (const want of ['scrap', 'highQualityMetal', 'oil'] as const) {
+      expect(brokerPayoutRate(want, top, 0, 100), want).toBe(1);
+    }
+    // The loop the guard is for: scrap to metal and back never comes out ahead.
+    const there = barterQuote(
+      'scrap',
+      'highQualityMetal',
+      10_000,
+      brokerPayoutRate('highQualityMetal', top, 0, 100),
+    );
+    const back = barterQuote(
+      'highQualityMetal',
+      'scrap',
+      there,
+      brokerPayoutRate('scrap', top, 0, 100),
+    );
+    expect(back).toBeLessThanOrEqual(10_000);
+  });
+
+  // Bug pass, 2026-10-04: caps in at even and caps out at 1.25 minted a quarter a lap.
+  it('never lets caps in, goods, caps out come back ahead, at any Trader', () => {
+    for (const points of [null, 40, TRADER_EVEN_POINTS, 80, 100]) {
+      for (const level of [1, 60]) {
+        const rate = brokerRate(level, 0, points);
+        const into = brokerPayoutRate('highQualityMetal', rate, 0, points, 'caps');
+        const out = brokerPayoutRate('caps', rate, 0, points, 'highQualityMetal');
+        const metal = barterQuote('caps', 'highQualityMetal', 12_000, into);
+        const back = barterQuote('highQualityMetal', 'caps', metal, out);
+        expect(back, `${points} at ${level}`).toBeLessThanOrEqual(12_000);
+      }
+    }
+  });
+
+  it('holds a sale for caps under the run price short of C+', () => {
+    const points = TRADER_EVEN_POINTS - 1;
+    const rate = brokerRate(1, 400, points);
+    expect(brokerPayoutRate('caps', rate, 400, points)).toBeLessThanOrEqual(
+      supplyMarkup(400, points),
+    );
   });
 });

@@ -38,7 +38,7 @@ export const AcceptWasteSchema = z.boolean().optional();
 export type StoreCeilings = Readonly<Record<ResourceKey, number>>;
 
 /**
- * Every store's ceiling for this district, the crew's Logistics (§F2) folded in.
+ * Every store's ceiling for this district, the crew's storage bonus (§F2) folded in.
  *
  * One reading for the whole stockpile rather than `storageCapacityFor` per key at each call site,
  * because the bulk shelf is the expensive half and every resource's ceiling is a share of it.
@@ -51,6 +51,26 @@ export function storeCeilings(
   return Object.fromEntries(
     RESOURCE_KEYS.map((key) => [key, storageCapacityFor(buildings, key, bulk)]),
   ) as StoreCeilings;
+}
+
+/**
+ * The first line of a price the stores could never hold, however long the crew waits.
+ *
+ * The ceiling is the only limit on a stockpile, and some prices outgrow it: the Generator's burn
+ * follows the Generator and the store follows the Apothecary. "Short of oil" on a price no amount
+ * of waiting can reach sends a player to wait for nothing (bug pass, 2026-10-02).
+ */
+export function overTheStores(
+  cost: PartialResources,
+  ceilings: StoreCeilings,
+): { key: ResourceKey; most: number } | null {
+  const key = RESOURCE_KEYS.find((one) => (cost[one] ?? 0) > ceilings[one]);
+  return key === undefined ? null : { key, most: ceilings[key] };
+}
+
+/** The sentence for {@link overTheStores}: what the stores hold, and the one way to hold more. */
+export function overTheStoresText(over: { key: ResourceKey; most: number }): string {
+  return `Your stores hold at most ${over.most.toLocaleString()} ${RESOURCE_LABELS[over.key].toLowerCase()}. Raise the Apothecary to hold more.`;
 }
 
 export interface StoresCredit {

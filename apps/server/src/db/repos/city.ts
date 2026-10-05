@@ -10,6 +10,7 @@ import {
   type LocationHolder,
 } from '@frontline/shared';
 import { readJson } from '../json.js';
+import type { Statement } from 'better-sqlite3';
 import type { AppDatabase } from '../index.js';
 
 /**
@@ -26,6 +27,8 @@ interface ControlRow {
   holder_base_id: string | null;
   level: number;
   upgrading_until: string | null;
+  /** Absent on a schema before 0144, which a migration test reads through this repo. */
+  upgrade_paid_json?: string | null;
   garrison_json: string;
 }
 
@@ -38,6 +41,8 @@ function rowToControl(row: ControlRow): LocationControl {
         : { kind: row.holder_kind },
     level: row.level,
     upgradingUntil: row.upgrading_until,
+    // Only while an upgrade is under way, so a row with nothing running reads as it always did.
+    ...(row.upgrade_paid_json == null ? {} : { upgradePaid: readJson(row.upgrade_paid_json) }),
     garrison: withoutRetiredUnits(readJson(row.garrison_json)),
   });
 }
@@ -66,31 +71,38 @@ export interface CityRepo {
 export function createCityRepo(db: AppDatabase): CityRepo {
   const allStmt = db.prepare('SELECT * FROM location_control');
   const oneStmt = db.prepare('SELECT * FROM location_control WHERE location_id = ?');
-  const insertStmt = db.prepare(
+  // Prepared on the first write, not here: `upgrade_paid_json` arrives with 0144, and a repo built
+  // over an older schema to read one (the migration tests do) must not fail at construction.
+  let insertStmt: Statement | undefined;
+  const insertSql =
     // `fortification` and `fortifying_until` are still columns on this table and are no longer
     // written or read: dug-in fortification left the game (maintainer, 2026-09-26), and dropping a
     // column needs a migration number of its own. Their defaults (0, null) fill new rows.
     `INSERT INTO location_control
-       (location_id, holder_kind, holder_base_id, level, upgrading_until, garrison_json)
-     VALUES (?, ?, ?, ?, ?, ?)
+       (location_id, holder_kind, holder_base_id, level, upgrading_until, upgrade_paid_json,
+        garrison_json)
+     VALUES (?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT (location_id) DO UPDATE SET
        holder_kind = excluded.holder_kind,
        holder_base_id = excluded.holder_base_id,
        level = excluded.level,
        upgrading_until = excluded.upgrading_until,
-       garrison_json = excluded.garrison_json`,
-  );
+       upgrade_paid_json = excluded.upgrade_paid_json,
+       garrison_json = excluded.garrison_json`;
   const garrisonStmt = db.prepare(
     'UPDATE location_control SET garrison_json = ? WHERE location_id = ?',
   );
 
   const write = (control: LocationControl): void => {
-    insertStmt.run(
+    (insertStmt ??= db.prepare(insertSql)).run(
       control.locationId,
       control.holder.kind,
       control.holder.kind === 'crew' ? control.holder.baseId : null,
       control.level,
       control.upgradingUntil,
+      control.upgradePaid == null || control.upgradingUntil === null
+        ? null
+        : JSON.stringify(control.upgradePaid),
       JSON.stringify(control.garrison),
     );
   };

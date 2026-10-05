@@ -1,7 +1,10 @@
 import {
+  RESOURCE_KG,
+  carriedHome,
   findMissionTemplate,
   formatCountdown,
   formatDuration,
+  missionCarry,
   missionCompletesAt,
   missionPhaseAt,
   missionProgressAt,
@@ -10,7 +13,9 @@ import {
   offerOfMission,
   recallWindowMs,
   storeCeilings,
+  withMissionCaps,
   type LevelUp,
+  type Base,
   type LineRules,
   type Mission,
   type MissionLeader,
@@ -108,6 +113,7 @@ function InFlightRow({
   overseerName,
   pending,
   onRecall,
+  carry,
 }: {
   mission: Mission;
   now: Date;
@@ -115,12 +121,34 @@ function InFlightRow({
   overseerName: string;
   pending: boolean;
   onRecall: () => void;
+  /** What the return pays off: the crew's brackets, bag, line rules and Cap Counter's cut. */
+  carry: {
+    loadouts: Base['unitLoadouts'];
+    bagPercent: number;
+    rules: LineRules;
+    capsPercent: number;
+    /** What the return adds to the frozen XP (`MissionsResponse.xpBonusPercent`). */
+    xpBonusPercent: number;
+  };
 }) {
   const template = findMissionTemplate(mission.templateId);
   const name = template?.name ?? mission.templateId;
   // What it is worth if it comes off (maintainer, 2026-09-23): the card's haul and XP, rebuilt
-  // from what the row froze, so a crew that is out is quoted the terms it left under.
-  const worth = template ? offerOfMission(mission, template) : null;
+  // from what the row froze, so a crew that is out is quoted the terms it left under. Then cut and
+  // trimmed the way the return does it (`missions/resolve.ts`): Cap Counter's share of the caps,
+  // and only what this party can lift. Two Razors on a 400-slot job bring home about 60 of it.
+  const offer = template ? offerOfMission(mission, template, carry.xpBonusPercent) : null;
+  const worth =
+    offer === null
+      ? null
+      : {
+          xp: offer.xp,
+          rewards: carriedHome(
+            withMissionCaps(offer.rewards, carry.capsPercent),
+            missionCarry(mission.force, carry.loadouts, carry.bagPercent, carry.rules),
+            RESOURCE_KG,
+          ),
+        };
   const phase = missionPhaseAt(mission, now);
   const progress = missionProgressAt(mission, now);
   const remaining = missionRemainingMs(mission, now);
@@ -195,7 +223,9 @@ function InFlightRow({
             data-testid={`mission-worth-${mission.id}`}
           >
             <span className="font-display text-[10px] uppercase tracking-[0.16em] text-ink-300">
-              If it comes off
+              {/* On a fight the haul is trimmed to the survivors at the return, and this line can
+                  only trim it to the party that set out (maintainer, 2026-10-02). */}
+              {template?.kind === 'battle' ? 'If it comes off, at most' : 'If it comes off'}
             </span>
             <RewardLine rewards={worth.rewards} />
             <span className="font-display text-[11px] font-bold tabular-nums text-hextech-100">
@@ -303,10 +333,15 @@ function ReturnedRow({
           <span className="min-w-0 truncate font-display text-xs font-semibold uppercase tracking-[0.14em] text-ink-200">
             {name}
           </span>
+          {/* A recall settles as a failure, but nobody was lost: it says so, in a neutral ink. */}
           <Tag
-            label={failed ? 'Lost' : 'Success'}
+            label={mission.recalledAt !== null ? 'Called back' : failed ? 'Lost' : 'Success'}
             className={
-              failed ? 'border-oxblood-500/50 text-oxblood-300' : 'border-bile-300/50 text-bile-300'
+              mission.recalledAt !== null
+                ? 'border-ink-500/50 text-ink-300'
+                : failed
+                  ? 'border-oxblood-500/50 text-oxblood-300'
+                  : 'border-bile-300/50 text-bile-300'
             }
           />
         </div>
@@ -369,7 +404,8 @@ export function MissionsPage() {
    * picker do anything.
    */
   const { city, choose } = useCityRoom();
-  const missionsQuery = useMissions(city);
+  // This page prints the board's level-up itself, so it is not passed on to the shell toast.
+  const missionsQuery = useMissions(city, { drawsLevelUp: true });
   const automations = useAutomations();
   // §C3: the yard lives on the session snapshot, not on the missions payload: a machine is a fact
   // about the district rather than about the board.
@@ -388,7 +424,7 @@ export function MissionsPage() {
   const roster = useUnits();
   const launch = useLaunchMission();
   /*
-   * The stockpile and its ceilings, the crew's Logistics folded in the way the HUD bar folds it,
+   * The stockpile and its ceilings, the crew's storage bonus folded in the way the HUD bar folds it,
    * so the send window can say how much of a haul the stores could take today.
    */
   const held = me.data?.base;
@@ -571,6 +607,16 @@ export function MissionsPage() {
                       overseerName={overseerName}
                       pending={recall.isPending}
                       onRecall={() => recall.mutate({ missionId: mission.id })}
+                      carry={{
+                        loadouts: me.data?.base?.unitLoadouts ?? {},
+                        bagPercent: standing.data?.haulPercent ?? 0,
+                        rules: crewLineRules(
+                          roster.data?.carriersFight ?? false,
+                          standing.data?.marks ?? {},
+                        ),
+                        capsPercent: standing.data?.missionCapsPercent ?? 0,
+                        xpBonusPercent: data?.xpBonusPercent ?? 0,
+                      }}
                     />
                   ))}
                 </ul>
@@ -659,6 +705,7 @@ export function MissionsPage() {
                   onQuoteFightLeaders={quoteFightLeaders}
                   // §A4: the crew's own bag, so the dialog quotes the haul the settle will pay.
                   bagPercent={standing.data?.haulPercent ?? 0}
+                  notoriety={me.data?.base?.economy.notoriety ?? 0}
                   marks={standing.data?.marks ?? {}}
                   carriersFight={roster.data?.carriersFight ?? false}
                   anyRide={roster.data?.anyRide ?? false}
@@ -668,6 +715,7 @@ export function MissionsPage() {
                   stores={stores}
                   atCapacity={atCapacity}
                   automated={automated}
+                  homeLocked={data.homeLocked === true}
                   pendingTemplateId={
                     launch.isPending ? (launch.variables?.templateId ?? null) : null
                   }

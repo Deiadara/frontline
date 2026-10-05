@@ -1,5 +1,7 @@
 import {
-  OUTNUMBERED_RATIO,
+  bareLineRules,
+  fightingSlots,
+  outnumberedWeight,
   UNIT_STAT_LABELS,
   effectiveStats,
   findUnit,
@@ -67,15 +69,22 @@ const EFFECTIVE_OF: Readonly<Record<ShownStat, keyof Effective>> = {
   morale: 'morale',
 };
 
-function sideOf(view: BattleView): { defending: boolean; outnumbered: boolean } {
-  const mine = view.muster?.size ?? 0;
-  const theirs = view.enemySize;
-  return {
-    defending: view.side === 'defender',
-    // Unknown is not outnumbered. A crew that cannot count the other side is told so in `enemyIntel`
-    // and must not have a modifier switched on for them off a number nobody has.
-    outnumbered: theirs !== null && mine > 0 && theirs >= mine * OUTNUMBERED_RATIO,
-  };
+function sideOf(view: BattleView): { defending: boolean; outnumbered: number } {
+  const unknown = { defending: view.side === 'defender', outnumbered: 0 };
+  // Unknown is not outnumbered. A crew that cannot count the other side is told so in `enemyIntel`
+  // and must not have a modifier switched on for them off a number nobody has.
+  if (view.enemySize === null || !view.muster) return unknown;
+  /*
+   * In unit slots in the line, as the engine weighs Last Stand (`fightingSlots`): by heads, twenty
+   * Wardens read as outnumbered two to one by forty Razors of the same weight (bug pass,
+   * 2026-10-02). Heads against heads only when the report counted bodies and named none.
+   */
+  if (!view.enemyArmy) {
+    return { ...unknown, outnumbered: outnumberedWeight(view.enemySize, view.muster.size) };
+  }
+  const rules = bareLineRules();
+  const mine = fightingSlots(view.muster.army, rules) + fightingSlots(view.muster.perimeter, rules);
+  return { ...unknown, outnumbered: outnumberedWeight(fightingSlots(view.enemyArmy, rules), mine) };
 }
 
 /** The change, as a whole percent, or null where the sheet is zero and a ratio says nothing. */

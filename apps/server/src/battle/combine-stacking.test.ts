@@ -101,7 +101,7 @@ function crew(): Base {
     ],
     buildQueue: [],
     army: { razors: 60 },
-    trainingQueue: [],
+    musterQueue: [],
     training: startingTraining(now),
     inventory: {},
     fittedUpgrades: ['composite_carapace'],

@@ -39,7 +39,7 @@ import {
 import { playSound, setSoundVolume } from '../../lib/sound';
 import { PageShell, ScreenLoadSheet } from '../game/PageShell';
 import { useServerClock } from '../missions/useServerClock';
-import { useSession } from '../../store/session';
+import { signOut } from '../../lib/api';
 import { ErrorNote } from '../../components/ui/ErrorNote';
 
 /**
@@ -430,7 +430,6 @@ function VolumeBar({
  * of its column, so its bottom edge is the sounds panel's bottom edge across the way.
  */
 function LogOutPanel() {
-  const logout = useSession((s) => s.logout);
   return (
     <Panel title="Log out" tone="paper" data-testid="settings-logout-panel" className="flex-1">
       <div className="flex h-full flex-col justify-between gap-4 p-4">
@@ -438,7 +437,12 @@ function LogOutPanel() {
           Signs this browser out. The crew keeps running while you are gone.
         </p>
         <div>
-          <DrawnButton size="sm" tone="danger" onClick={logout} data-testid="settings-logout">
+          <DrawnButton
+            size="sm"
+            tone="danger"
+            onClick={() => void signOut()}
+            data-testid="settings-logout"
+          >
             Log out
           </DrawnButton>
         </div>

@@ -5,7 +5,7 @@ import {
   infamyForKills,
   infamyPointsForFled,
   infamyPointsForRingDead,
-  missionInfamyForFled,
+  missionInfamyForBattle,
   missionInfamyForKills,
 } from '../economy/infamy.js';
 import { boostBundle, boostCoverage } from './boosts.js';
@@ -40,7 +40,9 @@ describe('a boost is priced against the line the side actually fights with', () 
     const effect = {
       kind: 'tier',
       tier: findUnit(HEAVY)!.tier,
-      stat: 'defense',
+      // Morale, because it is the one stat still folded by coverage: attack and defence aimed at a
+      // slice land on the units named since 2026-10-02 and have no denominator left.
+      stat: 'morale',
       percent: 35,
     } as const;
 
@@ -55,7 +57,7 @@ describe('a boost is priced against the line the side actually fights with', () 
      */
     expect(bare).toBe(1);
     expect(fighting).toBeLessThan(0.5);
-    expect(boostBundle(effect, force, { carriersFight: true, unitMarks: {} }).defensePercent).toBe(
+    expect(boostBundle(effect, force, { carriersFight: true, unitMarks: {} }).moralePercent).toBe(
       fighting * 35,
     );
   });
@@ -135,9 +137,18 @@ describe('the two halves of a rout make a whole', () => {
      */
     for (const bodies of [1, 2, 3, 4]) {
       const routed = { razors: bodies };
-      expect(missionInfamyForFled(routed), `${bodies} routed`).toBeGreaterThan(0);
-      expect(missionInfamyForFled(routed)).toBeLessThanOrEqual(missionInfamyForKills(routed));
+      expect(missionInfamyForBattle({}, routed), `${bodies} routed`).toBeGreaterThan(0);
+      expect(missionInfamyForBattle({}, routed)).toBeLessThanOrEqual(missionInfamyForKills(routed));
     }
-    expect(missionInfamyForFled({})).toBe(0);
+    expect(missionInfamyForBattle({}, {})).toBe(0);
+  });
+
+  /*
+   * Bug pass, 2026-10-02: the rout was rounded up on its own and added to the rounded-up kills, so
+   * three one-slot kills (1.5) and one rout (0.25) paid 3. Rounded once on the ledger it is 2.
+   */
+  it('rounds a battle job once, on kills and routs together', () => {
+    expect(missionInfamyForBattle({ razors: 3 }, { razors: 1 })).toBe(2);
+    expect(missionInfamyForBattle({ razors: 3 }, {})).toBe(missionInfamyForKills({ razors: 3 }));
   });
 });

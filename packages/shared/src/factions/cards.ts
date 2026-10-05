@@ -101,11 +101,13 @@ export const CARD_BY_SLOT: readonly FactionCard[] = [
  */
 export const SEAT_SLOT_ORDER: readonly number[] = [2, 1, 3, 0, 4];
 
-/** What `seatOrder` needs to know about somebody. `FactionMember` has all three. */
+/** What `seatOrder` needs to know about somebody. `FactionMember` has all of it. */
 export interface Seatable {
   readonly username: string;
   readonly rank: FactionRank;
-  readonly armySize: number;
+  readonly joinedAt: string;
+  /** The card the leader seated them at, or null (or absent) when the deal places them. */
+  readonly seat?: FactionCard | null;
 }
 
 const RANK_ORDER = new Map(FACTION_RANKS.map((rank, at) => [rank, at]));
@@ -113,33 +115,48 @@ const RANK_ORDER = new Map(FACTION_RANKS.map((rank, at) => [rank, at]));
 /**
  * The table: the leader at the head of it, then the chiefs, then everybody else.
  *
- * Inside a rank, whoever can field the most stands first, because that is the question an ally
- * opens the screen with. Ties fall back to the name so the roster does not reshuffle between two
- * reads of the same unchanged faction. Shared between the server, which deals the cards off it,
- * and the client, which draws the row off it: two copies of a comparator is how a card is dealt to
- * one person and drawn on another.
+ * Inside a rank, whoever sat down first stands first, and ties fall back to the name. It ordered
+ * by the army at home until 2026-10-02 (maintainer ruling P3-C), and units leave home the moment
+ * they march, so sending troops to a table-mate's fight passed a card to a weaker Overseer while
+ * the fight was on. Shared between the server, which deals the cards off it, and the client,
+ * which draws the roster off it.
  */
 export function seatOrder<T extends Seatable>(members: readonly T[]): T[] {
   return [...members].sort((left, right) => {
     const byRank = (RANK_ORDER.get(left.rank) ?? 0) - (RANK_ORDER.get(right.rank) ?? 0);
     if (byRank !== 0) return byRank;
-    if (left.armySize !== right.armySize) return right.armySize - left.armySize;
+    if (left.joinedAt !== right.joinedAt) return left.joinedAt < right.joinedAt ? -1 : 1;
     return left.username.localeCompare(right.username);
   });
 }
 
-/** The card each member holds, dealt by seat. Anybody past the fifth chair holds nothing. */
+/**
+ * The card each member holds (maintainer ruling P3-C, 2026-10-02: the leader assigns the seats).
+ *
+ * A seat the leader set is kept, the first claim on a card winning if two rows name the same one.
+ * Everybody the leader has not seated is dealt the cards left over, in {@link seatOrder} and in
+ * the row's usual order (the middle first), so a table whose leader never touches the seats still
+ * has every card held. Anybody past the fifth chair holds nothing.
+ */
 export function dealCards<T extends Seatable & { readonly userId: string }>(
   members: readonly T[],
 ): Map<string, FactionCard> {
   const dealt = new Map<string, FactionCard>();
-  seatOrder(members)
-    .slice(0, SEAT_SLOT_ORDER.length)
-    .forEach((member, rank) => {
-      const slot = SEAT_SLOT_ORDER[rank];
-      const card = slot === undefined ? undefined : CARD_BY_SLOT[slot];
-      if (card !== undefined) dealt.set(member.userId, card);
-    });
+  const taken = new Set<FactionCard>();
+  for (const member of seatOrder(members)) {
+    if (!member.seat || taken.has(member.seat)) continue;
+    dealt.set(member.userId, member.seat);
+    taken.add(member.seat);
+  }
+  const free = SEAT_SLOT_ORDER.map((slot) => CARD_BY_SLOT[slot]).filter(
+    (card): card is FactionCard => card !== undefined && !taken.has(card),
+  );
+  for (const member of seatOrder(members)) {
+    if (dealt.has(member.userId)) continue;
+    const card = free.shift();
+    if (card === undefined) break;
+    dealt.set(member.userId, card);
+  }
   return dealt;
 }
 

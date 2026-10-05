@@ -58,7 +58,7 @@ function seedFreshPlayer(repos: Repositories, username = 'Nikos'): Base {
     buildings: [{ id: 'b-nexus', kind: 'nexus', level: 1, modifications: [] }],
     buildQueue: [],
     army: {},
-    trainingQueue: [],
+    musterQueue: [],
     training: startingTraining('2026-08-16T00:00:00.000Z'),
     inventory: {},
     fittedUpgrades: [],
@@ -168,7 +168,7 @@ describe('UNLOCKED: the end-game sandbox', () => {
     applyUnlockedSandbox(repos, 'Nikos');
     const after = repos.bases.findById('b1');
     expect(after?.buildQueue).toEqual([]);
-    expect(after?.trainingQueue).toEqual([]);
+    expect(after?.musterQueue).toEqual([]);
   });
 
   /** Applied on every boot, so it has to be safe to apply twice. */

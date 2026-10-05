@@ -39,7 +39,7 @@ afterEach(async () => {
 
 const HOUR = 3_600_000;
 
-/** Every rating at the ceiling, so this officer is the best of the room in every channel. */
+/** Every rating at the ceiling, so the officer's chair is filled as well as it can be. */
 function maxedSheet(): Attributes {
   return Object.fromEntries(ATTRIBUTE_NAMES.map((name) => [name, MAX_ATTRIBUTE])) as Attributes;
 }
@@ -99,7 +99,12 @@ function tenHoursTo(
     ...base,
     commanders: [
       {
-        ...createCommander('engineer-1', 'Vess', 'lead_engineer', maxedSheet()),
+        // A production perk on the officer, which is how somebody in a chair moves what the district
+        // makes since skills stopped reaching the fold (2026-10-04); the bed takes it out the same.
+        ...createCommander('engineer-1', 'Vess', 'engineer', maxedSheet(), [
+          'night_shift',
+          'shift_pattern',
+        ]),
         injuredUntil,
       },
     ],
@@ -151,8 +156,8 @@ describe('§D4: the settle prices the window at its own instant', () => {
  */
 describe('§D4: a recovery inside the window is a cut', () => {
   it('prices the hours in bed without the officer and the hours after with them', async () => {
-    // One crew for all three, because the Overseer is drawn at random and is the best of the room
-    // whenever the officer is in bed: three crews would be three different laid-up rates.
+    // One crew for all three, because the Overseer is drawn at random and brings perks of their own:
+    // three crews would be three different laid-up rates.
     const { app, base } = await makeBase();
     const wall = Date.now();
     const now = new Date(wall + 10 * HOUR);

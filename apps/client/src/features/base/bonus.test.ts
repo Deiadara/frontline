@@ -1,9 +1,12 @@
 import {
   BUILDING_KINDS,
+  MUSTER_SPEED_KNEE,
+  musterTimeReduction,
   PRODUCING_BUILDINGS,
   buildingProduction,
   storageCapacity,
   storageCapacityFor,
+  musterSuppliesReduction,
   type Building,
   type BuildingKind,
 } from '@frontline/shared';
@@ -85,6 +88,57 @@ describe('what a structure is worth', () => {
    * so an Apothecary 5 that quoted 2,162 was overstating the metal ceiling (721) threefold. Pinned
    * to the *smallest* shelf rather than the bulk, because that is the one a player loses goods to.
    */
+  /**
+   * The two muster lines quote what the bench does with them (bug pass, 2026-10-01).
+   *
+   * The Gauntlet's figure is a speed: `musterSecondsFor` divides the clock by `1 + speed`, so a
+   * maxed Gauntlet's 40 takes 29% off, and the line printed 40. The Greenhouse and its cards taper
+   * toward 70% off the supplies line (`suppliesLineCut`, 2026-10-01), and the line prints the
+   * curve rather than the raw sum.
+   */
+  it('quotes the muster clock and the supplies cut as the bench charges them', () => {
+    expect(structureBonus('gauntlet', DISTRICT, 20).value).toBe('29%');
+
+    const fed: Building[] = [
+      ...DISTRICT.filter((building) => building.kind !== 'greenhouse'),
+      {
+        id: 'b-greenhouse',
+        kind: 'greenhouse',
+        level: 20,
+        modifications: ['greenhouse_sealed_growrooms', 'greenhouse_grey_water_loop'],
+      },
+    ];
+    // 10 from the Greenhouse (half a point a level), 7 and 3 from the cards: 20 raw, 17.4 on the
+    // curve. Before the nerf the same district was 51 raw.
+    expect(musterSuppliesReduction(fed)).toBe(20);
+    expect(structureBonus('greenhouse', fed, 20).value.split(' · ').at(-1)).toBe('-17%');
+  });
+
+  it('tapers the Gauntlet line past the knee rather than stopping it', () => {
+    // A Gauntlet at 20 with a card in four structures: 40 + 14 + 8 + 8 + 7 = 77 speed. The curve
+    // makes it 69.6, which is 41% off the clock; the raw sum would print 43% and the old stop 38%.
+    const drilled: Building[] = [
+      ...DISTRICT,
+      {
+        id: 'b-gauntlet',
+        kind: 'gauntlet',
+        level: 20,
+        modifications: ['gauntlet_salvaged_simulators'],
+      },
+      { id: 'b-quarters', kind: 'quarters', level: 10, modifications: ['quarters_turnout_drills'] },
+      {
+        id: 'b-apothecary',
+        kind: 'apothecary',
+        level: 10,
+        modifications: ['apothecary_stimulant_line'],
+      },
+      { id: 'b-lab', kind: 'lab', level: 10, modifications: ['lab_written_drill'] },
+    ];
+    expect(musterTimeReduction(drilled)).toBe(77);
+    expect(musterTimeReduction(drilled)).toBeGreaterThan(MUSTER_SPEED_KNEE);
+    expect(structureBonus('gauntlet', drilled, 20).value).toBe('41%');
+  });
+
   it('quotes the metal shelf, not the bulk one, as the low figure', () => {
     const projected = districtWith(DISTRICT, 'apothecary', 5);
     const metal = storageCapacityFor(projected, 'highQualityMetal');
@@ -111,6 +165,28 @@ describe('what a structure is worth', () => {
     it('leaves the district alone for a level-0 preview of something unbuilt', () => {
       expect(districtWith(DISTRICT, 'scrapyard', 0)).toEqual(DISTRICT);
     });
+  });
+
+  /**
+   * The crew's line speed and a raid's cut, which the settle pays and the Production panel prints.
+   * The window read the structure and its cards alone, so Engineering's +20% showed on the panel
+   * and not on the Greenhouse, and a raid never showed there at all.
+   */
+  it('quotes a producer at the rate the settle pays it, crew and raid included', () => {
+    const bare = structureBonus('greenhouse', DISTRICT, 10).value;
+    const crewed = structureBonus('greenhouse', DISTRICT, 10, 0, {
+      productionPercent: 20,
+      storageCapacityPercent: 0,
+    }).value;
+    const raided = structureBonus('greenhouse', DISTRICT, 10, 0, {
+      productionPercent: 0,
+      storageCapacityPercent: 0,
+      raidCutPercent: 50,
+    }).value;
+    const supplies = (value: string) =>
+      Number(/([\d.,]+) supplies/.exec(value)?.[1]?.replace(',', ''));
+    expect(supplies(crewed)).toBeCloseTo(supplies(bare) * 1.2, 0);
+    expect(supplies(raided)).toBeCloseTo(supplies(bare) * 0.5, 0);
   });
 
   /** A structure that makes nothing yet says so, rather than quoting an empty rate. */
@@ -142,5 +218,22 @@ describe('what a structure is worth', () => {
         expect(value, `${kind} never says what it makes of ${key}`).toContain(shown);
       }
     }
+  });
+});
+
+/**
+ * The Nexus's payroll (maintainer, 2026-10-01): every level adds 25 caps to the payroll book
+ * (`PAYROLL_PER_NEXUS_LEVEL`) and the line said only how far it authorises the rest. Written out
+ * rather than read back from the constant, so a retune shows up here as a decision.
+ */
+describe("the Nexus's line", () => {
+  it('quotes the payroll its levels add, in plain caps and with no week in it', () => {
+    expect(structureBonus('nexus', DISTRICT, 1).value).toBe('Nexus 1 · +25 caps payroll');
+    expect(structureBonus('nexus', DISTRICT, 8).value).toBe('Nexus 8 · +200 caps payroll');
+    expect(structureBonus('nexus', DISTRICT, 20).value).toBe('Nexus 20 · +500 caps payroll');
+    expect(structureBonus('nexus', DISTRICT, 8).value).not.toMatch(/week/i);
+    expect(structureBonus('nexus', DISTRICT, 8).label).toBe(
+      'Authorises every other structure up to',
+    );
   });
 });

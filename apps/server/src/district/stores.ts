@@ -23,7 +23,7 @@ import { AppError } from '../errors.js';
  */
 
 /**
- * This crew's ceilings at `now`, its §F2 Logistics included.
+ * This crew's ceilings at `now`, its §F2 storage bonus included.
  *
  * The bonus is not optional: it is what the HUD bar, the supply board and the production clamp
  * all draw, and a credit clamped to the bare structures would throw away what the screen says fits.

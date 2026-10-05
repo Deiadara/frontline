@@ -24,10 +24,10 @@ import { GAME_TIMEZONE, dayInZone } from '../time/zone.js';
  * **Five a day.** A cap, not a currency: unspent days do not bank. The point is a reason to come
  * back tomorrow, and a bankable allowance is a reason to come back in a fortnight and spend forty.
  *
- * **An hour each.** Long enough that the queue is a real decision and short enough to finish
- * inside a session. The floor has one bench ({@link TRAINING_BENCHES}), so the hours run one after
- * another unless the Professor's track has bought a second, and one person can only be doing one
- * thing at a time.
+ * **An hour each, less for the quick.** Long enough that the queue is a real decision and short
+ * enough to finish inside a session. A person's own Speed, Resolve and Organization take up to half
+ * of it off ({@link drillSeconds}). The floor is a queue ({@link TRAINING_QUEUE_SLOTS}): the hours run
+ * one after another, never side by side, and one person holds at most one place in it.
  *
  * **Never the same thing twice running.** Without it the whole system collapses into "put every
  * point into your best attribute", the sheet stops describing a person and starts describing a
@@ -39,18 +39,75 @@ import { GAME_TIMEZONE, dayInZone } from '../time/zone.js';
 export const TRAININGS_PER_DAY = 5;
 
 /**
- * How many people may be on the floor at once (maintainer, 2026-09-21).
+ * How many drills the floor's queue holds, the one running included (maintainer, 2026-10-04).
  *
- * One. The five hours a day used to run side by side, so a crew of five put the whole day through
- * in the first hour and the tab was a thing you visited once. A floor with one bench makes the
- * allowance a *day*: the hours are spent one after the other, and choosing who goes first is a
- * decision. The Professor's fourth rung (`research/tracks.ts`, `training_benches`) adds a second
- * bench, which is the only way past this.
+ * Two: one on the bench and one waiting behind it, each starting when the one before it ends. The
+ * hours never run side by side (maintainer, 2026-09-21: five at once put the whole day through in
+ * the first hour), so the allowance is still a *day* and the order is still a decision; the queue
+ * only spares a player from coming back on the hour to start the next one. The Professor's fourth
+ * rung (`research/tracks.ts`, `training_queue`) adds a third place, which is the only way past this.
  */
-export const TRAINING_BENCHES = 1;
+export const TRAINING_QUEUE_SLOTS = 2;
 
-/** How long one session takes. */
+/** How long one session takes, before the person on the bench shortens it. */
 export const TRAINING_SECONDS = 3600;
+
+/**
+ * What each point of a sheet is worth against the hour (maintainer, 2026-10-01).
+ *
+ * "An officer's speed, resolve and organization all lower training time down to half of what it
+ * initially was totally. The ratio is speed being twice as good as the other two." So a point of
+ * Speed counts double, and a 20% cut on a sheet even across the three is 10% from Speed and 5%
+ * each from Resolve and Organization: each attribute's share of the cut is its share of these
+ * weighted points.
+ */
+export const DRILL_TIME_WEIGHTS = {
+  speed: 2,
+  resolve: 1,
+  organization: 1,
+} as const satisfies Partial<Record<AttributeName, number>>;
+
+/** The most of the hour a sheet can take off, approached and never reached: never under half. */
+export const DRILL_TIME_CUT_CEILING = 50;
+
+/**
+ * How quickly the cut closes on {@link DRILL_TIME_CUT_CEILING}, in weighted points.
+ *
+ * 174 puts all three at 100 (400 points) at 45%, all three at 50 at 34%, and a fresh recruit at
+ * about 15 each at 15%. The maintainer may retune it.
+ */
+export const DRILL_TIME_CUT_SCALE = 174;
+
+/** The weighted points a sheet brings to the hour: `2 x Speed + Resolve + Organization`. */
+export function drillTimePoints(sheet: Pick<Attributes, keyof typeof DRILL_TIME_WEIGHTS>): number {
+  return (Object.keys(DRILL_TIME_WEIGHTS) as (keyof typeof DRILL_TIME_WEIGHTS)[]).reduce(
+    (total, name) => total + DRILL_TIME_WEIGHTS[name] * Math.max(0, sheet[name]),
+    0,
+  );
+}
+
+/**
+ * The percent of the hour this sheet takes off: `50 x (1 - e^(-points / 174))`.
+ *
+ * A curve rather than a sum with a stop, for the reason every unit effect is one (2026-09-29):
+ * every point still helps, and the session never reaches half an hour.
+ */
+export function drillTimeCutPercent(
+  sheet: Pick<Attributes, keyof typeof DRILL_TIME_WEIGHTS>,
+): number {
+  return DRILL_TIME_CUT_CEILING * (1 - Math.exp(-drillTimePoints(sheet) / DRILL_TIME_CUT_SCALE));
+}
+
+/**
+ * How long this person's session lasts, in whole seconds.
+ *
+ * Read off the sheet the crew fields them with (the lifted one, as their march and their spy work
+ * are), when the session starts, and stored on it as `durationSeconds`: every reader of a
+ * session's end reads that, so a sheet that moves mid-hour moves no clock already running.
+ */
+export function drillSeconds(sheet: Pick<Attributes, keyof typeof DRILL_TIME_WEIGHTS>): number {
+  return Math.round(TRAINING_SECONDS * (1 - drillTimeCutPercent(sheet) / 100));
+}
 
 /** What a finished session is worth. */
 export const TRAINING_GAIN = 2;
@@ -96,7 +153,17 @@ export const TrainingSessionSchema = z.object({
    */
   previousAttribute: AttributeNameSchema.nullable().optional(),
   attribute: AttributeNameSchema,
+  /**
+   * When the hour begins, which for a drill waiting in the queue is when the one ahead of it ends
+   * ({@link nextDrillStart}), so it can be later than now.
+   */
   startedAt: IsoDateTimeSchema,
+  /**
+   * When it was put on the list, and so which day's allowance it was charged to. Differs from
+   * `startedAt` only for a drill that queued; absent on a session written before the queue, where
+   * the two were the same instant.
+   */
+  queuedAt: IsoDateTimeSchema.optional(),
   durationSeconds: z.number().int().positive(),
 });
 export type TrainingSession = z.infer<typeof TrainingSessionSchema>;
@@ -151,6 +218,11 @@ export function drillRemainingMs(session: TrainingSession, now: number): number 
   return Math.max(0, drillEndsAt(session) - now);
 }
 
+/** How long a drill waiting in the queue has until it begins; zero once it has. */
+export function drillWaitMs(session: TrainingSession, now: number): number {
+  return Math.max(0, Date.parse(session.startedAt) - now);
+}
+
 /** 0..1 through the hour, for a bar that fills. */
 export function drillProgressAt(session: TrainingSession, now: number): number {
   const total = session.durationSeconds * 1000;
@@ -158,9 +230,20 @@ export function drillProgressAt(session: TrainingSession, now: number): number {
   return Math.min(1, Math.max(0, (now - Date.parse(session.startedAt)) / total));
 }
 
-/** Whoever is already busy. One session per person at a time. */
+/** This person's place in the queue, running or waiting. One per person (maintainer, 2026-10-04). */
 export function sessionFor(state: TrainingState, subjectId: string): TrainingSession | undefined {
   return state.sessions.find((session) => session.subjectId === subjectId);
+}
+
+/** Whether the hour has begun, as against waiting its turn in the queue. */
+export function drillUnderway(session: TrainingSession, now: number): boolean {
+  return Date.parse(session.startedAt) <= now;
+}
+
+/** When a drill joining the queue now would begin: as the last one in it ends, or now if it is empty. */
+export function nextDrillStart(state: TrainingState, now: string): string {
+  const last = Math.max(Date.parse(now), ...state.sessions.map(drillEndsAt));
+  return new Date(last).toISOString();
 }
 
 /** Why this session cannot start, or `null` when it can. Player-facing wording. */
@@ -173,14 +256,17 @@ export function trainingBlocker(
   sheet: Attributes,
   now: string,
   extra = 0,
-  /** Benches on the floor: {@link TRAINING_BENCHES} plus what the Professor's track has bought. */
-  benches = TRAINING_BENCHES,
+  /** Places in the queue: {@link TRAINING_QUEUE_SLOTS} plus what the Professor's track has bought. */
+  slots = TRAINING_QUEUE_SLOTS,
 ): TrainingBlocker | null {
   const rolled = rollDay(state, now);
   if (trainingsLeft(rolled, now, extra) <= 0) return 'No sessions left today';
-  if (sessionFor(rolled, subjectId)) return 'Already in a session';
-  // After the per-person check, so someone already drilling reads the more exact refusal.
-  if (rolled.sessions.length >= benches) return 'The floor is taken';
+  const held = sessionFor(rolled, subjectId);
+  if (held) {
+    return drillUnderway(held, Date.parse(now)) ? 'Already in a session' : 'Already in the queue';
+  }
+  // After the per-person check, so someone already on the list reads the more exact refusal.
+  if (rolled.sessions.length >= slots) return 'The queue is full';
   if (rolled.last[subjectId] === attribute) return 'Trained that last time';
   if (sheet[attribute] >= MAX_ATTRIBUTE) return 'Nothing left to learn here';
   return null;
@@ -238,17 +324,40 @@ export function cancelDrill(state: TrainingState, sessionId: string, now: string
    *
    * `rollDay` has already put today's `used` back to zero, and an hour started before the boundary
    * was charged against an allowance that no longer exists: taking one off this one hands the crew
-   * an hour they never spent. Reachable on a second bench (`training_benches`), where a drill
-   * started at 23:57 is still inside its six-minute window at 00:01 and today's counter is already
-   * standing at one.
+   * an hour they never spent. Reachable whenever a drill started at 23:57 is still inside its
+   * six-minute window at 00:01 and today's counter is already standing at one.
+   *
+   * Read off the day it was *queued*, not the day it starts: a drill put on the list at 23:30
+   * behind one ending at 00:20 was charged to the day it was asked for.
    */
-  const spentToday = trainingDay(cancelled.startedAt) === rolled.day;
+  const spentToday = trainingDay(cancelled.queuedAt ?? cancelled.startedAt) === rolled.day;
   return {
     ...rolled,
     used: spentToday ? Math.max(0, rolled.used - 1) : rolled.used,
-    sessions: rolled.sessions.filter((session) => session.id !== sessionId),
+    sessions: closeUpQueue(
+      rolled.sessions.filter((session) => session.id !== sessionId),
+      Date.parse(now),
+    ),
     last,
   };
+}
+
+/**
+ * The queue with the gap a cancel left closed: every drill still waiting starts as the one ahead
+ * of it ends, or now, whichever is later. A drill already under way keeps its clock.
+ */
+function closeUpQueue(sessions: readonly TrainingSession[], now: number): TrainingSession[] {
+  let cursor = now;
+  return [...sessions]
+    .sort((a, b) => Date.parse(a.startedAt) - Date.parse(b.startedAt))
+    .map((session) => {
+      const startedAt = drillUnderway(session, now)
+        ? session.startedAt
+        : new Date(Math.max(cursor, now)).toISOString();
+      const placed = startedAt === session.startedAt ? session : { ...session, startedAt };
+      cursor = Math.max(cursor, drillEndsAt(placed));
+      return placed;
+    });
 }
 
 export function beginTraining(

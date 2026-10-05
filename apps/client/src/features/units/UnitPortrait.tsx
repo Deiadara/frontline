@@ -29,7 +29,7 @@ export function UnitPortrait({
   /**
    * Take the height from the box and work the width out from the aspect, rather than the reverse.
    *
-   * The roster card is a fixed frame so that every Train button lands on the same line, and its
+   * The roster card is a fixed frame so that every Muster button lands on the same line, and its
    * height is a constant. Given that, `h-full` plus the picture's own 3:4 gives a frame that is
    * exactly the shape of the painting: nothing cropped, and no band of card showing above or below
    * it. The two earlier readings each lost one of those, cropping the chin off in one and leaving a

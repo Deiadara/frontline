@@ -79,13 +79,15 @@ const EFFECT_GLYPHS: Readonly<Record<ModificationEffect, string[]>> = {
     'M10 15h4',
   ],
   // A bar with its plates.
-  training_time_reduction: ['M3 10v4', 'M6 8v8', 'M18 8v8', 'M21 10v4', 'M6 12h12'],
+  muster_time_reduction: ['M3 10v4', 'M6 8v8', 'M18 8v8', 'M21 10v4', 'M6 12h12'],
   // A ration tin.
-  training_supplies_reduction: [
+  muster_supplies_reduction: [
     'M4 8h16v10a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2z',
     'M4 8l2-3h12l2 3',
     'M8 13h8',
   ],
+  // A padlock.
+  counter_intel_points: ['M8 11V8a4 4 0 0 1 8 0v3', 'M5 11h14v10H5z', 'M12 15v2'],
 };
 
 const RARITY_GLYPHS: Readonly<Record<ModificationRarity, string[]>> = {

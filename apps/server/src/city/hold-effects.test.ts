@@ -10,9 +10,9 @@ import {
   declarationWindow,
   findLocation,
   findUnit,
-  homeTrainingBonus,
-  trainingCost,
-  trainingSeconds,
+  homeMusterBonus,
+  musterCost,
+  musterSecondsFor,
   skirmishOutcome,
   weatherAt,
   weatherLabels,
@@ -21,8 +21,8 @@ import {
   type BattleTarget,
   type MarketResponse,
   type SkirmishEngine,
-  type TrainingOrder,
-  type TrainUnitsResponse,
+  type MusterOrder,
+  type MusterUnitsResponse,
   type UnitOption,
   type UnitsResponse,
   BUILDING_MAX_LEVEL,
@@ -339,8 +339,8 @@ describe('the Watchtower', () => {
   it('sharpens what a spy brings back about a rival', async () => {
     const stack = await makeStack();
 
-    // A second crew, so there is somebody whose ground can be looked at and whose Consigliere is
-    // what the intel channel has to cut through.
+    // A second crew, so there is somebody whose ground can be looked at and whose Master of
+    // Whispers is what the intel channel has to cut through.
     const registered = await stack.app.inject({
       method: 'POST',
       url: '/api/auth/register',
@@ -352,7 +352,7 @@ describe('the Watchtower', () => {
     const rivalId = rivalBase.json<{ base: { id: string } }>().base.id;
 
     stack.app.repos.bases.updateCommanders(rivalId, [
-      createCommander('rival-consigliere', 'The Ghost', 'consigliere', makeAttributes(70), []),
+      createCommander('rival-whispers', 'The Ghost', 'master_of_whispers', makeAttributes(70), []),
     ]);
 
     const press = stack.app.repos.city.control('steelbelt-press');
@@ -380,6 +380,8 @@ describe('the Watchtower', () => {
       returnsAt: new Date().toISOString(),
       travelMinutes: 0,
       recalledAt: null,
+      chairPoints: null,
+      intelPercent: null,
     };
     const seen = (): number => {
       const base = stack.app.repos.bases.findById(stack.baseId)!;
@@ -483,9 +485,9 @@ describe('the sky a fight happens under', () => {
  * The Doghouse is the only one in the city and it is what puts Cyberhounds on the roster, so it is
  * the whole rule in one location. Measured at both ends the player meets it, because they are two
  * different reads of the same number and either can be wired wrong on its own: the roster's quoted
- * price, and what the training route actually takes out of the stockpile.
+ * price, and what the muster route actually takes out of the stockpile.
  */
-describe('the ground a unit is trained on (§A4)', () => {
+describe('the ground a unit is mustered on (§A4)', () => {
   const KENNELS = 'steelbelt-kennels';
   const HOUNDS = findUnit('cyber_dogs')!;
 
@@ -547,7 +549,7 @@ describe('the ground a unit is trained on (§A4)', () => {
     give(stack, KENNELS, MAX_LOCATION_LEVEL);
 
     const units = await roster(stack);
-    const expected = homeTrainingBonus(HOUNDS, new Map([['doghouse', MAX_LOCATION_LEVEL]]));
+    const expected = homeMusterBonus(HOUNDS, new Map([['doghouse', MAX_LOCATION_LEVEL]]));
     expect(expected.costPercent).toBeGreaterThan(0);
     expect(houndsOn(units).homeCostReduction).toBe(expected.costPercent);
     expect(houndsOn(units).homeSpeedBonus).toBe(expected.speedPercent);
@@ -562,12 +564,12 @@ describe('the ground a unit is trained on (§A4)', () => {
     const plain = await makeStack();
     readyToBreed(plain);
     give(plain, KENNELS, 1);
-    const fresh = await train(plain, HOUNDS.id, 2);
+    const fresh = await muster(plain, HOUNDS.id, 2);
 
     const worked = await makeStack();
     readyToBreed(worked);
     give(worked, KENNELS, MAX_LOCATION_LEVEL);
-    const deep = await train(worked, HOUNDS.id, 2);
+    const deep = await muster(worked, HOUNDS.id, 2);
 
     expect(deep.paid.caps!).toBeLessThan(fresh.paid.caps!);
     expect(deep.durationSeconds).toBeLessThan(fresh.durationSeconds);
@@ -583,28 +585,28 @@ describe('the ground a unit is trained on (§A4)', () => {
     const quoted = houndsOn(page);
     expect(quoted.homeCostReduction).toBeGreaterThan(0);
     expect(deep.paid).toEqual(
-      trainingCost(
+      musterCost(
         HOUNDS,
         2,
-        page.trainingCostReduction + (quoted.homeCostReduction ?? 0),
-        page.trainingSuppliesReduction ?? 0,
+        page.musterCostReduction + (quoted.homeCostReduction ?? 0),
+        page.musterSuppliesReduction ?? 0,
       ),
     );
     expect(deep.durationSeconds).toBe(
-      trainingSeconds(HOUNDS, 2, page.trainingSpeedBonus + (quoted.homeSpeedBonus ?? 0)),
+      musterSecondsFor(HOUNDS, 2, page.musterSpeedBonus + (quoted.homeSpeedBonus ?? 0)),
     );
   });
 
   /** Orders a batch and answers with the row that went on the bench. */
-  async function train(stack: Stack, unitId: string, count: number): Promise<TrainingOrder> {
+  async function muster(stack: Stack, unitId: string, count: number): Promise<MusterOrder> {
     const res = await stack.app.inject({
       method: 'POST',
-      url: '/api/units/train',
+      url: '/api/units/muster',
       headers: auth(stack.token),
       payload: { unitId, count },
     });
     expect(res.statusCode, res.body).toBe(200);
-    const { queue } = res.json<TrainUnitsResponse>();
+    const { queue } = res.json<MusterUnitsResponse>();
     return queue[queue.length - 1]!;
   }
 });
@@ -615,7 +617,7 @@ describe('the ground a unit is trained on (§A4)', () => {
  * `raid_loot_percent` is authored on three modifications and summed by `districtEffects`, and its
  * only reader, `raidLootBonus`, had no caller anywhere in the tree. The raid path sizes its haul
  * from `lootCapacityPercent` on the standing fold, so Haulage Rigs cost a research slot, materials,
- * a Lead Engineer and one of the Garage's three brackets, promised "+22% raid loot", and handed the
+ * a Engineer and one of the Garage's three brackets, promised "+22% raid loot", and handed the
  * raider the same truck.
  *
  * Measured at the fold rather than through a whole raid: this is a wiring assertion, and the

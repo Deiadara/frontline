@@ -46,7 +46,7 @@ const MISSION: Mission = {
 
 function open(mission: Mission) {
   // Signed out, so the queries read the cache below and never reach for the network.
-  useSession.setState({ token: null, user: null });
+  useSession.setState({ signedIn: false, user: null });
   const client = new QueryClient();
   // Only the two fields the sheet and the hook read: the rest of the board is not under test.
   client.setQueryData(['missions', ''], { missions: [mission], justResolved: [] });
@@ -82,6 +82,17 @@ describe('the receipt of a crew coming home', () => {
   it('marks the wasted part on the resource it came out of', () => {
     open(MISSION);
     expect(screen.getByTestId('haul-wasted-scrap').textContent).toBe('15 wasted');
+  });
+
+  // Bug pass, 2026-10-02: `Icon` has no `planks`, so the Planks tile was an empty box.
+  it('draws a glyph on every resource tile, planks included', () => {
+    open({ ...MISSION, rewards: { planks: 40, scrap: 40 }, wasted: {} });
+    for (const kind of ['planks', 'scrap']) {
+      const tile = screen.getByTestId(`haul-${kind}`);
+      // Something drawn: an `<svg>` with nothing inside it is what an unknown icon name renders.
+      const drawn = tile.querySelector('img') ?? tile.querySelector('svg > *');
+      expect(drawn, kind).not.toBeNull();
+    }
   });
 
   it('says nothing about waste when everything fitted', () => {

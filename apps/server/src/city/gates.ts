@@ -1,9 +1,10 @@
 import {
+  chairPassiveOf,
+  type GatePricing,
   CAPTURED_GATE_MAX_LEVEL,
   CAPTURED_GATE_START_LEVEL,
   ALL_DISTRICTS,
   capturedGateDefensePercent,
-  capturedGateIntelResistancePercent,
   CapturedGateSchema,
   capturedGateCost,
   capturedGateRefusal,
@@ -21,9 +22,11 @@ import {
   type PartialResources,
 } from '@frontline/shared';
 import { adminCost, adminSeconds, adminWaives } from '../admin/mode.js';
+import { standingEffectsFor } from '../crew/standing.js';
 import type { Repositories } from '../db/repos/index.js';
 import { creditBase, refuseWaste } from '../district/stores.js';
 import { settleEach } from '../world/guard.js';
+import { tallyGateLevelRaised } from '../feats/tally.js';
 
 /**
  * §B7: the gate on a district a crew has taken whole (maintainer request).
@@ -155,7 +158,13 @@ export function raiseCapturedGate(
 ): RaiseGateResult {
   const holds = holdsDistrictWhole(repos, base.id, districtId);
   const gate = repos.capturedGates.find(districtId) ?? gateFor(repos, districtId);
-  const refusal = capturedGateRefusal({ holdsDistrict: holds, gate, stock: base.resources });
+  const pricing = gatePricingFor(repos, base, now);
+  const refusal = capturedGateRefusal({
+    holdsDistrict: holds,
+    gate,
+    stock: base.resources,
+    pricing,
+  });
   if (refusal && !adminWaives(refusal, admin)) return { kind: 'refused', reason: refusal };
 
   const toLevel = gate.level + 1;
@@ -171,21 +180,37 @@ export function raiseCapturedGate(
    * so a gate ordered inside the two hours keeps its short clock even if the burn runs out first.
    */
   const seconds = adminSeconds(gateRaiseSeconds(base, toLevel, now), admin);
+  const charge = adminCost(capturedGateCost(toLevel, pricing), admin);
   const started: CapturedGate = {
     districtId,
     level: gate.level,
     upgradingTo: toLevel,
     upgradingUntil: new Date(now.getTime() + seconds * 1000).toISOString(),
     upgradingSince: now.toISOString(),
+    upgradePaid: charge,
   };
   const paid = {
     ...base,
-    resources: spendResources(base.resources, adminCost(capturedGateCost(toLevel), admin)),
+    resources: spendResources(base.resources, charge),
   };
 
   repos.capturedGates.put(started);
   repos.bases.updateResources(paid.id, paid.resources);
   return { kind: 'started', gate: started, base: paid };
+}
+
+/**
+ * The crew's discounts on a gate raise (maintainer, 2026-10-05): its home district's build-cost
+ * cards, its own points off a build (the general and the Gate's own), and its Engineer, read the
+ * way a build at home reads them (`district/build.ts`).
+ */
+function gatePricingFor(repos: Repositories, base: Base, now: Date): GatePricing {
+  const effects = standingEffectsFor(repos, base, now);
+  return {
+    buildings: base.buildings,
+    crewCostPercent: effects.buildCostPercent + (effects.buildingCostPercent.gate ?? 0),
+    engineerPercent: chairPassiveOf(effects, 'engineer', 'building_cost'),
+  };
 }
 
 /**
@@ -203,15 +228,27 @@ export function settleCapturedGates(repos: Repositories, now: Date): number {
     due,
     (gate) => gate.districtId,
     (gate) => {
+      const level = gate.upgradingTo ?? gate.level;
       repos.capturedGates.put({
         districtId: gate.districtId,
-        level: gate.upgradingTo ?? gate.level,
+        level,
         upgradingTo: null,
         upgradingUntil: null,
         upgradingSince: null,
       });
+      // P8-C: counted for whoever holds the district whole when the level lands.
+      const holder = wholeHolderOf(repos, gate.districtId);
+      if (holder !== null) tallyGateLevelRaised(repos, holder, level - gate.level);
     },
   );
+}
+
+/** The crew holding every location in this district, or null when nobody does. */
+function wholeHolderOf(repos: Repositories, districtId: string): string | null {
+  const first = findDistrict(districtId)?.locations[0];
+  const holder = first ? repos.city.control(first.id)?.holder : undefined;
+  if (holder?.kind !== 'crew') return null;
+  return holdsDistrictWhole(repos, holder.baseId, districtId) ? holder.baseId : null;
 }
 
 /**
@@ -234,6 +271,7 @@ export function gateRaiseSeconds(base: Base, toLevel: number, now: Date): number
 }
 
 export function capturedGatesFor(repos: Repositories, base: Base, now: Date): CapturedGateView[] {
+  const pricing = gatePricingFor(repos, base, now);
   return districtsHeldWhole(repos, base.id).map((districtId) => {
     const gate = gateFor(repos, districtId);
     const atCeiling = gate.level >= CAPTURED_GATE_MAX_LEVEL;
@@ -242,17 +280,17 @@ export function capturedGatesFor(repos: Repositories, base: Base, now: Date): Ca
       holdsDistrict: true,
       gate,
       stock: base.resources,
+      pricing,
     });
     return {
       districtId,
       districtName: findDistrict(districtId)?.name ?? districtId,
       level: gate.level,
-      nextCost: atCeiling ? null : capturedGateCost(next),
+      nextCost: atCeiling ? null : capturedGateCost(next, pricing),
       nextSeconds: atCeiling ? null : gateRaiseSeconds(base, next, now),
       upgradingUntil: gate.upgradingUntil,
       upgradingSince: gate.upgradingSince,
       defensePercent: capturedGateDefensePercent(gate.level),
-      intelResistancePercent: capturedGateIntelResistancePercent(gate.level),
       refusal: refusal === null ? null : GATE_REFUSALS[refusal],
     };
   });
@@ -295,7 +333,12 @@ export function cancelGateRaise(
   if (!cancelWindowOpen(since, Date.parse(gate.upgradingUntil) - since, now.getTime())) {
     return { kind: 'refused', reason: 'window_closed' };
   }
-  const refund = adminCost(cancelRefund(capturedGateCost(gate.upgradingTo)), admin);
+  // What the order was charged, not the price read again now (2026-10-05): the price takes the
+  // Engineer, and a cut seated for the order and gone by the cancel would refund past the charge.
+  const refund = adminCost(
+    cancelRefund(gate.upgradePaid ?? capturedGateCost(gate.upgradingTo)),
+    admin,
+  );
   const credit = creditBase(repos, base, refund, now);
   refuseWaste(credit, acceptWaste);
   const cleared: CapturedGate = {
@@ -303,6 +346,7 @@ export function cancelGateRaise(
     upgradingTo: null,
     upgradingUntil: null,
     upgradingSince: null,
+    upgradePaid: null,
   };
   const repaid: Base = { ...base, resources: credit.resources };
   repos.capturedGates.put(cleared);

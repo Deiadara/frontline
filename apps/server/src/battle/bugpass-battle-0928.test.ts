@@ -7,11 +7,13 @@ import {
   startingHolder,
   type Army,
   type BattleTarget,
+  type ActionsResponse,
   type BattlesResponse,
   type SkirmishEngine,
 } from '@frontline/shared';
 import type { FastifyInstance } from 'fastify';
 import { afterEach, describe, expect, it } from 'vitest';
+import { armTheAttack } from '../testing/attack.js';
 import { buildApp } from '../app.js';
 import { loadConfig } from '../config.js';
 import { openDatabase, runMigrations, type AppDatabase } from '../db/index.js';
@@ -254,5 +256,53 @@ describe('a Sleeper cell woken into a call', () => {
     };
     expect(await woke(caller)).toBe(true);
     expect(await woke(holder)).toBe(false);
+  });
+});
+
+/*
+ * Bug pass, 2026-10-02: the Monitor offered "Pull them out" on a cell its fight's last hour holds,
+ * and the recall refused it. The row says it is held instead.
+ */
+describe('a cell waiting on ground a fight is about to land on', () => {
+  it('is marked held on the Monitor inside the last hour, and not before', async () => {
+    const { app, db } = await world('attacker');
+    const caller = await register(app, 'caller2', { razors: 20 });
+    const holder = await register(app, 'holder2', { razors: 20 });
+    const bystander = await register(app, 'bystander2', { razors: 5 });
+    const control = app.repos.city.control(SQUATTED)!;
+    app.repos.city.put({
+      ...control,
+      holder: { kind: 'crew', baseId: holder.baseId },
+      garrison: { razors: 5 },
+    });
+    const at = new Date().toISOString();
+    app.repos.sleepers.insert({
+      id: 'watching',
+      baseId: bystander.baseId,
+      locationId: SQUATTED,
+      army: { sleepers: 2 },
+      phase: 'waiting',
+      departedAt: at,
+      arrivesAt: at,
+      travelMs: 60_000,
+    });
+    const battleId = await declare(app, caller, {
+      kind: 'location',
+      districtId: 'steelbelt',
+      locationId: SQUATTED,
+    });
+    // The attack's least commitment, or the lock calls it off (2026-10-05).
+    armTheAttack(app.repos, battleId, caller.baseId);
+
+    const cell = async () =>
+      (await app.inject({ method: 'GET', url: '/api/actions', headers: auth(bystander.token) }))
+        .json<ActionsResponse>()
+        .sleepers.find((one) => one.cellId === 'watching');
+    expect((await cell())?.locked).toBe(false);
+
+    db.prepare('UPDATE scheduled_battles SET scheduled_for = ?').run(
+      new Date(Date.now() + 20 * 60_000).toISOString(),
+    );
+    expect((await cell())?.locked).toBe(true);
   });
 });

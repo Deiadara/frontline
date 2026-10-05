@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { makeAttributes } from '../attributes.js';
-import { liftOfficer, noCrewEffects, peerLift } from './effects.js';
+import { MAX_OFFICER_LIFT, liftOfficer, liftedSheet, noCrewEffects, peerLift } from './effects.js';
 import { PERK_CATALOG } from './perks.js';
 
 /**
@@ -98,5 +98,29 @@ describe('the specialist perk, which has a bar on it', () => {
     const own = makeAttributes(10, { [attribute]: bar - 2 });
     const lifted = liftOfficer(own, lift, { social: 5, mental: 5, physical: 5, technical: 5 });
     expect(lifted[attribute]).toBe(bar - 2 + 5);
+  });
+});
+
+/**
+ * The Overseer's grade lift sits outside the cap (2026-10-04): the player's own passive neither eats
+ * the ten points the teachers, the ground and the Lab share nor is cut by them.
+ */
+describe("the Overseer's lift and the cap", () => {
+  it('lands in full beside a full teacher, and spends none of the room', () => {
+    const own = makeAttributes(20);
+    const { attributes, lift } = liftedSheet(own, [
+      { from: 'the Overseer', attributeFlat: { analysis: 7 }, uncapped: true },
+      { from: 'a teacher', attributeFlat: { analysis: MAX_OFFICER_LIFT } },
+    ]);
+    expect(attributes.analysis).toBe(20 + 7 + MAX_OFFICER_LIFT);
+    expect(lift.map((one) => one.amount)).toEqual([7, MAX_OFFICER_LIFT]);
+  });
+
+  it('still caps everybody else together', () => {
+    const { attributes } = liftedSheet(makeAttributes(20), [
+      { from: 'one', attributeFlat: { analysis: 7 } },
+      { from: 'two', attributeFlat: { analysis: MAX_OFFICER_LIFT } },
+    ]);
+    expect(attributes.analysis).toBe(20 + MAX_OFFICER_LIFT);
   });
 });

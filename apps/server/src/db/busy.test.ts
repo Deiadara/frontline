@@ -8,7 +8,7 @@
  * answers `SQLITE_BUSY` whatever `busy_timeout` says.
  *
  * It was surfaced by a soak that moved a battle's clock through a second connection while five
- * crews were playing: an ordinary `POST /units/train` came back `500 INTERNAL`. Nothing was
+ * crews were playing: an ordinary `POST /units/muster` came back `500 INTERNAL`. Nothing was
  * half-written and nothing was wrong with the request, so 500 is a lie in both directions. It
  * tells the player the game broke, and it tells an uptime check the server is unhealthy, when what
  * happened is that a moment was busy and the press is safe to repeat.
@@ -17,7 +17,7 @@
  * pinning is the interleaving: a fake `SqliteError` would pass against a handler that never sees
  * the real one.
  *
- * The contended call is a **registration**, and that matters. It was `POST /units/train` until
+ * The contended call is a **registration**, and that matters. It was `POST /units/muster` until
  * 2026-09-18, on the argument that an authenticated write reads before it writes and is therefore
  * refused the lock instantly. That stopped being reliable the day the per-structure damage system
  * was retired: the settle walk it leaned on no longer writes when nothing has finished building,

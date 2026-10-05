@@ -239,7 +239,7 @@ test('the board files every report, and opens one on its own window', async ({ p
   // Every exposed unit is a card, the way a battle report's are.
   await expect(report.getByTestId('spy-unit-razors')).toBeVisible();
   await expect(report.getByTestId('spy-unit-ghosts')).toBeVisible();
-  await expect(report.getByTestId('spy-readouts')).toContainText('82%');
+  await expect(report.getByTestId('spy-readouts')).toContainText('About 80%');
   await expect(report.getByTestId('spy-readouts')).toContainText('Roughly 5');
   await expect(report.getByTestId('spy-readouts')).toContainText('Nobody saw them');
   await page.screenshot({ path: 'screenshots/spy-report.png', fullPage: false });
@@ -338,3 +338,72 @@ test('the caller at a shut gate offers Spy, and Spy opens the gate’s window', 
   await expect(window).toBeVisible();
   await expect(window).toContainText('Spy on the gate');
 });
+
+/**
+ * Every state a report can be in, at both widths the game is built for (bug pass, 2026-10-01),
+ * with counts a late crew actually reaches. The board's badge is a fixed box, so a three-figure
+ * count is the case that has to fit, and a failed report from The Whole Wire is the one report
+ * whose readouts are drawn under a body that says nothing.
+ */
+const SPY_STATES = [
+  {
+    ...battles.spyReports[0]!,
+    id: 'spy-state-wide',
+    exposed: { razors: 118, scrapers: 40, ghosts: 26 },
+    exposedSlots: 212,
+    totalSlots: 236,
+    unseen: null,
+  },
+  {
+    ...battles.spyReports[2]!,
+    id: 'spy-state-slots',
+    exposedSlots: 188,
+  },
+  {
+    ...battles.spyReports[1]!,
+    id: 'spy-state-wired',
+    holder: battles.spyReports[0]!.holder,
+    totalSlots: 144,
+  },
+  ...battles.spyReports,
+];
+
+for (const width of [1024, 1280] as const) {
+  test(`every report state reads whole at ${width}`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 768 });
+    await installApi(page, lateGame);
+    await page.route('**/api/battles', (route) =>
+      route.fulfill({ json: { ...battles, spyReports: SPY_STATES } }),
+    );
+    await page.goto('/game/battles');
+    await page.getByTestId('battles-tab-spies').click();
+    await settleFonts(page);
+    await page.waitForTimeout(250);
+    const list = page.getByTestId('spy-reports');
+    await expect(list.locator('li')).toHaveCount(SPY_STATES.length);
+    await expect(page.getByTestId('read-spy-spy-state-slots')).toContainText('188 slots');
+    // The badge is a fixed box: whatever it says has to fit inside it.
+    const cramped = await list.evaluate((ul) =>
+      [...ul.querySelectorAll('button > span:first-child')]
+        .filter((badge) => badge.scrollWidth > badge.clientWidth)
+        .map((badge) => badge.textContent),
+    );
+    expect(cramped, 'a badge wider than its box').toEqual([]);
+    await expectNothingOverflowsTheScreen(page);
+    await page.screenshot({ path: `screenshots/spy-states-${width}.png`, fullPage: false });
+
+    for (const report of SPY_STATES) {
+      await page.getByTestId(`read-spy-${report.id}`).click();
+      const window = page.getByTestId('spy-report');
+      await expect(window).toBeVisible();
+      if (report.id === 'spy-state-wired') {
+        await expect(window.getByTestId('spy-failed')).toBeVisible();
+        await expect(window.getByTestId('spy-readouts')).toContainText('144 unit slots');
+      }
+      await expectNothingOverflowsTheScreen(page);
+      await page.screenshot({ path: `screenshots/spy-state-${report.id}-${width}.png` });
+      await window.getByRole('button', { name: 'Close' }).click();
+      await expect(window).toHaveCount(0);
+    }
+  });
+}

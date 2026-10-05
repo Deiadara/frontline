@@ -1,11 +1,12 @@
 import { randomUUID } from 'node:crypto';
 import {
   OVERSEER_SUBJECT,
+  PRIVATE_CHANNELS,
   StartTrainingRequestSchema,
-  TRAINING_BENCHES,
+  TRAINING_QUEUE_SLOTS,
   TRAINING_SECONDS,
   beginTraining,
-  crewSheet,
+  nextDrillStart,
   trainingBlocker,
   type Base,
   type CrewStandingResponse,
@@ -17,9 +18,16 @@ import {
 } from '@frontline/shared';
 import type { FastifyInstance } from 'fastify';
 import { requireAreaFor } from '../progression/doors.js';
-import { projectTraining, settleTrainingFor } from '../crew/training.js';
-import { tallyDrillPaired } from '../feats/tally.js';
-import { crewEffectsFor, crewSheetsFor } from '../crew/standing.js';
+import {
+  drillSecondsBySubject,
+  officerMarksBySubject,
+  projectTraining,
+  settleTrainingFor,
+} from '../crew/training.js';
+import { tallyDrillThirdInLine } from '../feats/tally.js';
+import { chairLinesFor, crewEffectsFor, officerFitReader } from '../crew/standing.js';
+import { chairLineContext } from '../crew/roster.js';
+import { ledgerFor } from '../bar/hire.js';
 import { AppError, parseBody } from '../errors.js';
 import { standingEffectsFor } from '../crew/standing.js';
 import { settledOwnBase } from './own-base.js';
@@ -35,9 +43,9 @@ function extraSessionsFor(app: FastifyInstance, base: Base): number {
   return standingEffectsFor(app.repos, base).extraTrainingSessions;
 }
 
-/** How many people may drill at once: one, plus the Professor's Second Chair. Same rule as above. */
-function benchesFor(app: FastifyInstance, base: Base): number {
-  return TRAINING_BENCHES + standingEffectsFor(app.repos, base).trainingBenchesFlat;
+/** How many drills the queue holds: two, plus the Professor's Second Chair. Same rule as above. */
+function queueSlotsFor(app: FastifyInstance, base: Base): number {
+  return TRAINING_QUEUE_SLOTS + standingEffectsFor(app.repos, base).trainingQueueFlat;
 }
 
 /**
@@ -64,7 +72,7 @@ export function registerTrainingRoutes(app: FastifyInstance): void {
         now,
       );
       const session = base.training.sessions.find((held) => held.id === sessionId);
-      if (!session) throw new AppError('NOT_FOUND', 'No drill by that name is running');
+      if (!session) throw new AppError('NOT_FOUND', 'No drill by that name is on the floor');
       if (!drillCancellable(session, now)) {
         throw new AppError('TRAINING_REFUSED', 'The hour has gone too far to stop');
       }
@@ -75,7 +83,9 @@ export function registerTrainingRoutes(app: FastifyInstance): void {
         overseer,
         now,
         extraSessionsFor(app, base),
-        benchesFor(app, base),
+        queueSlotsFor(app, base),
+        drillSecondsBySubject(app.repos, base, overseer, new Date(now)),
+        officerMarksBySubject(app.repos, base, new Date(now)),
       );
     })();
   });
@@ -90,7 +100,9 @@ export function registerTrainingRoutes(app: FastifyInstance): void {
       settled.overseer,
       now,
       extraSessionsFor(app, settled.base),
-      benchesFor(app, settled.base),
+      queueSlotsFor(app, settled.base),
+      drillSecondsBySubject(app.repos, settled.base, settled.overseer, new Date(now)),
+      officerMarksBySubject(app.repos, settled.base, new Date(now)),
     );
   });
 
@@ -120,21 +132,29 @@ export function registerTrainingRoutes(app: FastifyInstance): void {
         sheet,
         now,
         extraSessionsFor(app, base),
-        benchesFor(app, base),
+        queueSlotsFor(app, base),
       );
       // The wording is the same one the tab already shows against the disabled button, so a player
       // who somehow gets past the client reads the same sentence rather than a second vocabulary.
       if (blocker !== null) throw new AppError('TRAINING_REFUSED', blocker);
-      // Counted off the settled book, before this one is added: a drill beside a running one.
-      if (base.training.sessions.length > 0) tallyDrillPaired(app.repos, base.id);
+      // Counted off the settled book, before this one is added: the third place, which only the
+      // Professor's Second Chair opens.
+      if (base.training.sessions.length >= TRAINING_QUEUE_SLOTS) {
+        tallyDrillThirdInLine(app.repos, base.id);
+      }
 
+      // This person's own hour, off their lifted sheet (maintainer, 2026-10-01), frozen on the
+      // session: the settle, the countdown and the cancel window all read `durationSeconds`.
+      const seconds = drillSecondsBySubject(app.repos, base, overseer, new Date(now));
       const session: TrainingSession = {
         id: randomUUID(),
         subjectId,
         attribute,
-        startedAt: now,
+        // Behind whatever is already on the list: the floor runs one drill at a time.
+        startedAt: nextDrillStart(base.training, now),
+        queuedAt: now,
         // Five seconds in admin mode, like every other clock (maintainer ruling, 2026-09-29).
-        durationSeconds: adminSeconds(TRAINING_SECONDS, app.config.admin),
+        durationSeconds: adminSeconds(seconds.get(subjectId) ?? TRAINING_SECONDS, app.config.admin),
       };
       const training = beginTraining(base.training, session, now);
       app.repos.bases.updateTraining(base.id, training, base.commanders);
@@ -143,7 +163,9 @@ export function registerTrainingRoutes(app: FastifyInstance): void {
         overseer,
         now,
         extraSessionsFor(app, base),
-        benchesFor(app, base),
+        queueSlotsFor(app, base),
+        seconds,
+        officerMarksBySubject(app.repos, base, new Date(now)),
       );
     })();
   });
@@ -162,22 +184,32 @@ export function registerTrainingRoutes(app: FastifyInstance): void {
     )();
     if (!settled.overseer) throw new AppError('NOT_FOUND', 'You have not chosen an overseer yet');
 
-    const sheet = crewSheet(crewSheetsFor(app.repos, settled.base));
-    // The whole crew fold, not the sheet's ten channels alone. `effectsOfSheet` writes only what
-    // attributes drive, so every perk-only channel on this response was structurally zero: the
-    // district panel quoted the payroll step at full price and greyed a button `POST /bar/payroll`
-    // would have taken, and the crew effects page listed thirteen channels as dormant for ever.
+    // What each working chair gives, and the Overseer's own grade (maintainer, 2026-10-04).
+    const { chairs, overseerGrade } = chairLinesFor(
+      app.repos,
+      settled.base,
+      new Date(now),
+      chairLineContext(app.repos, settled.base, officerFitReader(app.repos, settled.base)),
+    );
+    // The whole crew fold: perks, the Lab and the rank. Attributes stopped landing on it when the
+    // chairs took over (2026-10-04).
     const effects = crewEffectsFor(app.repos, settled.base);
+    // The ground's and the raid modifications' share as well: what a job's return is paid off.
+    const standing = standingEffectsFor(app.repos, settled.base, new Date(now));
     return {
       overseer: settled.overseer,
-      crewSheet: sheet,
+      chairs,
+      overseerGrade,
+      payroll: ledgerFor(settled.base, effects),
       // Every numeric channel of the fold, not the `EFFECT_CHANNELS` list: that list is the sheet's
       // twenty-two, and the perk-only channels (`payrollStepDiscountPercent` among them) are not on
       // it, so filtering by it dropped exactly the figures this response exists to carry. `perHour`
       // is a resource map rather than a number and is the one thing the filter keeps out.
+      // ...less the two spy totals, which are not public (maintainer, 2026-10-01).
       effects: Object.fromEntries(
         Object.entries(effects).filter(
-          (entry): entry is [string, number] => typeof entry[1] === 'number',
+          (entry): entry is [string, number] =>
+            typeof entry[1] === 'number' && !PRIVATE_CHANNELS.has(entry[0]),
         ),
       ),
       // Beside the numbers rather than inside them: the screens that quote a haul need to know
@@ -186,7 +218,8 @@ export function registerTrainingRoutes(app: FastifyInstance): void {
       // ...and the bag the settle actually pays, off the standing fold. See the note on the
       // schema: `effects` is people-only on purpose, and a held Pawn Shop and the three raid
       // modifications are worth up to 83 points that a board reading `effects` never quoted.
-      haulPercent: standingEffectsFor(app.repos, settled.base, new Date(now)).lootCapacityPercent,
+      haulPercent: standing.lootCapacityPercent,
+      missionCapsPercent: standing.missionCapsPercent,
     };
   });
 }

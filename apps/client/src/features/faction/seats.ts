@@ -1,4 +1,4 @@
-import { SEAT_SLOT_ORDER, seatOrder, type FactionMember } from '@frontline/shared';
+import { CARD_BY_SLOT, seatOrder, type FactionMember } from '@frontline/shared';
 
 /**
  * Where the five plates hang in the back room, as fractions of the room's painting.
@@ -69,32 +69,21 @@ export function platesOverlap(
 }
 
 /**
- * Who is in which slot: the leader in the middle, the table filling outward in rank order, and the
- * room left at the ends. The slot order is shared with the server (`SEAT_SLOT_ORDER`), which deals
- * the cards off it.
- *
- * `null` is an empty place rather than an absent one, so the room always draws five and a table of
- * two reads as a table with three seats going spare. The rank order is `seatOrder`'s, which is the
- * same pecking order the roster is listed in.
+ * Who is in which slot: each member at the slot of the card the server dealt them, so a seat the
+ * leader set (P3-C, 2026-10-02) is the seat drawn. `null` is an empty place rather than an absent
+ * one, so the room always draws five and a table of two reads as a table with three seats spare.
  */
 export function seated(members: readonly FactionMember[]): readonly (FactionMember | null)[] {
-  const inOrder = seatOrder(members);
   const slots: (FactionMember | null)[] = SEAT_PLACES.map(() => null);
-  inOrder.slice(0, SEAT_PLACES.length).forEach((member, rank) => {
-    const slot = SEAT_SLOT_ORDER[rank];
-    if (slot !== undefined) slots[slot] = member;
-  });
+  for (const member of seatOrder(members)) {
+    const slot = CARD_BY_SLOT.indexOf(member.card);
+    if (slot >= 0 && slots[slot] === null) slots[slot] = member;
+  }
   return slots;
 }
 
-/**
- * Anybody the room has no chair for.
- *
- * Unreachable while the cap holds (`MAX_FACTION_MEMBERS` is enforced by the join path and the
- * invite path both), and drawn anyway: a member the room cannot seat must not be a member the
- * screen never mentions. The Members door lists them from the payload, so this is only about the
- * picture being honest that it is short of chairs.
- */
+/** Anybody past the fifth chair: listed, but with no plate in the row. */
 export function unseated(members: readonly FactionMember[]): readonly FactionMember[] {
-  return seatOrder(members).slice(SEAT_PLACES.length);
+  const drawn = new Set(seated(members).flatMap((member) => (member ? [member.userId] : [])));
+  return seatOrder(members).filter((member) => !drawn.has(member.userId));
 }

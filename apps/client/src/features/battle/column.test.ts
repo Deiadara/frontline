@@ -6,7 +6,7 @@ import {
   unitColumnSpeed,
 } from '@frontline/shared';
 import { describe, expect, it } from 'vitest';
-import { readColumn } from './column';
+import { heldToLine, readColumn } from './column';
 
 /**
  * Who a column is waiting for (§C3).
@@ -253,5 +253,15 @@ describe('readColumn', () => {
     );
     expect(rigged.speed).toEqual(bike?.speed);
     expect(rigged.heldBy).toEqual(`${bike?.name}`);
+  });
+});
+
+// Bug pass, 2026-10-02: a speed bonus multiplies the pace, and the line printed the float.
+describe('heldToLine', () => {
+  it('prints the pace whole', () => {
+    expect(heldToLine({ speed: 50.400000000000006, heldBy: '12 Razors walking' })).toBe(
+      'Held to 50 by 12 Razors walking',
+    );
+    expect(heldToLine({ speed: 72.80000000000001, heldBy: null })).toBe('Rides at 73');
   });
 });

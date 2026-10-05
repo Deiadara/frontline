@@ -107,7 +107,7 @@ async function makeStack(winner: 'attacker' | 'defender' = 'attacker'): Promise<
   // Razors on the books, explicitly: a new crew is handed Scavengers and no fighters
   // (`crew/starting.ts`, 2026-09-23), and every count below is of Razors sent and returned.
   const armed = app.repos.bases.findById(baseId)!;
-  app.repos.bases.updateArmy(baseId, { ...armed.army, razors: 20 }, armed.trainingQueue);
+  app.repos.bases.updateArmy(baseId, { ...armed.army, razors: 20 }, armed.musterQueue);
 
   // One location off the looters, so the Rustyard's gate is no longer armed and a location can be called.
   const control = app.repos.city.control('steelbelt-bonefield');

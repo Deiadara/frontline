@@ -86,6 +86,27 @@ describe('a column put on the ground', () => {
     settleMovements(world.app.repos, new Date(column.arrivesAt));
     expect(read(world, caller, 'bodies_deployed')).toBe(20);
     expect(read(world, caller, 'supply_deployed')).toBe(unitSlotsUsed({ razors: 20 }));
+
+    /*
+     * Pulled off and sent again, the same twenty count once (maintainer, 2026-10-02): a raid on a
+     * crew's own district gives them back at once, and the loop cleared the top rung in a day.
+     * Taken off the row here the way a withdrawal leaves it, and handed back to the roster.
+     */
+    const row = world.app.repos.sieges.deployment(battleId, 'attacker', caller.baseId)!;
+    world.app.repos.sieges.putDeployment({ ...row, army: {} });
+    const home = world.app.repos.bases.findById(caller.baseId)!;
+    world.app.repos.bases.updateArmy(
+      caller.baseId,
+      { ...home.army, razors: (home.army.razors ?? 0) + 20 },
+      home.musterQueue,
+    );
+    const again = await send(20);
+    settleMovements(world.app.repos, new Date(again.arrivesAt));
+    expect(read(world, caller, 'bodies_deployed'), 'the same twenty, twice').toBe(20);
+    // ...and a bigger column than the peak counts only what it adds.
+    const more = await send(5);
+    settleMovements(world.app.repos, new Date(more.arrivesAt));
+    expect(read(world, caller, 'bodies_deployed')).toBe(25);
   });
 });
 

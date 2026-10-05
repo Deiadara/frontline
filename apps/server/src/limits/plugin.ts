@@ -1,5 +1,6 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { LIMIT_SWEEP_MS, RateLimiter } from './bucket.js';
+import { presentedSession } from '../auth/session.js';
 import { countsByAddress, ruleFor } from './rules.js';
 
 /**
@@ -69,10 +70,11 @@ export function registerRateLimits(app: FastifyInstance, limiter = new RateLimit
  * is the cost `PASSWORD_PATHS` puts them on the sign-in budget to stop.
  */
 function callerOf(app: FastifyInstance, request: FastifyRequest): string {
-  const header = request.headers.authorization;
-  if (header?.startsWith('Bearer ')) {
+  // The cookie or the Bearer header, whichever the request carries: the account is the same.
+  const presented = presentedSession(request);
+  if (presented) {
     try {
-      const payload = app.jwt.verify<{ sub?: string; ver?: number }>(header.slice(7));
+      const payload = app.jwt.verify<{ sub?: string; ver?: number }>(presented.token);
       if (payload.sub && payload.ver === app.repos.users.sessionVersion(payload.sub)) {
         return `user:${payload.sub}`;
       }

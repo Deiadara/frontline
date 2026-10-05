@@ -105,7 +105,7 @@ async function world(count: number, options: { level?: number } = {}): Promise<W
       scrap: 2_000,
     });
     app.repos.bases.updateEconomy(baseId, { ...base.economy, infamy: DECLARE_INFAMY_COST * 20 });
-    app.repos.bases.updateArmy(baseId, { ...base.army, razors: 40 }, base.trainingQueue);
+    app.repos.bases.updateArmy(baseId, { ...base.army, razors: 40 }, base.musterQueue);
     // Past the opening ramp when a test needs real road: a new crew's first jobs run on a
     // compressed clock (`earlyMissionRamp`), which can round a short walk down to nothing.
     if (options.level !== undefined) {
@@ -485,7 +485,7 @@ describe('a busy evening', () => {
           await as(w, p, 'POST', '/api/missions/recall', { missionId: one(active).mission.id });
         }
       } else if (roll < 0.5) {
-        await as(w, p, 'POST', '/api/units/train', {
+        await as(w, p, 'POST', '/api/units/muster', {
           unitId: 'razors',
           count: 1 + Math.floor(rand() * 3),
         });

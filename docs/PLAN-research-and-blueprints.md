@@ -71,8 +71,8 @@ player reads.
 
 - [x] C1a. Research is split into **tracks, one per officer role**.
 - [x] C1b. A track can only be progressed while the crew has the **corresponding officer** for it.
-- [x] C1c. **A Head of Research is required for everything**, on every track.
-- [x] C1d. Both sheets matter: the Head of Research's skills affect the track, and so do the
+- [x] C1c. **A Researcher is required for everything**, on every track.
+- [x] C1d. Both sheets matter: the Researcher's skills affect the track, and so do the
       corresponding officer's.
 - [x] C1e. Each track has **10 things to research**.
 
@@ -82,12 +82,12 @@ player reads.
 - [x] C2b. The requirement is not harsh early and gets harder late.
 - [x] C2c. The curve does not have to be linear.
 - [x] C2d. The highest requirement any level may ask for is **S**, never S+.
-- [x] C2e. The Head of Research has a minimum mark of their own, required at thresholds: **after the
+- [x] C2e. The Researcher has a minimum mark of their own, required at thresholds: **after the
       3rd, 5th and 7th** item of each track.
 
 ### C3. Numbers
 
-- [x] C3a. The Head of Research's **points** cut the time every research takes, by a percentage
+- [x] C3a. The Researcher's **points** cut the time every research takes, by a percentage
       derived from those points.
 - [x] C3b. Marks are thresholds and player-facing communication only. **Every actual bonus reads the
       points**, so training one attribute moves the number even slightly.
@@ -191,7 +191,7 @@ player reads.
 ## G. Duplicates and Reimagining
 
 - [x] G1. **Reimagining** is a research item.
-- [x] G2. With Reimagining researched **and** a Head of Research in post, the Blueprints page
+- [x] G2. With Reimagining researched **and** a Researcher in post, the Blueprints page
       offers a trade: consume **3 pages**, receive **1 page you do not already own**, guaranteed.
       The rule is written and tested (`reimagine`, `reimaginingRefusal`, `unseenPages`): it spends
       the most duplicated pages first, so it never breaks into a set the player is one short of,
@@ -202,7 +202,7 @@ player reads.
       drawn without regard to category.
 - [x] G4. The section is on the Blueprints page even when it is not available, shown locked,
       stating the requirements. Built with section D; `BlueprintsPage.test.tsx` checks it names
-      both a Head of Research and the Reimagining research with nothing held.
+      both a Researcher and the Reimagining research with nothing held.
 
 ---
 
@@ -320,7 +320,7 @@ Four checks, three findings.
 3. **New payload fields are all actually rendered**: `pageWon`, `pagePrize`, `reimagining`, `mark`,
    `timeCutPercent`, `costCutPercent`. None is computed and dropped.
 4. **Refusal paths. Found:** a server refusal on the Reimagining trade was silent. `unlock.error`
-   had a banner and `trade.error` did not, so a crew whose Head of Research was unseated in another
+   had a banner and `trade.error` did not, so a crew whose Researcher was unseated in another
    tab pressed the button and watched nothing happen. Fixed, and the message goes through the
    wording map so the player never reads `not_available`. The same defect exists on the **Unlock**
    button (`unlockRefusal` returns machine names and the banner prints them raw); handed to the
@@ -509,8 +509,9 @@ Status key as above. `[call]` marks a reading of the brief that was not spelled 
       `trap`; building one adds it to the inventory, not to a shelf.
 - [x] I4b. Each trap has a **blueprint document** (consumable category, 2 to 4 pages) and the
       existing Lab rung (`requiresTech`). `[call]` Both gate the build: the brief says "researched /
-      be a blueprint first", and the Head of Security track's rungs already name these traps as what
-      they unlock.
+      be a blueprint first", and the Veteran track's rungs already name these traps as what
+      they unlock. **Superseded 2026-10-01:** the blueprint alone opens a trap ("have the traps just
+      be unlocked by blueprints"); `requiresTech` is gone and the seven rungs pay a universal bonus.
 - [x] I4c. On a fight this crew is **defending**, beside the one boost, the crew can set **one
       trap**, chosen from the traps it holds. `trapId` lives on the deployment row beside
       `boostId`. Free to change up to the mark; nothing is spent by naming it.
@@ -885,7 +886,8 @@ officers, and keep percentages where a percentage is the honest shape.
       further, vision, syringes, training sessions, one structure cheaper, the Gate and the whole
       district, allied offence, infamy, experience) plus three grants no perk makes:
       `mission_slots` (another crew out on a job at once), `recruit_slots` (another chair at the
-      Bar) and `declarations` (another fight called at once). The `magnitude` curve is gone: each
+      Bar, retired 2026-10-01 with research officer slots) and `declarations` (another fight called
+      at once). The `magnitude` curve is gone: each
       rung's number is authored. `researchEffects` returns a whole `CrewEffects` and is folded by
       `mergeCrewEffects` (new, walks the whole crew struct) in both standing folds, so every
       consumer of a crew's standing sees a tier's armour or a chair the same way it sees a
@@ -1159,14 +1161,14 @@ Nineteen tracks, one per `OFFICER_ROLE`, ten rungs each (190 items) in
 beside it, and `research/tech.ts` is now a one-line alias so `battle/traps.ts`, `battle/boosts.ts`
 and `crew/standing.ts` did not have to move.
 
-A rung is a project on the Lab's one bench, not an outright purchase. C3a asks the Head of
-Research's points to cut the time, and a programme that lands the moment it is paid for has no time
+A rung is a project on the Lab's one bench, not an outright purchase. C3a asks the Researcher
+'s points to cut the time, and a programme that lands the moment it is paid for has no time
 to cut.
 
 The mark ladder over the rungs runs `F- F F+ E- E+ D C B A S`, gaps of 1,1,1,2,2,3,3,3,3: convex,
 and topping out at `S` exactly. The measured recruitment median is 20.77, which is `F+`, so the
 first three rungs of every track are open to a crew that has just hired somebody and rung 4 is the
-first refusal. The Head of Research's own thresholds start at rungs 4, 6 and 8, always one band
+first refusal. The Researcher's own thresholds start at rungs 4, 6 and 8, always one band
 above the track requirement at the rung where each starts, so neither sheet is decoration.
 
 Both bonuses read points, never the letter: `researchTimeCutPercent` is `(points-10)/90*45` and the
@@ -1332,7 +1334,7 @@ own tooltip still in nine places, one tooltip nothing could open, and two browse
       SVG `<title>`, which browsers draw as an OS tooltip over every seat; the `aria-label` still
       names it.
 - [x] Y2. `MarkStamp` carried a `title` on a `pointer-events-none` span: a tooltip on an element
-      the pointer passes through, so "Head of Research: C+" had never once shown. It is a
+      the pointer passes through, so "Researcher: C+" had never once shown. It is a
       `data-tip` on a span that takes the pointer now (clicks still reach the card under it), and
       the prop is `tip`.
 - [x] Y3. `TooltipLayer` sets a sentence in the body face. A name ("Battles", "Bed Plating") stays
@@ -2219,7 +2221,8 @@ numbers, the rule-changing refits arriving as rungs and holdings instead.
 - [x] AL9. **The Broker does not touch caps.** Materials for materials only, either way round:
       the shared list drops caps (a seventh material joins on its own), the server refuses a
       trade naming caps in the player's words, and the pickers offer five tiles. Pinned in shared
-      and over HTTP, the server check watched failing.
+      and over HTTP, the server check watched failing. Superseded 2026-10-01: the Broker trades
+      caps both ways at his usual cut (`BARTER_RESOURCES` in `market/vendor.ts`).
 - [x] AL5. A flaky gate found and fixed on the way: the market's washed-out sweep screenshotted
       the first sheet on the page, which is the loading sheet now and is replaced a frame later.
       It waits for the barrow.
@@ -2350,7 +2353,7 @@ The research screen, by agent, reviewed:
       screen's own furniture: a drafting grid behind the rows, index tabs on the drawers, a tick
       box, the stamp.
 - [x] AP6. **Reimagining as its own tab**, with the board's new line, a lock and one sentence
-      while the crew lacks the Head of Research or the research, and otherwise a machine: three
+      while the crew lacks the Researcher or the research, and otherwise a machine: three
       sockets in a triangle the player fills from a tray of the pages they hold (a page as many
       times as it is held), an outfeed for the result, a lever that lights on the third page,
       and an animation that draws the sheets into the gearing and flashes the new page out. The
@@ -2516,10 +2519,10 @@ has two nested scrollers, the crew list's cap predating the round.
 - [x] AU3. **No counts on Blueprints and Reimagining** (by agent, reviewed). Programmes keeps its
       rungs; the other two tabs are their label alone, and the page no longer reads the inventory
       for them. Pinned as exact label text plus no request to the market.
-- [x] AU4. **The locked Reimagining bench is a door** (by agent, reviewed). No Head of Research:
-      `Hire a Head of Research at the Bar`, to the Bar, because without the chair every rung on
+- [x] AU4. **The locked Reimagining bench is a door** (by agent, reviewed). No Researcher:
+      `Hire a Researcher at the Bar`, to the Bar, because without the chair every rung on
       the track is shut. Chair but no rung: `Research it on the Fabricator's track`, to the
-      Programmes tab with that trade open. The brief had the rung on the Head of Research's
+      Programmes tab with that trade open. The brief had the rung on the Researcher's
       track; it is the sixth rung of the Fabricator's, so both the track and the label are read
       off the rung rather than written down, and a test pins the track. The Programmes tab
       gained `?track=<role>` so a door can land on a trade; unknown values fall back to the

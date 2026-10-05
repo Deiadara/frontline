@@ -27,3 +27,20 @@ describe('a passed table, in one sentence', () => {
     );
   });
 });
+
+/** A won table in plain caps (maintainer, 2026-10-01: "Remove everywhere the per week wording"). */
+describe('a won table, in one sentence', () => {
+  it('says what they signed for, in caps', () => {
+    expect(
+      resultLine({
+        day: '2026-08-13',
+        recruitId: 'bar-2026-08-13-0-0',
+        name: 'Zoya Lindqvist',
+        outcome: 'won',
+        yourFinal: 1200,
+        price: 1200,
+        winner: null,
+      }),
+    ).toBe('Yours at 1,200 caps.');
+  });
+});

@@ -77,10 +77,6 @@ const stackOf = (side: Simulation['attacker'], unitId: string): Stack => {
   return found;
 };
 
-/** Units a side lost, which is the figure every mark below is measured on. */
-const lost = (side: Simulation['attacker']): number =>
-  side.stacks.reduce((total, stack) => total + (stack.started - stack.alive), 0);
-
 describe('Collective: massing one sheet is worth something', () => {
   it('pays nothing for the first unit and approaches the asymptote without reaching it', () => {
     expect(packBonusPercent(0)).toBe(0);
@@ -217,31 +213,17 @@ describe('Opening Volley: a shot away before the lines form', () => {
    * rule is a second ambush with a different name.
    */
   it('works for the defender, which an ambush never does', () => {
-    // Summed over eight seeds rather than read off one (2026-09-21): a single seed is one draw
-    // of the round luck, and the volley is worth about a body a fight, which one draw can hide.
-    const seeds = [
-      'first-1',
-      'first-2',
-      'first-3',
-      'first-4',
-      'first-5',
-      'first-6',
-      'first-7',
-      'first-8',
-    ];
-    const armed = seeds.reduce(
-      (n, seed) => n + lost(fight({ razors: 40 }, { snipers: 20 }, seed).attacker),
-      0,
-    );
-    const quiet = seeds.reduce(
-      (n, seed) =>
-        n +
-        lost(
-          withoutMark('snipers', 'strikes_first', () =>
-            fight({ razors: 40 }, { snipers: 20 }, seed),
-          ).attacker,
-        ),
-      0,
+    // Measured on wins, not on the attackers' dead (2026-10-05): with morale reading wounds, a
+    // volley that softens the attack makes it break and run sooner, so fewer of it die and more of
+    // it lose. 300 seeds: the snipers hold 300 with the volley and 197 without.
+    const seeds = Array.from({ length: 40 }, (_, i) => `first-${i}`);
+    const held = (run: () => ReturnType<typeof fight>[]) =>
+      run().filter((one) => one.winner === 'defender').length;
+    const armed = held(() => seeds.map((seed) => fight({ razors: 40 }, { snipers: 20 }, seed)));
+    const quiet = held(() =>
+      withoutMark('snipers', 'strikes_first', () =>
+        seeds.map((seed) => fight({ razors: 40 }, { snipers: 20 }, seed)),
+      ),
     );
     expect(armed).toBeGreaterThan(quiet);
   });
@@ -256,32 +238,42 @@ describe('Holds the Line: it does not run while over half of it stands', () => {
   });
 
   /**
-   * The end-to-end case, and it is a *found* one rather than a constructed one: this exact matchup
-   * and seed break the Wardens without the mark and hold them with it. Pinning a case the rule
-   * actually changes is the only way this test can fail when the engine stops reading the flag.
+   * End to end, swept over seeds rather than pinned on one. The single found seed this used to be
+   * expired three times, most recently on 2026-10-02 when being outnumbered started counting unit
+   * slots: 40 Wardens (80 slots) stopped feeling outnumbered three to one by 120 Razors. Measured
+   * that day at 40 points of morale down: without the mark the Wardens break on 30 seeds of 30,
+   * with it on none, and the mark never breaks a line that held without it.
    */
   it('holds a stack the same fight breaks without the mark', () => {
-    // Found again on 2026-09-21, after the morale retune: a line now breaks from what it has
-    // lost rather than from a clock, so Wardens at their own morale no longer rout with half of
-    // them standing. Started 25 points down, they do, and the mark is what keeps them there.
-    const shaken = (): Simulation =>
+    const SEEDS = 30;
+    const shaken = (seed: string) => (): Simulation =>
       simulate({
-        seed: 'stalwart-1',
+        seed,
         battlefield: bareBattlefield(),
         attacker: { name: 'A', army: { razors: 120 }, defending: false },
         defender: {
           name: 'D',
           army: { wardens: 40 },
           defending: true,
-          territory: { ...noTerritoryEffects(), unitMoraleFlat: -25 },
+          territory: { ...noTerritoryEffects(), unitMoraleFlat: -40 },
         },
       });
-    const held = shaken();
-    const broken = withoutMark('wardens', 'stalwart', shaken);
-    expect(stackOf(broken.defender, 'wardens').brokeAt).not.toBeNull();
-    expect(stackOf(held.defender, 'wardens').brokeAt).toBeNull();
-    // ...and it is holding for the stated reason, not because nothing was shooting at it.
-    expect(holdsTheLine(stackOf(held.defender, 'wardens'))).toBe(true);
+    let saved = 0;
+    for (let i = 0; i < SEEDS; i += 1) {
+      const held = stackOf(shaken(`stalwart-${i}`)().defender, 'wardens');
+      const broken = stackOf(
+        withoutMark('wardens', 'stalwart', shaken(`stalwart-${i}`)).defender,
+        'wardens',
+      );
+      // Never harms: a line that held without the mark holds with it.
+      if (broken.brokeAt === null) expect(held.brokeAt, `seed ${i}`).toBeNull();
+      if (broken.brokeAt !== null && held.brokeAt === null) {
+        saved += 1;
+        // ...and it is holding for the stated reason, not because nothing was shooting at it.
+        expect(holdsTheLine(held), `seed ${i}`).toBe(true);
+      }
+    }
+    expect(saved).toBeGreaterThanOrEqual(SEEDS * 0.8);
   });
 
   it('never leaves a stalwart stack broken while over half of it is standing', () => {

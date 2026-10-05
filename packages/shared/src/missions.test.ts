@@ -2,17 +2,20 @@ import { describe, expect, it } from 'vitest';
 import {
   BUNDLE_VALUE,
   GRADES,
+  capsTilted,
   canRecall,
   recallWindowMs,
+  FAILED_MISSION_XP_SHARE,
   FAILURE_REWARD_SHARE,
   GOVERNMENT,
-  KIND_REWARD_MULTIPLIER,
+  kindPayFactor,
   MISSION_MAX_DURATION_MINUTES,
   MISSION_MIN_DURATION_MINUTES,
   MISSION_TEMPLATES,
   MissionTemplateSchema,
   REWARD_BASELINE_MINUTES,
   TRAVEL_BAND_MINUTES,
+  fightPremiumPercent,
   findMissionTemplate,
   formatCountdown,
   formatDuration,
@@ -186,7 +189,8 @@ describe('the road leg (§C3)', () => {
    * ladder bought nothing over a Gas Balloon. The road has its own ceiling, twice as high.
    */
   it('lets a machine past the job cap, and stops at the road cap', () => {
-    expect(hastenedMinutes(60, 52)).toBe(40);
+    // 52 points bend to about 44 on the job leg (2026-10-05): 60 / 1.44 is 42.
+    expect(hastenedMinutes(60, 52)).toBe(42);
     expect(hastenedRoadMinutes(60, 52)).toBe(39);
     expect(hastenedRoadMinutes(60, 100)).toBe(30);
     expect(hastenedRoadMinutes(60, 150)).toBe(30);
@@ -214,11 +218,14 @@ describe('reward scaling (§E5)', () => {
     expect(rewardScale(REWARD_BASELINE_MINUTES, 'standard', 'F-')).toBe(1);
   });
 
-  it('pays a battle more than standard work for identical time', () => {
-    expect(rewardScale(120, 'battle', 'F-')).toBeGreaterThan(rewardScale(120, 'standard', 'F-'));
-    expect(rewardScale(120, 'battle', 'F-') / rewardScale(120, 'standard', 'F-')).toBeCloseTo(
-      KIND_REWARD_MULTIPLIER.battle,
-    );
+  it('pays a battle its fight premium over standard work for identical time, at every grade', () => {
+    for (const grade of GRADES) {
+      const ratio = rewardScale(120, 'battle', grade) / rewardScale(120, 'standard', grade);
+      expect(ratio, grade).toBeCloseTo(1 + fightPremiumPercent(grade) / 100, 10);
+    }
+    // The ruling's anchors, end to end through the pay: 10% extra at F-, three times at S.
+    expect(rewardScale(120, 'battle', 'F-') / rewardScale(120, 'standard', 'F-')).toBeCloseTo(1.1);
+    expect(rewardScale(120, 'battle', 'S') / rewardScale(120, 'standard', 'S')).toBeCloseTo(3);
   });
 
   it('pays a longer mission more in total but less per minute', () => {
@@ -234,9 +241,11 @@ describe('reward scaling (§E5)', () => {
     const scale = rewardScale(templateTimings(expedition).totalMinutes, expedition.kind, lowest);
     expect(scale).toBeGreaterThan(10);
 
-    const priced = BUNDLE_VALUE / capsValue(expedition.spoils);
+    // The authored mix with its caps share moved in first (`capsTilted`, 2026-10-01).
+    const mix = capsTilted(expedition.spoils, expedition.kind);
+    const priced = BUNDLE_VALUE / capsValue(mix);
     const rewards = missionRewards(expedition);
-    for (const [key, authored] of Object.entries(expedition.spoils) as [ResourceKey, number][]) {
+    for (const [key, authored] of Object.entries(mix) as [ResourceKey, number][]) {
       expect(rewards[key]).toBe(Math.round(authored * scale * priced));
     }
   });
@@ -444,7 +453,7 @@ describe('the board is priced on one rule (§E5)', () => {
   it('pays every job its bundle value at the baseline, give or take the rounding', () => {
     for (const template of MISSION_TEMPLATES) {
       const paid = capsValue(missionRewards(template, 'success', REWARD_BASELINE_MINUTES, 'F-'));
-      const expected = BUNDLE_VALUE * KIND_REWARD_MULTIPLIER[template.kind];
+      const expected = BUNDLE_VALUE * kindPayFactor(template.kind, 'F-');
       expect(paid / expected, template.id).toBeGreaterThan(0.9);
       expect(paid / expected, template.id).toBeLessThan(1.1);
     }
@@ -466,7 +475,7 @@ describe('the board is priced on one rule (§E5)', () => {
       const minutes = templateTimings(template).totalMinutes;
       return (
         (BUNDLE_VALUE * rewardScale(minutes, template.kind, 'C')) /
-        KIND_REWARD_MULTIPLIER[template.kind] /
+        kindPayFactor(template.kind, 'C') /
         (minutes / 60)
       );
     });
@@ -492,5 +501,15 @@ describe('the card a running job was taken off', () => {
     const card = offerOfMission({ ...missionAt(5, 30), templateId: template.id, grade }, template);
     expect(card.rawDurationMinutes).toBe(templateTimings(template, grade).durationMinutes);
     expect(card.rawDurationMinutes).toBeGreaterThan(template.durationMinutes);
+  });
+
+  // Bug pass, 2026-10-02: the return adds the crew's XP bonus, and the card quoted the row's figure.
+  it('quotes the XP the return will bank, bonus on, for a win and for a failure', () => {
+    const template = MISSION_TEMPLATES[0]!;
+    const row = { ...missionAt(5, 30), templateId: template.id, xp: 200 };
+    expect(offerOfMission(row, template).xp).toBe(200);
+    const boosted = offerOfMission(row, template, 7);
+    expect(boosted.xp).toBe(214);
+    expect(boosted.failedXp).toBe(Math.round(Math.round(200 * FAILED_MISSION_XP_SHARE) * 1.07));
   });
 });

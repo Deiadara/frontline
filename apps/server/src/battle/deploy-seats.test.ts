@@ -22,6 +22,7 @@ import {
 } from '@frontline/shared';
 import type { FastifyInstance } from 'fastify';
 import { afterEach, describe, expect, it } from 'vitest';
+import { armTheAttack } from '../testing/attack.js';
 import { buildApp } from '../app.js';
 import { loadConfig } from '../config.js';
 import { openDatabase, runMigrations, type AppDatabase } from '../db/index.js';
@@ -68,7 +69,7 @@ describe('the seat ceiling on a fight somebody has loaded machines onto', () => 
 
     const base = app.repos.bases.findById(baseId)!;
     app.repos.bases.updateEconomy(baseId, { ...base.economy, infamy: DECLARE_INFAMY_COST * 4 });
-    app.repos.bases.updateArmy(baseId, { razors: 12 }, base.trainingQueue);
+    app.repos.bases.updateArmy(baseId, { razors: 12 }, base.musterQueue);
     app.repos.bases.updateFleet(baseId, ONE_BIKE);
     // One plot let go, so the district is not shut and a location is a legal call.
     const ramp = app.repos.city.control('steelbelt-ramp')!;
@@ -125,5 +126,26 @@ describe('the seat ceiling on a fight somebody has loaded machines onto', () => 
         return total;
       }, {});
     expect(ridingUnitSlots(walking)).toBeLessThanOrEqual(seats);
+
+    /*
+     * And the machines stay for the fight in its last hour, as the units do (bug pass,
+     * 2026-10-02): unloading them a minute before the mark put them back in the yard and spared
+     * them the wreck roll.
+     */
+    // The attack's least commitment, or the lock calls it off (2026-10-05).
+    armTheAttack(app.repos, battleId, baseId);
+    db.prepare('UPDATE scheduled_battles SET scheduled_for = ? WHERE id = ?').run(
+      new Date(Date.now() + 20 * 60_000).toISOString(),
+      battleId,
+    );
+    const unloaded = await app.inject({
+      method: 'POST',
+      url: '/api/battles/vehicles',
+      headers: auth(token),
+      payload: { battleId, vehicles: {} },
+    });
+    expect(unloaded.statusCode, unloaded.body.slice(0, 300)).toBe(409);
+    expect(app.repos.sieges.deployment(battleId, 'attacker', baseId)?.vehicles).toEqual(ONE_BIKE);
+    expect(app.repos.bases.findById(baseId)?.fleet.motorcycle ?? 0).toBe(0);
   });
 });

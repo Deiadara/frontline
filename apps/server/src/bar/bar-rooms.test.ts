@@ -242,6 +242,35 @@ describe('an away table, from the bid to the close', () => {
     expect(after.results[0]).toMatchObject({ outcome: 'won', price: auction.reserve });
   });
 
+  // A crew that lost its last ground in the city after bidding cannot open that Bar any more, so it
+  // does not sign there either, and is told why (maintainer, 2026-10-02).
+  it('passes a crew over at the close once it has lost the city, and says why', async () => {
+    const app = await makeApp();
+    const one = await makePlayer(app, 'away_loser');
+    give(app, AWAY_LOCATIONS[0]!.id, one.baseId);
+    const bar = await readBar(app, one, AWAY.id);
+    const { auction } = firstTable(bar);
+    expect((await bid(app, one, auction.recruitId, auction.reserve)).statusCode).toBe(200);
+    // The ground goes before midnight.
+    app.repos.city.put({
+      locationId: AWAY_LOCATIONS[0]!.id,
+      holder: { kind: 'unoccupied' },
+      level: 1,
+      upgradingUntil: null,
+      garrison: {},
+    });
+
+    vi.setSystemTime(AFTER);
+    settleBarAuctions(app.repos, AFTER);
+
+    const [result] = app.repos.bar.results(bar.day);
+    expect(result?.winnerUserId).toBeNull();
+    const told = app.repos.social
+      .notifications(one.userId, 20)
+      .find((entry) => entry.kind === 'bar_outbid');
+    expect(told?.title).toContain('you no longer hold ground in that city');
+  });
+
   /** A results panel belongs to the room it is drawn in, not to every room the crew drinks in. */
   it('keeps an away close off the home room’s results panel', async () => {
     const app = await makeApp();
@@ -344,6 +373,13 @@ describe('how many tables a crew may hold', () => {
     const app = await makeApp();
     const one = await makePlayer(app, 'two_rooms');
     give(app, AWAY_LOCATIONS[0]!.id, one.baseId);
+    // A book wide enough for every table: every bid holds its wage against it until the close, and
+    // what is under test here is the table cap, not the payroll.
+    const wide = app.repos.bases.findById(one.baseId)!;
+    app.repos.bases.updateEconomy(wide.id, {
+      ...wide.economy,
+      payroll: { ...wide.economy.payroll, purchasedSteps: 400 },
+    });
 
     const home = await readBar(app, one);
     const allowed = maxOpenAuctionsFor(home.level);
@@ -382,7 +418,7 @@ describe('how many tables a crew may hold', () => {
  * Charisma, Diplomacy and a handful of perks and rungs used to seat up to four more people for the
  * crew that had them. That is gone, and their sources pay other channels now. The fixture crew
  * carries everything that used to widen the room the most, and the control is that the officer is
- * really on its books: their Charisma shows up where it pays today, on training speed.
+ * really on its books: their Charisma shows up where it pays today, on muster speed.
  */
 describe('the size of the room', () => {
   it('seats the same eight for a charismatic crew as for a plain one', async () => {
@@ -391,20 +427,19 @@ describe('the size of the room', () => {
     const loud = await makePlayer(app, 'room_loud');
 
     const base = app.repos.bases.findById(loud.baseId)!;
-    const before = crewEffectsFor(app.repos, base).trainingSpeedPercent;
+    const before = crewEffectsFor(app.repos, base).musterSpeedPercent;
     app.repos.bases.updateCommanders(base.id, [
       ...base.commanders,
-      createCommander('room-talker', 'Talker', 'consigliere', { charisma: 100, diplomacy: 100 }, [
+      createCommander('room-talker', 'Talker', 'professor', { charisma: 100, diplomacy: 100 }, [
         'bar_regular',
         'talent_scout',
         'sig_headhunter',
       ]),
     ]);
     const after = crewEffectsFor(app.repos, app.repos.bases.findById(loud.baseId)!);
-    expect(
-      after.trainingSpeedPercent,
-      'fixture: the officer never reached the crew',
-    ).toBeGreaterThan(before);
+    expect(after.musterSpeedPercent, 'fixture: the officer never reached the crew').toBeGreaterThan(
+      before,
+    );
 
     const plainIds = (await readBar(app, plain)).recruits.map((one) => one.id);
     const loudIds = (await readBar(app, loud)).recruits.map((one) => one.id);

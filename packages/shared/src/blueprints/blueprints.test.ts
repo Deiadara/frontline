@@ -188,10 +188,13 @@ describe('what needs a blueprint (§D12)', () => {
     const gated = BATTLE_BOOSTS.filter((boost) => blueprintForBattleBoost(boost.id) !== undefined);
     expect(gated.length).toBeGreaterThan(0);
     expect(gated.length).toBeLessThan(BATTLE_BOOSTS.length);
-    // Nothing anybody may buy off the shelf sits behind a document nobody can find yet.
+    // Nothing anybody may buy off the shelf sits behind a document nobody can find yet, and a
+    // boost made from its drawings alone has drawings to be made from.
     for (const boost of BATTLE_BOOSTS) {
       if (boost.unlock.kind === 'open')
         expect(blueprintForBattleBoost(boost.id), boost.id).toBeUndefined();
+      if (boost.unlock.kind === 'blueprint')
+        expect(blueprintForBattleBoost(boost.id), boost.id).toBeDefined();
     }
   });
 
@@ -371,18 +374,16 @@ describe('what a crew knows about a blueprint (§D5 to §D10)', () => {
 
 describe('the Reimagining seam (§G4)', () => {
   it('stays locked until both halves of the gate are met', () => {
-    expect(reimaginingAvailable({ hasHeadOfResearch: false, hasReimaginingResearch: false })).toBe(
+    expect(reimaginingAvailable({ hasResearcher: false, hasReimaginingResearch: false })).toBe(
       false,
     );
-    expect(reimaginingAvailable({ hasHeadOfResearch: true, hasReimaginingResearch: false })).toBe(
+    expect(reimaginingAvailable({ hasResearcher: true, hasReimaginingResearch: false })).toBe(
       false,
     );
-    expect(reimaginingAvailable({ hasHeadOfResearch: false, hasReimaginingResearch: true })).toBe(
+    expect(reimaginingAvailable({ hasResearcher: false, hasReimaginingResearch: true })).toBe(
       false,
     );
-    expect(reimaginingAvailable({ hasHeadOfResearch: true, hasReimaginingResearch: true })).toBe(
-      true,
-    );
+    expect(reimaginingAvailable({ hasResearcher: true, hasReimaginingResearch: true })).toBe(true);
   });
 
   it('states the price the trade will ask (§G2)', () => {

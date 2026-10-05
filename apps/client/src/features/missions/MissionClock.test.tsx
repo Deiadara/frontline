@@ -11,6 +11,8 @@ import {
   templateTimings,
   findVehicle,
   formatDuration,
+  payrollLedger,
+  startingPayroll,
   type CrewResponse,
   type MeResponse,
   type MissionArea,
@@ -96,6 +98,7 @@ const board: MissionsResponse = {
   justResolved: [],
   resources: { caps: 0, supplies: 0, oil: 0, scrap: 0, highQualityMetal: 0, planks: 0 },
   activeLimit: 2,
+  xpBonusPercent: 0,
   areas: [MISC],
   // A Colossus among them, because §C3's other half is on this screen: the one sheet no vehicle
   // takes drags the column, and the row has to say so before anybody presses Send.
@@ -121,7 +124,12 @@ const board: MissionsResponse = {
   cities: ['ashfall'],
 };
 
-const crew: CrewResponse = { level: 6, housing: { used: 0, capacity: 8 }, officers: [] };
+const crew: CrewResponse = {
+  level: 6,
+  housing: { used: 0, capacity: 8 },
+  payroll: payrollLedger(startingPayroll(), 0),
+  officers: [],
+};
 
 const me: MeResponse = {
   ...F.me,
@@ -148,7 +156,7 @@ beforeEach(() => {
     if (path.endsWith('/missions')) return reply(board);
     throw new Error(`unstubbed request: ${path}`);
   });
-  useSession.setState({ token: 'session-token', user: null });
+  useSession.setState({ signedIn: true, user: null });
 });
 
 afterEach(() => vi.unstubAllGlobals());
@@ -184,12 +192,25 @@ describe('the send dialog clock', () => {
    * different clocks is a claim only the fixed version can satisfy.
    */
   it('shortens the run for a leader who takes time off the road', async () => {
+    // The furthest band on this card: Short Way is spent on the road alone (maintainer,
+    // 2026-10-01), and a tenth off a five-minute leg rounds back onto the same minute.
+    const longRoad: MissionsResponse = {
+      ...board,
+      areas: board.areas.map((area) => ({
+        ...area,
+        offers: area.offers.map((offer) =>
+          offer.templateId === LONG.templateId
+            ? { ...offer, rawTravelMinutes: TRAVEL_BAND_MINUTES.furthest }
+            : offer,
+        ),
+      })),
+    };
     // This one board needs a bench: the shared fixture has none, because the rest of the file is
     // about the column rather than about who is at its head.
     fetchMock.mockImplementation((path: string) => {
       if (path.endsWith('/crew')) return reply(crew);
       if (path.endsWith('/me')) return reply(me);
-      if (path.endsWith('/missions')) return reply({ ...board, leaders: withLeaders });
+      if (path.endsWith('/missions')) return reply({ ...longRoad, leaders: withLeaders });
       throw new Error(`unstubbed request: ${path}`);
     });
     render(

@@ -28,7 +28,7 @@ import { describe, expect, it } from 'vitest';
 import { noTerritoryEffects, type TerritoryEffects } from '../city/index.js';
 import { makeAttributes } from '../attributes.js';
 import { bareBattlefield } from './battlefield.js';
-import { MAX_COHESION_WIDTH, effectiveFrontage, simulate, type SideSetup } from './engine.js';
+import { COHESION_CEILING, effectiveFrontage, simulate, type SideSetup } from './engine.js';
 import { boostBundle } from './boosts.js';
 import { fleeChance, pursuitSpeed } from './rout.js';
 import { OFFICER_BASE_MORALE, officerBattleStats } from './officer.js';
@@ -110,14 +110,14 @@ describe('bonuses reach the fight', () => {
     expect(whole.offensePercent).toBe(20);
     expect(whole.defensePercent).toBe(0);
     expect(whole.moralePercent).toBe(0);
-    // A boost scoped to a unit is worth what that unit is of the force, which is why a narrow
-    // boost is cheap: half a force of Razors is half the effect.
+    // A boost scoped to a unit lands on that unit's own channel, the one a perk aimed at it uses
+    // (P10-C, 2026-10-02), and on nobody else's.
     const narrow = boostBundle(
       { kind: 'unit', unitId: 'razors', stat: 'offense', percent: 20 },
       { razors: 20, wardens: 20 },
     );
-    expect(narrow.offensePercent).toBeGreaterThan(0);
-    expect(narrow.offensePercent).toBeLessThan(20);
+    expect(narrow.offensePercent).toBe(0);
+    expect(narrow.aimed.unitKindPercent).toEqual({ razors: { offense: 20 } });
   });
 });
 
@@ -153,15 +153,17 @@ describe('the officer leading', () => {
 });
 
 describe('the ground and the crew', () => {
-  it('widens the fighting front with cohesion, up to the cap and no further', () => {
+  it('widens the fighting front with cohesion, less for every point past the knee', () => {
     const side = { stacks: [], cohesionPercent: 0 } as never;
     const at = (cohesionPercent: number) =>
       effectiveFrontage({ ...(side as object), cohesionPercent } as never, 10);
     expect(at(0)).toBe(10);
     expect(at(20)).toBeCloseTo(12, 6);
-    // Capped, so 50 and 100 buy the same ground: a corridor is a corridor.
-    expect(at(50)).toBeCloseTo(10 * MAX_COHESION_WIDTH, 6);
-    expect(at(100)).toBeCloseTo(10 * MAX_COHESION_WIDTH, 6);
+    // A curve rather than a stop (maintainer, 2026-10-01): 100 still buys more ground than 50,
+    // and no amount buys the ceiling, because a corridor is a corridor.
+    expect(at(50)).toBeGreaterThan(at(45));
+    expect(at(100)).toBeGreaterThan(at(50));
+    expect(at(1000)).toBeLessThanOrEqual(10 * (1 + COHESION_CEILING / 100));
   });
 
   /**

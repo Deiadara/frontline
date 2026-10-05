@@ -1,3 +1,4 @@
+import { raidBossBodyTimes } from './passives.js';
 import type { OfficerRole } from '../roles.js';
 import { leading, type CrewEffects } from './effects.js';
 
@@ -72,7 +73,7 @@ export interface OfficerSheetBonus {
   targetSharePercent: number;
   /**
    * What the seat multiplies the finished figure by, after the percentages (the Raid Boss's
-   * {@link RAID_BOSS_SEAT_TIMES}). One for every other chair.
+   * passive, `raidBossBodyTimes`). One for every other chair.
    */
   offenseTimes: number;
   vitalityTimes: number;
@@ -88,22 +89,22 @@ export const NO_SHEET_BONUS: Readonly<OfficerSheetBonus> = {
 };
 
 /**
- * What the Raid Boss's seat is worth on its own (maintainer, 2026-09-28): in every fight he
- * leads, whatever the attribute table calculates for his damage and his hit points is doubled.
- * That is the whole of what the chair does as a chair; the track's rungs come on top of it.
- * Research needs no rung finished for it, which is why it is here and not on the fold.
+ * What the Raid Boss's seat is worth on its own: his chair's passive (maintainer, 2026-10-04).
+ *
+ * In every fight he is in, leading or not, whatever the attribute table calculates for his damage
+ * and his hit points is multiplied by `raidBossBodyTimes`: one at the floor of the grades, five at
+ * a perfect sheet. It was a flat two in fights he led (2026-09-28). The track's rungs come on top.
  */
-export const RAID_BOSS_SEAT_TIMES = 2;
-
 export function officerSheetBonusFor(
-  effects: Pick<CrewEffects, 'chairLeads'>,
+  effects: Pick<CrewEffects, 'chairLeads' | 'chairPoints'>,
   role: OfficerRole | null,
   context: FightContext,
 ): OfficerSheetBonus {
   const bonus: OfficerSheetBonus = { ...NO_SHEET_BONUS };
-  if (role === 'raid_boss') {
-    bonus.offenseTimes = RAID_BOSS_SEAT_TIMES;
-    bonus.vitalityTimes = RAID_BOSS_SEAT_TIMES;
+  const raidBossPoints = role === 'raid_boss' ? effects.chairPoints.raid_boss : undefined;
+  if (raidBossPoints !== undefined) {
+    bonus.offenseTimes = raidBossBodyTimes(raidBossPoints);
+    bonus.vitalityTimes = raidBossBodyTimes(raidBossPoints);
   }
   for (const lead of chairLeadsFor(effects, role, context)) {
     if (lead.kind === 'leader_taunt') bonus.targetSharePercent += lead.percent;

@@ -1,7 +1,12 @@
 import { expect, test, type Page } from '@playwright/test';
-import { installApi, screenOverflows, settleFonts } from './harness';
+import {
+  expectNothingClippedHorizontally,
+  installApi,
+  screenOverflows,
+  settleFonts,
+} from './harness';
 import { factionNone, factionScreen, lateGame } from './fixtures';
-import type { FactionResponse } from '@frontline/shared';
+import { CARD_BY_SLOT, type FactionResponse } from '@frontline/shared';
 
 /**
  * The faction, the mailbox and the bell (maintainer request).
@@ -153,8 +158,18 @@ test('a plate in the room opens that person’s file, with what your rank lets y
   await expect(page.getByTestId('rank-Sable_Ninth')).toHaveText('Demote');
   await expect(page.getByTestId('hand-over-Sable_Ninth')).toBeVisible();
   await expect(page.getByTestId('kick-Sable_Ninth')).toBeVisible();
+  // The buttons and nothing over them (maintainer, 2026-09-30): the heading that read "What your
+  // rank carries here" is gone.
+  await expect(file).not.toContainText('What your rank carries here');
+  await expect(page.getByTestId('member-rank-actions').locator('h3, h4, p')).toHaveCount(0);
 
-  await settleFonts(page);
+  for (const width of [1280, 1024]) {
+    await page.setViewportSize({ width, height: 720 });
+    await settleFonts(page);
+    expect(await dialogClipped(page), `the file cuts something at ${width}`).toEqual([]);
+    await page.screenshot({ path: `screenshots/faction-member-${width}.png`, fullPage: false });
+  }
+  await page.setViewportSize({ width: 1280, height: 720 });
   await page.screenshot({ path: 'screenshots/faction-member.png', fullPage: false });
 
   // The same file opens from the row on the Members door, so both ways in reach one screen.
@@ -290,8 +305,11 @@ test('a full table seats five, with nowhere left to put anybody', async ({ page 
   await withFaction(page, (data) => {
     const ally = data.members[1];
     if (ally === undefined) throw new Error('the fixture has no second member');
-    const filler = ['Marrow', 'Vex_Combine', 'Kestrel'].map((username, at) => ({
+    // The cards the server would deal them: the ones nobody at the table holds yet (P3-C).
+    const free = CARD_BY_SLOT.filter((card) => !data.members.some((one) => one.card === card));
+    const filler = ['Marrow', 'Vex_Holdings', 'Kestrel'].map((username, at) => ({
       ...ally,
+      card: free[at] ?? ally.card,
       userId: `filler-${at}`,
       baseId: `filler-base-${at}`,
       username,
@@ -632,6 +650,15 @@ test('an invitation in the mailbox joins only after a confirmation', async ({ pa
   const card = page.getByTestId('invite-card');
   await expect(card).toBeVisible();
   await expect(card.getByText('The Ninth Circle', { exact: true })).toBeVisible();
+  // The letter says who asked and nothing about rosters and help (maintainer, 2026-09-30).
+  await expect(page.getByTestId('message-open')).not.toContainText('Accepting puts your district');
+  for (const width of [1280, 1024]) {
+    await page.setViewportSize({ width, height: 720 });
+    await settleFonts(page);
+    await expectNothingClippedHorizontally(page);
+    await page.screenshot({ path: `screenshots/invite-letter-${width}.png`, fullPage: false });
+  }
+  await page.setViewportSize({ width: 1280, height: 720 });
 
   // The button does not join. It asks.
   await page.getByTestId('invite-accept').click();
@@ -683,6 +710,29 @@ test('binning a live invitation asks first, and a plain message does not', async
   await expect(page.getByTestId('confirm-bin-invite')).toHaveCount(0);
 });
 
+/**
+ * What the top window cuts: itself past the frame, or a line of its own text past its box. Scoped to
+ * the dialog, because the faction room behind it is a painting wider than a 1024 frame on purpose.
+ */
+async function dialogClipped(page: Page): Promise<string[]> {
+  return page.evaluate(() => {
+    const dialogs = [...document.querySelectorAll<HTMLElement>('[role="dialog"]')];
+    const top = dialogs[dialogs.length - 1];
+    if (!top) return ['no dialog'];
+    const box = top.getBoundingClientRect();
+    const cut: string[] = [];
+    if (box.left < -1 || box.right > window.innerWidth + 1 || box.bottom > window.innerHeight + 1) {
+      cut.push('the window itself');
+    }
+    for (const el of top.querySelectorAll<HTMLElement>('*')) {
+      if (el.childElementCount === 0 && el.scrollWidth > el.clientWidth + 1) {
+        cut.push(el.textContent?.trim().slice(0, 40) ?? el.tagName);
+      }
+    }
+    return cut;
+  });
+}
+
 test('leaving as the leader says what it will cost before it does it', async ({ page }) => {
   await installApi(page, lateGame);
   await page.goto('/game/faction');
@@ -702,6 +752,36 @@ test('leaving as the leader says what it will cost before it does it', async ({ 
   // The fixture's player leads a faction of two, so leaving disbands it, and it says so.
   await expect(confirm.getByText('This ends the faction')).toBeVisible();
   await expect(confirm.getByText('disbanded', { exact: false })).toBeVisible();
+
+  /*
+   * ...and offers the other door (maintainer, 2026-09-30): name who leads after you. It opens on
+   * disbanding, because the leader may still choose that; picking somebody says who leads and what
+   * the press will do. Drawn at both widths the game is played at.
+   */
+  await expect(confirm.getByTestId('confirm-leave-heir-none')).toHaveAttribute(
+    'aria-checked',
+    'true',
+  );
+  await expect(confirm.getByTestId('confirm-leave-yes')).toHaveText('Leave and disband it');
+  await confirm.getByTestId('confirm-leave-heir-Sable_Ninth').click();
+  await expect(confirm.getByTestId('confirm-leave-outcome')).toContainText('Sable_Ninth leads');
+  await expect(confirm.getByTestId('confirm-leave-yes')).toHaveText('Leave it to Sable_Ninth');
+
+  let sent: unknown = null;
+  await page.route('**/api/factions/leave', async (route) => {
+    sent = route.request().postDataJSON();
+    await route.fulfill({ json: { faction: factionNone } });
+  });
+  for (const width of [1280, 1024]) {
+    await page.setViewportSize({ width, height: 720 });
+    await settleFonts(page);
+    expect(await screenOverflows(page), `nothing spills at ${width}`).toEqual([]);
+    expect(await dialogClipped(page), `the dialog cuts something at ${width}`).toEqual([]);
+    await page.screenshot({ path: `screenshots/faction-leave-heir-${width}.png`, fullPage: false });
+  }
+  await confirm.getByTestId('confirm-leave-yes').click();
+  const ally = factionScreen.members.find((member) => member.username === 'Sable_Ninth')!;
+  await expect.poll(() => sent).toEqual({ successorId: ally.userId });
 });
 
 test('the mailbox reads, replies and keeps a sent copy', async ({ page }) => {

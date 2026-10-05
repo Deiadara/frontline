@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { MILESTONE_DEEP_POCKETS, isPlayerUnlockActive } from '../progression/unlocks.js';
 import { RESOURCE_KEYS, type ResourceKey, type Resources } from '../resources.js';
 import { effectiveMarketDiscount } from './discount.js';
+import { traderRates } from '../crew/passives.js';
 import { RESOURCE_CAP_VALUE, withoutFloatNoise } from './offers.js';
 
 /**
@@ -126,9 +127,22 @@ export const SUPPLY_MARKUP = 1.5;
  * What one unit of `key` costs in caps, after the crew's market discount (`market/discount.ts`).
  * The figure the stall quotes; an order is priced by {@link supplyPrice}, not by this times a count.
  */
-export function supplyUnitPrice(key: ResourceKey, discountPercent = 0): number {
-  const kept = 1 - effectiveMarketDiscount(discountPercent) / 100;
-  return withoutFloatNoise(RESOURCE_CAP_VALUE[key] * SUPPLY_MARKUP * kept);
+export function supplyUnitPrice(
+  key: ResourceKey,
+  discountPercent = 0,
+  traderPoints: number | null = null,
+): number {
+  return withoutFloatNoise(RESOURCE_CAP_VALUE[key] * supplyMarkup(discountPercent, traderPoints));
+}
+
+/**
+ * What the supply run charges per unit of worth: the markup less the crew's discount, and then the
+ * Trader's rate where it is better (`traderRates`, maintainer 2026-10-04): even at C+, and 0.8 at a
+ * perfect sheet. `traderPoints` is the working Trader's seat points, or null with the chair empty.
+ */
+export function supplyMarkup(discountPercent = 0, traderPoints: number | null = null): number {
+  const plain = SUPPLY_MARKUP * (1 - effectiveMarketDiscount(discountPercent) / 100);
+  return withoutFloatNoise(traderRates(traderPoints, 0, plain).markup);
 }
 
 /**
@@ -137,10 +151,18 @@ export function supplyUnitPrice(key: ResourceKey, discountPercent = 0): number {
  * Priced on the whole order and rounded once. Rounding a per-unit price instead would either make a
  * hundred supplies cost a hundred roundings of error or make single units free.
  */
-export function supplyPrice(key: ResourceKey, units: number, discountPercent = 0): number {
+export function supplyPrice(
+  key: ResourceKey,
+  units: number,
+  discountPercent = 0,
+  traderPoints: number | null = null,
+): number {
   const count = Math.max(0, Math.floor(units));
   if (count === 0) return 0;
-  return Math.max(1, Math.ceil(withoutFloatNoise(count * supplyUnitPrice(key, discountPercent))));
+  return Math.max(
+    1,
+    Math.ceil(withoutFloatNoise(count * supplyUnitPrice(key, discountPercent, traderPoints))),
+  );
 }
 
 /**
@@ -162,11 +184,24 @@ export function supplyAffordable(
   allowanceLeft: number,
   capacity: number,
   discountPercent = 0,
+  traderPoints: number | null = null,
 ): number {
   const room = Math.max(0, capacity - stock[key]);
-  const byCaps = Math.floor(withoutFloatNoise(stock.caps / supplyUnitPrice(key, discountPercent)));
-  const byRation = Math.floor(withoutFloatNoise(allowanceLeft / RESOURCE_CAP_VALUE[key]));
-  return Math.max(0, Math.min(byRation, room, byCaps));
+  const byCaps = Math.floor(
+    withoutFloatNoise(stock.caps / supplyUnitPrice(key, discountPercent, traderPoints)),
+  );
+  return Math.max(0, Math.min(supplyRationUnits(key, allowanceLeft), room, byCaps));
+}
+
+/**
+ * How many units of `key` the rest of today's ration would carry, ignoring caps and the store.
+ *
+ * The ration is caps' worth, and a bare worth beside a field counted in units read as a
+ * contradiction: "450 left" over a field that would take at most 37 metal (bug pass, 2026-10-01).
+ * The panel prints this instead, in the units of whatever the picker is on.
+ */
+export function supplyRationUnits(key: ResourceKey, allowanceLeft: number): number {
+  return Math.max(0, Math.floor(withoutFloatNoise(allowanceLeft / RESOURCE_CAP_VALUE[key])));
 }
 
 export const SUPPLY_REFUSALS = [
@@ -192,6 +227,8 @@ export interface SupplyOrder {
   allowanceLeft: number;
   /** The crew's market discount, which the price is quoted after. */
   discountPercent?: number;
+  /** The working Trader's seat points, or null with the chair empty (`supplyMarkup`). */
+  traderPoints?: number | null;
 }
 
 /**
@@ -206,7 +243,7 @@ export function supplyRefusal(order: SupplyOrder): SupplyRefusal | null {
   const units = Math.floor(order.units);
   if (units <= 0) return 'nothing_ordered';
   if (supplyRationCost(order.key, units) > order.allowanceLeft) return 'over_allowance';
-  if (supplyPrice(order.key, units, order.discountPercent) > order.stock.caps) {
+  if (supplyPrice(order.key, units, order.discountPercent, order.traderPoints) > order.stock.caps) {
     return 'cannot_afford';
   }
   return null;
@@ -259,10 +296,10 @@ export function supplyBoard(
   used: number,
   capacityFor: (key: ResourceKey) => number,
   discountPercent = 0,
+  traderPoints: number | null = null,
 ): SupplyBoard {
   const allowance = supplyAllowance(level, bulkCapacity);
   const left = Math.max(0, allowance - Math.max(0, Math.floor(used)));
-  const discount = effectiveMarketDiscount(discountPercent);
   return {
     allowance,
     used: Math.max(0, Math.floor(used)),
@@ -274,8 +311,8 @@ export function supplyBoard(
         // No cast: `SupplyLine['key']` is derived from this very list now, so the two agree by
         // construction. The cast that used to sit here is what let the enum drift narrow unnoticed.
         key,
-        capsPerUnit: supplyUnitPrice(key, discount),
-        most: supplyAffordable(key, stock, left, capacity, discount),
+        capsPerUnit: supplyUnitPrice(key, discountPercent, traderPoints),
+        most: supplyAffordable(key, stock, left, capacity, discountPercent, traderPoints),
         capacity,
       };
     }),

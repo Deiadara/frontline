@@ -64,7 +64,7 @@ function fallen(id: string): DistrictDetailResponse {
 beforeEach(() => {
   vi.stubGlobal('fetch', fetchMock);
   fetchMock.mockReset();
-  useSession.setState({ token: 'session-token', user: null });
+  useSession.setState({ signedIn: true, user: null });
 });
 
 afterEach(() => vi.unstubAllGlobals());
@@ -171,7 +171,7 @@ describe('the leader on the district screen', () => {
    * The three things the template claims about a unit you own, which would each be a lie here.
    *
    * A count of nobody, three brackets nothing can go in (`modificationsForUnit` is empty for a
-   * legendary), and a price box for a unit that trains nowhere. The card is the same card; these
+   * legendary), and a price box for a unit that musters nowhere. The card is the same card; these
    * are the parts `enemy` takes off it.
    */
   it('takes the ownership claims off his card and leaves the sheet alone', async () => {

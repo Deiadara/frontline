@@ -1,4 +1,5 @@
 import {
+  buildingLevel,
   canAfford,
   findResearchItem,
   researchItemRefusal,
@@ -64,7 +65,7 @@ function refusalFor(input: StartInput, fit: OfficerFitReader): ResearchRefusal |
   if (refusal) return refusal;
 
   if (input.admin) return null;
-  return canAfford(base.resources, projectCost(base, project, fit)) ? null : 'cannot_afford';
+  return canAfford(base.resources, projectCost(base, project)) ? null : 'cannot_afford';
 }
 
 /**
@@ -82,19 +83,16 @@ function trackRefusal(base: Base, techId: string, fit: OfficerFitReader): Resear
     techId,
     base.research.technologies,
     chairMarksFor(spec.track, fit),
+    buildingLevel(base.buildings, 'lab'),
   );
   if (refusal === null) return null;
   return refusal === 'already_known' ? 'already_researched' : 'locked';
 }
 
-/** What this rung costs this crew: the catalogue price with the track officer's cut taken off. */
-function projectCost(
-  base: Base,
-  project: ResearchProject,
-  fit: OfficerFitReader,
-): PartialResources {
+/** What this rung costs this crew: the catalogue price less the Lab's cut. */
+function projectCost(base: Base, project: ResearchProject): PartialResources {
   const spec = findResearchItem(project.techId);
-  return spec ? priceOf(base, spec, fit) : {};
+  return spec ? priceOf(base, spec) : {};
 }
 
 /** The rung's own duration with every cut applied: the Lab, the crew's standing, and the Head. */
@@ -121,7 +119,7 @@ export function startResearch(repos: Repositories, input: StartInput): StartResu
     return { kind: 'refused', reason: refusal };
 
   const { base, project, id, now, admin = false } = input;
-  const paid = adminCost(projectCost(base, project, fit), admin);
+  const paid = adminCost(projectCost(base, project), admin);
   const active: ActiveResearch = {
     id,
     project,

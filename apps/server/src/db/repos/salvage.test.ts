@@ -28,6 +28,7 @@ import {
   holdPlot,
   makeWorld,
   register,
+  aDayAfter,
   runTheFight,
 } from '../../testing/fight-world.js';
 import { openDatabase, runMigrations, type AppDatabase } from '../index.js';
@@ -102,7 +103,7 @@ describe('a perk the catalogue no longer carries', () => {
       passwordHash: 'x',
       createdAt: new Date().toISOString(),
     });
-    const officer = createCommander('officer-1', 'Vasso', 'lead_engineer');
+    const officer = createCommander('officer-1', 'Vasso', 'engineer');
     const base = seedBase(repos, [officer]);
     db.prepare('UPDATE bases SET commanders_json = ? WHERE id = ?').run(
       JSON.stringify([{ ...officer, perks: [RETIRED] }]),
@@ -217,7 +218,7 @@ function seedBase(repos: Repositories, commanders: ReturnType<typeof createComma
     buildings: [{ id: 'b-nexus', kind: 'nexus', level: 1, modifications: [] }],
     buildQueue: [],
     army: {},
-    trainingQueue: [],
+    musterQueue: [],
     training: startingTraining(now),
     inventory: {},
     fittedUpgrades: [],
@@ -622,7 +623,10 @@ describe('a finished fight whose row this build cannot read', () => {
     const caller = await register(world, 'caller', { razors: 3 });
     const holder = await register(world, 'holder');
     holdPlot(world, holder, { razors: 1 });
-    runTheFight(world, await declare(world, caller));
+    const firstFight = await declare(world, caller);
+    runTheFight(world, firstFight);
+    // A day on, or the caller who lost could not call the plot again (2026-10-05).
+    aDayAfter(world, firstFight);
     runTheFight(world, await declare(world, caller));
     expect(world.app.repos.sieges.resolvedFor(caller.baseId, 10)).toHaveLength(2);
 

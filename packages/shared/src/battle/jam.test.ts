@@ -58,7 +58,7 @@ function stackOf(
   const effective = effectiveStats(
     unit,
     ground,
-    { defending: false, outnumbered: false },
+    { defending: false, outnumbered: 0 },
     noTerritoryEffects(),
     fitted,
   );

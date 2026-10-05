@@ -5,6 +5,7 @@ import {
   STORAGE_SHARES,
   supplyBoard,
   supplyPrice,
+  supplyUnitPrice,
   type MarketResponse,
   type Resources,
 } from '@frontline/shared';
@@ -34,7 +35,7 @@ const resources = Object.fromEntries(
 ) as Resources;
 
 const market: MarketResponse = {
-  reimagining: { hasHeadOfResearch: false, hasReimaginingResearch: false },
+  reimagining: { hasResearcher: false, hasReimaginingResearch: false },
   serverNow: NOW,
   cityId: DEFAULT_CITY_ID,
   cities: [DEFAULT_CITY_ID],
@@ -133,7 +134,7 @@ beforeEach(() => {
     if (path.endsWith('/market')) return reply(market);
     throw new Error(`unstubbed request: ${path}`);
   });
-  useSession.setState({ token: 'session-token', user: null });
+  useSession.setState({ signedIn: true, user: null });
 });
 
 afterEach(() => {
@@ -378,5 +379,133 @@ describe('the supply run after the market discount', () => {
       ),
     );
     expect(supplyPrice('scrap', 100, 20)).toBeLessThan(supplyPrice('scrap', 100));
+  });
+
+  it('prints the unit price on each tile, not one unit rounded up', async () => {
+    renderMarket();
+    const picker = await screen.findByTestId('supply-resource');
+    const tile = within(picker).getByRole('radio', { name: RESOURCE_LABELS.scrap });
+    const each = supplyUnitPrice('scrap');
+    // A fractional price, or this case proves nothing about the rounding.
+    expect(Number.isInteger(each)).toBe(false);
+    expect(tile).toHaveTextContent(each.toLocaleString(undefined, { maximumFractionDigits: 2 }));
+  });
+});
+
+/*
+ * Bug pass, 2026-10-01: the run's ration is caps' worth, and the header printed it bare beside a
+ * field counted in units. It says the units of whatever the picker is on now. The fixture's level
+ * 12 crew may buy 52% of a 10,000 store, 5,200 supplies' worth: 7,800 caps of it.
+ */
+describe('the supply run header', () => {
+  it('prints the ration left in units of the picked material, and follows the picker', async () => {
+    renderMarket();
+    const left = await screen.findByTestId('supply-left');
+    // Scrap is the run's opening pick: 7,800 of worth at 2.5 a unit.
+    expect(left).toHaveTextContent('3,120 scrap left');
+    const picker = screen.getByTestId('supply-resource');
+    fireEvent.click(within(picker).getByRole('radio', { name: RESOURCE_LABELS.highQualityMetal }));
+    await waitFor(() => expect(left).toHaveTextContent('650 HQ metal left'));
+    fireEvent.click(within(picker).getByRole('radio', { name: RESOURCE_LABELS.supplies }));
+    await waitFor(() => expect(left).toHaveTextContent('5,200 supplies left'));
+  });
+
+  it('says the ration will not stretch to one more of a dear material, rather than blaming caps', async () => {
+    // Five caps of worth left: two scrap, and not one metal at twelve.
+    const nearlySpent: MarketResponse = {
+      ...market,
+      supply: supplyBoard(12, resources, 10_000, 7_795, (key) =>
+        Math.round(10_000 * (STORAGE_SHARES[key] ?? 0)),
+      ),
+    };
+    fetchMock.mockImplementation((path: string) => {
+      if (path.endsWith('/market')) return reply(nearlySpent);
+      throw new Error(`unstubbed request: ${path}`);
+    });
+    renderMarket();
+    const left = await screen.findByTestId('supply-left');
+    expect(left).toHaveTextContent('2 scrap left');
+    const picker = screen.getByTestId('supply-resource');
+    fireEvent.click(within(picker).getByRole('radio', { name: RESOURCE_LABELS.highQualityMetal }));
+    await waitFor(() => expect(left).toHaveTextContent('0 HQ metal left'));
+    const buy = screen.getByTestId('supply-buy');
+    // Not "Ration spent": two scrap are still to be had (bug pass, 2026-10-02).
+    expect(buy).toHaveTextContent('Too dear today');
+    expect(buy).not.toHaveTextContent('Ration spent');
+    expect(buy.parentElement).toHaveAttribute(
+      'data-tip',
+      expect.stringContaining('will not stretch to one more'),
+    );
+  });
+});
+
+/*
+ * Maintainer, 2026-10-01: the Broker gives and takes caps, at his usual cut on a cap's worth of one.
+ */
+describe('the Broker and caps', () => {
+  const trade = async (give: string, want: string, amount: number) => {
+    const giving = await screen.findByTestId('broker-give');
+    fireEvent.click(within(giving).getByRole('radio', { name: give }));
+    const taking = screen.getByTestId('broker-take');
+    fireEvent.click(within(taking).getByRole('radio', { name: want }));
+    const field = screen.getByTestId('broker-amount');
+    fireEvent.change(field, { target: { value: String(amount) } });
+    fireEvent.blur(field);
+  };
+
+  it('offers caps on both sides and quotes what comes back', async () => {
+    renderMarket();
+    await trade(RESOURCE_LABELS.caps, RESOURCE_LABELS.scrap, 100);
+    // A hundred caps at half is fifty of worth, twenty scrap.
+    await waitFor(() => expect(screen.getByTestId('broker-answer')).toHaveTextContent('20Scrap'));
+    await trade(RESOURCE_LABELS.oil, RESOURCE_LABELS.caps, 100);
+    // A hundred oil is two hundred caps of worth, and he keeps half.
+    await waitFor(() => expect(screen.getByTestId('broker-answer')).toHaveTextContent('100Caps'));
+    expect(screen.getByRole('button', { name: 'Trade' })).toBeEnabled();
+  });
+
+  it('quotes caps out under the supply run’s price where a deep discount would beat it', async () => {
+    // A raw sum no crew reaches: the run sells at 40% of its list, 0.6 of a material's worth,
+    // and his quoted 80% back is held to that on a trade into caps and only on one.
+    fetchMock.mockImplementation((path: string) => {
+      if (path.endsWith('/market'))
+        return reply({ ...market, barterRate: 0.8, marketDiscountPercent: 1_000_000_000 });
+      throw new Error(`unstubbed request: ${path}`);
+    });
+    renderMarket();
+    await trade(RESOURCE_LABELS.oil, RESOURCE_LABELS.caps, 100);
+    await waitFor(() => expect(screen.getByTestId('barter-quote')).toHaveTextContent('60% back'));
+    expect(screen.getByTestId('broker-answer')).toHaveTextContent('120Caps');
+    await trade(RESOURCE_LABELS.oil, RESOURCE_LABELS.scrap, 100);
+    await waitFor(() => expect(screen.getByTestId('barter-quote')).toHaveTextContent('80% back'));
+  });
+});
+
+/*
+ * Maintainer, 2026-10-01: the discount is a curve on the summed sources, so the page says the
+ * figure the till applies beside the sum of the cards.
+ */
+describe('the market discount on the Runner’s note', () => {
+  const withDiscount = (raw: number) =>
+    fetchMock.mockImplementation((path: string) => {
+      if (path.endsWith('/market')) return reply({ ...market, marketDiscountPercent: raw });
+      throw new Error(`unstubbed request: ${path}`);
+    });
+
+  it('prints the effective figure and the raw sum it came from', async () => {
+    withDiscount(45);
+    renderMarket();
+    fireEvent.mouseEnter(await screen.findByTestId('info-note'));
+    const line = await screen.findByTestId('market-discount');
+    expect(line).toHaveTextContent('Your market discount is 26%');
+    expect(line).toHaveTextContent('Your sources add up to 45%');
+  });
+
+  it('says nothing about a discount the crew does not have', async () => {
+    withDiscount(0);
+    renderMarket();
+    fireEvent.mouseEnter(await screen.findByTestId('info-note'));
+    await screen.findByText(/In today at/);
+    expect(screen.queryByTestId('market-discount')).toBeNull();
   });
 });

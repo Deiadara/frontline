@@ -59,8 +59,16 @@ const SUPPLIES_MIGRATION = '0037_supplies.sql';
  * and its ids rather than by writing the same three tests again.
  */
 const RETIRED_UNITS_MIGRATIONS = ['0038_retired_units.sql', '0039_bell_ringers_retired.sql'];
+const MUSTER_RENAME_MIGRATION = '0143_muster_rename.sql';
 const forgetRetirements = (db: Parameters<typeof runMigrations>[0]): void => {
   for (const file of RETIRED_UNITS_MIGRATIONS) forget(db, file);
+  /*
+   * A save from before those sweeps is also from before 0143, which renamed the bench's column
+   * after them, and the sweeps name the column they were written against. So the rename is wound
+   * back too, and the runner walks the save forward through the sweeps and then the rename.
+   */
+  db.exec('ALTER TABLE bases RENAME COLUMN muster_queue_json TO training_queue_json');
+  forget(db, MUSTER_RENAME_MIGRATION);
 };
 
 /**
@@ -104,7 +112,7 @@ function seed(repos: Repositories): string {
     buildings: [],
     buildQueue: [],
     army: {},
-    trainingQueue: [],
+    musterQueue: [],
     training: startingTraining(NOW),
     inventory: {},
     fittedUpgrades: [],
@@ -325,7 +333,7 @@ describe('a fractional stockpile', () => {
  * clean the stored rows, so the database does not carry ghosts for ever. The tests below check the
  * migration; that the loader survives without it is asserted inside each one.
  *
- * Both shapes are covered because both exist: an army is a map keyed by unit id, and the training
+ * Both shapes are covered because both exist: an army is a map keyed by unit id, and the muster
  * queue is an array of orders that each name one. A sweep that only knew about maps left a crew
  * mid-batch unable to load, which is the same bug one table along.
  */
@@ -354,10 +362,10 @@ describe('a save that still names a retired unit', () => {
     expect(repos.bases.findById(id)?.army).toEqual({ razors: 4 });
   });
 
-  it('drops a part-trained batch of one, since there is nothing left to hand over', () => {
+  it('drops a part-mustered batch of one, since there is nothing left to hand over', () => {
     const { db, repos } = openStack();
     const id = seed(repos);
-    db.prepare('UPDATE bases SET training_queue_json = ? WHERE id = ?').run(
+    db.prepare('UPDATE bases SET muster_queue_json = ? WHERE id = ?').run(
       JSON.stringify([
         { id: 'o1', unitId: 'razors', count: 3, delivered: 1, startedAt: NOW, durationSeconds: 60 },
         {
@@ -380,14 +388,14 @@ describe('a save that still names a retired unit', () => {
       id,
     );
     // Loads unmigrated too, with the retired order already filtered out of the queue.
-    expect((repos.bases.findById(id)?.trainingQueue ?? []).map((order) => order.unitId)).toEqual([
+    expect((repos.bases.findById(id)?.musterQueue ?? []).map((order) => order.unitId)).toEqual([
       'razors',
     ]);
 
     forgetRetirements(db);
     runMigrations(db);
 
-    const queue = repos.bases.findById(id)?.trainingQueue ?? [];
+    const queue = repos.bases.findById(id)?.musterQueue ?? [];
     expect(queue.map((order) => order.unitId)).toEqual(['razors']);
   });
 
@@ -520,7 +528,7 @@ describe('a save naming content the game no longer has', () => {
     expect(load('army_json', { razors: 4, gone_unit: 7 })?.army).toEqual({ razors: 4 });
   });
 
-  it('drops a training order for a unit that no longer exists', () => {
+  it('drops a muster order for a unit that no longer exists', () => {
     const order = (unitId: string, orderId: string) => ({
       id: orderId,
       unitId,
@@ -529,8 +537,8 @@ describe('a save naming content the game no longer has', () => {
       startedAt: NOW,
       durationSeconds: 60,
     });
-    const queue = load('training_queue_json', [order('razors', 'a'), order('gone_unit', 'b')]);
-    expect((queue?.trainingQueue ?? []).map((one) => one.unitId)).toEqual(['razors']);
+    const queue = load('muster_queue_json', [order('razors', 'a'), order('gone_unit', 'b')]);
+    expect((queue?.musterQueue ?? []).map((one) => one.unitId)).toEqual(['razors']);
   });
 
   it('drops a structure of a kind that no longer exists', () => {
@@ -609,8 +617,24 @@ describe('a save naming content the game no longer has', () => {
       const db = openDatabase(':memory:');
       dbs.push(db);
       runMigrations(db, before);
-      const repos = createRepositories(db);
-      const id = seed(repos);
+      // Written raw rather than through `seed`: the repository is today's and the schema is
+      // 0093's, so a column renamed since (0143's bench) is not there for it to write.
+      const id = 'b';
+      db.prepare(
+        'INSERT INTO users (id, username, password_hash, created_at) VALUES (?, ?, ?, ?)',
+      ).run('u', 'keeper', 'x', NOW);
+      db.prepare(
+        `INSERT INTO bases (id, owner_id, name, district_id, resources_json, economy_json,
+           progression_json, research_json, buildings_json, created_at)
+         VALUES (?, 'u', 'The Vault', 'neon-docks', ?, ?, ?, ?, '[]', ?)`,
+      ).run(
+        id,
+        JSON.stringify(STARTING_RESOURCES),
+        JSON.stringify(startingEconomy(NOW)),
+        JSON.stringify(startingProgression()),
+        JSON.stringify(startingResearch()),
+        NOW,
+      );
       db.prepare(
         'UPDATE bases SET fitted_upgrades_json = ?, unit_loadouts_json = ? WHERE id = ?',
       ).run(
@@ -623,7 +647,7 @@ describe('a save naming content the game no longer has', () => {
       // The first thing the ladder picks up, not the whole tail of it: every migration written
       // after this one also lands here, and none of them is what this test measures.
       expect(applied[0]).toBe('0094_unit_modifications.sql');
-      const read = repos.bases.findById(id)!;
+      const read = createRepositories(db).bases.findById(id)!;
       expect(read.fittedUpgrades).toEqual([]);
       expect(read.unitLoadouts).toEqual({});
       // The columns themselves, not only the parsed base: the floor in `rowToBase` would hide a

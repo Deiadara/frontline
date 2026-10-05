@@ -114,7 +114,8 @@ export function BattleReportModal({
   const mine = side === 'attacker' ? analysis.attacker : analysis.defender;
   const theirs = side === 'attacker' ? analysis.defender : analysis.attacker;
   const won = analysis.winner === side;
-  const rows = ledgerRows(mine, theirs);
+  const theirHolder = side === 'attacker' ? defenderKind : 'crew';
+  const rows = ledgerRows(mine, theirs, theirHolder);
   const notes = noteLines(analysis);
 
   return (
@@ -235,7 +236,7 @@ export function BattleReportModal({
             heading="Theirs"
             tone="theirs"
             rows={rows}
-            holder={side === 'attacker' ? defenderKind : 'crew'}
+            holder={theirHolder}
           />
         </div>
       </div>
@@ -346,6 +347,13 @@ interface LedgerRow {
   meaning: string;
   of: (side: SideAnalysis) => number;
   tone?: 'bad';
+  /**
+   * A crew's figure only. Infamy is a crew's name, and the Combine and the looters have none to
+   * earn: "The Combine's infamy is irrelevant. Don't show it anywhere" (maintainer, 2026-09-30).
+   * The looters are left out on the same ground. It is the last row, so dropping it from their
+   * column leaves every row above it level with its twin.
+   */
+  crewOnly?: true;
 }
 
 /**
@@ -356,7 +364,11 @@ interface LedgerRow {
  * side has something to say, which is what keeps the two columns aligned: a row is on both or on
  * neither.
  */
-function ledgerRows(mine: SideAnalysis, theirs: SideAnalysis): LedgerRow[] {
+function ledgerRows(
+  mine: SideAnalysis,
+  theirs: SideAnalysis,
+  theirHolder: LocationHolderKind,
+): LedgerRow[] {
   const always: LedgerRow[] = [
     { label: 'Sent', icon: 'units', meaning: 'sent', of: (side) => side.committed },
     { label: 'Died', icon: 'sword', meaning: 'died', of: (side) => side.lost, tone: 'bad' },
@@ -385,9 +397,22 @@ function ledgerRows(mine: SideAnalysis, theirs: SideAnalysis): LedgerRow[] {
       of: (side) => side.perimeterLost,
       tone: 'bad',
     },
-    { label: 'Infamy earned', icon: 'infamy', meaning: 'infamy', of: (side) => side.infamy },
+    {
+      label: 'Infamy earned',
+      icon: 'infamy',
+      meaning: 'infamy',
+      of: (side) => side.infamy,
+      crewOnly: true,
+    },
   ];
-  return [...always, ...whenAnybodyHas.filter((row) => row.of(mine) > 0 || row.of(theirs) > 0)];
+  // The reader is always a crew; the other side counts only where it is one too.
+  const theirsCounts = (row: LedgerRow) => !row.crewOnly || theirHolder === 'crew';
+  return [
+    ...always,
+    ...whenAnybodyHas.filter(
+      (row) => row.of(mine) > 0 || (theirsCounts(row) && row.of(theirs) > 0),
+    ),
+  ];
 }
 
 /** One paper panel of the sheet, with its drawn heading: the plot window's own material. */
@@ -504,26 +529,28 @@ function SideSheet({
 
       <div className="flex min-w-0 flex-col gap-2.5 px-3 pb-3 pt-2.5">
         <dl className="flex flex-col gap-1">
-          {rows.map((row) => (
-            <div key={row.label} className="flex items-center justify-between gap-3">
-              <dt className="flex items-center gap-2 font-display text-[11px] uppercase tracking-[0.14em] text-ink-300">
-                <Glyph
-                  icon={row.icon}
-                  meaning={row.meaning}
-                  className={row.tone === 'bad' ? 'text-oxblood-300' : 'text-ink-200'}
-                />
-                {row.label}
-              </dt>
-              <dd
-                className={cn(
-                  'font-display text-[13px] font-semibold tabular-nums',
-                  row.tone === 'bad' && row.of(side) > 0 ? 'text-oxblood-300' : 'text-ink-100',
-                )}
-              >
-                {row.of(side).toLocaleString()}
-              </dd>
-            </div>
-          ))}
+          {rows
+            .filter((row) => !row.crewOnly || holder === 'crew')
+            .map((row) => (
+              <div key={row.label} className="flex items-center justify-between gap-3">
+                <dt className="flex items-center gap-2 font-display text-[11px] uppercase tracking-[0.14em] text-ink-300">
+                  <Glyph
+                    icon={row.icon}
+                    meaning={row.meaning}
+                    className={row.tone === 'bad' ? 'text-oxblood-300' : 'text-ink-200'}
+                  />
+                  {row.label}
+                </dt>
+                <dd
+                  className={cn(
+                    'font-display text-[13px] font-semibold tabular-nums',
+                    row.tone === 'bad' && row.of(side) > 0 ? 'text-oxblood-300' : 'text-ink-100',
+                  )}
+                >
+                  {row.of(side).toLocaleString()}
+                </dd>
+              </div>
+            ))}
         </dl>
 
         {/* §D1: who led, and what it came to. */}

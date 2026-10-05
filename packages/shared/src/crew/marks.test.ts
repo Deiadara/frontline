@@ -9,6 +9,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   OFFICER_MARKS,
+  OFFICER_MARK_BAND,
   OFFICER_MARK_CEILING,
   OFFICER_MARK_FLOOR,
   markAtLeast,
@@ -72,5 +73,16 @@ describe('the mark ladder', () => {
     expect(markAtLeast('B', 'A')).toBe(false);
     expect(markAtLeast('S+', 'F-')).toBe(true);
     expect(markAtLeast('C', 'C')).toBe(true);
+  });
+});
+
+describe('a score exactly on a band floor', () => {
+  // Bug pass, 2026-10-05: `FLOOR + i * BAND` used to land a float's width under the floor of
+  // grade i and read one grade low (65.714..., the floor of B, read B-).
+  it('reads that band, for every grade', () => {
+    OFFICER_MARKS.forEach((mark, index) => {
+      expect(markFromPoints(OFFICER_MARK_FLOOR + index * OFFICER_MARK_BAND), mark).toBe(mark);
+    });
+    expect(markFromPoints(460 / 7)).toBe('B');
   });
 });

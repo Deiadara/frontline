@@ -117,7 +117,7 @@ const openLadder = (key: string) => fireEvent.click(screen.getByTestId(`feats-ta
 beforeEach(() => {
   vi.stubGlobal('fetch', fetchMock);
   fetchMock.mockReset();
-  useSession.setState({ token: 'session-token', user: null });
+  useSession.setState({ signedIn: true, user: null });
 });
 
 afterEach(() => vi.unstubAllGlobals());
@@ -533,7 +533,7 @@ describe('the CLAIM button', () => {
  * A claim is paid **up to the district's ceilings** and the difference is discarded, so a rung the
  * server has quoted a loss against asks before it fires. The quote rides on the feats read
  * (`FeatsResponse.waste`) and is never computed here: the ceilings are the structures plus the
- * crew's Logistics, and a screen that guessed would be naming a figure the till does not agree
+ * crew's storage bonus, and a screen that guessed would be naming a figure the till does not agree
  * with.
  *
  * The fixture quotes 25 scrap against `area_neon_docks`, which stands alone and so is its own row

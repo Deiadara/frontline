@@ -29,6 +29,9 @@ import {
   type ClearSlotRefusal,
   type ModificationSlotResponse,
   CancelBuildRequestSchema,
+  overTheStores,
+  overTheStoresText,
+  type StoreCeilings,
 } from '@frontline/shared';
 import type { FastifyInstance } from 'fastify';
 import {
@@ -41,6 +44,7 @@ import {
 import { buyBuildBoost } from '../district/boost.js';
 import { clearSlot } from '../district/modifications.js';
 import { settleBase } from '../district/settle.js';
+import { storeCeilingsOf } from '../district/stores.js';
 import { AppError, parseBody, type ErrorCode } from '../errors.js';
 import { takeLevelUp } from '../progression/award.js';
 
@@ -121,7 +125,7 @@ export function registerBaseRoutes(app: FastifyInstance): void {
    * queue is measured against its six-slot limit.
    */
   app.post('/base/build', { preHandler: app.authenticate }, (request): BuildStructureResponse => {
-    const { kind } = parseBody(BuildStructureRequestSchema, request.body);
+    const { kind, level } = parseBody(BuildStructureRequestSchema, request.body);
     const owned = app.repos.bases.findByOwnerId(request.currentUser.id);
     if (!owned) throw new AppError('NO_BASE', 'You do not have a base yet');
 
@@ -129,6 +133,16 @@ export function registerBaseRoutes(app: FastifyInstance): void {
     // Drained before the refusal below can be thrown, because both exits announce it: `takeLevelUp`
     // clears the durable marker (migration 0083) so `/me` cannot draw the same card again.
     const levelUp = takeLevelUp(app.repos, settled.base.id);
+    if (
+      level !== undefined &&
+      level !== nextQueuedLevel(kind, settled.base.buildings, settled.base.buildQueue)
+    ) {
+      throw new AppError(
+        'STALE_STATE',
+        'That level is already on order. Look again before you pay for the next one.',
+        levelUp,
+      );
+    }
     const result = app.db.transaction(() =>
       queueBuild(app.repos, {
         base: settled.base,
@@ -169,7 +183,10 @@ export function registerBaseRoutes(app: FastifyInstance): void {
       buyBuildBoost(app.repos, settled.base, now, app.config.admin),
     )();
     if (result.kind === 'refused') {
-      throw new AppError('BOOST_REFUSED', boostMessage(result.reason, settled.base));
+      throw new AppError(
+        'BOOST_REFUSED',
+        boostMessage(result.reason, settled.base, storeCeilingsOf(app.repos, settled.base, now)),
+      );
     }
     return { base: result.base, paid: result.paid };
   });
@@ -264,14 +281,22 @@ const CLEAR_MESSAGES: Record<ClearSlotRefusal, string> = {
 };
 
 /** §B4: why the burn could not be bought, with the number that makes it actionable. */
-function boostMessage(reason: BuildBoostRefusal, base: Parameters<typeof nexusGate>[1]): string {
+function boostMessage(
+  reason: BuildBoostRefusal,
+  base: Parameters<typeof nexusGate>[1],
+  ceilings: StoreCeilings,
+): string {
+  const oil = buildBoostOilCost(base.buildings);
+  const over = overTheStores({ oil }, ceilings);
   switch (reason) {
     case 'no_generator':
       return 'Build the Generator first. It is what sells the burn';
     case 'already_running':
       return `A burn is already running. Buying a second one extends nothing: wait it out`;
     case 'cannot_afford':
-      return `${BUILD_BOOST_HOURS} hours at ${BUILD_BOOST_PERCENT}% off costs ${buildBoostOilCost(base.buildings)} oil, and you are short`;
+      return over
+        ? `The burn costs ${oil} oil. ${overTheStoresText(over)}`
+        : `${BUILD_BOOST_HOURS} hours at ${BUILD_BOOST_PERCENT}% off costs ${oil} oil, and you are short`;
   }
 }
 

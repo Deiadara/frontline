@@ -2,6 +2,7 @@ import { MAX_LOCATION_LEVEL, type LocationControl } from '@frontline/shared';
 import type { Repositories } from '../db/repos/index.js';
 import { settleBasesById } from '../district/settle.js';
 import { settleEach } from '../world/guard.js';
+import { tallyLocationLevelRaised } from '../feats/tally.js';
 
 /**
  * Doing things to the city (GDD §A4): what is left of it here is the upgrade clock on held ground.
@@ -41,6 +42,10 @@ export function settleLocationUpgrades(
       };
       putControl(repos, settled, now);
       controls.set(control.locationId, settled);
+      // P8-C: counted for whoever holds the ground when the work lands.
+      if (settled.holder.kind === 'crew' && settled.level > control.level) {
+        tallyLocationLevelRaised(repos, settled.holder.baseId);
+      }
     },
   );
   return controls;

@@ -21,6 +21,8 @@ import {
   describeAreaRequirement,
   isAreaUnlocked,
   noUnlocks,
+  MAX_OFFICER_SLOTS,
+  officerSlotsAt,
   FIRST_MILESTONE_LEVEL,
   GATED_AREAS,
   MILESTONE_STEP,
@@ -35,16 +37,18 @@ import {
 const XP_SOURCES = Object.keys(PLAYER_XP_AWARDS) as PlayerXpSource[];
 
 describe('the level curve (§I2)', () => {
-  it('costs 52, 158, 302, 478, 683 XP for the first five levels', () => {
-    expect([1, 2, 3, 4, 5].map(playerXpToNextLevel)).toEqual([52, 158, 302, 478, 683]);
+  it('costs 52, 138, 245, 367, 503 XP for the first five levels', () => {
+    expect([1, 2, 3, 4, 5].map(playerXpToNextLevel)).toEqual([52, 138, 245, 367, 503]);
   });
 
   /**
    * The shape the retune was for (maintainer, 2026-09-28), pinned on the curve itself: the XP to
-   * reach level ninety is about a fifth of what the old square-law curve asked, and the early
-   * levels are cheaper too. The days it takes are the simulation's to measure, not a unit test's.
+   * reach level ninety is a small share of what the old square-law curve asked, and the early
+   * levels are cheaper too. It was a fifth at a power of 1.6 and is 9% at 1.41 (2026-10-01, when
+   * the fight premium came down). The days it takes are the simulation's to measure, not a unit
+   * test's.
    */
-  it('asks about a fifth of the old XP for level ninety, and less at every early level', () => {
+  it('asks about a tenth of the old XP for level ninety, and less at every early level', () => {
     const oldCost = (level: number) => (100 * level * (level + 1)) / 2;
     let now = 0;
     let before = 0;
@@ -54,8 +58,8 @@ describe('the level curve (§I2)', () => {
       if (level <= 20)
         expect(playerXpToNextLevel(level), `level ${level}`).toBeLessThan(oldCost(level));
     }
-    expect(now / before).toBeGreaterThan(0.15);
-    expect(now / before).toBeLessThan(0.25);
+    expect(now / before).toBeGreaterThan(0.07);
+    expect(now / before).toBeLessThan(0.12);
   });
 
   it('is strictly increasing and integral, so a level always costs more than the last', () => {
@@ -81,8 +85,8 @@ describe('the level curve (§I2)', () => {
   });
 
   it('crosses several levels on one oversized award', () => {
-    // 52 + 158 + 302 clears levels 1..3 exactly; the extra 50 lands inside level 4.
-    expect(applyPlayerXp({ level: 1, xpIntoLevel: 0 }, 562)).toEqual({
+    // 52 + 138 + 245 clears levels 1..3 exactly; the extra 50 lands inside level 4.
+    expect(applyPlayerXp({ level: 1, xpIntoLevel: 0 }, 485)).toEqual({
       level: 4,
       xpIntoLevel: 50,
       levelsGained: 3,
@@ -118,8 +122,51 @@ describe('the level curve (§I2)', () => {
 });
 
 describe('level-up grants (§I2 → §H8)', () => {
-  it('grants recruit slots per §H8: 2 at the start, +1 per level', () => {
-    expect([1, 2, 5, 10].map((l) => playerLevelGrants(l).recruitSlots)).toEqual([2, 3, 6, 11]);
+  /*
+   * The maintainer's ruling (2026-09-30), typed out as a table rather than derived: none before
+   * the Bar opens at 5, the first with it, another every two levels, and 17 (one per chair, since
+   * the Consigliere left on 2026-10-01) from level 37 on.
+   */
+  it('grants no officer slot before the Bar, one with it, and another every two levels', () => {
+    const table: [number, number][] = [
+      [1, 0],
+      [4, 0],
+      [5, 1],
+      [6, 1],
+      [7, 2],
+      [8, 2],
+      [9, 3],
+      [15, 6],
+      // Thirteen chairs since the chair rework (2026-10-04), the last at level 29.
+      [27, 12],
+      [29, 13],
+      [30, 13],
+      [37, 13],
+      [200, 13],
+    ];
+    for (const [level, slots] of table) {
+      expect(playerLevelGrants(level).recruitSlots, `level ${level}`).toBe(slots);
+    }
+    expect(MAX_OFFICER_SLOTS).toBe(13);
+  });
+
+  it('counts the slots from the Bar door, so moving the door moves the ladder', () => {
+    const bar = AREA_REQUIREMENTS.bar;
+    expect(bar.kind).toBe('level');
+    const opens = bar.kind === 'level' ? bar.level : NaN;
+    expect(officerSlotsAt(opens - 1)).toBe(0);
+    expect(officerSlotsAt(opens)).toBe(1);
+    expect(officerSlotsAt(opens + 2)).toBe(2);
+  });
+
+  it('files one level-up entry per officer slot, at exactly the level that slot arrives', () => {
+    const slots = PLAYER_LEVEL_UNLOCKS.filter((unlock) => unlock.id.startsWith('officer_slot_'));
+    expect(slots).toHaveLength(MAX_OFFICER_SLOTS);
+    for (const unlock of slots) {
+      const count = Number(unlock.id.replace('officer_slot_', ''));
+      expect(officerSlotsAt(unlock.level), unlock.id).toBe(count);
+      expect(officerSlotsAt(unlock.level - 1), unlock.id).toBe(count - 1);
+    }
   });
 
   it('never regresses as level rises', () => {
@@ -154,7 +201,7 @@ describe('the unlock catalogue (§I3)', () => {
       training: { kind: 'level', level: 3 },
       bar: { kind: 'level', level: 5 },
       crew: { kind: 'level', level: 5 },
-      research: { kind: 'officer', role: 'head_of_research' },
+      research: { kind: 'officer', role: 'researcher' },
       faction: { kind: 'level', level: 10 },
       market: { kind: 'level', level: 15 },
       offers: { kind: 'research', technology: TECH_DISTRICT_OFFERS },
@@ -189,9 +236,7 @@ describe('the unlock catalogue (§I3)', () => {
     expect(isAreaUnlocked('scrapyard', { ...noUnlocks(), buildings: ['scrapyard'] })).toBe(true);
     // ...and a different structure is not that structure.
     expect(isAreaUnlocked('scrapyard', { ...noUnlocks(), buildings: ['lab'] })).toBe(false);
-    expect(isAreaUnlocked('research', { ...noUnlocks(), officers: ['head_of_research'] })).toBe(
-      true,
-    );
+    expect(isAreaUnlocked('research', { ...noUnlocks(), officers: ['researcher'] })).toBe(true);
     expect(isAreaUnlocked('research', { ...noUnlocks(), officers: ['trader'] })).toBe(false);
     expect(isAreaUnlocked('black_market', { ...noUnlocks(), notoriety: 2 })).toBe(false);
     expect(isAreaUnlocked('black_market', { ...noUnlocks(), notoriety: 3 })).toBe(true);
@@ -228,7 +273,9 @@ describe('the unlock catalogue (§I3)', () => {
 
   it('puts every milestone on the ten-level ladder from 40, and none below it', () => {
     const milestones = PLAYER_LEVEL_UNLOCKS.filter(
-      (unlock) => !GATED_AREAS.includes(unlock.id as (typeof GATED_AREAS)[number]),
+      (unlock) =>
+        !GATED_AREAS.includes(unlock.id as (typeof GATED_AREAS)[number]) &&
+        !unlock.id.startsWith('officer_slot_'),
     );
     expect(milestones.length).toBeGreaterThan(0);
     for (const milestone of milestones) {
@@ -254,8 +301,10 @@ describe('the unlock catalogue (§I3)', () => {
   it('names the next thing worth reaching, and stops naming one past the ladder', () => {
     expect(nextPlayerUnlock(1)?.id).toBe('training');
     expect(nextPlayerUnlock(3)?.level).toBe(5);
-    expect(nextPlayerUnlock(10)?.id).toBe('market');
-    expect(nextPlayerUnlock(15)?.level).toBe(FIRST_MILESTONE_LEVEL);
+    // Between the doors, the next officer slot is the next thing: 11 comes before the Market.
+    expect(nextPlayerUnlock(10)?.id).toBe('officer_slot_4');
+    expect(nextPlayerUnlock(14)?.id).toBe('market');
+    expect(nextPlayerUnlock(39)?.level).toBe(FIRST_MILESTONE_LEVEL);
     expect(nextPlayerUnlock(9_999)).toBeNull();
   });
 });
@@ -269,7 +318,7 @@ describe('XP awards (§I1)', () => {
       'raidWon',
       'raidLost',
       'researchCompleted',
-      'unitTrained',
+      'unitMustered',
       'officerHired',
       'pagesReimagined',
     ]);
@@ -280,7 +329,7 @@ describe('XP awards (§I1)', () => {
     // The ordering the table's doc comment claims: priced by how long the thing takes and how much
     // of it can be running at once. A batch off the bench is the cheapest and most frequent.
     expect(PLAYER_XP_AWARDS.researchCompleted).toBeGreaterThan(PLAYER_XP_AWARDS.officerHired);
-    expect(PLAYER_XP_AWARDS.officerHired).toBeGreaterThan(PLAYER_XP_AWARDS.unitTrained);
+    expect(PLAYER_XP_AWARDS.officerHired).toBeGreaterThan(PLAYER_XP_AWARDS.unitMustered);
   });
 
   it('starts a fresh player at zero progress, and that parses', () => {
@@ -293,16 +342,16 @@ describe('XP awards (§I1)', () => {
   });
 
   it('reports the level-up and the grants that came with it', () => {
-    const award = resolvePlayerXpAward({ level: 3, xpIntoLevel: 282 }, 'missionCompleted');
+    const award = resolvePlayerXpAward({ level: 3, xpIntoLevel: 225 }, 'missionCompleted');
     expect(award).toMatchObject({
       source: 'missionCompleted',
       xpGained: 120,
       level: 4,
       levelsGained: 1,
       progression: { xpIntoLevel: 100 },
-      xpToNextLevel: 478,
+      xpToNextLevel: 367,
     });
-    expect(award.grants).toEqual({ recruitSlots: 5 });
+    expect(award.grants).toEqual({ recruitSlots: 0 });
   });
 
   it('reports the grants unchanged when the award did not level anyone up', () => {

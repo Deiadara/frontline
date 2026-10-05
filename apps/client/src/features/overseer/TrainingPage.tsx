@@ -1,25 +1,30 @@
 import {
   ATTRIBUTES_BY_GROUP,
   ATTRIBUTE_EFFECTS,
+  SPY_DEFENCE_ATTRIBUTES,
+  attributeUse,
+  IMPORTANCE_LABELS,
   ATTRIBUTE_GROUPS,
   ATTRIBUTE_GROUP_LABELS,
   ATTRIBUTE_LABELS,
   importanceOf,
   MAX_ATTRIBUTE,
+  OFFICER_ROLE_LABELS,
   OVERSEER_SUBJECT,
-  CHANNEL_LABELS,
   TRAINING_DRILLS,
-  contributionOf,
   drillCancelWindowMs,
   drillProgressAt,
   drillRemainingMs,
+  drillUnderway,
+  drillWaitMs,
   trainingGainFor,
   type AttributeGroup,
   type AttributeName,
+  type Seat,
   type TrainingSession,
   type TrainingSubject,
 } from '@frontline/shared';
-import { useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Button } from '../../components/ui/Button';
 import { CancelMark } from '../../components/ui/CancelMark';
 import { HoverCard } from '../../components/ui/HoverCard';
@@ -30,11 +35,10 @@ import { RATING_FILL, RATING_TEXT, ratingBand, ratingPercent } from '../../lib/r
 import { useCancelDrill, useStartTraining, useTraining } from '../../lib/queries';
 import { formatDuration, formatRemaining } from '../base/format';
 import { useServerClock } from '../missions/useServerClock';
-import { PageShell, ScreenLoadSheet } from '../game/PageShell';
+import { InfoNote, PageShell, ScreenLoadSheet } from '../game/PageShell';
 import { DrillSigil } from './DrillSigil';
-import { OfficerPortrait } from './OfficerPortrait';
-import { OverseerPortrait } from './OverseerPortrait';
-import { IMPORTANCE_EDGE } from '../../lib/importance';
+import { TrainingPortrait } from './TrainingPortrait';
+import { IMPORTANCE_EDGE, IMPORTANCE_TEXT } from '../../lib/importance';
 import { ErrorNote } from '../../components/ui/ErrorNote';
 
 /**
@@ -176,20 +180,35 @@ export function TrainingPage() {
   }
 
   const subject = data.subjects.find((one) => one.id === chosen) ?? data.subjects[0];
-  // One bench until the Professor's Second Chair (`TRAINING_BENCHES`): a full floor dims every
-  // drill on every sheet, the way an empty allowance does.
-  const onTheFloor = data.subjects.filter((one) => one.session !== null).length;
-  const floorFull = onTheFloor >= data.benches;
+  // A queue of two until the Professor's Second Chair (`TRAINING_QUEUE_SLOTS`), the running drill
+  // included: a full queue dims every drill on every sheet, the way an empty allowance does.
+  const onTheList = data.subjects.filter((one) => one.session !== null).length;
+  const floorFull = onTheList >= data.queueSlots;
 
   return (
-    <PageShell quote="A little practice saves a great deal of blood." wide fills>
+    <PageShell
+      quote="A little practice saves a great deal of blood."
+      // Top right on the quotation's line, in the pen Research's note is drawn in (maintainer,
+      // 2026-10-01). The quote line is the one row on this screen with room to its right. The
+      // drawn chip is 26px and the quotation's line 25.6, so the chip is pulled a pixel into the
+      // line's margin at each edge: left to size the row, it pushed the whole sheet down a third
+      // of a pixel (`train-faster.spec.ts`).
+      action={
+        <div className="-my-px">
+          <InfoNote label="Train Faster" drawn ink="iris">
+            Speed, Resolve and Organization all reduce the time it takes for an officer to train.
+          </InfoNote>
+        </div>
+      }
+      wide
+      fills
+    >
       {/* The crew screen's line (maintainer, 2026-09-21), carrying the one number this screen
-          has that the rail and the sheet do not: how many may be on the floor at once. */}
+          has that the rail and the sheet do not: how many drills the queue holds. */}
       <div className="flex shrink-0 flex-wrap items-center gap-3" data-testid="training-floor-line">
         <span className="font-display text-[12px] uppercase tracking-[0.18em] text-ink-300">
-          <span className="tabular-nums text-ink-200">{onTheFloor}</span> of{' '}
-          <span className="tabular-nums text-ink-200">{data.benches}</span>{' '}
-          {data.benches === 1 ? 'bench' : 'benches'} in use
+          <span className="tabular-nums text-ink-200">{onTheList}</span> of{' '}
+          <span className="tabular-nums text-ink-200">{data.queueSlots}</span> in the queue
         </span>
         <span aria-hidden className="ink-rule block min-w-0 flex-1" />
       </div>
@@ -332,24 +351,11 @@ export function TrainingPage() {
                * an hour. On a tall screen it stays: the room is there, and a face at the top of
                * the sheet is the answer to "whose numbers are these".
                */}
-              <span className="w-12 shrink-0 [@media(max-height:820px)]:hidden sm:w-14">
-                {/* The Overseer wears the portrait they chose; an officer wears one off the
-                    pool, at that pool's own 4:5 rather than the overseer frame's 3:4. */}
-                {subject.officerRole === null ? (
-                  <OverseerPortrait
-                    portraitId={subject.portraitId ?? ''}
-                    archetype="enforcer"
-                    showTag={false}
-                  />
-                ) : (
-                  <OfficerPortrait
-                    portraitId={subject.portraitId}
-                    name={subject.name}
-                    injuredUntil={subject.injuredUntil}
-                    className="aspect-[4/5] w-full"
-                  />
-                )}
-              </span>
+              <TrainingPortrait
+                subject={subject}
+                stamp="-right-1 -top-1 h-6 w-6"
+                className="w-12 shrink-0 [@media(max-height:820px)]:hidden sm:w-14"
+              />
 
               {/*
                * One wrapping line rather than a stack (2026-09-21).
@@ -372,41 +378,59 @@ export function TrainingPage() {
                     stops where the next word starts. */}
                 <span aria-hidden className="ink-rule block min-w-4 flex-1" />
 
-                {subject.session ? (
-                  <div
-                    className="flex flex-wrap items-baseline gap-x-3 gap-y-1"
-                    data-testid="training-in-flight"
-                  >
-                    <span className="min-w-0 font-display text-[13px] font-bold uppercase tracking-[0.14em] text-ink-100">
-                      {TRAINING_DRILLS[subject.session.attribute].title}
-                    </span>
-                    <span className="shrink-0 font-display text-base font-bold tabular-nums text-brass-300">
-                      {formatRemaining(drillRemainingMs(subject.session, now))}
-                    </span>
-                    {/* Its own line when it is there at all: the cancel carries a sentence about
-                        how long is left to decide, and that does not belong beside a countdown
-                        saying something different. */}
-                    <span className="w-full">
-                      <DrillCancel
-                        session={subject.session}
-                        now={now}
-                        pending={cancel.isPending}
-                        onCancel={(sessionId) => cancel.mutate({ sessionId })}
-                        error={cancel.error?.message ?? null}
-                      />
-                    </span>
-                  </div>
-                ) : (
-                  <p className="font-body text-[13px] italic leading-relaxed text-ink-300">
-                    Free this hour. Pick something off the sheet.
-                  </p>
-                )}
+                {/*
+                 * The line, and under it the cancel's own line, whose room is kept in every state
+                 * (maintainer, 2026-10-04): free, on a drill, with the X or without it, the banner
+                 * is one height and the sheet under it never moves.
+                 *
+                 * Top-aligned rather than on the name's baseline, and both first lines set on the
+                 * same 24px. On the baseline the block's height depended on which font its first
+                 * line was set in, so the free sentence and the countdown left the banner a pixel
+                 * apart; at the top both lines start level with the name to within a pixel.
+                 *
+                 * At least as wide as the cancel line at its widest, and set flush right, so the
+                 * X coming and going never changes the block's width either: wider than the drill
+                 * above it, it used to slide the title and the countdown sideways as it went.
+                 */}
+                <div
+                  className="flex min-w-[12rem] flex-col items-end gap-y-1 self-start"
+                  data-testid="training-status"
+                >
+                  {subject.session ? (
+                    <div
+                      className="flex min-h-6 flex-wrap items-baseline gap-x-3 gap-y-1"
+                      data-testid="training-in-flight"
+                    >
+                      <span className="min-w-0 font-display text-[13px] font-bold uppercase tracking-[0.14em] text-ink-100">
+                        {TRAINING_DRILLS[subject.session.attribute].title}
+                      </span>
+                      <span className="shrink-0 font-display text-base font-bold tabular-nums text-brass-300">
+                        {drillUnderway(subject.session, now)
+                          ? formatRemaining(drillRemainingMs(subject.session, now))
+                          : `Starts in ${formatRemaining(drillWaitMs(subject.session, now))}`}
+                      </span>
+                    </div>
+                  ) : (
+                    <p className="font-body text-[13px] italic leading-6 text-ink-300">
+                      Free this hour. Pick something off the sheet.
+                    </p>
+                  )}
+                  <CancelLine
+                    session={subject.session}
+                    now={now}
+                    pending={cancel.isPending}
+                    onCancel={(sessionId) => cancel.mutate({ sessionId })}
+                  />
+                </div>
               </div>
             </div>
 
             {start.error !== null && (
               <ErrorNote className="shrink-0">That session did not start.</ErrorNote>
             )}
+            {/* Under the banner with the start's error rather than in the cancel's line, which
+                has room for the X and nothing else. */}
+            {cancel.error && <ErrorNote className="shrink-0">{cancel.error.message}</ErrorNote>}
 
             {/*
              * The sheet takes whatever height is left, and gives up whole rows rather than half
@@ -479,7 +503,8 @@ export function TrainingPage() {
         <DrillDialog
           name={opened}
           subject={subject}
-          seconds={data.sessionSeconds}
+          // Their own hour: Speed, Resolve and Organization shorten it (2026-10-01).
+          seconds={subject.sessionSeconds ?? data.sessionSeconds}
           blocker={drillBlocker(opened, subject, data.sessionsLeft, floorFull)}
           pending={start.isPending}
           onTrain={() => {
@@ -504,9 +529,9 @@ export function TrainingPage() {
  * drill's own words and the cancel: this strip is the *other* question, which is everybody at once.
  *
  * Bounded by construction, so it never scrolls and never needs to (maintainer, 2026-09-21: "no
- * need for a scrolable page though"). The floor has `benches` places, one until the Professor's
- * Second Chair and two after, so at most two of these exist however many officers are on the
- * books. It is also kept deliberately short, because every pixel it takes is a drill row
+ * need for a scrolable page though"). The queue has `queueSlots` places, two until the Professor's
+ * Second Chair and three after, so at most three of these exist however many officers are on the
+ * books, in the order they run. It is also kept deliberately short, because every pixel it takes is a drill row
  * off the sheet above it: one line per person, and the drill's name on the hover rather than in
  * the row.
  *
@@ -514,9 +539,10 @@ export function TrainingPage() {
  * on the left with a worse layout; what belongs at the foot of the sheet is the work.
  */
 function Underway({ subjects, now }: { subjects: readonly TrainingSubject[]; now: number }) {
-  const working = subjects.filter(
-    (one): one is TrainingSubject & { session: TrainingSession } => one.session !== null,
-  );
+  const working = subjects
+    .filter((one): one is TrainingSubject & { session: TrainingSession } => one.session !== null)
+    .sort((a, b) => Date.parse(a.session.startedAt) - Date.parse(b.session.startedAt));
+  const waiting = working.filter((one) => !drillUnderway(one.session, now)).length;
 
   return (
     <div className="shrink-0" data-testid="training-underway">
@@ -528,7 +554,11 @@ function Underway({ subjects, now }: { subjects: readonly TrainingSubject[]; now
         </h3>
         <span aria-hidden className="ink-rule block min-w-4 flex-1" />
         <span className="shrink-0 font-display text-[10px] uppercase tracking-[0.18em] tabular-nums text-ink-400">
-          {working.length === 0 ? 'nobody' : `${working.length} working`}
+          {working.length === 0
+            ? 'nobody'
+            : waiting === 0
+              ? `${working.length} working`
+              : `${working.length - waiting} working, ${waiting} queued`}
         </span>
       </div>
 
@@ -568,28 +598,16 @@ function UnderwayRow({
   now: number;
 }) {
   const drill = TRAINING_DRILLS[subject.session.attribute];
+  const underway = drillUnderway(subject.session, now);
   return (
     <div
       className="flex items-center gap-2 rounded-sm border border-surface-600/60 bg-surface-900/50 px-1.5 py-1"
       data-testid={`training-underway-${subject.id}`}
-      data-tip={`${subject.name}: ${drill.title}`}
+      data-queued={underway ? undefined : true}
+      data-tip={`${subject.name}: ${drill.title}${underway ? '' : ', next in the queue'}`}
     >
-      <span className="w-5 shrink-0">
-        {subject.officerRole === null ? (
-          <OverseerPortrait
-            portraitId={subject.portraitId ?? ''}
-            archetype="enforcer"
-            showTag={false}
-          />
-        ) : (
-          <OfficerPortrait
-            portraitId={subject.portraitId}
-            name={subject.name}
-            injuredUntil={subject.injuredUntil}
-            className="aspect-[4/5] w-full"
-          />
-        )}
-      </span>
+      {/* No mark at this size: twenty pixels of face has no room for a stamp on it. */}
+      <TrainingPortrait subject={subject} className="w-5 shrink-0" />
       <span className="min-w-0 break-words font-display text-[10px] font-bold uppercase leading-tight tracking-[0.08em] text-ink-100">
         {subject.name}
       </span>
@@ -602,8 +620,11 @@ function UnderwayRow({
           style={{ width: `${drillProgressAt(subject.session, now) * 100}%` }}
         />
       </span>
+      {/* A waiting drill's bar stands empty and its figure counts down to its start, not its end. */}
       <span className="shrink-0 font-display text-[10px] tabular-nums text-brass-300">
-        {formatRemaining(drillRemainingMs(subject.session, now))}
+        {underway
+          ? formatRemaining(drillRemainingMs(subject.session, now))
+          : `in ${formatRemaining(drillWaitMs(subject.session, now))}`}
       </span>
     </div>
   );
@@ -637,22 +658,11 @@ function SubjectRow({
           : 'border-surface-600/60 bg-surface-900/40 hover:border-iris-300/60 hover:bg-surface-800/70',
       )}
     >
-      <span className="w-11 shrink-0">
-        {subject.officerRole !== null ? (
-          <OfficerPortrait
-            portraitId={subject.portraitId}
-            name={subject.name}
-            injuredUntil={subject.injuredUntil}
-            className="aspect-[4/5] w-full"
-          />
-        ) : (
-          <OverseerPortrait
-            portraitId={subject.portraitId ?? ''}
-            archetype="enforcer"
-            showTag={false}
-          />
-        )}
-      </span>
+      <TrainingPortrait
+        subject={subject}
+        stamp="-right-1.5 -top-1.5 h-[22px] w-[22px]"
+        className="w-11 shrink-0"
+      />
       {/*
        * Wrapping, not truncating.
        *
@@ -675,7 +685,11 @@ function SubjectRow({
       </span>
       {/* What they are doing with the hour, on the rail, so picking somebody to train does not
           mean clicking through four people to find the one who is free. */}
-      {subject.session ? (
+      {subject.session && !drillUnderway(subject.session, now) ? (
+        <span className="shrink-0 font-display text-[10px] uppercase tracking-[0.12em] text-brass-300">
+          Queued
+        </span>
+      ) : subject.session ? (
         <span className="flex w-12 shrink-0 flex-col items-end gap-1">
           <span className="font-display text-[11px] tabular-nums text-brass-300">
             {formatRemaining(drillRemainingMs(subject.session, now))}
@@ -718,6 +732,9 @@ const GROUP_STYLE: Readonly<Record<AttributeGroup, { edge: string; ink: string }
  * a player is actually after when they glance at a column: not "what is their Logic" but "are they
  * a thinker". Twelve numbers do not answer that and one does.
  */
+/** The longest column's row count: every column is ruled to it so their rows line up. */
+const MOST_DRILLS = Math.max(...ATTRIBUTE_GROUPS.map((group) => ATTRIBUTES_BY_GROUP[group].length));
+
 function GroupSheet({
   group,
   subject,
@@ -779,7 +796,16 @@ function GroupSheet({
         </span>
       </header>
       <span aria-hidden className="ink-rule mx-2.5 block" />
-      <div className="flex flex-col gap-[3px] p-1.5 pt-2">
+      {/*
+       * Ruled into as many equal rows as the longest column has (Technical, eleven), and grown to
+       * the column's height (maintainer, 2026-10-05): on a tall screen the rows get taller and
+       * Technical fills its box exactly, where a fixed row left a band of empty column under it.
+       * `1fr` never goes below a row's content, so a short screen lays out as it always did.
+       */}
+      <div
+        className="grid flex-1 gap-[3px] p-1.5 pt-2"
+        style={{ gridTemplateRows: `repeat(${MOST_DRILLS}, 1fr)` }}
+      >
         {names.map((name) => (
           <DrillButton
             key={name}
@@ -832,10 +858,7 @@ function DrillButton({
   onOpen: () => void;
 }) {
   const rating = subject.attributes[name];
-  // Against this rating, never the crew-wide figure: see the note on `DrillDialog`.
-  const gain = trainingGainFor(rating);
   const drill = TRAINING_DRILLS[name];
-  const effect = ATTRIBUTE_EFFECTS[name];
   const blocker = drillBlocker(name, subject, sessionsLeft, floorFull);
   const filled = ratingPercent((rating / MAX_ATTRIBUTE) * 100);
   // The bar and the figure read the *rating*, not the column they are in. A group colour told a
@@ -845,29 +868,44 @@ function DrillButton({
   // The one row worth marking rather than merely dimming: what they drilled last time is the only
   // blocker a player can plan around, and it is a fact about *this* person on *this* day.
   const rested = subject.lastAttribute === name;
-  // `null` for the Overseer, who is in no chair: no skill is more or less useful to them.
-  const importance = subject.officerRole === null ? null : importanceOf(subject.officerRole, name);
+  // The seat they are graded on: the Overseer's own since 2026-10-04, an officer's chair, and none
+  // for somebody on the bench.
+  const seat = seatOf(subject);
+  const importance = seat === null ? null : importanceOf(seat, name);
 
   return (
     <HoverCard
       label={`${ATTRIBUTE_LABELS[name]}: ${drill.title}`}
       card={
-        <div className="flex flex-col gap-1.5">
+        /*
+         * Three lines and nothing else (maintainer, 2026-10-04): the name, what it is good for,
+         * and the chair's tier in its own colour. The drill, the gain and the blocker are the
+         * dialog's to say, which a click still opens. No tier for the Overseer, who is in no chair.
+         */
+        <div className="flex flex-col gap-1.5" data-testid={`drill-card-${name}`}>
           <p className="font-display text-[12px] font-bold uppercase tracking-[0.14em] text-brass-300">
             {ATTRIBUTE_LABELS[name]}
           </p>
-          <p className="font-body text-[13px] leading-relaxed text-ink-100">{effect.summary}</p>
-          <p className="border-t border-surface-600/60 pt-1.5 font-display text-[12px] uppercase tracking-[0.1em] text-ink-200">
-            {drill.title}
+          <p
+            data-testid={`drill-use-${name}`}
+            className="font-body text-[13px] font-semibold leading-snug text-ink-100"
+          >
+            {attributeUse(name)}
           </p>
-          <p className="font-body text-[12px] leading-relaxed text-ink-300">{drill.detail}</p>
-          <p className="font-display text-[12px] uppercase tracking-[0.08em] text-ink-300">
-            {blocker ??
-              `An hour buys ${gain} ${gain === 1 ? 'point' : 'points'}. Click to open it.`}
-          </p>
+          {importance !== null && (
+            <p
+              data-testid={`drill-tier-${name}`}
+              className={cn(
+                'font-display text-[12px] font-bold uppercase tracking-[0.12em]',
+                IMPORTANCE_TEXT[importance],
+              )}
+            >
+              {IMPORTANCE_LABELS[importance]}
+            </p>
+          )}
         </div>
       }
-      className="w-full"
+      className="h-full w-full"
       onActivate={onOpen}
       disabled={pending}
       data-testid={`drill-${name}`}
@@ -875,7 +913,7 @@ function DrillButton({
       <span
         data-importance={importance ?? undefined}
         className={cn(
-          'relative flex w-full items-center justify-between gap-2 overflow-hidden rounded-sm border pb-[6px] pl-2 pr-1.5 pt-1',
+          'relative flex h-full w-full items-center justify-between gap-2 overflow-hidden rounded-sm border pb-[6px] pl-2 pr-1.5 pt-1',
           'transition-all duration-150',
           blocker === null
             ? 'border-surface-600 bg-surface-800/60 hover:-translate-y-px hover:border-brass-300/70 hover:bg-brass-300/10'
@@ -886,7 +924,9 @@ function DrillButton({
           importance !== null && cn('pl-2.5', IMPORTANCE_EDGE[importance]),
         )}
       >
-        <span className="min-w-0 truncate font-body text-[13px] leading-tight text-ink-100">
+        {/* Grows with the screen's height past 900px, as the row does, and never shrinks below
+            the size every screen up to 900 tall has always had. */}
+        <span className="min-w-0 truncate font-body text-[clamp(13px,1.45vh,16px)] leading-tight text-ink-100">
           {ATTRIBUTE_LABELS[name]}
         </span>
         {/* A dot on the one they did last time, so "why is that row dead" is answerable without
@@ -903,7 +943,7 @@ function DrillButton({
             the main part where the attributes are"). */}
         <span
           className={cn(
-            'shrink-0 font-display text-[14px] font-bold leading-none tabular-nums',
+            'shrink-0 font-display text-[clamp(14px,1.55vh,17px)] font-bold leading-none tabular-nums',
             RATING_TEXT[band],
           )}
         >
@@ -932,40 +972,92 @@ function DrillButton({
   );
 }
 
-/** Why this hour cannot be spent on this attribute for this person, or `null`. */
+/** How long the cancel line takes to come and go. */
+const CANCEL_FADE_MS = 200;
+
 /**
- * The X on a running drill (maintainer request, 2026-09-12): inside the first tenth of the hour it can
- * be taken off the board, and the day's session comes back whole. A component rather than inline
- * because the session is narrowed from `subject.session` and a closure over it loses that.
+ * The X on a drill (maintainer request, 2026-09-12): inside the first tenth of the hour it can be
+ * taken off the board, and the day's session comes back whole.
+ *
+ * Its line is always there, empty or not (maintainer, 2026-10-04). It used to be drawn only while
+ * the window was open, so the banner grew a line when a drill started and lost it ten minutes in,
+ * and the whole sheet under it jumped both times. Now the room is kept and only the opacity moves.
+ *
+ * Fading out needs something to fade, and by then there is nothing live to draw: the window has
+ * shut, so `CancelMark` would draw nothing, or the drill was called off and there is no session at
+ * all. So the last session the X was live for is held for the length of the fade, drawn dead and
+ * hidden from the pointer and the screen reader, and then let go.
  */
-function DrillCancel({
+function CancelLine({
   session,
   now,
   pending,
   onCancel,
-  error,
 }: {
-  session: TrainingSession;
+  session: TrainingSession | null;
   /** Epoch milliseconds, as the page keeps its clock. */
   now: number;
   pending: boolean;
   onCancel: (sessionId: string) => void;
-  error: string | null;
 }) {
+  const at = new Date(now).toISOString();
+  const live = session !== null && drillCancelWindowMs(session, at) > 0 ? session : null;
+  const { held, lit } = useFadingValue(live, CANCEL_FADE_MS);
+
   return (
-    <>
-      <CancelMark
-        windowMs={drillCancelWindowMs(session, new Date(now).toISOString())}
-        label={`Call off ${TRAINING_DRILLS[session.attribute].title}`}
-        pending={pending}
-        onCancel={() => onCancel(session.id)}
-        data-testid="cancel-drill"
-      />
-      {error !== null && <ErrorNote>{error}</ErrorNote>}
-    </>
+    <div className="h-7" data-testid="training-cancel-line">
+      {held !== null && (
+        <span
+          className="block transition-opacity duration-200 ease-out motion-reduce:transition-none"
+          style={{ opacity: lit ? 1 : 0 }}
+          aria-hidden={live === null ? true : undefined}
+        >
+          <CancelMark
+            // A floor of a millisecond while it fades, or the mark would draw nothing to fade.
+            windowMs={Math.max(1, drillCancelWindowMs(held, at))}
+            label={`Call off ${TRAINING_DRILLS[held.attribute].title}`}
+            pending={pending || live === null}
+            onCancel={() => onCancel(held.id)}
+            data-testid="cancel-drill"
+          />
+        </span>
+      )}
+    </div>
   );
 }
 
+/**
+ * A value that fades in and out rather than snapping.
+ *
+ * `held` is the value while it is there and the last one it had for `ms` after it goes, so there
+ * is something on screen to fade; `lit` is whether to draw it at full opacity. Coming in, `lit`
+ * waits two frames so the browser paints it at zero first and has an opacity to run from. A value
+ * that is there on the first render is lit at once: a page opening is not something appearing.
+ */
+function useFadingValue<T>(value: T | null, ms: number): { held: T | null; lit: boolean } {
+  const [held, setHeld] = useState<T | null>(value);
+  const [lit, setLit] = useState(value !== null);
+  const present = value !== null;
+  // Follows the value while it is there, in render rather than in an effect, so a held value is
+  // never a frame behind the live one.
+  if (present && held !== value) setHeld(value);
+
+  useEffect(() => {
+    if (present) {
+      let frame = requestAnimationFrame(() => {
+        frame = requestAnimationFrame(() => setLit(true));
+      });
+      return () => cancelAnimationFrame(frame);
+    }
+    setLit(false);
+    const timer = setTimeout(() => setHeld(null), ms);
+    return () => clearTimeout(timer);
+  }, [present, ms]);
+
+  return { held: present ? value : held, lit: present && lit };
+}
+
+/** Why this hour cannot be spent on this attribute for this person, or `null`. */
 function drillBlocker(
   name: AttributeName,
   subject: TrainingSubject,
@@ -973,12 +1065,39 @@ function drillBlocker(
   floorFull: boolean,
 ): string | null {
   if (sessionsLeft <= 0) return 'Nothing left today';
-  if (subject.session) return 'Already in a session';
+  // One place per person, running or waiting (maintainer, 2026-10-04).
+  if (subject.session) return 'Already in the queue';
   // The server's own words (`trainingBlocker`), after the per-person check for the same reason.
-  if (floorFull) return 'The floor is taken';
+  if (floorFull) return 'The queue is full';
   if (subject.lastAttribute === name) return 'Did that last time';
   if (subject.attributes[name] >= MAX_ATTRIBUTE) return 'Nothing left to learn';
   return null;
+}
+
+/** The seat a subject is graded on: the Overseer's own, an officer's chair, or none on the bench. */
+function seatOf(subject: TrainingSubject): Seat | null {
+  return subject.id === OVERSEER_SUBJECT ? 'overseer' : (subject.officerRole ?? null);
+}
+
+/**
+ * What a drill feeds for this person, in a line (maintainer, 2026-10-04): their seat's grade at the
+ * skill's tag, the Overseer's own lift through theirs, nothing for somebody on the bench, and the
+ * guard against spies for Signals and Cryptography, which anybody in the room gives.
+ */
+function drillFeeds(subject: TrainingSubject, name: AttributeName): string {
+  const guards = (SPY_DEFENCE_ATTRIBUTES as readonly AttributeName[]).includes(name);
+  const seat = seatOf(subject);
+  if (seat === null) {
+    return guards
+      ? 'Nothing from the bench, not even the guard against spies'
+      : 'Nothing until they sit in a chair';
+  }
+  const tag = IMPORTANCE_LABELS[importanceOf(seat, name)].toLowerCase();
+  const grade =
+    seat === 'overseer'
+      ? `Your grade (${tag}), and the lift it puts on every seated officer`
+      : `The ${OFFICER_ROLE_LABELS[seat]}'s grade (${tag}), and what the chair gives`;
+  return guards ? `${grade}, and your guard against spies` : grade;
 }
 
 /**
@@ -1016,6 +1135,7 @@ function DrillDialog({
   const effect = ATTRIBUTE_EFFECTS[name];
   const rating = subject.attributes[name];
   const gain = trainingGainFor(rating);
+  const feeds = drillFeeds(subject, name);
 
   return (
     <Modal onClose={onClose} labelledBy="drill-dialog-title" className="border-brass-300/30">
@@ -1049,17 +1169,18 @@ function DrillDialog({
         </div>
         {/* The channel label is a noun phrase, not a clause, so it is set as a field rather than
             dropped into a sentence: "It lands on what theirs does not" reads as a typo. */}
+        {/* What the skill feeds now (maintainer, 2026-10-04): the grade of the seat they sit in, at
+            that skill's tag, and through the grade the chair's one passive. Nothing crew-wide,
+            but Signals and Cryptography, which guard the crew against spies from anybody. */}
         <dl className="flex flex-wrap items-baseline gap-x-2 gap-y-1 border-t border-surface-700 pt-3">
           <dt className="font-display text-[11px] uppercase tracking-[0.2em] text-ink-300">
             Feeds
           </dt>
-          <dd className="font-display text-[12px] uppercase tracking-[0.08em] text-ink-100">
-            {CHANNEL_LABELS[effect.channel].label}
-          </dd>
-          <dd className="ml-auto font-display text-[13px] font-bold tabular-nums text-brass-300">
-            +{contributionOf(rating)}
-            {CHANNEL_LABELS[effect.channel].unit === 'percent' ? '%' : ''}
-            <span className="ml-1 font-normal text-ink-300">from this rating</span>
+          <dd
+            data-testid="drill-feeds-grade"
+            className="font-display text-[12px] uppercase tracking-[0.08em] text-ink-100"
+          >
+            {feeds}
           </dd>
         </dl>
       </div>

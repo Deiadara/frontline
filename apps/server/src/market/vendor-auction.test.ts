@@ -551,7 +551,9 @@ describe('the close', () => {
     for (const crew of [bex, cal]) {
       const [told] = bells(app, crew, 'market_outbid');
       expect(told?.title).toMatch(
-        new RegExp(`^You could not take .+ at the close, so ana did at ${line.price}$`),
+        new RegExp(
+          `^You could not take .+ at the close, so ana did at ${line.price.toLocaleString('en')} caps$`,
+        ),
       );
     }
   });
@@ -701,6 +703,24 @@ describe('the close', () => {
     expect(again?.line.stock).toBe(spare.stock - 1);
     expect(again?.auction?.session).toBe(1);
     expect(again?.auction?.leading).toBeNull();
+  });
+
+  it('counts a spare line unsold on the first visit as one sale left, not two', async () => {
+    const app = await makeApp();
+    const ana = await signIn(app, 'ana');
+    const day = aDayWhere((lines) => lines.some((line) => line.stock >= 2));
+    const spare = lineWithSpare(day);
+    expect(spare.stock).toBe(2);
+
+    const onFirst = projectMarket(app.repos, baseOf(app, ana), duringVisit(day, 0));
+    expect(onFirst.vendor.stock.find((offer) => offer.line.id === spare.id)?.line.stock).toBe(2);
+
+    const second = duringVisit(day, 1);
+    settleVendorAuctions(app.repos, second);
+    const onSecond = projectMarket(app.repos, baseOf(app, ana), second);
+    const line = onSecond.vendor.stock.find((offer) => offer.line.id === spare.id);
+    expect(line?.line.stock).toBe(1);
+    expect(line?.auction?.session).toBe(1);
   });
 });
 

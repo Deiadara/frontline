@@ -7,8 +7,16 @@ import type { AuthResponse, CityResponse } from '@frontline/shared';
 import type { Harness, Method, Player } from './playthrough-harness.js';
 import { player, type Cast } from './playthrough-cast.js';
 
-/** The routes a caller with no token may use. */
-const OPEN_ROUTES = new Set(['GET /health', 'POST /api/auth/register', 'POST /api/auth/login']);
+/**
+ * The routes a caller with no token may use. Signing out is one: it clears a cookie, and a
+ * session that has already ended still leaves one behind to clear.
+ */
+const OPEN_ROUTES = new Set([
+  'GET /health',
+  'POST /api/auth/register',
+  'POST /api/auth/login',
+  'POST /api/auth/logout',
+]);
 
 function split(route: string): { method: Method; path: string } {
   const [method, path] = route.split(' ');

@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 import {
+  sameSpyTarget,
   SPY_TIERS,
   SPY_TIER_SPECS,
   findResearchItem,
@@ -10,6 +11,8 @@ import {
   type SpyRunView,
   type SpyTarget,
   type SpyTier,
+  dayInZone,
+  GAME_TIMEZONE,
 } from '@frontline/shared';
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
@@ -21,6 +24,7 @@ import { cn } from '../../lib/cn';
 import { useRecallSpy, useSpy } from '../../lib/queries';
 import { formatDuration, formatRemaining } from '../base/format';
 import { ErrorNote } from '../../components/ui/ErrorNote';
+import { usePlayerZone } from '../settings/usePlayerZone';
 
 /**
  * Spying, from the player's side (maintainer ruling, 2026-09-22).
@@ -90,38 +94,46 @@ export function SpyPanel({
 }) {
   const [tier, setTier] = useState<SpyTier>('loose_ears');
   const spy = useSpy(baseId, districtId);
+  const zone = usePlayerZone();
   const recall = useRecallSpy();
   const { runs, parties, tiersOpen, quote, blocker } = spying;
-  const free = runs.length < parties;
+  // One job per place (maintainer, 2026-10-05): with runners already on their way here, the send
+  // is gone until they are called back or come home, whatever parties are free.
+  const watchingHere = runs.some((run) => sameSpyTarget(run.target, target));
+  const partiesFull = runs.length >= parties;
+  const free = !partiesFull && !watchingHere;
 
   return (
     <div className="flex flex-col gap-2.5" data-testid={testId}>
-      <SpyLine latest={latest ?? null} />
+      <SpyLine latest={latest ?? null} zone={zone} />
 
-      {blocker !== null ? (
+      {/* Every job out stays on the panel whatever the chair is doing (bug pass, 2026-10-02): the
+          recall needs no Master of Whispers, only the job's own window, and a chair emptied by an
+          injury used to hide the jobs and the one control that could still turn them round. */}
+      {runs.map((run, index) => (
+        <RunUnderway
+          key={run.id}
+          run={run}
+          now={now}
+          here={sameSpyTarget(run.target, target)}
+          full={partiesFull}
+          pending={recall.isPending}
+          onRecall={() => recall.mutate({ runId: run.id, districtId: run.districtId })}
+          testId={testId}
+          // The way out goes on the last line the panel draws, which is this one when no party
+          // is free to send and nothing is blocking (the blocked note has its own line for it).
+          actions={blocker === null && !free && index === runs.length - 1 ? actions : undefined}
+        />
+      ))}
+      {blocker !== null && (
         <p
           className="font-body text-xs leading-relaxed text-oxblood-300"
           data-testid={`${testId}-blocked`}
         >
-          Nobody is in the Master of Whispers chair. Spying is their work: sign one at the Bar and
-          seat them. Nothing else is needed, and the caps are the price.
+          Nobody is working the Master of Whispers chair: it is empty, or whoever holds it is hurt.
+          Spying is their work, so seat somebody fit for it. Nothing else is needed, and the caps
+          are the price.
         </p>
-      ) : (
-        runs.map((run, index) => (
-          <RunUnderway
-            key={run.id}
-            run={run}
-            now={now}
-            here={sameTarget(run.target, target)}
-            full={!free}
-            pending={recall.isPending}
-            onRecall={() => recall.mutate({ runId: run.id, districtId: run.districtId })}
-            testId={testId}
-            // The way out goes on the last line the panel draws, which is this one when no party
-            // is free to send.
-            actions={!free && index === runs.length - 1 ? actions : undefined}
-          />
-        ))
       )}
       {blocker !== null || !free ? null : quote === null ? (
         <p className="font-body text-xs leading-relaxed text-ink-300">
@@ -167,12 +179,6 @@ export function SpyPanel({
       ) : null}
     </div>
   );
-}
-
-function sameTarget(a: SpyTarget, b: SpyTarget): boolean {
-  if (a.kind === 'location' && b.kind === 'location') return a.locationId === b.locationId;
-  if (a.kind === 'gate' && b.kind === 'gate') return a.districtId === b.districtId;
-  return false;
 }
 
 function TierPicker({
@@ -333,8 +339,19 @@ function RunUnderway({
   );
 }
 
+/**
+ * What a report says is standing there, in the few words a figure has room for, or null when it
+ * says nothing. The Whole Wire's exact slots first, a failed report's included (bug pass,
+ * 2026-10-01): they are the one figure a report can carry that is the whole of the place.
+ */
+export function spyStandingFigure(report: SpyReport): string | null {
+  if (report.totalSlots !== null) return `${report.totalSlots} unit slots`;
+  return report.failed ? null : spyReportSummary(report);
+}
+
 /** The last report on this place, in one line, with the door to the whole of it. */
-function LastReport({ report }: { report: SpyReport }) {
+function LastReport({ report, zone }: { report: SpyReport; zone: string }) {
+  const whole = report.totalSlots === null ? '' : `, ${report.totalSlots} unit slots in all`;
   return (
     <p
       className="flex flex-wrap items-center gap-x-2 gap-y-1 font-body text-[12px] leading-relaxed text-ink-200"
@@ -343,8 +360,8 @@ function LastReport({ report }: { report: SpyReport }) {
       <DrawnGlyph name="eye" className="h-4 w-4 shrink-0 text-brass-300" />
       <span>
         {report.failed
-          ? 'Last look: nothing they would put their name to.'
-          : `Last look: ${spyReportSummary(report)}, ${report.writtenAt.slice(0, 10)}.`}
+          ? `Last look: nothing they would put their name to${whole}.`
+          : `Last look: ${spyReportSummary(report)}${whole}, ${dayInZone(new Date(report.writtenAt), zone)}.`}
       </span>
       <Link
         to={`/game/battles?spy=${encodeURIComponent(report.id)}`}
@@ -435,6 +452,13 @@ export function SpyDialog({
  * of yours has had a look at it. What is standing here is theirs to know until you pay to find
  * out", which is two sentences to say that a line is absent. The absence says it.
  */
-export function SpyLine({ latest }: { latest: SpyReport | null }) {
-  return latest ? <LastReport report={latest} /> : null;
+export function SpyLine({
+  latest,
+  zone = GAME_TIMEZONE,
+}: {
+  latest: SpyReport | null;
+  /** The reader's clock face, for the day the report is dated. */
+  zone?: string;
+}) {
+  return latest ? <LastReport report={latest} zone={zone} /> : null;
 }

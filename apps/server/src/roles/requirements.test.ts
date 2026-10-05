@@ -8,12 +8,12 @@ import { describe, expect, it } from 'vitest';
 import {
   ROLE_REQUIREMENTS,
   attributeWeightsOf,
-  roleFit,
+  templateFit,
   weightedAttributesOf,
 } from './requirements.js';
 
 describe('ROLE_REQUIREMENTS', () => {
-  it('covers all 19 roles and only real attributes', () => {
+  it('covers all 13 roles and only real attributes', () => {
     expect(Object.keys(ROLE_REQUIREMENTS).sort()).toEqual([...OFFICER_ROLES].sort());
     for (const role of OFFICER_ROLES) {
       const { primary, weights } = ROLE_REQUIREMENTS[role];
@@ -26,7 +26,7 @@ describe('ROLE_REQUIREMENTS', () => {
     }
   });
 
-  // B3/B5: "enough that all 19 roles have something that is genuinely theirs". Two roles sharing
+  // B3/B5: "enough that all 13 roles have something that is genuinely theirs". Two roles sharing
   // a headline attribute would make one of them indistinguishable from the other at a glance.
   it('gives every role a primary attribute no other role claims', () => {
     const primaries = OFFICER_ROLES.map((role) => ROLE_REQUIREMENTS[role].primary);
@@ -60,12 +60,12 @@ describe('ROLE_REQUIREMENTS', () => {
   });
 });
 
-describe('roleFit', () => {
+describe('templateFit', () => {
   it('stays on the 0..100 attribute scale', () => {
     for (const role of OFFICER_ROLES) {
-      expect(roleFit(makeAttributes(0), role)).toBe(0);
-      expect(roleFit(makeAttributes(100), role)).toBe(100);
-      expect(roleFit(makeAttributes(37), role)).toBeCloseTo(37);
+      expect(templateFit(makeAttributes(0), role)).toBe(0);
+      expect(templateFit(makeAttributes(100), role)).toBe(100);
+      expect(templateFit(makeAttributes(37), role)).toBeCloseTo(37);
     }
   });
 
@@ -77,10 +77,10 @@ describe('roleFit', () => {
     const spyish = makeAttributes(20, { stealth: 90, deception: 90 });
     const wasted = makeAttributes(20, Object.fromEntries(irrelevant.map((n) => [n, 90])));
 
-    expect(roleFit(spyish, 'master_of_whispers')).toBeGreaterThan(
-      roleFit(flat, 'master_of_whispers'),
+    expect(templateFit(spyish, 'master_of_whispers')).toBeGreaterThan(
+      templateFit(flat, 'master_of_whispers'),
     );
-    expect(roleFit(wasted, 'master_of_whispers')).toBe(roleFit(flat, 'master_of_whispers'));
+    expect(templateFit(wasted, 'master_of_whispers')).toBe(templateFit(flat, 'master_of_whispers'));
   });
 
   // C2: the same character can be slotted anywhere: well or badly. A sheet built for one role
@@ -93,7 +93,7 @@ describe('roleFit', () => {
       );
       const others = OFFICER_ROLES.filter((other) => other !== role);
       for (const other of others) {
-        expect(roleFit(shaped, role)).toBeGreaterThan(roleFit(shaped, other));
+        expect(templateFit(shaped, role)).toBeGreaterThan(templateFit(shaped, other));
       }
     }
   });

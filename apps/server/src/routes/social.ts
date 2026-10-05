@@ -1,5 +1,7 @@
 import {
+  BlockSenderRequestSchema,
   IdSchema,
+  LETTERS_TO_ONE_PLAYER_PER_DAY,
   MAILBOX_LIMIT,
   NotificationSettingsRequestSchema,
   hasVisibleText,
@@ -10,6 +12,7 @@ import {
   type MessagesResponse,
   type NotificationMutationResponse,
   type NotificationsResponse,
+  displayNameOf,
 } from '@frontline/shared';
 import { z } from 'zod';
 import type { FastifyInstance } from 'fastify';
@@ -52,6 +55,10 @@ export function registerSocialRoutes(app: FastifyInstance): void {
     sent: app.repos.social.sent(userId, MAILBOX_LIMIT),
     unread: app.repos.social.unreadMessages(userId),
     hasFaction: app.repos.factions.membershipOf(userId) !== undefined,
+    blocked: app.repos.social.blockedBy(userId).flatMap((blockedId) => {
+      const user = app.repos.users.findById(blockedId);
+      return user ? [{ userId: blockedId, name: displayNameOf(user) }] : [];
+    }),
     serverNow: new Date().toISOString(),
   });
   const notificationsScreen = (userId: string): NotificationsResponse => ({
@@ -117,13 +124,30 @@ export function registerSocialRoutes(app: FastifyInstance): void {
         }
         const to = [...byId.values()];
         audience = 'player';
-        addressedTo = to.map((user) => user.username).join(', ');
+        addressedTo = to.map((user) => displayNameOf(user)).join(', ');
         recipients = to.map((user) => user.id);
       }
 
       const sentAt = new Date();
+      /*
+       * One sender, one mailbox, ten a day (maintainer, 2026-10-02): the day's hundred is about how
+       * much an account writes, and one stranger could still spend it all on one player. A letter
+       * to a reader who has blocked the sender is not counted: it never arrives. Letters to the
+       * sender's own faction table are not held to it (review, 2026-10-02): they are not a stranger
+       * filling somebody's mailbox, and the day's hundred still bounds them.
+       */
+      const since = new Date(sentAt.getTime() - 24 * 60 * 60 * 1000).toISOString();
+      for (const recipientUserId of audience === 'player' ? recipients : []) {
+        if (app.repos.social.hasBlocked(recipientUserId, sender.id)) continue;
+        if (
+          app.repos.social.lettersToSince(sender.id, recipientUserId, since) >=
+          LETTERS_TO_ONE_PLAYER_PER_DAY
+        ) {
+          refuseMessage('too_many_to_them');
+        }
+      }
       sendMessage(app.repos, {
-        sender: { id: sender.id, username: sender.username },
+        sender: { id: sender.id, signature: displayNameOf(sender) },
         senderFaction,
         recipients,
         audience,
@@ -134,7 +158,7 @@ export function registerSocialRoutes(app: FastifyInstance): void {
         notification: {
           kind: 'message_received',
           // To the table or to you: the mailbox keeps the two apart (`audience`), so the bell does.
-          title: `${sender.username} wrote to ${audience === 'faction' ? 'the faction' : 'you'}`,
+          title: `${displayNameOf(sender)} wrote to ${audience === 'faction' ? 'the faction' : 'you'}`,
           body: subject,
           link: '/game/messages',
         },
@@ -144,6 +168,20 @@ export function registerSocialRoutes(app: FastifyInstance): void {
       return { messages: messagesScreen(sender.id) };
     })();
   });
+
+  /** Stop, or start again, taking letters from one player (maintainer, 2026-10-02). */
+  app.post(
+    '/messages/block',
+    { preHandler: app.authenticate },
+    (request): MessageMutationResponse => {
+      const { userId: blockedUserId, blocked } = parseBody(BlockSenderRequestSchema, request.body);
+      const userId = request.currentUser.id;
+      if (blockedUserId === userId) refuseMessage('cannot_write_to_yourself');
+      if (!app.repos.users.findById(blockedUserId)) refuseMessage('no_such_player');
+      app.repos.social.setBlocked(userId, blockedUserId, blocked, new Date().toISOString());
+      return { messages: messagesScreen(userId) };
+    },
+  );
 
   app.post(
     '/messages/read',

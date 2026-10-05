@@ -36,7 +36,7 @@ function makeBase(): Base {
     buildings: [],
     buildQueue: [],
     army: {},
-    trainingQueue: [],
+    musterQueue: [],
     training: startingTraining(now),
     inventory: {},
     fittedUpgrades: [],

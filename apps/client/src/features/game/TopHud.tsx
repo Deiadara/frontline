@@ -135,11 +135,6 @@ interface TopHudProps {
   buildings: readonly Building[];
   /** The live channel's state (`lib/live.ts`). Drawn only when it is not up. */
   live?: LiveStatus;
-  /**
-   * Admin mode's clock, when this build runs it; absent otherwise. Draws the plate that says the
-   * prices on screen are not being taken (`AdminPlate`).
-   */
-  adminSeconds?: number | undefined;
 }
 
 /**
@@ -165,7 +160,6 @@ export function TopHud({
   buildings,
   unread,
   live,
-  adminSeconds,
 }: TopHudProps) {
   const standing = useCrewStanding();
   const storagePercent = standing.data?.effects['storageCapacityPercent'] ?? 0;
@@ -177,7 +171,7 @@ export function TopHud({
    * chip prints `125K` and the exact figure has to live somewhere, but there is no bar and no
    * "x of y" in it. An absent capacity means something else again: see `ResourceChipProps`.
    */
-  // §F2: with the crew's own Logistics on top of the structure, which is how the settle fills it
+  // §F2: with the crew's own storage bonus on top of the structure, which is how the settle fills it
   // (`accrueProduction`). Without it the bar read 112% full for a crew that had finished the
   // storage research, and the market refused to sell them anything into the space it did not know
   // about. Its own query because the fold is not on the session payload.
@@ -283,21 +277,12 @@ export function TopHud({
             deltas={[...(spent[kind] ?? []), ...(waived[kind] ?? [])]}
           />
         ))}
-        {adminSeconds !== undefined && <AdminPlate seconds={adminSeconds} />}
       </div>
 
       {/* The authored break. Zero height, full width, so the line ends here and nothing else has
-          to guess where. Gone entirely once all three groups fit on one line, which in an admin
-          build is later by the plate's width: the plaque needs the same room either way. */}
-      <span
-        aria-hidden
-        className={cn(
-          'order-2 h-0 basis-full',
-          adminSeconds === undefined
-            ? '[@media(min-width:1550px)]:hidden'
-            : '[@media(min-width:1700px)]:hidden',
-        )}
-      />
+          to guess where. Gone entirely once all three groups fit on one line. An admin build breaks
+          at the same width: it carries nothing extra on the bar (maintainer, 2026-09-30). */}
+      <span aria-hidden className="order-2 h-0 basis-full [@media(min-width:1550px)]:hidden" />
 
       {/* Where you are. The one control in the bar that changes anything about the crew itself:
           see `DistrictPlaque`. */}
@@ -426,25 +411,6 @@ export function TopHud({
         </NavLink>
       </div>
     </header>
-  );
-}
-
-/**
- * The testing build's plate (maintainer ruling, 2026-09-29).
- *
- * Admin mode runs every clock at five seconds and takes no price while every screen still quotes
- * the real one, so a screenshot of an admin build looked like a broken economy with nothing on it
- * to say otherwise. At the end of the stockpile, because that is the row whose numbers it explains.
- */
-function AdminPlate({ seconds }: { seconds: number }) {
-  return (
-    <span
-      data-testid="hud-admin"
-      data-tip={`Testing mode: every clock is ${String(seconds)} seconds and nothing is charged. Screens show the real prices.`}
-      className="ml-1 flex shrink-0 items-center whitespace-nowrap rounded-sm border border-warning/60 bg-warning/10 px-2 py-1 font-display text-[10px] font-bold uppercase tracking-[0.14em] text-warning"
-    >
-      Admin · {seconds}s · free
-    </span>
   );
 }
 

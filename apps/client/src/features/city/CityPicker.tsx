@@ -122,11 +122,9 @@ export function CityPicker({
                     )}
                   >
                     <DrawnFace face={here ? 'fill-brass-500/30' : 'fill-surface-900/50'} />
+                    {/* The name only, no nickname (maintainer, 2026-10-04). */}
                     <span className="relative font-stamp text-[14px] leading-tight">
                       {nameOf(id)}
-                    </span>
-                    <span className="relative font-body text-[11px] opacity-70">
-                      {NAMES.get(id)?.nickname ?? ''}
                     </span>
                   </button>
                 </li>

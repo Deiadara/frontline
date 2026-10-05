@@ -1,4 +1,7 @@
 import {
+  chairPassiveOf,
+  overseerLift,
+  seatPoints,
   OFFICER_INJURY_HOURS,
   CITY_DISTRICTS,
   DECLARE_INFAMY_COST,
@@ -36,10 +39,17 @@ import {
 } from '@frontline/shared';
 import type { FastifyInstance } from 'fastify';
 import { afterEach, describe, expect, it } from 'vitest';
+import { armTheAttack } from '../testing/attack.js';
 import { buildApp } from '../app.js';
 import { loadConfig } from '../config.js';
 import { openDatabase, runMigrations, type AppDatabase } from '../db/index.js';
-import { crewEffectsFor, crewSheetsFor, standingEffectsFor } from '../crew/standing.js';
+import {
+  crewEffectsFor,
+  crewSheetsFor,
+  liftedOfficerSheet,
+  officerLiftRoom,
+  standingEffectsFor,
+} from '../crew/standing.js';
 import { officerTravelMinutesTo, settleMovements } from './movement.js';
 import { settleBattles } from './resolve.js';
 import { chooseOverseer, pinOverseer } from '../testing/overseer.js';
@@ -173,7 +183,7 @@ const takeVehicles = (
 
 async function deploy(stack: Stack, battleId: string, changes: Record<string, number>) {
   const base = stack.app.repos.bases.findById(stack.baseId)!;
-  stack.app.repos.bases.updateArmy(base.id, { ...base.army, razors: 30 }, base.trainingQueue);
+  stack.app.repos.bases.updateArmy(base.id, { ...base.army, razors: 30 }, base.musterQueue);
   const res = await stack.app.inject({
     method: 'POST',
     url: '/api/battles/deploy',
@@ -269,6 +279,28 @@ describe('naming a leader (§D1)', () => {
     expect(res.statusCode).toBe(403);
   });
 
+  // The road the picker prints counts (maintainer, 2026-10-02): an officer who cannot reach the
+  // fight before it starts cannot be named for it, and one who can, can.
+  it('refuses an officer who cannot get there before the fight starts', async () => {
+    const stack = await makeStack();
+    const officer = hire(stack, 'off-far');
+    const battleId = await declare(stack);
+    // The attack's least commitment, or the lock calls it off (2026-10-05).
+    armTheAttack(stack.app.repos, battleId, stack.baseId);
+    const markIn = (minutes: number) =>
+      stack.db
+        .prepare('UPDATE scheduled_battles SET scheduled_for = ? WHERE id = ?')
+        .run(new Date(Date.now() + minutes * 60_000).toISOString(), battleId);
+
+    markIn(1);
+    const late = await lead(stack, battleId, officer.id);
+    expect(late.statusCode, late.body.slice(0, 200)).toBe(403);
+    expect(late.json<{ error: { message: string } }>().error.message).toMatch(/minutes away/);
+
+    markIn(24 * 60);
+    expect((await lead(stack, battleId, officer.id)).statusCode).toBe(200);
+  });
+
   it('refuses somebody who does not work here', async () => {
     const stack = await makeStack();
     const battleId = await declare(stack);
@@ -311,7 +343,18 @@ describe('naming a leader (§D1)', () => {
       await stack.app.inject({ method: 'GET', url: '/api/battles', headers: auth(stack.token) })
     ).json<BattlesResponse>().coming[0]!;
     const row = view.leaders.find((leader) => leader.officerId === officer.id)!;
+    // The Grip Coach's +5 strength, and the Overseer's grade on the officer's tagged skills
+    // (`overseerLift`, maintainer 2026-10-04).
+    const owner = stack.app.repos.users.findById(base.ownerId)!;
+    const overseer = stack.app.repos.overseers.findById(owner.overseerId!)!;
+    const grade =
+      officer.role === null
+        ? {}
+        : overseerLift(seatPoints(overseer.attributes, 'overseer'), officer.role, officer.id);
     const taught = { ...officer.attributes, strength: officer.attributes.strength + 5 };
+    for (const [name, points] of Object.entries(grade)) {
+      taught[name as keyof typeof taught] += points ?? 0;
+    }
     expect(row.stats).toEqual(officerBattleStats(taught));
     expect(row.stats).not.toEqual(officerBattleStats(officer.attributes));
 
@@ -381,13 +424,58 @@ describe('the road an officer has to take (§D1)', () => {
     );
     // The road answers `null` for ground it cannot price, and every district in this sweep is on
     // the map, so a `null` here is the test's own fixture having gone wrong.
+    const room = officerLiftRoom(stack.app.repos, base, new Date());
     const minutesTo = (districtId: string) => {
-      const minutes = officerTravelMinutesTo(stack.app.repos, base, districtId, officer, {});
+      const minutes = officerTravelMinutesTo(stack.app.repos, base, districtId, officer, {}, room);
       expect(minutes, districtId).not.toBeNull();
       return minutes!;
     };
     expect(minutesTo(byDistance[0]!.id)).toBeLessThan(
       minutesTo(byDistance[byDistance.length - 1]!.id),
+    );
+  });
+
+  /**
+   * The lifted sheet sets the pace (maintainer, 2026-09-30), as it sets the figures they fight on.
+   * A peer teaching the physical group puts five on Speed and Stamina; the leader row walked the
+   * printed card, so the lesson showed on the crew screen and the road ignored it.
+   */
+  it('walks on the lifted sheet, lessons and all', async () => {
+    const stack = await makeStack();
+    const officer = hire(stack);
+    const printed = stack.app.repos.bases.findById(stack.baseId)!;
+    // The farthest district, so five points of pace is whole minutes on the road.
+    const home = findDistrict(printed.districtId)!;
+    const far = CITY_DISTRICTS.filter((district) => district.id !== home.id).sort(
+      (a, b) => mapDistance(home.position, b.position) - mapDistance(home.position, a.position),
+    )[0]!;
+    const walk = (base: typeof printed) =>
+      officerTravelMinutesTo(
+        stack.app.repos,
+        base,
+        far.id,
+        officer,
+        {},
+        officerLiftRoom(stack.app.repos, base, new Date()),
+      );
+    const untaught = walk(printed);
+
+    stack.app.repos.bases.updateCommanders(printed.id, [
+      ...printed.commanders,
+      createCommander('off-teach', 'Old Hand', 'trader', {}, ['old_instructor']),
+    ]);
+    const taught = stack.app.repos.bases.findById(stack.baseId)!;
+    const room = officerLiftRoom(stack.app.repos, taught, new Date());
+    expect(officerBattleStats(liftedOfficerSheet(officer, room).attributes).speed).toBeGreaterThan(
+      officerBattleStats(officer.attributes).speed,
+    );
+    expect(walk(taught)).toBeLessThan(untaught!);
+
+    // ...and the leader row on the board quotes that same walk.
+    await declare(stack);
+    const listed = (await leaders(stack)).find((row) => row.officerId === officer.id)!;
+    expect(listed.travelMinutes).toBe(
+      officerTravelMinutesTo(stack.app.repos, taught, PRESS.districtId, officer, {}, room),
     );
   });
 
@@ -430,6 +518,24 @@ describe('the road an officer has to take (§D1)', () => {
     expect(led, 'naming a leader took nothing off the road they promised to shorten').toBeLessThan(
       alone,
     );
+  });
+
+  /** Bug pass, 2026-10-05: a column sent before the leader was named takes the leader's pace too. */
+  it('retimes a column already on the road when a leader is named', async () => {
+    const stack = await makeStack(undefined, 'late_lead');
+    const officer = { ...hire(stack), perks: [SHORT_WAY] };
+    stack.app.repos.bases.updateCommanders(stack.baseId, [officer]);
+    const battleId = await declare(stack);
+    await deploy(stack, battleId, { razors: 4 });
+    const arrives = () =>
+      Date.parse(
+        stack.app.repos.movements.forBattle(battleId).find((one) => one.baseId === stack.baseId)!
+          .arrivesAt,
+      );
+    const before = arrives();
+    const took = await lead(stack, battleId, officer.id);
+    expect(took.statusCode, took.body.slice(0, 200)).toBe(200);
+    expect(arrives(), 'the column kept the pace it left with').toBeLessThan(before);
   });
 
   /**
@@ -628,20 +734,21 @@ describe('coming home hurt (§D4)', () => {
 describe('an injured officer is out of the room (§D4)', () => {
   it('contributes nothing to the crew while the clock is running, and everything after it', async () => {
     const stack = await makeStack();
-    // A specialist: their Engineering drives `productionPercent`, so the channel is a direct read
-    // of whether the crew has them at all.
+    // A specialist: an Engineer's passive (2026-10-04) is a direct read of whether the crew has
+    // them at all, since nothing else on this fixture pays it.
     const base = stack.app.repos.bases.findById(stack.baseId)!;
     const production = (now: Date): number =>
-      crewEffectsFor(stack.app.repos, stack.app.repos.bases.findById(base.id)!, now)
-        .productionPercent;
+      chairPassiveOf(
+        crewEffectsFor(stack.app.repos, stack.app.repos.bases.findById(base.id)!, now),
+        'engineer',
+        'building_cost',
+      );
 
-    // The Overseer is in the room too and has an Engineering of their own, so the baseline is
-    // "nobody hired" rather than zero: measuring against zero would pass even if the officer had
-    // simply never been added.
     stack.app.repos.bases.updateCommanders(base.id, []);
     const alone = production(new Date());
+    expect(alone).toBe(0);
 
-    const specialist = createCommander('off-eng', 'Bo Adeyemi', 'lead_engineer', {
+    const specialist = createCommander('off-eng', 'Bo Adeyemi', 'engineer', {
       engineering: 90,
     });
     stack.app.repos.bases.updateCommanders(base.id, [specialist]);
@@ -662,9 +769,9 @@ describe('an injured officer is out of the room (§D4)', () => {
     const stack = await makeStack();
     const base = stack.app.repos.bases.findById(stack.baseId)!;
     // `grip_coach` puts flat Strength on every *other* officer. The pupil has nothing of their own.
-    const coach = createCommander('coach', 'Ines Vaz', 'lead_engineer', {}, ['grip_coach']);
+    const coach = createCommander('coach', 'Ines Vaz', 'engineer', {}, ['grip_coach']);
     const pupil = createCommander('pupil', 'Tam Osei', 'field_commander', { strength: 20 });
-    // The pupil's own line, not the crew's best-of: the Overseer is in the room and would win it.
+    // The pupil's own line, not anybody else's: the Overseer is in the room with a sheet of their own.
     const pupilStrength = (): number => {
       const sheets = crewSheetsFor(stack.app.repos, stack.app.repos.bases.findById(base.id)!);
       // The Overseer is first and the officers follow in roster order, so the pupil is last.
@@ -727,7 +834,7 @@ describe('the Infirmary gets some of the dead back (§B10)', () => {
     const expectedDead =
       recoverCasualties({ razors: 10 }, 8 * CASUALTY_RECOVERY_PER_INFIRMARY_LEVEL).razors ?? 0;
     expect(expectedDead).toBeLessThan(10);
-    // 30 trained, 20 sent, so 10 stayed at home and the survivors hold the ground they took.
+    // 30 mustered, 20 sent, so 10 stayed at home and the survivors hold the ground they took.
     expect(razorsKept(stack)).toBe(10 + (20 - expectedDead));
   });
 
@@ -847,6 +954,10 @@ describe('the Infirmary gets some of the dead back (§B10)', () => {
 
     const reported = resolved.analysis.attacker;
     expect(reported.lost, 'the report counted the recovered as dead').toBe(expectedDead);
+    // P14-B: and the medics' ladder counts the same bodies the report hands back.
+    expect(stack.app.repos.feats.tallies(stack.baseId)['casualties_recovered']).toBe(
+      FELL - expectedDead,
+    );
     expect(reported.survived).toBe(SENT - expectedDead);
     expect(reported.lost + reported.survived).toBe(reported.committed);
     // The unit table has to move with the totals: it is the half a player reads to decide what to
@@ -939,7 +1050,7 @@ describe('taking machines to a fight (§C3)', () => {
     const bike = findVehicle('motorcycle');
     if (!bike) throw new Error('fixture: the bike left the catalogue');
     const base = stack.app.repos.bases.findById(stack.baseId)!;
-    stack.app.repos.bases.updateArmy(base.id, { razors: 30 }, base.trainingQueue);
+    stack.app.repos.bases.updateArmy(base.id, { razors: 30 }, base.musterQueue);
 
     const over = await stack.app.inject({
       method: 'POST',
@@ -1003,7 +1114,7 @@ describe('taking machines to a fight (§C3)', () => {
     stack.app.repos.city.put({ ...yard, holder: { kind: 'unoccupied' }, garrison: {} });
     park(stack, { armoured_car: 1 });
     const base = stack.app.repos.bases.findById(stack.baseId)!;
-    stack.app.repos.bases.updateArmy(base.id, { the_colossus: 1 }, base.trainingQueue);
+    stack.app.repos.bases.updateArmy(base.id, { the_colossus: 1 }, base.musterQueue);
     // A legendary needs a name behind it before anybody will field one (§A5).
     stack.app.repos.bases.updateEconomy(base.id, {
       ...base.economy,
@@ -1052,7 +1163,7 @@ describe('taking machines to a fight (§C3)', () => {
 
     park(stack, { scrap_car: 2 });
     const base = stack.app.repos.bases.findById(stack.baseId)!;
-    stack.app.repos.bases.updateArmy(base.id, { juggernauts: 1, razors: 6 }, base.trainingQueue);
+    stack.app.repos.bases.updateArmy(base.id, { juggernauts: 1, razors: 6 }, base.musterQueue);
     // A heavy sheet needs a name behind it before anybody will field one (§D7).
     stack.app.repos.bases.updateEconomy(base.id, {
       ...base.economy,
@@ -1248,7 +1359,7 @@ describe('taking machines to a fight (§C3)', () => {
       });
     }
     const ally = stack.app.repos.bases.findById(allyId)!;
-    stack.app.repos.bases.updateArmy(ally.id, { ...ally.army, razors: 6 }, ally.trainingQueue);
+    stack.app.repos.bases.updateArmy(ally.id, { ...ally.army, razors: 6 }, ally.musterQueue);
     stack.app.repos.bases.updateFleet(ally.id, { motorcycle: 3 });
 
     const battleId = await declare(stack);

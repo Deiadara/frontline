@@ -67,8 +67,8 @@ describe('counters', () => {
    * lose increments the moment two of them overlapped.
    */
   it('adds rather than replaces, however many times it is called', () => {
-    for (let press = 0; press < 200; press += 1) repo.bump(BASE, 'units_trained', 3);
-    expect(repo.tallies(BASE).units_trained).toBe(600);
+    for (let press = 0; press < 200; press += 1) repo.bump(BASE, 'units_mustered', 3);
+    expect(repo.tallies(BASE).units_mustered).toBe(600);
   });
 
   it('keeps a fraction, because production settles in fractions', () => {

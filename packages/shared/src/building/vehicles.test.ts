@@ -586,7 +586,7 @@ describe('building one', () => {
  * was a flat figure per spec and the yard's level changed neither the queue nor the screen.
  *
  * The second half is the maintainer's rule and is worth its own assertion: a machine is **built,
- * not trained**, so the Gauntlet's training cut must never reach it. That one is a property of the
+ * not mustered**, so the Gauntlet's muster cut must never reach it. That one is a property of the
  * server's two code paths rather than of this module, and it is asserted where they are.
  */
 describe('what a yard takes off a build', () => {

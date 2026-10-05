@@ -1,4 +1,7 @@
 import {
+  markIndex,
+  markFromPoints,
+  featMeasureKey,
   FEATS,
   evaluateFeats,
   findFeat,
@@ -13,6 +16,7 @@ import {
 import type { Repositories } from '../db/repos/index.js';
 import { featSnapshot, overseerSnapshot } from './snapshot.js';
 import { featClaimRoom } from './room.js';
+import { officerLiftRoom } from '../crew/standing.js';
 
 /**
  * Every threshold the catalogue asks the Overseer's sheet about.
@@ -36,9 +40,12 @@ const OVERSEER_THRESHOLDS: readonly number[] = [
 export function snapshotFor(repos: Repositories, base: Base): FeatSnapshot {
   const user = repos.users.findById(base.ownerId);
   const overseer = user?.overseerId ? repos.overseers.findById(user.overseerId) : undefined;
+  const grade = officerLiftRoom(repos, base).overseerPoints;
   return {
     ...featSnapshot(repos, base),
     ...overseerSnapshot(overseer?.attributes, OVERSEER_THRESHOLDS),
+    // The Overseer's own grade, on the sheet the crew screen grades (2026-10-04).
+    [featMeasureKey('overseer_grade')]: grade === null ? 0 : markIndex(markFromPoints(grade)),
   };
 }
 

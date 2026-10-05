@@ -13,7 +13,7 @@ import { InventorySchema } from './items/inventory.js';
 import { FittedUpgradesSchema } from './units/upgrades.js';
 import { UnitLoadoutsSchema } from './units/loadout.js';
 import { FleetSchema } from './building/vehicles.js';
-import { ArmySchema, TrainingQueueSchema } from './units/index.js';
+import { ArmySchema, MusterQueueSchema } from './units/index.js';
 import { EconomyStateSchema } from './economy/state.js';
 import { IdSchema, IsoDateTimeSchema } from './primitives.js';
 import { ProgressionStateSchema } from './progression/state.js';
@@ -90,8 +90,8 @@ export const BaseSchema = z.object({
    * and every fixture built before it still type as a crew with nobody at the door.
    */
   gateArmy: ArmySchema.optional(),
-  /** Up to five training orders in flight (§A5). */
-  trainingQueue: TrainingQueueSchema,
+  /** Up to five muster orders in flight (§A5). */
+  musterQueue: MusterQueueSchema,
   commanders: z.array(CommanderSchema),
   /**
    * The Overseer's and the officers' own drilling (§F2). Owner-only.
@@ -117,7 +117,7 @@ export const BaseSchema = z.object({
   /**
    * Which of those built cards are bolted to which unit, three slots apiece (`units/loadout.ts`).
    * Only what is slotted pays: `upgradedStats` folds it at read time, so a card fitted today
-   * reaches the units trained last week.
+   * reaches the units mustered last week.
    */
   unitLoadouts: UnitLoadoutsSchema.default({}),
   /** What is in the Garage. Counted, not itemised: one motorcycle is like any other. */

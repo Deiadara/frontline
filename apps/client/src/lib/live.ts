@@ -7,7 +7,7 @@ import {
 } from '@frontline/shared';
 import { useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { useEffect, useRef, useState } from 'react';
-import { API_BASE_URL } from './api';
+import { API_BASE_URL, API_CREDENTIALS, apiHeaders } from './api';
 import { queryKeys } from './queries';
 import { playSound, type SoundKind } from './sound';
 import { useSession } from '../store/session';
@@ -23,9 +23,11 @@ import { useSession } from '../store/session';
  * ## Why `fetch` and not `EventSource`
  *
  * `EventSource` is the browser's SSE client and it reconnects on its own, which is most of this
- * file. It also cannot set a request header, so authenticating one means putting the bearer token
- * in the query string, where it is written to every access log between here and the server. The
- * reconnect loop below is the price of not doing that.
+ * file. It was ruled out when the session was a bearer token, because it cannot set a header and
+ * the token would have gone in the query string, into every access log on the way. The session is
+ * a cookie now (security pass, 2026-09-30), which `EventSource` would send; the loop below stays
+ * because it does what `EventSource` does not: a silence timeout for a connection that is dead on
+ * the far side, and a backoff that grows while the server is down.
  *
  * ## What this is not
  *
@@ -217,7 +219,7 @@ export type LiveStatus = 'connecting' | 'live' | 'offline';
  * looks exactly like a quiet evening.
  */
 export function useLiveEvents(): LiveStatus {
-  const token = useSession((s) => s.token);
+  const signedIn = useSession((s) => s.signedIn);
   const queryClient = useQueryClient();
   const [status, setStatus] = useState<LiveStatus>('connecting');
   // Held in a ref so the effect below never restarts when the callback identity changes.
@@ -225,7 +227,7 @@ export function useLiveEvents(): LiveStatus {
   clientRef.current = queryClient;
 
   useEffect(() => {
-    if (!token) {
+    if (!signedIn) {
       setStatus('offline');
       return;
     }
@@ -256,7 +258,8 @@ export function useLiveEvents(): LiveStatus {
         let openedAt: number | null = null;
         try {
           const res = await fetch(`${API_BASE_URL}/events`, {
-            headers: { Authorization: `Bearer ${token}` },
+            headers: apiHeaders(),
+            credentials: API_CREDENTIALS,
             signal: controller.signal,
           });
           if (!res.ok || !res.body) throw new Error(`events: ${res.status}`);
@@ -347,7 +350,7 @@ export function useLiveEvents(): LiveStatus {
       sounds.cancel();
       for (const controller of controllers) controller.abort();
     };
-  }, [token]);
+  }, [signedIn]);
 
   return status;
 }

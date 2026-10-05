@@ -1,4 +1,4 @@
-import type { TrainingOrder, UnitsResponse } from '@frontline/shared';
+import { findVehicle, type MusterOrder, type UnitsResponse } from '@frontline/shared';
 import { render, screen, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -8,7 +8,7 @@ const refetch = vi.hoisted(() => vi.fn());
 const refreshCrew = vi.hoisted(() => vi.fn());
 /* The two writes, as mutable state rather than a fresh literal, so a test can put a refusal on one
    of them the way react-query would. */
-const train = vi.hoisted(() => ({
+const muster = vi.hoisted(() => ({
   mutate: vi.fn(),
   isPending: false,
   error: null as Error | null,
@@ -22,11 +22,11 @@ const cancel = vi.hoisted(() => ({
 vi.mock('../../lib/queries', () => ({
   useUnits,
   useMe: () => ({ data: { base: { id: 'base-1' } } }),
-  useTrainUnits: () => train,
+  useMusterUnits: () => muster,
   // The roster refreshes the crew when a batch lands, so the experience reaches the meter at the
   // same moment the unit reaches the card.
   useRefreshCrew: () => refreshCrew,
-  useCancelTraining: () => cancel,
+  useCancelMuster: () => cancel,
 }));
 
 const { UnitsPage } = await import('./UnitsPage');
@@ -48,7 +48,7 @@ const NOW = '2026-08-13T12:00:00.000Z';
 vi.mock('../missions/useServerClock', () => ({ useServerClock: () => new Date(NOW) }));
 
 /** One order on the bench, `startedAt` given as seconds before `NOW`. */
-function order(id: string, unitId: string, secondsAgo: number, seconds: number): TrainingOrder {
+function order(id: string, unitId: string, secondsAgo: number, seconds: number): MusterOrder {
   return {
     id,
     unitId,
@@ -60,7 +60,7 @@ function order(id: string, unitId: string, secondsAgo: number, seconds: number):
   };
 }
 
-function bench(queue: TrainingOrder[]): {
+function bench(queue: MusterOrder[]): {
   data: UnitsResponse;
   dataUpdatedAt: number;
   refetch: () => void;
@@ -80,8 +80,8 @@ function bench(queue: TrainingOrder[]): {
       fleet: {},
       queue,
       resources: { caps: 0, supplies: 0, oil: 0, scrap: 0, highQualityMetal: 0, planks: 0 },
-      trainingCostReduction: 0,
-      trainingSpeedBonus: 0,
+      musterCostReduction: 0,
+      musterSpeedBonus: 0,
       built: [],
     },
     dataUpdatedAt: Date.parse(NOW),
@@ -93,8 +93,8 @@ beforeEach(() => {
   useUnits.mockReset();
   refetch.mockReset();
   refreshCrew.mockReset();
-  train.error = null;
-  train.variables = undefined;
+  muster.error = null;
+  muster.variables = undefined;
   cancel.error = null;
 });
 
@@ -104,10 +104,10 @@ beforeEach(() => {
  * The roster only re-reads every poll interval, so between reads `data.queue` still carries an
  * order that has already handed its last unit over. Rendering that snapshot straight out drew the
  * finished order at `1/1  0s` with a full bar *above* the one that had started behind it, so two
- * batches appeared to be training at once. Deriving the display through `splitDueTraining`, which
+ * batches appeared to be mustering at once. Deriving the display through `splitDueMuster`, which
  * is what the server settles with, is what makes the two agree.
  */
-describe('the training bench', () => {
+describe('the muster bench', () => {
   it('drops an order that has already finished, leaving only the one still running', () => {
     // First order: a 10s batch started 14s ago, so it is done and gone.
     // Second: a 20s batch that started when the first finished, 4s in and still going.
@@ -116,10 +116,19 @@ describe('the training bench', () => {
     );
 
     render(<Page />);
-    const rows = within(screen.getByTestId('training-queue')).getAllByRole('listitem');
+    const rows = within(screen.getByTestId('muster-queue')).getAllByRole('listitem');
     expect(rows, 'a finished order is still on the bench').toHaveLength(1);
     expect(rows[0]).toHaveTextContent(/razors/i);
-    expect(screen.getByTestId('training-queue')).not.toHaveTextContent(/sparks/i);
+    expect(screen.getByTestId('muster-queue')).not.toHaveTextContent(/sparks/i);
+  });
+
+  // Bug pass, 2026-10-02: a Garage order shares the bench and printed as "motorcycle".
+  it('names a machine on the bench by its own name, not its id', () => {
+    useUnits.mockReturnValue(bench([order('bike', 'motorcycle', 1, 600)]));
+    render(<Page />);
+    const queue = screen.getByTestId('muster-queue');
+    expect(queue).toHaveTextContent(findVehicle('motorcycle')!.name);
+    expect(queue).not.toHaveTextContent(/\bmotorcycle\b/);
   });
 
   it('re-reads the roster when somebody walks off the bench, so the army count catches up', () => {
@@ -131,7 +140,7 @@ describe('the training bench', () => {
   /**
    * And the crew with it (maintainer request, 2026-09-12).
    *
-   * One settle stands the unit up and pays the §I1 experience for having trained it. They are two
+   * One settle stands the unit up and pays the §I1 experience for having mustered it. They are two
    * reads, so refreshing only the roster put the `+1` on the card and left the experience waiting
    * for the shell's own poll: the two halves of one event, arriving up to five seconds apart, the
    * second with nothing on screen to explain it.
@@ -147,7 +156,7 @@ describe('the training bench', () => {
       bench([order('first', 'sparks', 4, 20), order('second', 'razors', 0, 20)]),
     );
     render(<Page />);
-    expect(within(screen.getByTestId('training-queue')).getAllByRole('listitem')).toHaveLength(2);
+    expect(within(screen.getByTestId('muster-queue')).getAllByRole('listitem')).toHaveLength(2);
     expect(refetch, 'nothing settled, so nothing to re-read').not.toHaveBeenCalled();
     expect(refreshCrew, 'and no experience to announce').not.toHaveBeenCalled();
   });
@@ -156,17 +165,17 @@ describe('the training bench', () => {
 /**
  * A refused write has to reach the player, and the effect that chases the bench must not loop.
  *
- * Neither `train.error` nor `cancel.error` was rendered anywhere, and the QueryClient has no
+ * Neither `muster.error` nor `cancel.error` was rendered anywhere, and the QueryClient has no
  * `MutationCache.onError`, so a refusal was swallowed at both ends: the button un-dimmed, nothing
  * on the bench or the roster moved, and no message appeared. The count field is bounded by
- * `TRAINING_MAX_BATCH` rather than by what the crew can afford (that figure only feeds the **Max**
+ * `MUSTER_MAX_BATCH` rather than by what the crew can afford (that figure only feeds the **Max**
  * button), so asking for a batch the server refuses is ordinary rather than exotic.
  */
 describe('when a write is refused', () => {
   it('says why the batch was not started, against the unit that was pressed', () => {
     useUnits.mockReturnValue(bench([]));
-    train.error = new Error('Not enough supplies for twenty Razors.');
-    train.variables = { unitId: 'razors', count: 20 };
+    muster.error = new Error('Not enough supplies for twenty Razors.');
+    muster.variables = { unitId: 'razors', count: 20 };
 
     render(<Page />);
     const alert = screen.getByRole('alert');

@@ -102,7 +102,7 @@ async function makeStack(username = 'leader'): Promise<Stack> {
 
   const minted = repos.bases.findByOwnerId(user.id);
   if (!minted) throw new Error('no base');
-  repos.bases.updateArmy(minted.id, { razors: 80, wardens: 20, haulers: 20 }, minted.trainingQueue);
+  repos.bases.updateArmy(minted.id, { razors: 80, wardens: 20, haulers: 20 }, minted.musterQueue);
   // A place in every district, so every board is open to the launches below.
   holdEveryBoard(repos, minted.id);
   const base = repos.bases.findByOwnerId(user.id);
@@ -251,9 +251,12 @@ describe('the bench the board hands over', () => {
       });
     }
 
-    const { leaders } = await board(stack);
+    const { leaders, missions } = await board(stack);
     expect(leaders[0]?.kind).toBe('overseer');
     expect(leaders[0]?.held).toBe('run');
+    // ...and the run itself is still on the answer, or the screen loses its in-flight row and its
+    // recall and counts the crew one short of out (bug pass, 2026-10-02).
+    expect(missions.find((one) => one.id === running.id)?.status).toBe('active');
   });
 
   it('shows the Overseer out on the run they are leading', async () => {
@@ -526,7 +529,7 @@ function planted(
   stack.repos.missions.insert(stored);
   // The roster moves with the row, the way the launch route moves it: a crew that is out is not at
   // home, and without this the survivors merge back into an army they never left.
-  stack.repos.bases.updateArmy(base.id, removeForce(base.army, force), base.trainingQueue);
+  stack.repos.bases.updateArmy(base.id, removeForce(base.army, force), base.musterQueue);
   return stored.mission;
 }
 
@@ -634,11 +637,11 @@ describe('a battle job is a fight', () => {
    * One officer on the books, leading the same fight job on a sweep of seeds, and what each run
    * lost.
    *
-   * The officer rather than the Overseer on purpose: the Overseer's sheet feeds the crew's fold as
-   * well, so two worlds with two Overseers fight two different fights whether or not the leader
-   * reaches the engine, and a comparison would measure nothing. The fold is held level instead: an
-   * Overseer at the ceiling in every rating is paid in full, so the crew's best-of reads 100 in
-   * every world whatever the officer brings. (The officer used to sit on the bench for this, which
+   * The officer rather than the Overseer on purpose: the Overseer's grade lifts every seated
+   * officer and their perks reach the crew's fold, so two worlds with two Overseers fight two
+   * different fights whether or not the leader reaches the engine, and a comparison would measure
+   * nothing. The Overseer is held level instead, at the ceiling in every rating in every world, so
+   * whatever differs between the two runs is the officer. (The officer used to sit on the bench for this, which
    * kept them off the fold; the bench leads nothing since 2026-09-28.)
    *
    * A sweep rather than one seed: nine Razors lose this fight under anybody, and the leader moves
@@ -662,7 +665,7 @@ describe('a battle job is a fight', () => {
     stack.repos.bases.updateArmy(
       held.id,
       { ...held.army, razors: 9 * LEADER_SEEDS.length },
-      held.trainingQueue,
+      held.musterQueue,
     );
     const runs = LEADER_SEEDS.map((seed) =>
       planted(
@@ -814,6 +817,7 @@ describe('a battle job is a fight', () => {
  */
 describe('what a battle job is fought with', () => {
   const siegeJob = findMissionTemplate('refinery-assault') as MissionTemplate;
+  const convoyJob = findMissionTemplate('convoy-ambush') as MissionTemplate;
 
   /** Runs one job to its settlement with the crew's fold as the caller left it. */
   const runJob = async (
@@ -886,9 +890,16 @@ describe('what a battle job is fought with', () => {
    */
   it('pays the crew’s infamy multiplier on what the job killed', async () => {
     const banked = async (username: string, holds: boolean) => {
-      const { stack, home } = await runJob(username, (one) => {
-        if (holds) hold(one, 'ccs-martyrs');
-      });
+      const { stack, home } = await runJob(
+        username,
+        (one) => {
+          if (holds) hold(one, 'ccs-martyrs');
+        },
+        // A fight the crew wins and kills plenty in, so a share of the name is not rounded away:
+        // the siege killed two either way once skills stopped reaching the fold (2026-10-04).
+        convoyJob,
+        'E',
+      );
       return { delta: stack.repos.bases.findById(stack.base.id)!.economy.infamy, home };
     };
     const plain = await banked('plain_name', false);

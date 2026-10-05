@@ -1,4 +1,6 @@
 import {
+  SPY_DEFENCE_BREAK_EVEN,
+  ESTIMATE_UNIT,
   SPY_GATE_POINTS_PER_LEVEL,
   SPY_WRITTEN_RESEARCH_ID,
   armySize,
@@ -15,7 +17,7 @@ import { buildApp } from '../app.js';
 import { loadConfig } from '../config.js';
 import { openDatabase, runMigrations, type AppDatabase } from '../db/index.js';
 import { groundBehind, writeSpyReport } from '../spying/spying.js';
-import { chooseOverseer, pinOverseer } from '../testing/overseer.js';
+import { chooseOverseer, overseerSpyGuardAt, pinOverseer } from '../testing/overseer.js';
 
 /**
  * §B7: the Gate is half of what a spy has to see past (2026-09-22).
@@ -79,6 +81,10 @@ async function lookedThroughGate(level: number, fittings: readonly string[] = []
       ? without
       : [...without, { id: 'gate-under-test', kind: 'gate', level, modifications: [] }];
   app.repos.bases.updateBuildings(defender.baseId, buildings);
+  // The defender's Overseer guards against spies with their Signals and Cryptography since
+  // 2026-10-04, and that moves the whole counter by a percentage. Held at the break-even, so what
+  // moves between two fixtures is the Gate and nothing else.
+  overseerSpyGuardAt(app, defender.baseId, SPY_DEFENCE_BREAK_EVEN);
   // At the door (2026-09-22): a call on the gate is met by the gate garrison, and so is a spy.
   app.repos.bases.updateGateArmy(defender.baseId, { razors: 57 });
   if (fittings.length > 0) {
@@ -106,6 +112,8 @@ async function lookedThroughGate(level: number, fittings: readonly string[] = []
     returnsAt: new Date().toISOString(),
     travelMinutes: 0,
     recalledAt: null,
+    chairPoints: null,
+    intelPercent: null,
   };
   const report = writeSpyReport(app.repos, reader, run, new Date());
   return {
@@ -178,6 +186,8 @@ describe('the board', () => {
         returnsAt: new Date().toISOString(),
         travelMinutes: 0,
         recalledAt: null,
+        chairPoints: null,
+        intelPercent: null,
       },
       new Date(),
     );
@@ -209,6 +219,8 @@ describe('the board', () => {
           returnsAt: new Date().toISOString(),
           travelMinutes: 0,
           recalledAt: null,
+          chairPoints: null,
+          intelPercent: null,
         },
         new Date(),
       ),
@@ -223,6 +235,65 @@ describe('the board', () => {
     expect(after.enemySize).toBe(armySize(latest.exposed));
     expect(after.enemySize).toBeGreaterThan(0);
     expect(after.enemyIntel).toMatch(/spy report/);
+
+    /*
+     * The Whole Wire's exact slots reach the board, a failed report's included (bug pass,
+     * 2026-10-01). A failed report with the figure on it used to read as no report at all.
+     */
+    const board = async () =>
+      (
+        await app.inject({ method: 'GET', url: '/api/battles', headers: auth(attacker.token) })
+      ).json<BattlesResponse>().coming[0]!;
+    app.repos.spying.insertReport({
+      ...latest,
+      id: 'run-board-wired',
+      failed: true,
+      exposed: {},
+      exposedSlots: 0,
+      totalSlots: 37,
+      writtenAt: new Date(Date.now() + 2000).toISOString(),
+    });
+    const wiredFailed = await board();
+    expect(wiredFailed.enemySize).toBeNull();
+    expect(wiredFailed.enemyIntel).not.toMatch(/No spy report/);
+    expect(wiredFailed.enemyIntel).toMatch(/37 unit slots stand there/);
+    app.repos.spying.insertReport({
+      ...latest,
+      id: 'run-board-wired-stood',
+      totalSlots: 41,
+      writtenAt: new Date(Date.now() + 3000).toISOString(),
+    });
+    const wired = await board();
+    expect(wired.enemySize).toBe(armySize(latest.exposed));
+    expect(wired.enemyIntel).toMatch(/41 unit slots stand there/);
+
+    /*
+     * The units the report named reach the odds, with Wardens only for the bodies it missed (bug
+     * pass, 2026-10-02). The odds stood a Warden in for every named unit, so 40 Razors against 30
+     * read 0% where they win every time.
+     */
+    app.repos.spying.insertReport({
+      ...latest,
+      id: 'run-board-mix',
+      exposed: { razors: 20 },
+      unseen: 10,
+      totalSlots: null,
+      writtenAt: new Date(Date.now() + 4000).toISOString(),
+    });
+    const mixed = await board();
+    expect(mixed.enemyArmy).toEqual({ razors: 20, [ESTIMATE_UNIT]: 10 });
+    expect(mixed.enemyIntel).toMatch(/Wardens stand in for the 10 it missed/);
+    app.repos.spying.insertReport({
+      ...latest,
+      id: 'run-board-named-only',
+      exposed: { razors: 20 },
+      unseen: null,
+      totalSlots: null,
+      writtenAt: new Date(Date.now() + 5000).toISOString(),
+    });
+    const namedOnly = await board();
+    expect(namedOnly.enemyArmy).toEqual({ razors: 20 });
+    expect(namedOnly.enemyIntel).toMatch(/against the units it named/);
 
     // The defender reads nothing of the column coming at them: nobody spies a road.
     const theirs = (

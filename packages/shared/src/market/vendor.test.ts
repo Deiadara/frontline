@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_CITY_ID } from '../city/cities.js';
 import { SALTMARCH_CITY_ID, TERMINUS_CITY_ID } from '../city/atlas.js';
-import { vendorStockFor } from './vendor.js';
+import { CONTRABAND_PARTS } from './contraband.js';
+import { VENDOR_GOODS, vendorStockFor } from './vendor.js';
+import { BLACK_MARKET_GOODS } from './blackmarket.js';
 
 /**
  * A barrow belongs to a city, and to the crews with a stake in it (maintainer, 2026-09-17).
@@ -59,5 +61,27 @@ describe('whose barrow it is', () => {
     const first = vendorStockFor(DAY, SALTMARCH_CITY_ID);
     const again = vendorStockFor(DAY, SALTMARCH_CITY_ID);
     expect(again).toEqual(first);
+  });
+});
+
+// The contraband crates are sold as goods that never reach the Runner's barrow, and it stocked all
+// five of their parts (maintainer, 2026-10-02). A year of stock, and none of them on it.
+describe('what the Runner never carries', () => {
+  it('keeps every contraband part off the barrow', () => {
+    // The list is the crates' grants, so a new crate cannot sell a part the barrow still carries.
+    const granted = new Set(
+      Object.values(BLACK_MARKET_GOODS)
+        .filter((good) => good.kind === 'contraband')
+        .flatMap((good) => Object.keys(good.grants ?? {})),
+    );
+    expect([...CONTRABAND_PARTS].sort()).toEqual([...granted].sort());
+    for (const part of CONTRABAND_PARTS) expect(VENDOR_GOODS).not.toContain(part);
+    const start = Date.parse('2026-10-02T12:00:00.000Z');
+    for (let day = 0; day < 365; day += 1) {
+      const date = new Date(start + day * 86_400_000).toISOString().slice(0, 10);
+      for (const line of vendorStockFor(date)) {
+        expect(CONTRABAND_PARTS.has(line.item as never), `${date}: ${line.item}`).toBe(false);
+      }
+    }
   });
 });

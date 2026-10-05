@@ -1,9 +1,11 @@
 import {
   type LevelUp,
   BENCH_LABEL,
-  type PayrollLedger,
+  GAME_TIMEZONE,
   OFFICER_ROLE_LABELS,
   OFFICER_ROLES,
+  dayInZone,
+  gameHourInZone,
   notorietyTier,
   plateAspect,
   type BarAuction,
@@ -25,7 +27,7 @@ import { Dropdown } from '../../components/ui/Dropdown';
 import { OfficerPortrait } from '../overseer/OfficerPortrait';
 import { StepArrow } from '../../components/ui/StepArrow';
 import { cn } from '../../lib/cn';
-import { isCityShut, useBar, useIncreasePayroll, useReleaseOfficer } from '../../lib/queries';
+import { isCityShut, useBar, useMe, useReleaseOfficer } from '../../lib/queries';
 import { InfoNote } from '../game/PageShell';
 import { CityPicker } from '../city/CityPicker';
 import { useCityRoom } from '../city/useCityRoom';
@@ -45,7 +47,8 @@ import {
   standingOf,
 } from './AuctionParts';
 import { PerkTags } from '../../components/PerkTags';
-import { PayrollMeter, RaisePayroll } from '../../components/Payroll';
+import { PayrollBookDialog } from '../../components/Payroll';
+import { DrawnButton } from '../../components/ui/DrawnButton';
 import { ErrorNote } from '../../components/ui/ErrorNote';
 
 /** Devotion reads in the player's own accent; a walkout reads as a warning. */
@@ -71,7 +74,6 @@ interface RecruitCardProps {
   recruit: BarRecruit;
   /** §H7: this person's table, as this reader sees it. */
   auction: BarAuction | undefined;
-  filledRoles: readonly OfficerRole[];
   /** The server's clock, so every countdown runs against the one that enforces the deadline. */
   now: Date;
   /**
@@ -130,8 +132,13 @@ export function BarPage() {
    */
   const { city, choose } = useCityRoom();
   const barQuery = useBar(city);
-  /** Which screen is over the room: the stool, the book, the crew, the results, or none of them. */
-  const [open, setOpen] = useState<'stool' | 'payroll' | 'crew' | 'results' | null>(null);
+  // The rule's two clock times in the reader's own zone, as every bid time on this screen is.
+  const zone = useMe().data?.user.timezone ?? GAME_TIMEZONE;
+  /**
+   * Which screen is over the room: the stool, the window that widens the book, the crew, the
+   * results, or none of them.
+   */
+  const [open, setOpen] = useState<'stool' | 'raise' | 'crew' | 'results' | null>(null);
   /** Which chair the stool screen is showing. An index, so the arrows are arithmetic. */
   const [seat, setSeat] = useState(0);
   /** §H7: which table's bidding screen is open, if any. */
@@ -153,10 +160,6 @@ export function BarPage() {
   const auctions = data?.auctions ?? [];
   const results = data?.results ?? [];
   const full = data !== undefined && data.slotsUsed >= data.slotsTotal;
-
-  // Derived once here rather than per card: the bidding window needs the same list, and two
-  // derivations of "which roles are open" is how a window offers a seat the card says is taken.
-  const filledRoles = data?.filledRoles ?? [];
 
   /*
    * The auctions are sent in roster order, so the pairing is by index in principle and by id in
@@ -180,6 +183,7 @@ export function BarPage() {
    * countdown on a page nobody is touching is still the real remaining time.
    */
   const serverNow = useServerClock(data?.serverNow, barQuery.dataUpdatedAt);
+  const barDay = dayInZone(serverNow);
 
   // Clamped rather than wrapped on read: the roster can shrink under an open screen when the room
   // turns over, and an index past the end would render nothing with no way back.
@@ -309,8 +313,9 @@ export function BarPage() {
         <div className="mt-auto flex flex-wrap items-end justify-between gap-3">
           <OnArt className="max-w-sm p-1">
             <InfoNote tone="warn" label="How the Bar works">
-              Every crew bids on these same people until 23:30, then gets one sealed final bid. At
-              midnight the highest signs at what they bid.
+              Every crew bids on these same people until {gameHourInZone(barDay, 23.5, zone)}, then
+              gets one sealed final bid. At {gameHourInZone(barDay, 24, zone)} the highest signs at
+              what they bid.
             </InfoNote>
           </OnArt>
 
@@ -318,27 +323,40 @@ export function BarPage() {
               payroll of 0 on a crew of 0 / 0 is a real state a player can be in. */}
           {data !== undefined && (
             <OnArt className="flex items-stretch divide-x divide-surface-600/70">
-              <button
-                type="button"
-                onClick={() => setOpen('payroll')}
-                data-testid="open-payroll"
-                className="group flex items-center gap-2.5 px-3.5 py-2.5 text-left transition-colors hover:bg-brass-300/10"
-              >
-                <span
-                  aria-hidden
-                  className="icon-plate flex h-9 w-9 shrink-0 items-center justify-center rounded-sm text-brass-300 [&_svg]:h-5 [&_svg]:w-5"
+              {/* A readout and, on its right, the window that widens the book (maintainer,
+                  2026-10-01): the same one the Nexus opens. Only the button is pressable; the
+                  figure opens nothing. */}
+              <div className="flex items-center" data-testid="payroll-left">
+                <div
+                  data-testid="payroll-readout"
+                  className="flex items-center gap-2.5 px-3.5 py-2.5 text-left"
                 >
-                  <Icon name="caps" />
-                </span>
-                <span className="flex flex-col leading-none">
-                  <span className="font-display text-[10px] font-bold uppercase tracking-[0.16em] text-ink-300">
-                    Payroll left
+                  <span
+                    aria-hidden
+                    className="icon-plate flex h-9 w-9 shrink-0 items-center justify-center rounded-sm text-brass-300 [&_svg]:h-5 [&_svg]:w-5"
+                  >
+                    <Icon name="caps" />
                   </span>
-                  <span className="mt-1 font-display text-[15px] font-bold tabular-nums text-ink-100">
-                    {(data?.payroll.available ?? 0).toLocaleString()}
+                  <span className="flex flex-col leading-none">
+                    <span className="font-display text-[10px] font-bold uppercase tracking-[0.16em] text-ink-300">
+                      Payroll left
+                    </span>
+                    <span className="mt-1 font-display text-[15px] font-bold tabular-nums text-ink-100">
+                      {(data?.payroll.available ?? 0).toLocaleString()}
+                    </span>
                   </span>
+                </div>
+                <span className="pr-3.5">
+                  <DrawnButton
+                    size="sm"
+                    data-sound="click"
+                    data-testid="bar-increase-payroll"
+                    onClick={() => setOpen('raise')}
+                  >
+                    Increase payroll
+                  </DrawnButton>
                 </span>
-              </button>
+              </div>
 
               <button
                 type="button"
@@ -401,7 +419,6 @@ export function BarPage() {
           auction={auctionFor(shown.id)}
           seat={chair}
           of={recruits.length}
-          filledRoles={filledRoles}
           now={serverNow}
           day={data?.day ?? ''}
           onStep={step}
@@ -410,13 +427,7 @@ export function BarPage() {
         />
       )}
 
-      {open === 'payroll' && (
-        <PayrollDialog
-          ledger={data?.payroll ?? null}
-          caps={data?.caps ?? 0}
-          onClose={() => setOpen(null)}
-        />
-      )}
+      {open === 'raise' && <RaisePayrollWindow onClose={() => setOpen(null)} />}
 
       {open === 'crew' && (
         <CrewDialog
@@ -440,7 +451,7 @@ export function BarPage() {
           wageDiscountPercent={data.wageDiscountPercent}
           auctionsUsed={data.auctionsUsed}
           auctionsAllowed={data.auctionsAllowed}
-          chairsFree={Math.max(0, data.slotsTotal - data.slotsUsed)}
+          chairsFree={data.slotsTotal - data.slotsUsed}
           bedsFree={data.bedsFree}
           onClose={() => setBiddingOn(null)}
         />
@@ -603,7 +614,6 @@ function StoolDialog({
   auction,
   seat,
   of,
-  filledRoles,
   now,
   day,
   onStep,
@@ -614,7 +624,6 @@ function StoolDialog({
   auction: BarAuction | undefined;
   seat: number;
   of: number;
-  filledRoles: readonly OfficerRole[];
   now: Date;
   day: string;
   onStep: (by: number) => void;
@@ -706,7 +715,6 @@ function StoolDialog({
           <RecruitCard
             recruit={recruit}
             auction={auction}
-            filledRoles={filledRoles}
             now={now}
             highlightRole={highlightRole}
             onHighlightRole={setHighlightRole}
@@ -725,37 +733,16 @@ function StoolDialog({
   );
 }
 
-/** §H7: the book, as a screen of its own rather than a panel above the room it governs. */
-function PayrollDialog({
-  ledger,
-  caps,
-  onClose,
-}: {
-  ledger: PayrollLedger | null;
-  caps: number;
-  onClose: () => void;
-}) {
-  return (
-    <Modal onClose={onClose} labelledBy="payroll-dialog-title" className="border-brass-300/30">
-      <div className="flex shrink-0 items-center gap-3 border-b border-surface-600/60 px-5 py-4">
-        <span
-          aria-hidden
-          className="icon-plate flex h-9 w-9 shrink-0 items-center justify-center rounded-sm text-brass-300 [&_svg]:h-5 [&_svg]:w-5"
-        >
-          <Icon name="caps" />
-        </span>
-        <h2 id="payroll-dialog-title" className="font-stamp text-[19px] leading-tight text-ink-100">
-          The payroll book
-        </h2>
-        <Button size="sm" variant="ghost" className="ml-auto" onClick={onClose}>
-          Close
-        </Button>
-      </div>
-      <div className="min-h-0 overflow-y-auto">
-        <PayrollPanel ledger={ledger} caps={caps} />
-      </div>
-    </Modal>
-  );
+/**
+ * The window the Bar's `Increase Payroll` opens: the Nexus's own, on the crew's own base.
+ *
+ * The base is read here rather than on the page, so the room only subscribes to `/me` while the
+ * window is open. The shell already holds it, so the window opens on the cached copy.
+ */
+function RaisePayrollWindow({ onClose }: { onClose: () => void }) {
+  const base = useMe().data?.base;
+  if (!base) return null;
+  return <PayrollBookDialog base={base} onClose={onClose} />;
 }
 
 /** How each of yesterday's tables ended for this crew (§H7). */
@@ -778,7 +765,7 @@ export function resultLine(result: BarAuctionResult): string {
   const price = result.price?.toLocaleString() ?? '';
   switch (result.outcome) {
     case 'won':
-      return `Yours at ${price} a week.`;
+      return `Yours at ${price} caps.`;
     case 'lost':
       return `${result.winner ?? 'Somebody'} took them at ${price}. You were at ${result.yourFinal.toLocaleString()}.`;
     case 'passed':
@@ -925,26 +912,23 @@ function CrewDialog({
  * "are they any good" becomes "are they any good *at this*", which is the question the Bar is
  * actually asking.
  *
- * Only the open chairs are offered: highlighting against a seat that is already filled would be
- * answering a question the player cannot act on tonight.
+ * Every chair is offered, filled or not, so the control is always there (maintainer, 2026-10-04:
+ * it used to offer only the open chairs and vanished once all thirteen were taken).
  */
 function RoleHighlight({
   role,
-  open,
   onChange,
 }: {
   role: OfficerRole | null;
-  open: readonly OfficerRole[];
   onChange: (role: OfficerRole | null) => void;
 }) {
-  if (open.length === 0) return null;
   return (
     <span className="flex shrink-0 items-center gap-2">
       {/* `value` is a plain string on the way in: `null` is "no chair chosen", which is not one of
           the options, and the picker already draws its placeholder for a value it does not know. */}
       <Dropdown<OfficerRole>
         value={(role ?? '') as OfficerRole}
-        options={open.map((one) => ({ value: one, label: OFFICER_ROLE_LABELS[one] }))}
+        options={OFFICER_ROLES.map((one) => ({ value: one, label: OFFICER_ROLE_LABELS[one] }))}
         onChange={onChange}
         label="Highlight important attributes for role"
         placeholder="Highlight important attributes for role"
@@ -975,14 +959,11 @@ function RoleHighlight({
 function RecruitCard({
   recruit,
   auction,
-  filledRoles,
   now,
   highlightRole,
   onHighlightRole,
   onBid,
 }: RecruitCardProps) {
-  const open = OFFICER_ROLES.filter((role) => !filledRoles.includes(role));
-
   return (
     <article
       className="card-paper rivets taped edge-lit flex min-w-0 flex-1 flex-col gap-4 rounded-sm border border-brass-500/30 p-4 shadow-panel sm:p-5"
@@ -1041,7 +1022,7 @@ function RecruitCard({
               <PerkTags perks={recruit.perks} tone="panel" />
             ) : (
               <p className="font-body text-[12px] italic leading-snug text-ink-400">
-                Nothing but the sheet. Some of the best of them are.
+                Nothing special
               </p>
             )}
           </Field>
@@ -1066,7 +1047,7 @@ function RecruitCard({
               What they can do
             </span>
             <span aria-hidden className="ink-rule block min-w-0 flex-1" />
-            <RoleHighlight role={highlightRole} open={open} onChange={onHighlightRole} />
+            <RoleHighlight role={highlightRole} onChange={onHighlightRole} />
           </div>
           <AttributeSheet attributes={recruit.attributes} columns={2} roomy role={highlightRole} />
         </div>
@@ -1276,7 +1257,7 @@ function OfficerRow({ officer, caps }: { officer: BarOfficer; caps: number }) {
           </span>
           <span className="shrink-0 font-display text-[11px] uppercase tracking-[0.14em] text-ink-300">
             <span className="tabular-nums text-ink-200">{officer.weeklyWage.toLocaleString()}</span>{' '}
-            caps/wk
+            caps
           </span>
         </div>
         {/* What they bring to the crew. This row used to carry an alignment meter and a line of
@@ -1324,54 +1305,6 @@ function OfficerRow({ officer, caps }: { officer: BarOfficer; caps: number }) {
         {release.error !== null && <ErrorNote>{release.error.message}</ErrorNote>}
       </div>
     </li>
-  );
-}
-
-/**
- * The book: the ceiling, what is committed against it, and what one more step costs.
- *
- * A step is a fixed size at a price the server quotes and that climbs with every step already
- * bought, so the price is shown rather than derived here: `payrollStepCost` owns it, and a second
- * copy of that ladder on the client is a copy that can disagree. That includes where it stops:
- * a bought-out book quotes no price at all, and `RaisePayroll` drops its own button rather than
- * offering a purchase `POST /bar/payroll` refuses with `PAYROLL_AT_MAX`.
- */
-function PayrollPanel({ ledger, caps }: { ledger: PayrollLedger | null; caps: number }) {
-  const raise = useIncreasePayroll();
-  if (!ledger) return <EmptyRow text="Counting it up…" />;
-
-  return (
-    <div className="flex flex-col gap-3 p-4" data-testid="payroll-book">
-      <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <span className="font-display text-[11px] uppercase tracking-[0.18em] text-ink-300">
-          Committed
-        </span>
-        <span className="font-display text-lg font-bold tabular-nums text-brass-300">
-          {ledger.committed.toLocaleString()}
-          <span className="text-ink-300"> / {ledger.capacity.toLocaleString()}</span>
-          <span className="ml-1 font-display text-[11px] uppercase tracking-[0.16em] text-ink-300">
-            caps / wk
-          </span>
-        </span>
-      </div>
-      <PayrollMeter ledger={ledger} />
-      <p className="font-body text-[13px] leading-relaxed text-ink-200">
-        <span className="font-semibold tabular-nums text-ink-100">
-          {ledger.available.toLocaleString()}
-        </span>{' '}
-        left to promise. An officer takes a slice of this for as long as they are on the books, and
-        nothing is deducted from the stockpile week to week.
-      </p>
-      <RaisePayroll
-        ledger={ledger}
-        caps={caps}
-        onRaise={() => raise.mutate({ fromSteps: ledger.purchasedSteps })}
-        pending={raise.isPending}
-        error={raise.error?.message ?? null}
-        testId="increase-payroll"
-        showShortfall
-      />
-    </div>
   );
 }
 

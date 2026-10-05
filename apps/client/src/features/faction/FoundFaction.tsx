@@ -311,24 +311,31 @@ function CreateSheet({ onCancel }: { onCancel: () => void }) {
 
           {create.error && <ErrorNote>{refusalText(create.error.message)}</ErrorNote>}
 
-          <Button
-            className="mt-auto"
-            disabled={create.isPending || tooShort || unestablished}
-            data-testid="found-faction"
-            onClick={() => create.mutate({ name: name.trim(), badge, blurb: blurb.trim() })}
+          {/* Sticky on short screens only (maintainer, 2026-10-02): once a pattern is picked the
+              badge column grows and pushed Create under the fold of a 720p screen. The classes
+              all sit behind the height query, so a normal screen draws exactly what it did. */}
+          <div
+            className="mt-auto flex flex-col gap-3 [@media(max-height:790px)]:sticky [@media(max-height:790px)]:bottom-0 [@media(max-height:790px)]:z-10 [@media(max-height:790px)]:bg-surface-900/95 [@media(max-height:790px)]:py-2"
+            data-testid="found-faction-row"
           >
-            Create
-          </Button>
-          <span
-            className="font-body text-[11px] leading-snug text-ink-400"
-            data-testid="found-faction-note"
-          >
-            {unestablished
-              ? FACTION_REFUSAL_TEXT.not_established
-              : tooShort
-                ? `A name is at least ${FACTION_NAME_MIN} letters.`
-                : 'The name and the badge can both be changed later.'}
-          </span>
+            <Button
+              disabled={create.isPending || tooShort || unestablished}
+              data-testid="found-faction"
+              onClick={() => create.mutate({ name: name.trim(), badge, blurb: blurb.trim() })}
+            >
+              Create
+            </Button>
+            <span
+              className="font-body text-[11px] leading-snug text-ink-400"
+              data-testid="found-faction-note"
+            >
+              {unestablished
+                ? FACTION_REFUSAL_TEXT.not_established
+                : tooShort
+                  ? `A name is at least ${FACTION_NAME_MIN} letters.`
+                  : 'The name and the badge can both be changed later.'}
+            </span>
+          </div>
         </div>
 
         <div className="flex min-w-0 flex-col gap-1.5">

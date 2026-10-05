@@ -32,6 +32,7 @@ import {
   standsInLine,
   RESOURCE_KG,
   carriedHome,
+  payoutSlots,
   creditStores,
   describeWaste,
   type Army,
@@ -48,6 +49,10 @@ import {
   type UnitLoadouts,
   type UnitsResponse,
   vehicleNoun,
+  meetsNotoriety,
+  notorietyToField,
+  notorietyTier,
+  HOME_LOCKED_TEXT,
 } from '@frontline/shared';
 import { useEffect, useMemo, useState } from 'react';
 import { RewardLine } from '../../components/Resources';
@@ -60,7 +65,7 @@ import { QuickAmount } from '../../components/ui/QuickAmount';
 import { StepArrow } from '../../components/ui/StepArrow';
 import { cn } from '../../lib/cn';
 import { walksAlways } from '../units/rules';
-import { readColumn } from '../battle/column';
+import { readColumn, shownPace } from '../battle/column';
 import { UnitCard } from '../units/UnitCard';
 import { DifficultyStamp } from './DifficultyStamp';
 import { MissionGauge, type GaugeReading } from './MissionGauge';
@@ -312,6 +317,12 @@ export interface MissionBoardProps {
    * could lift" has to read them or it quotes a smaller bag than the job brings home.
    */
   bagPercent: number;
+  /**
+   * The crew's rank, which decides who will take a contract from it (`notorietyToField`): the
+   * launch refuses a party with anybody past it in, and the dialog let them be picked (bug pass,
+   * 2026-10-02).
+   */
+  notoriety: number;
   marks: Readonly<Record<string, readonly string[]>>;
   /**
    * The two crew switches that lift a hard rule off a unit sheet (`UnitsResponse`).
@@ -351,6 +362,8 @@ export interface MissionBoardProps {
    * by hand. The server refuses the launch as well; this is the screen saying so first.
    */
   automated: boolean;
+  /** A raid lands on home within the hour, and the launch refuses every party until it has. */
+  homeLocked?: boolean;
   pendingTemplateId: string | null;
   /**
    * The last refusal, and which job it was for.
@@ -383,6 +396,7 @@ export function MissionBoard({
   onQuoteFightLeaders,
   now,
   bagPercent,
+  notoriety,
   marks,
   carriersFight,
   anyRide,
@@ -391,6 +405,7 @@ export function MissionBoard({
   stores,
   atCapacity,
   automated,
+  homeLocked = false,
   pendingTemplateId,
   refusal,
   onLaunch,
@@ -508,8 +523,10 @@ export function MissionBoard({
             <OfferCard
               key={offer.templateId}
               offer={offer}
-              disabled={atCapacity || automated}
-              heldBy={automated ? 'The Right Hand has the board' : null}
+              disabled={atCapacity || automated || homeLocked}
+              heldBy={
+                automated ? 'The Right Hand has the board' : homeLocked ? HOME_LOCKED_TEXT : null
+              }
               pending={pendingTemplateId === offer.templateId}
               refusal={refusal?.templateId === offer.templateId ? refusal.message : null}
               onSend={() => setSending(offer)}
@@ -529,6 +546,7 @@ export function MissionBoard({
           now={now}
           {...(onQuoteFightLeaders ? { onQuoteFightLeaders } : {})}
           bagPercent={bagPercent}
+          notoriety={notoriety}
           marks={marks}
           carriersFight={carriersFight}
           anyRide={anyRide}
@@ -771,6 +789,7 @@ function SendDialog({
   onQuoteFightLeaders,
   now,
   bagPercent,
+  notoriety,
   marks,
   carriersFight,
   anyRide,
@@ -798,6 +817,8 @@ function SendDialog({
   now: Date;
   /** §A4: what the crew's holdings and perks add to every haul, as a percentage. */
   bagPercent: number;
+  /** The crew's rank: a unit past it will not take the contract, and the launch refuses it. */
+  notoriety: number;
   /** ...and the marks they have been granted, which can add `picker` to a sheet that lacks it. */
   marks: Readonly<Record<string, readonly string[]>>;
   /** §E: this crew's porters stand in a line (`carriers_fight`), so "cannot fight" is not true. */
@@ -859,10 +880,6 @@ function SendDialog({
   // modifications, `sig_scavenger_king`) and granted `picker` marks both pay the settle, so a board
   // that read the printed sheet quoted a smaller haul than the job brought home.
   const carry = missionCarry(force, loadouts, bagPercent, lineRules);
-  // What of the haul the carry brings home the stores could not take today: `wastedOnArrival`.
-  const lostAtTheGate = stores
-    ? wastedOnArrival(carriedHome(offer.rewards, carry, RESOURCE_KG), stores)
-    : undefined;
   /*
    * §C3: the machines actually being driven, with the zeros taken out.
    *
@@ -918,6 +935,15 @@ function SendDialog({
   const needsFighters = offer.kind === 'battle' && !fighters;
 
   const leader = free.find((one) => one.id === pickedId) ?? null;
+  // An officer's loot perks pay only on a run an officer leads, so the take follows the picker.
+  const pay = leader?.kind === 'officer' ? (offer.ledRewards ?? offer.rewards) : offer.rewards;
+  // What of the job's pay this party brings home, trimmed the way the settle trims it, and counted
+  // in the loot slots the card prints its pay in so the two numbers read against each other.
+  const home = carriedHome(pay, carry, RESOURCE_KG);
+  const paySlots = Math.round(payoutSlots(pay, RESOURCE_KG));
+  const carriedSlots = Math.min(paySlots, Math.round(payoutSlots(home, RESOURCE_KG)));
+  // What of the haul the carry brings home the stores could not take today: `wastedOnArrival`.
+  const lostAtTheGate = stores ? wastedOnArrival(home, stores) : undefined;
   /*
    * Who should lead a fight: the engine's answer for this force (`useFightLeaderQuote`), asked
    * again as the party changes. A plain job grades the bench on the card's leanings, as before;
@@ -1027,10 +1053,13 @@ function SendDialog({
     column.speed,
     runSpeedPercent + road.travelSpeedPercent,
     road.roadMinutesOff,
+    road.baseCutPercent ?? 0,
   );
   const walked = missionTimings({
     travelMinutes: oneWayMinutes,
-    durationMinutes: hastenedMinutes(offer.rawDurationMinutes, runSpeedPercent),
+    // The job's own clock takes the ground's cut alone: Short Way is spent on the road
+    // (maintainer, 2026-10-01), exactly as `launchMission` spends it.
+    durationMinutes: hastenedMinutes(offer.rawDurationMinutes, offer.speedPercent),
   });
   /*
    * The opening band, applied last, exactly where `launchMission` applies it.
@@ -1071,6 +1100,8 @@ function SendDialog({
    * walk and has no ceiling.
    */
   const ceilingFor = (unitId: string, atHome: number): number => {
+    // Nobody past the crew's rank: the launch refuses the whole party for one of them.
+    if (!meetsNotoriety(notoriety, notorietyToField(unitId))) return 0;
     if (!capped) return atHome;
     const slots = Math.max(1, findUnit(unitId)?.unitSlots ?? 1);
     if (ridingUnitSlots({ [unitId]: 1 }, anyRide) === 0) return atHome;
@@ -1113,12 +1144,15 @@ function SendDialog({
 
           <div className="flex flex-wrap items-center gap-x-5 gap-y-1 border-y border-surface-700 py-2">
             <Readout label="Going" value={String(going)} />
+            {/* One readout where there were two, "Can carry" and "Job pays" (maintainer,
+                2026-09-30): the question is how much of the pay comes home, and the answer is a
+                share of the card's own figure rather than two numbers to subtract. */}
             <Readout
-              label="Can carry"
-              value={`${Math.round(carry)} loot slots`}
-              tone={carry >= offer.payoutSlots ? 'good' : 'warn'}
+              label="Carries"
+              value={`${carriedSlots.toLocaleString()} of ${paySlots.toLocaleString()} loot slots`}
+              tone={carriedSlots >= paySlots ? 'good' : 'warn'}
+              testId="send-carries"
             />
-            <Readout label="Job pays" value={`${offer.payoutSlots} loot slots`} />
             {stores && (
               <Readout
                 label="Stores take"
@@ -1280,7 +1314,7 @@ function SendDialog({
 
               {available.length === 0 ? (
                 <p className="py-6 text-center font-body text-[13px] text-ink-300">
-                  Nobody is at home. Train somebody first.
+                  Nobody is at home. Muster somebody first.
                 </p>
               ) : (
                 <div className="flex flex-col gap-1.5" data-testid="mission-units">
@@ -1307,12 +1341,25 @@ function SendDialog({
                               game where the name was just a name. */}
                           <UnitName unitId={unit.id} name={unit.name} roster={roster} />
                           <span className="block font-display text-[10px] uppercase tracking-[0.14em] text-ink-300">
-                            {count} at home · carries {unit.stats.lootCapacity} loot slots
+                            {/* This crew's own figure for one of them, cards, bag and marks on, the
+                                same `missionCarry` the header sums (bug pass, 2026-10-02). */}
+                            {count} at home · carries{' '}
+                            {missionCarry({ [unit.id]: 1 }, loadouts, bagPercent, lineRules)} loot
+                            slots
                             {/* §E: the sheet says a porter cannot fight and `carriers_fight` says this
                           crew's can. The settle reads the crew (`standsInLine`), so the row does
                           too: a Scavenger that is going to stand in the line must not be labelled
                           as one that will not. */}
                             {standsInLine(unit, lineRules) ? '' : ' · cannot fight'}
+                            {!meetsNotoriety(notoriety, notorietyToField(unit.id)) && (
+                              <span
+                                className="text-oxblood-300"
+                                data-testid={`beyond-rank-${unit.id}`}
+                              >
+                                {' · '}will not sign for a crew under{' '}
+                                {notorietyTier(notorietyToField(unit.id))}
+                              </span>
+                            )}
                             {/* §C3: this one is not getting on the truck, so the column waits for it.
                           Only worth saying once something is loaded: with nothing picked everybody
                           walks and the note is noise on every row. */}
@@ -1331,7 +1378,7 @@ function SendDialog({
                         <span className="flex shrink-0 items-center gap-1">
                           <QuickAmount
                             label="Half"
-                            disabled={count < 2}
+                            disabled={count < 2 || ceilingFor(unit.id, count) === 0}
                             testId={`half-${unit.id}`}
                             onClick={() =>
                               set(unit.id, Math.floor(count / 2), ceilingFor(unit.id, count))
@@ -1339,7 +1386,7 @@ function SendDialog({
                           />
                           <QuickAmount
                             label="Max"
-                            disabled={count < 1}
+                            disabled={count < 1 || ceilingFor(unit.id, count) === 0}
                             testId={`max-${unit.id}`}
                             onClick={() => set(unit.id, count, ceilingFor(unit.id, count))}
                           />
@@ -1382,7 +1429,9 @@ function SendDialog({
                       {column.speed > 0 ? (
                         <>
                           {column.heldBy === null ? 'Rides at' : 'Held to'}{' '}
-                          <span className="tabular-nums text-brass-300">{column.speed}</span>
+                          <span className="tabular-nums text-brass-300">
+                            {shownPace(column.speed)}
+                          </span>
                           {column.heldBy !== null && <> by {column.heldBy}</>}
                           {' · '}
                           {formatDuration(oneWayMinutes)} on the road
@@ -1519,9 +1568,19 @@ function wastedOnArrival(
   return creditStores(stores.resources, haul, stores.ceilings).wasted;
 }
 
-function Readout({ label, value, tone }: { label: string; value: string; tone?: 'good' | 'warn' }) {
+function Readout({
+  label,
+  value,
+  tone,
+  testId,
+}: {
+  label: string;
+  value: string;
+  tone?: 'good' | 'warn';
+  testId?: string;
+}) {
   return (
-    <span className="flex items-baseline gap-1.5">
+    <span className="flex items-baseline gap-1.5" data-testid={testId}>
       <span className="font-display text-[10px] uppercase tracking-[0.16em] text-ink-300">
         {label}
       </span>

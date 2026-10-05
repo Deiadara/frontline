@@ -103,3 +103,21 @@ export function pinOverseer(app: FastifyInstance, token: string, presetId = 'enf
     );
   if (changes !== 1) throw new Error(`pinOverseer: ${userId} has no character to pin`);
 }
+
+/**
+ * Sets the Signals and Cryptography of the Overseer on `baseId`, which guard the crew against
+ * spies alongside the officers' since 2026-10-04 (`spying.ts`, `officersSpyDefencePercent`). At
+ * `SPY_DEFENCE_BREAK_EVEN` the Overseer moves a spy's counter by nothing, which is how a test about
+ * something else keeps them out of its numbers.
+ */
+export function overseerSpyGuardAt(app: FastifyInstance, baseId: string, rating: number): void {
+  const base = app.repos.bases.findById(baseId);
+  const owner = base ? app.repos.users.findById(base.ownerId) : undefined;
+  const overseer = owner?.overseerId ? app.repos.overseers.findById(owner.overseerId) : undefined;
+  if (!overseer) throw new Error(`fixture: no Overseer on ${baseId}`);
+  app.repos.overseers.updateAttributes(overseer.id, {
+    ...overseer.attributes,
+    signals: rating,
+    cryptography: rating,
+  });
+}

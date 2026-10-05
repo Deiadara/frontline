@@ -310,13 +310,16 @@ export function combineGarrison(difficulty: number, slots: number): Garrison {
     ]);
   if (difficulty <= 8)
     return fill(slots, [
-      ['street_enforcers', 0.5],
-      ['suppressor', 0.5],
+      ['street_enforcers', 0.6],
+      ['suppressor', 0.4],
     ]);
+  // Heavier than it was (10, 35, 55) since morale started reading wounds (2026-10-05): a long
+  // fight wears the attacker down now, which lifted 7 and 8 a rung each and left 9 and 10 level
+  // with them. `difficulty-ladder.test.ts` holds the climb.
   return fill(slots, [
-    ['greycoat', 0.25],
-    ['street_enforcers', 0.35],
-    ['suppressor', 0.4],
+    ['greycoat', 0.05],
+    ['street_enforcers', 0.3],
+    ['suppressor', 0.65],
   ]);
 }
 

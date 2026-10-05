@@ -19,6 +19,7 @@ import { standingEffectsFor } from '../crew/standing.js';
 import { loadConfig } from '../config.js';
 import { openDatabase, runMigrations, type AppDatabase } from '../db/index.js';
 import { chooseOverseer } from '../testing/overseer.js';
+import { openDoors } from '../testing/doors.js';
 
 /**
  * The back room, end to end.
@@ -92,6 +93,8 @@ async function giveInfamy(app: FastifyInstance, token: string, infamy: number): 
     payload: { infamy, notoriety: MAX_NOTORIETY },
   });
   expect(res.statusCode).toBe(200);
+  // The back room sits inside the Market, whose door is a level.
+  openDoors(app, token, 'market');
 }
 
 async function shelf(app: FastifyInstance, token: string): Promise<BlackMarketResponse> {
@@ -337,6 +340,9 @@ describe('POST /api/black-market/bid', () => {
     const { app } = await makeApp();
     const { token } = await crew(app, 'operator');
     await giveInfamy(app, token, 1);
+    // The bench was on only to hand the infamy over. Admin mode waives this very refusal now
+    // (maintainer, 2026-10-02), so the bid itself is made under the ordinary rules.
+    Object.assign(app.config, { admin: false });
     const board = await shelf(app, token);
 
     const res = await bid(app, token, 0, board.offers[0]!.slot.goodId, lotIn(board, 0).nextBid);
@@ -395,6 +401,59 @@ describe('the close', () => {
     expect(
       db.prepare("SELECT kind FROM game_events WHERE kind = 'blackmarket.taken'").all(),
     ).toHaveLength(1);
+  });
+
+  /*
+   * Bug pass, 2026-10-02: the winner's bell quoted the bid, not what the Statue's discount left it
+   * paying, and the others' bells named the winner by login name.
+   */
+  it('tells the winner what they paid, and the rest who took it by the name they go by', async () => {
+    const { app } = await makeApp();
+    const one = await crew(app, 'vex_login');
+    const two = await crew(app, 'operator_two');
+    await giveInfamy(app, one.token, 500_000);
+    await giveInfamy(app, two.token, 500_000);
+    const me = await app.inject({ method: 'GET', url: '/api/me', headers: auth(one.token) });
+    const { base: mine, user } = me.json<{ base: { id: string }; user: { id: string } }>();
+    app.repos.users.updateProfile(user.id, { displayName: 'Vex' });
+    const statue = 'last-platform-stationmaster';
+    const control = app.repos.city.control(statue)!;
+    app.repos.city.put({
+      ...control,
+      holder: { kind: 'crew', baseId: mine.id },
+      level: MAX_LOCATION_LEVEL,
+      garrison: {},
+    });
+    const percent = standingEffectsFor(
+      app.repos,
+      app.repos.bases.findById(mine.id)!,
+    ).blackMarketDiscountPercent;
+    expect(percent, 'fixture: the Statue buys no discount').toBeGreaterThan(0);
+
+    const board = await shelf(app, one.token);
+    const goodId = board.offers[0]!.slot.goodId;
+    const opening = lotIn(board, 0).reserve;
+    expect((await bid(app, two.token, 0, goodId, opening)).statusCode).toBe(200);
+    const winning = nextLotBid(opening, opening);
+    expect((await bid(app, one.token, 0, goodId, winning)).statusCode).toBe(200);
+    settleBlackMarketLots(app.repos, closeOf(board), 'Europe/Athens');
+
+    const won = app.repos.social
+      .notifications(user.id, 50)
+      .find((one) => one.kind === 'market_won');
+    expect(won?.title).toContain(
+      `for ${discountedInfamy(winning, percent).toLocaleString('en')} infamy`,
+    );
+    const twoId = (
+      await app.inject({ method: 'GET', url: '/api/me', headers: auth(two.token) })
+    ).json<{
+      user: { id: string };
+    }>().user.id;
+    const lost = app.repos.social
+      .notifications(twoId, 50)
+      .find((one) => one.kind === 'market_outbid');
+    expect(lost?.title).toContain('Vex');
+    expect(lost?.title).not.toContain('vex_login');
   });
 
   it('settles a lot once, however many times it is asked to', async () => {

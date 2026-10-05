@@ -98,17 +98,26 @@ describe('the mute list', () => {
 
 describe('the post', () => {
   it('takes a day of letters and refuses the next one', async () => {
-    await app.inject({
-      method: 'POST',
-      url: '/api/auth/register',
-      payload: { username: 'penpal', password: 'hunter2pass' },
+    // Ten readers, because one reader takes ten a day from one sender (2026-10-02) and this is
+    // about the sender's day.
+    const penpals = Array.from({ length: 10 }, (_, n) => `penpal_${String(n)}`);
+    for (const username of penpals) {
+      await app.inject({
+        method: 'POST',
+        url: '/api/auth/register',
+        payload: { username, password: 'hunter2pass' },
+      });
+    }
+    const letter = (n: number) => ({
+      toUsernames: [penpals[n % penpals.length]!],
+      subject: 'Hello',
+      body: 'Again.',
     });
-    const letter = { toUsernames: ['penpal'], subject: 'Hello', body: 'Again.' };
     for (let sent = 0; sent < MESSAGES_PER_DAY; sent += 1) {
-      const res = await post('/api/messages', letter);
+      const res = await post('/api/messages', letter(sent));
       expect(res.statusCode, res.body.slice(0, 200)).toBe(200);
     }
-    const refused = await post('/api/messages', letter);
+    const refused = await post('/api/messages', letter(0));
     expect(refused.statusCode).toBe(409);
     expect(refused.body).toContain('too_many_today');
   });

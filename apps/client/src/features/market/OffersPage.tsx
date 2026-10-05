@@ -1,4 +1,8 @@
 import {
+  BLUEPRINTS,
+  type BlueprintSpec,
+  type ItemId,
+  isBlueprintUnlocked,
   CLAIM_WINDOW_HOURS,
   MAX_OPEN_OFFERS,
   NO_TRADER_TEXT,
@@ -33,6 +37,24 @@ import { PartsPicker } from './PartsPicker';
  * part anybody asks for. The ceiling is a stepper bound rather than a rule; `offerRefusal` on the
  * server is what actually decides whether a listing is legal.
  */
+/**
+ * The pages a crew may ask for: the ones missing from blueprints it has started and not finished
+ * (maintainer, 2026-10-02). Every page in the game would be two hundred rows; a crew one page short
+ * of a blueprint is the one asking.
+ */
+function pagesToAskFor(inventory: Inventory): Inventory {
+  const wanted: Inventory = {};
+  for (const blueprint of BLUEPRINTS as readonly BlueprintSpec[]) {
+    // A fence document has no pages; an unlocked one wants none.
+    if (blueprint.pages.length === 0 || isBlueprintUnlocked(inventory, blueprint.id)) continue;
+    if (!blueprint.pages.some((page) => (inventory[page.id as ItemId] ?? 0) > 0)) continue;
+    for (const page of blueprint.pages) {
+      if ((inventory[page.id as ItemId] ?? 0) === 0) wanted[page.id as ItemId] = 99;
+    }
+  }
+  return wanted;
+}
+
 const ASK_FOR_ANY: Inventory = Object.fromEntries(
   ITEM_IDS.filter((id) => ITEM_CATALOG[id].kind === 'component').map((id) => [id, 99]),
 );
@@ -506,6 +528,8 @@ function OfferComposer({
   // Either side empty, not both: the server refuses a listing that gives nothing and one that asks
   // for nothing (`offerRefusal`), so a half-filled form was a live button with a refusal behind it.
   const empty = bundleIsEmpty(give) || bundleIsEmpty(want);
+  // Counters stand on the board as listings do, so they count toward the cap too.
+  const full = market.mine.length >= MAX_OPEN_OFFERS;
 
   return (
     <div
@@ -524,13 +548,23 @@ function OfferComposer({
         held={market.resources}
         testId="offer-give"
         parts={
-          <PartsPicker
-            label="You give"
-            chosen={giveParts}
-            held={market.inventory}
-            onChange={setGiveParts}
-            testId="offer-give-parts"
-          />
+          <>
+            <PartsPicker
+              label="You give"
+              chosen={giveParts}
+              held={market.inventory}
+              onChange={setGiveParts}
+              testId="offer-give-parts"
+            />
+            <PartsPicker
+              kind="page"
+              label="You give"
+              chosen={giveParts}
+              held={market.inventory}
+              onChange={setGiveParts}
+              testId="offer-give-pages"
+            />
+          </>
         }
       />
 
@@ -550,13 +584,25 @@ function OfferComposer({
            * on, the one part you cannot ask for. The picker's `held` is "what may be chosen", and
            * on this side that is everything a part can be.
            */
-          <PartsPicker
-            label="You want"
-            chosen={wantParts}
-            held={ASK_FOR_ANY}
-            onChange={setWantParts}
-            testId="offer-want-parts"
-          />
+          <>
+            <PartsPicker
+              label="You want"
+              chosen={wantParts}
+              held={ASK_FOR_ANY}
+              owned={market.inventory}
+              onChange={setWantParts}
+              testId="offer-want-parts"
+            />
+            <PartsPicker
+              kind="page"
+              label="You want"
+              chosen={wantParts}
+              held={pagesToAskFor(market.inventory)}
+              owned={market.inventory}
+              onChange={setWantParts}
+              testId="offer-want-pages"
+            />
+          </>
         }
       />
 
@@ -570,7 +616,7 @@ function OfferComposer({
       <div className="flex flex-wrap items-center gap-3">
         <DrawnButton
           size="sm"
-          disabled={post.isPending || empty || market.traderAtWork === false}
+          disabled={post.isPending || empty || market.traderAtWork === false || full}
           onClick={() =>
             // A listing goes up on the board on screen; a counter on its listing's, whatever tab.
             post.mutate(
@@ -594,6 +640,11 @@ function OfferComposer({
           </DrawnButton>
         )}
       </div>
+      {full && (
+        <p className="font-body text-[12px] text-ink-300" data-testid="offers-full">
+          You have {MAX_OPEN_OFFERS} up already. Take one down before you put up another.
+        </p>
+      )}
       {post.error !== null && <ErrorNote>{post.error.message}</ErrorNote>}
     </div>
   );
@@ -675,7 +726,9 @@ function BundleBuilder({
                 value={state[key] ?? 0}
                 onChange={(next) => set(key, next)}
                 min={0}
-                max={999_999}
+                // What the stores hold, on the side that leaves them: the post is escrowed, and
+                // more than is held came back "you cannot cover that" after the press.
+                max={tone === 'give' ? Math.max(0, Math.floor(held[key] ?? 0)) : 999_999}
                 className="w-28"
                 data-testid={`${testId}-amount-${key}`}
               />

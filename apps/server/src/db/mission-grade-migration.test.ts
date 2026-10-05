@@ -1,10 +1,4 @@
-import {
-  STARTING_RESOURCES,
-  startingEconomy,
-  startingProgression,
-  startingResearch,
-  startingTraining,
-} from '@frontline/shared';
+import { STARTING_RESOURCES } from '@frontline/shared';
 import { cpSync, mkdtempSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -61,33 +55,23 @@ function beforeGrades(): AppDatabase {
   return db;
 }
 
-/** A crew to hang the rows off: `missions.base_id` is a foreign key. */
+/**
+ * A crew to hang the rows off: `missions.base_id` is a foreign key.
+ *
+ * Written raw rather than through the repository: the repository is today's and the schema is
+ * 0122's, so a column renamed since (0143's bench) is not there for it to write.
+ */
 function seedBase(db: AppDatabase): string {
-  const repos = createRepositories(db);
-  repos.users.insert({ id: 'u', username: 'veteran', passwordHash: 'x', createdAt: NOW });
-  repos.bases.insert({
-    id: 'b',
-    ownerId: 'u',
-    name: 'The Yard',
-    districtId: 'neon-docks',
-    level: 1,
-    isBot: false,
-    resources: STARTING_RESOURCES,
-    economy: startingEconomy(NOW),
-    progression: startingProgression(),
-    research: startingResearch(),
-    buildings: [],
-    buildQueue: [],
-    army: {},
-    trainingQueue: [],
-    training: startingTraining(NOW),
-    inventory: {},
-    fittedUpgrades: [],
-    unitLoadouts: {},
-    fleet: {},
-    commanders: [],
-    createdAt: NOW,
-  });
+  db.prepare('INSERT INTO users (id, username, password_hash, created_at) VALUES (?, ?, ?, ?)').run(
+    'u',
+    'veteran',
+    'x',
+    NOW,
+  );
+  db.prepare(
+    `INSERT INTO bases (id, owner_id, name, district_id, resources_json, buildings_json, created_at)
+     VALUES ('b', 'u', 'The Yard', 'neon-docks', ?, '[]', ?)`,
+  ).run(JSON.stringify(STARTING_RESOURCES), NOW);
   return 'b';
 }
 

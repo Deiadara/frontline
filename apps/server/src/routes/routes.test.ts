@@ -182,7 +182,7 @@ describe('auth', () => {
   });
 
   /** Bug pass, 2026-09-29: `Combine`, `Directive_Xero`, `admin` and `system` all registered. */
-  it.each(['Combine', 'directive_xero', 'ADMIN', 'System', 'the_combine', 'Vex_Combine'])(
+  it.each(['Combine', 'directive_xero', 'ADMIN', 'System', 'the_combine', 'Vex_Holdings'])(
     'refuses %s, which is one of the game’s own names',
     async (username) => {
       const { app } = await makeApp();
@@ -517,7 +517,7 @@ describe('GET /api/city', () => {
       ],
       buildQueue: [],
       army: {},
-      trainingQueue: [],
+      musterQueue: [],
       training: startingTraining('2026-08-16T00:00:00.000Z'),
       inventory: {},
       fittedUpgrades: [],

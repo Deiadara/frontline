@@ -10,16 +10,16 @@ import {
   findResearchItem,
   findUnit,
   findVehicle,
-  queueCancelWindowMs,
+  buildCancelWindowMs,
   queueCompletesAt,
   queueProgressAt,
   researchCancelWindowMs,
   researchCompletesAt,
   researchProgressAt,
-  trainingCancelWindowMs,
-  trainingCancellable,
-  trainingProgressAt,
-  trainingRemainingMs,
+  musterCancelWindowMs,
+  musterCancellable,
+  musterProgressAt,
+  musterRemainingMs,
   type Base,
   type LocationView,
   type TrainingSession,
@@ -33,7 +33,7 @@ import {
   useCancelDrill,
   useCancelLocationUpgrade,
   useCancelResearch,
-  useCancelTraining,
+  useCancelMuster,
   useCity,
   useCrew,
   useDistrict,
@@ -41,6 +41,7 @@ import {
   useMissions,
   useResearch,
   useTraining,
+  useWorksUnderWay,
 } from '../../lib/queries';
 import { formatRemaining } from '../base/format';
 import { useServerClock } from '../missions/useServerClock';
@@ -75,6 +76,12 @@ export function InProgressPage() {
   const city = useCity();
   const missions = useMissions();
   const now = useServerClock(missions.data?.serverNow, missions.dataUpdatedAt);
+  const heldDistricts = (city.data?.districts ?? []).filter((one) => one.held.mine > 0);
+  // Before the early return below: a hook after it is how a page goes blank.
+  const works = useWorksUnderWay(
+    heldDistricts.map((one) => one.district.id),
+    me.data?.base?.id,
+  );
 
   const base = me.data?.base;
   if (!base) {
@@ -94,14 +101,13 @@ export function InProgressPage() {
   const hurt = (crew.data?.officers ?? []).filter(
     (one) => one.injuredUntil !== null && Date.parse(one.injuredUntil) > now.getTime(),
   );
-  const heldDistricts = (city.data?.districts ?? []).filter((one) => one.held.mine > 0);
   const nothing =
     base.buildQueue.length === 0 &&
     active === null &&
-    base.trainingQueue.length === 0 &&
+    base.musterQueue.length === 0 &&
     drills.length === 0 &&
     hurt.length === 0 &&
-    heldDistricts.length === 0;
+    works === 0;
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto" data-testid="in-progress">
@@ -134,7 +140,7 @@ export function InProgressPage() {
                     baseId={base.id}
                     orderId={entry.id}
                     name={name}
-                    windowMs={queueCancelWindowMs(entry, now)}
+                    windowMs={buildCancelWindowMs(entry, base, now)}
                   />
                 </Row>
               );
@@ -156,7 +162,7 @@ export function InProgressPage() {
                   status={left === 0 ? 'Finishing' : 'Researching'}
                   tone={left === 0 ? 'done' : 'plain'}
                 >
-                  <Where place="The Archive" remaining={formatRemaining(left)} />
+                  <Where place="The Lab" remaining={formatRemaining(left)} />
                   <ProgressBar progress={researchProgressAt(active, now)} label={name} />
                   <ResearchCancel name={name} windowMs={researchCancelWindowMs(active, now)} />
                 </Row>
@@ -166,38 +172,38 @@ export function InProgressPage() {
         </Section>
       )}
 
-      {base.trainingQueue.length > 0 && (
-        <Section icon="units" title="On the bench" count={base.trainingQueue.length}>
-          <ul className="flex flex-col gap-2.5" data-testid="progress-training">
-            {base.trainingQueue.map((order) => {
+      {base.musterQueue.length > 0 && (
+        <Section icon="units" title="On the bench" count={base.musterQueue.length}>
+          <ul className="flex flex-col gap-2.5" data-testid="progress-muster">
+            {base.musterQueue.map((order) => {
               const what = findUnit(order.unitId)?.name ?? findVehicle(order.unitId)?.name;
               const name = `${String(order.count)} × ${what ?? order.unitId}`;
-              const left = trainingRemainingMs(order, now);
+              const left = musterRemainingMs(order, now);
               return (
                 <Row
                   key={order.id}
-                  testId={`progress-training-${order.id}`}
+                  testId={`progress-muster-${order.id}`}
                   name={name}
                   status={
                     order.delivered > 0
                       ? `${String(order.delivered)} of ${String(order.count)} out`
-                      : 'Training'
+                      : 'Mustering'
                   }
                 >
                   <Where
-                    place={findVehicle(order.unitId) ? 'The Garage' : 'The Gauntlet'}
+                    // The structure the sheet names, as its card does: nine kinds muster somewhere
+                    // other than the Gauntlet, and a Garage order is on the same bench.
+                    place={musteredAtName(order.unitId)}
                     remaining={formatRemaining(left)}
                   />
-                  <ProgressBar progress={trainingProgressAt(order, now)} label={name} />
-                  <TrainingCancel
+                  <ProgressBar progress={musterProgressAt(order, now)} label={name} />
+                  <MusterCancel
                     baseId={base.id}
                     orderId={order.id}
                     name={name}
                     // The bench's own gate, not just the clock: a batch with a unit already out is
-                    // not cancellable however young its clock is (`trainingCancellable`).
-                    windowMs={
-                      trainingCancellable(order, now) ? trainingCancelWindowMs(order, now) : 0
-                    }
+                    // not cancellable however young its clock is (`musterCancellable`).
+                    windowMs={musterCancellable(order, now) ? musterCancelWindowMs(order, now) : 0}
                   />
                 </Row>
               );
@@ -255,6 +261,13 @@ export function InProgressPage() {
       )}
     </div>
   );
+}
+
+/** Where an order on the shared bench is being made: the Garage, or the structure the sheet names. */
+function musteredAtName(unitId: string): string {
+  if (findVehicle(unitId)) return BUILDING_CATALOG.garage.name;
+  const unit = findUnit(unitId);
+  return unit ? BUILDING_CATALOG[unit.musteredAt].name : BUILDING_CATALOG.gauntlet.name;
 }
 
 /** Where it is happening, and how long is left: the same line on every row. */
@@ -316,7 +329,7 @@ function ResearchCancel({ name, windowMs }: { name: string; windowMs: number }) 
   );
 }
 
-function TrainingCancel({
+function MusterCancel({
   baseId,
   orderId,
   name,
@@ -327,7 +340,7 @@ function TrainingCancel({
   name: string;
   windowMs: number;
 }) {
-  const cancel = useCancelTraining(baseId);
+  const cancel = useCancelMuster(baseId);
   if (windowMs <= 0) return null;
   return (
     <Footer>
@@ -336,7 +349,7 @@ function TrainingCancel({
         label={`Call off ${name}`}
         pending={cancel.isPending}
         onCancel={() => cancel.mutate({ orderId })}
-        data-testid={`cancel-training-${orderId}`}
+        data-testid={`cancel-muster-${orderId}`}
       />
       <WriteError message={cancel.error?.message} />
     </Footer>

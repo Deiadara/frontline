@@ -64,8 +64,9 @@ export const MAX_NOTORIETY = NOTORIETY_TIERS.length - 1;
  * million infamy against the few hundred a day a fighting crew earns: in the progression
  * simulation a crew had bought three rungs by day one hundred. At sixty and a growth of 1.625 a
  * crew that fights every day and puts its infamy into its name buys the first rung on day two,
- * the fifth around day sixteen and the tenth, `Street Devil`, around day seventy five, with the
- * last three still ahead of it. A crew that spends on the back room as well gets there later,
+ * the fifth around day fourteen and the tenth, `Street Devil`, around day seventy four, with the
+ * last three still ahead of it (re-run 2026-10-01 on the 1.41 level curve and the new fight
+ * premium). A crew that spends on the back room as well gets there later,
  * which is the other half of the two to three months.
  */
 export const NOTORIETY_FIRST_COST = 60;

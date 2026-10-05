@@ -51,7 +51,7 @@ const posted = (): string[] => {
 };
 
 beforeEach(() => {
-  useSession.setState({ token: 'session-token', user: null });
+  useSession.setState({ signedIn: true, user: null });
   fetchMock.mockReset();
   fetchMock.mockImplementation(() =>
     Promise.resolve({

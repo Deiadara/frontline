@@ -11,7 +11,8 @@ replays nothing.
 | `frontline.sqlite-wal`, `-shm`                  | Its write-ahead log and shared-memory index.       |
 | `$BACKUP_DIR` (default `./backups`)             | Snapshots, named `frontline-<ISO instant>.sqlite`. |
 
-A snapshot is a **whole database**, taken with `VACUUM INTO` inside a single read transaction. It
+A snapshot is a **whole database**, taken with `VACUUM INTO` inside a single read transaction, on a
+worker thread with a read-only connection of its own so the game never waits on it. It
 has no `-wal` sidecar of its own, it is defragmented, and it carries its own `schema_migrations`
 table, so a restore never needs a migration re-run and never needs anything replayed on top.
 
@@ -93,8 +94,8 @@ Researched rather than assumed, and the sources are in the module doc on
 
 - **Server-authoritative, single source of truth.** Browser storage is borrowed, not owned. It has
   quotas, eviction policies and no persistence guarantee, and several mobile in-app browsers treat
-  it as a cache. Nothing about a player's progress lives in the browser; the client holds a JWT and
-  a react-query cache and that is all.
+  it as a cache. Nothing about a player's progress lives in the browser; the client holds a session
+  cookie it cannot read and a react-query cache, and that is all.
 - **A relational database, taken whole.** SQLite in WAL mode is the right size for this game and
   scales to a Postgres migration without changing a line of application code, because everything
   goes through the repository layer.

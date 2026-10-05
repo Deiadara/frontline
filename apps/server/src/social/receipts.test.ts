@@ -6,7 +6,8 @@ import {
   OVERSEER_SUBJECT,
   TRAINING_SECONDS,
   findUnit,
-  trainingSeconds,
+  findVehicle,
+  musterSecondsFor,
   type Base,
   type NotificationKind,
 } from '@frontline/shared';
@@ -116,8 +117,8 @@ describe('the notification catalogue', () => {
 /**
  * The bench, which is the kind this pass gave an emitter to.
  *
- * The rule that matters is *one per batch*: a training order hands its bodies over one at a time
- * (`trainingArrivedBy`), so the naive emitter, one per delivery, would ring every forty-five
+ * The rule that matters is *one per batch*: a muster order hands its bodies over one at a time
+ * (`musterArrivedBy`), so the naive emitter, one per delivery, would ring every forty-five
  * seconds for an order of ten Razors and put ten rows in the list for one decision.
  */
 /**
@@ -269,7 +270,7 @@ describe('units coming off the bench', () => {
   }
 
   const bells = (app: FastifyInstance, userId: string) =>
-    app.repos.social.notifications(userId, 50).filter((note) => note.kind === 'unit_trained');
+    app.repos.social.notifications(userId, 50).filter((note) => note.kind === 'unit_mustered');
 
   it('rings once for the batch, not once for every body in it', async () => {
     const { app, userId, base } = await makeStack();
@@ -278,7 +279,7 @@ describe('units coming off the bench', () => {
 
     const COUNT = 10;
     const startedAt = new Date('2026-09-07T09:00:00.000Z');
-    const durationSeconds = trainingSeconds(razors, COUNT, 0);
+    const durationSeconds = musterSecondsFor(razors, COUNT, 0);
     app.repos.bases.updateArmy(base.id, base.army, [
       {
         id: 'batch-1',
@@ -304,11 +305,40 @@ describe('units coming off the bench', () => {
     expect(rung).toHaveLength(1);
     expect(rung[0]?.title).toBe(`${COUNT} ${razors.name} off the bench`);
     expect(rung[0]?.link).toBe('/game/units');
-    expect(app.repos.bases.findById(base.id)!.trainingQueue).toEqual([]);
+    expect(app.repos.bases.findById(base.id)!.musterQueue).toEqual([]);
 
     // Settled again: banked once, so rung once.
     settleBase(app.repos, app.repos.bases.findById(base.id)!, after);
     expect(bells(app, userId)).toHaveLength(1);
+  });
+
+  // Bug pass, 2026-10-02: a Garage order rang as "1 motorcycle off the bench, on the roster".
+  it('names a machine off the bench and sends the reader to the yard', async () => {
+    const { app, userId, base } = await makeStack();
+    const bike = findVehicle('motorcycle');
+    if (!bike) throw new Error('fixture: no motorcycle in the catalogue');
+    const startedAt = new Date('2026-09-07T09:00:00.000Z');
+    app.repos.bases.updateArmy(base.id, base.army, [
+      {
+        id: 'machine-1',
+        unitId: bike.id,
+        count: 1,
+        delivered: 0,
+        startedAt: startedAt.toISOString(),
+        durationSeconds: 600,
+        paid: {},
+      },
+    ]);
+    settleBase(
+      app.repos,
+      app.repos.bases.findById(base.id)!,
+      new Date(startedAt.getTime() + 3_600_000),
+    );
+    const rung = bells(app, userId);
+    expect(rung).toHaveLength(1);
+    expect(rung[0]?.title).toBe(`1 ${bike.name} off the bench`);
+    expect(rung[0]?.body).toBe('In the yard.');
+    expect(rung[0]?.link).toBe('/game/units?tab=vehicles');
   });
 
   it('says nothing at all for a bench that was empty', async () => {

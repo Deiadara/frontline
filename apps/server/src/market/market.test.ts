@@ -2,11 +2,14 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import {
+  BARTER_MINIMUM,
   BARTER_RATE,
   BLUEPRINTS,
   MAX_LOCATION_LEVEL,
   barterQuote,
+  brokerPayoutRate,
   brokerRate,
+  featMeasureKey,
   UNIT_MODIFICATIONS,
   marketDay,
   instantAtHourInZone,
@@ -26,6 +29,9 @@ import {
   OFFICER_ROLES,
   createCommander,
   makeAttributes,
+  seatPoints,
+  TRADER_EVEN_POINTS,
+  TRADER_TOP_GAIN,
   supplyPrice,
   supplyRationCost,
   supplyUnitPrice,
@@ -42,7 +48,7 @@ import { openDatabase, runMigrations, type AppDatabase } from '../db/index.js';
 import { tickWorld } from '../live/clock.js';
 import { acceptOffer, buySupply, postOffer, projectMarket, settleMarketBoard } from './board.js';
 import { placeVendorBid, settleVendorAuctions } from './auction.js';
-import { chooseOverseer } from '../testing/overseer.js';
+import { chooseOverseer, pinOverseer } from '../testing/overseer.js';
 import { openDoors } from '../testing/doors.js';
 import { crewEffectsFor } from '../crew/standing.js';
 import { storeCeilingsOf } from '../district/stores.js';
@@ -108,6 +114,13 @@ async function signIn(app: FastifyInstance, username = 'trader'): Promise<string
   });
   const token = registered.json<{ token: string }>().token;
   await chooseOverseer(app, token);
+  /*
+   * Pinned, because the draw decides prices here. The character an account is offered is a hash
+   * of a fresh UUID, and one in thirty is the Fixer, whose Broker perk is 15% off every market
+   * price: with it, fifteen supplies buy one metal and "refuses a trade that would hand back
+   * nothing" answered 200 about one run in thirty (2026-10-01).
+   */
+  pinOverseer(app, token);
   openDoors(app, token, 'market', 'offers');
   return token;
 }
@@ -237,6 +250,25 @@ describe('the Runner, over HTTP', () => {
 });
 
 describe('the Broker, over HTTP', () => {
+  // Bug pass, 2026-10-04: with a Trader past C+ a trade into goods comes back at even, so every
+  // lap of a barter loop counted the same stock as earned again.
+  it('counts nothing he hands over as earned, goods or caps', async () => {
+    const app = await makeApp();
+    const token = await signIn(app);
+    stock(app, 'trader', { oil: 1000, scrap: 0 });
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/market/barter',
+      headers: auth(token),
+      payload: { give: 'oil', want: 'scrap', amount: 400 },
+    });
+    expect(res.statusCode).toBe(200);
+    // The premise: something did land.
+    expect(baseOf(app, 'trader').resources.scrap).toBeGreaterThan(0);
+    const tallies = app.repos.feats.tallies(baseOf(app, 'trader').id);
+    expect(Object.keys(tallies).filter((key) => key.startsWith('resources_earned'))).toEqual([]);
+  });
+
   it('takes one resource and gives back half its worth in another', async () => {
     const app = await makeApp();
     const token = await signIn(app);
@@ -272,7 +304,7 @@ describe('the Broker, over HTTP', () => {
     const token = await signIn(app);
     // Far more metal's worth of supplies than any early store holds of metal.
     stock(app, 'trader', { supplies: 900_000, highQualityMetal: 0 });
-    // The ceiling the till reads, the crew's own Logistics folded in.
+    // The ceiling the till reads, the crew's own storage bonus folded in.
     const ceiling = storeCeilingsOf(app.repos, baseOf(app, 'trader'), new Date()).highQualityMetal;
     const rate = (await board(app, token)).barterRate;
     const quote = barterQuote('supplies', 'highQualityMetal', 900_000, rate);
@@ -325,28 +357,128 @@ describe('the Broker, over HTTP', () => {
     expect(small.statusCode).toBe(409);
   });
 
-  it('does not touch caps, either way round ( maintainer 2026-09-09)', async () => {
+  /*
+   * Maintainer, 2026-10-01: "the broker also gives and gets caps". Valued at a cap's worth of one
+   * and cut like any other trade, and the caps he pays out are not caps earned for the feats: they
+   * are goods already counted, changed into money at a loss.
+   */
+  it('trades caps both ways, and does not count what he pays out as caps earned', async () => {
     const app = await makeApp();
     const token = await signIn(app);
     stock(app, 'trader', { caps: 5000, oil: 1000, scrap: 0 });
+    const baseId = baseOf(app, 'trader').id;
+    const quoted = await board(app, token);
+    const level = baseOf(app, 'trader').level;
+    const rate = brokerRate(level, quoted.marketDiscountPercent);
+    const capsOut = brokerPayoutRate('caps', rate, quoted.marketDiscountPercent);
+    const earned = (key: 'caps' | 'scrap') =>
+      app.repos.feats.tallies(baseId)[featMeasureKey('resources_earned', key)] ?? 0;
+    const capsEarnedBefore = earned('caps');
+    const scrapEarnedBefore = earned('scrap');
+    // Under level 60, so his cut is half, less whatever the fixture's ground takes off it.
+    expect(level).toBeLessThan(60);
 
-    for (const payload of [
-      { give: 'caps', want: 'scrap', amount: 400 },
-      { give: 'oil', want: 'caps', amount: 400 },
-    ]) {
-      const res = await app.inject({
-        method: 'POST',
-        url: '/api/market/barter',
-        headers: auth(token),
-        payload,
-      });
-      expect(res.statusCode).toBe(409);
-      expect(res.json<{ error: { message: string } }>().error.message).toContain('caps');
-    }
-    // And nothing moved.
-    const after = baseOf(app, 'trader');
-    expect(after.resources.caps).toBe(5000);
-    expect(after.resources.oil).toBe(1000);
+    const bought = await app.inject({
+      method: 'POST',
+      url: '/api/market/barter',
+      headers: auth(token),
+      payload: { give: 'caps', want: 'scrap', amount: 400 },
+    });
+    expect(bought.statusCode, bought.body.slice(0, 200)).toBe(200);
+    const scrap = barterQuote('caps', 'scrap', 400, rate);
+    // 400 caps at half is 200 caps of worth, and scrap is 2.5 a unit: 80, and never the full 160.
+    expect(scrap).toBeGreaterThanOrEqual(80);
+    expect(scrap).toBeLessThan(160);
+    expect(baseOf(app, 'trader').resources).toMatchObject({ caps: 4600, scrap });
+    // Nothing he hands over counts as earned since 2026-10-04: a trade of what the crew already
+    // had, which a loop at even could otherwise count again on every lap.
+    expect(earned('scrap') - scrapEarnedBefore).toBe(0);
+
+    const sold = await app.inject({
+      method: 'POST',
+      url: '/api/market/barter',
+      headers: auth(token),
+      payload: { give: 'oil', want: 'caps', amount: 400 },
+    });
+    expect(sold.statusCode, sold.body.slice(0, 200)).toBe(200);
+    const caps = barterQuote('oil', 'caps', 400, capsOut);
+    // 400 oil is 800 caps of worth, and he keeps up to half of it.
+    expect(caps).toBeGreaterThanOrEqual(400);
+    expect(caps).toBeLessThan(800);
+    expect(baseOf(app, 'trader').resources).toMatchObject({ caps: 4600 + caps, oil: 600 });
+    expect(earned('caps'), 'the Broker’s caps are not caps earned').toBe(capsEarnedBefore);
+  });
+
+  /*
+   * The loop the caps ruling opened (2026-10-01): with a deep enough discount the supply run sells a
+   * material for less than the Broker pays for it in caps. Every chair seated with the three
+   * market perks puts the crew far past that crossing, and buying off the run then selling to him
+   * must still not come back ahead.
+   */
+  /** Buys all the oil the day's run will sell, then sells it straight back to the Broker for caps. */
+  async function supplyThenBroker(
+    traderRating: number,
+  ): Promise<{ app: FastifyInstance; caps: number; discount: number }> {
+    const app = await makeApp();
+    const token = await signIn(app);
+    const baseId = baseOf(app, 'trader').id;
+    app.repos.bases.updateCommanders(
+      baseId,
+      OFFICER_ROLES.map((role, index) => ({
+        ...createCommander(
+          `off-${index}`,
+          `Officer ${index}`,
+          role,
+          makeAttributes(role === 'trader' ? traderRating : 60),
+        ),
+        perks: ['sig_broker', 'haggler', 'bulk_buyer'],
+      })),
+    );
+    stock(app, 'trader', { caps: 100_000, oil: 0 });
+
+    const quoted = await board(app, token);
+    const discount = quoted.marketDiscountPercent;
+    expect(discount, 'the perks did not reach the market').toBeGreaterThan(300);
+    const units = quoted.supply.lines.find((line) => line.key === 'oil')!.most;
+    expect(units).toBeGreaterThan(BARTER_MINIMUM);
+    const bought = await app.inject({
+      method: 'POST',
+      url: '/api/market/supply',
+      headers: auth(token),
+      payload: { key: 'oil', units },
+    });
+    expect(bought.statusCode, bought.body.slice(0, 200)).toBe(200);
+    const sold = await app.inject({
+      method: 'POST',
+      url: '/api/market/barter',
+      headers: auth(token),
+      payload: { give: 'oil', want: 'caps', amount: units },
+    });
+    expect(sold.statusCode, sold.body.slice(0, 200)).toBe(200);
+    return { app, caps: baseOf(app, 'trader').resources.caps, discount };
+  }
+
+  it('pays no more caps for goods than the supply run charged, short of a C+ Trader', async () => {
+    // Flat 40 is under the floor of C+, where the Trader breaks even (2026-10-04).
+    const { app, caps, discount } = await supplyThenBroker(40);
+    const points = seatPoints(makeAttributes(40), 'trader');
+    expect(points).toBeLessThan(TRADER_EVEN_POINTS);
+    const rate = brokerRate(baseOf(app, 'trader').level, discount, points);
+    expect(
+      brokerPayoutRate('caps', rate, discount, points),
+      'the run price is what binds here',
+    ).toBeLessThan(rate);
+    expect(caps).toBeLessThanOrEqual(100_000);
+  });
+
+  // The maintainer's ruling (2026-10-04): past C+ a Trader turns the two shops into a profit, and
+  // the day's ration on the supply run is what bounds it.
+  it("turns a profit on the loop with a Trader past C+, inside the day's ration", async () => {
+    const { caps } = await supplyThenBroker(90);
+    expect(seatPoints(makeAttributes(90), 'trader')).toBeGreaterThan(TRADER_EVEN_POINTS);
+    expect(caps).toBeGreaterThan(100_000);
+    // Never more than a quarter on top of what a whole day's ration is worth.
+    expect(caps - 100_000).toBeLessThan(100_000 * TRADER_TOP_GAIN);
   });
 
   /**
@@ -505,6 +637,34 @@ describe('the board', () => {
    * Accepting released the counters from the start; withdrawing did not, so a buyer's escrow sat
    * locked for two days against a listing nobody could take any more.
    */
+  // A counter sat on its listing's city board and nowhere else: a poster browsing another city
+  // never saw it (bug pass, 2026-10-02). The poster is told.
+  it('rings the poster when somebody counters their listing', async () => {
+    const { app, seller, buyer } = await twoCrews();
+    stock(app, 'seller', { scrap: 500 });
+    await post(app, seller, {
+      give: { resources: { scrap: 100 }, items: {} },
+      want: { resources: { caps: 5000 }, items: {} },
+    });
+    const listing = (await board(app, buyer)).offers[0];
+    await post(app, buyer, {
+      give: { resources: { caps: 2000 }, items: {} },
+      want: { resources: { scrap: 100 }, items: {} },
+      counterTo: listing?.id,
+    });
+    const rung = app.repos.social
+      .notifications(baseOf(app, 'seller').ownerId, 20)
+      .filter((one) => one.kind === 'market_countered');
+    expect(rung).toHaveLength(1);
+    expect(rung[0]?.link).toBe('/game/market/offers');
+    // The one countering is not told about their own counter.
+    expect(
+      app.repos.social
+        .notifications(baseOf(app, 'buyer').ownerId, 20)
+        .some((one) => one.kind === 'market_countered'),
+    ).toBe(false);
+  });
+
   it('releases the counters when the listing they answer is withdrawn', async () => {
     const { app, seller, buyer } = await twoCrews();
     stock(app, 'seller', { scrap: 500 });
@@ -1348,7 +1508,7 @@ describe("unit modification cards, over the yard's route", () => {
     expect(wrongUnit.statusCode).toBe(409);
     expect(wrongUnit.body).toContain('does not fit this sheet');
 
-    // A sheet the roster is not open to: the gates that decide it are the training gates, so a
+    // A sheet the roster is not open to: the gates that decide it are the muster gates, so a
     // card cut for it would be a card spent on a unit that cannot take the field.
     const cannotField = await buildCard(app, token, 'taped_grips', 'the_specter');
     expect(cannotField.statusCode).toBe(409);
@@ -1824,7 +1984,7 @@ describe('an offer that has stood too long', () => {
 });
 
 /**
- * §F2: the crew's Logistics, on the shelf the supply run measures against.
+ * §F2: the crew's storage bonus, on the shelf the supply run measures against.
  *
  * The bonus reached the production clamp and nothing else, so a crew that had researched room for
  * another 55% of a warehouse was quoted the bare structures' ceiling everywhere it mattered: the

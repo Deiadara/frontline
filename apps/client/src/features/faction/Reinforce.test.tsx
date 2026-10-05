@@ -49,8 +49,8 @@ const units: UnitsResponse = {
   fleet: {},
   queue: [],
   resources: { caps: 0, supplies: 0, oil: 0, scrap: 0, highQualityMetal: 0, planks: 0 },
-  trainingCostReduction: 0,
-  trainingSpeedBonus: 0,
+  musterCostReduction: 0,
+  musterSpeedBonus: 0,
   built: [],
 };
 
@@ -121,14 +121,30 @@ beforeEach(() => {
     // The table panel's Talk door reads the mailbox, and it is the door that opens first.
     if (path.endsWith('/messages')) return reply(F.messagesScreen);
     if (path.endsWith('/me')) return reply(F.me);
+    // When the help would land: after the mark here, so the drawer has to say so.
+    if (path.endsWith('/battles/deploy/quote')) {
+      return reply({
+        minutes: 600,
+        arrivesAt: '2099-01-01T00:00:00.000Z',
+        inTime: false,
+        rail: null,
+      });
+    }
     throw new Error(`unstubbed request: ${path}`);
   });
-  useSession.setState({ token: 'session-token', user: null });
+  useSession.setState({ signedIn: true, user: null });
 });
 
 afterEach(() => vi.unstubAllGlobals());
 
 describe('sending help to an ally', () => {
+  // A column that lands after the mark never fights; the drawer says so before the press.
+  it('says when the help would land, and that it would be too late', async () => {
+    await renderFaction();
+    const landing = await screen.findByTestId(`reinforce-landing-${BATTLE.battleId}`);
+    expect(landing).toHaveTextContent('after the mark. They would not fight.');
+  });
+
   it('has a unit selected once the roster lands, without the player touching the dropdown', async () => {
     await renderFaction();
 

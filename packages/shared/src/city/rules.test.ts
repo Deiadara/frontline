@@ -19,7 +19,7 @@ import { findUnit, type Army, type UnitSpec } from '../units/index.js';
  * The seven bonus kinds the 2026-09-09 pass added to the shared union.
  *
  * They are on `HoldBonus` rather than beside it, so authoring one gives it to the map, the perk
- * book and the Lab's eighteen tracks at once: that is the design `crew/effects.ts` is built around
+ * book and the Lab's thirteen tracks at once: that is the design `crew/effects.ts` is built around
  * and it is why the channel and the fold are the load-bearing half. What each of them changes is a
  * *rule*, so the interesting assertions are about permissions and about shapes, not about sizes.
  *
@@ -257,32 +257,38 @@ describe('nobody runs because somebody else did', () => {
    * expiry date on it, and three expiries is enough.
    *
    * Four equal stacks, so a stack breaking really is a quarter of the line and the cascade has
-   * something to be proportional to. Measured over the thirty seeds below: 106 stacks broken
-   * without the holding against 84 with it, the holding keeping a stack on 19 of the 30 and
-   * costing one on none of them. Both halves are asserted, because "fewer overall" alone would
-   * pass on a rule that helped twice as often as it hurt.
+   * something to be proportional to. Swept over the defender's size as well since 2026-10-02,
+   * when Last Stand started ramping with the odds and moved the one size this read (20
+   * Suppressors) from 19 kept fights to 3: the cascade only decides fights near the edge of the
+   * attack holding, and where that edge sits moves with every retune. Measured that day over 17
+   * to 20 Suppressors and thirty seeds each: the holding kept a stack in 7, 17, 5 and 3 fights,
+   * and cost one in none. Both halves are asserted, because "fewer overall" alone would pass on a
+   * rule that helped twice as often as it hurt.
    */
   it('keeps stacks that the same fights lose to the panic beside them', () => {
     const attacking: Army = { razors: 25, sparks: 25, scrapers: 25, anodics: 25 };
-    const defending: Army = { suppressor: 20 };
     const broke = (side: Simulation['attacker']): number =>
       side.stacks.filter((stack) => stack.brokeAt !== null).length;
 
     let shakenTotal = 0;
     let steadyTotal = 0;
     let kept = 0;
-    for (let seed = 0; seed < 30; seed += 1) {
-      // The seed is part of the fixture, since a fight is deterministic from it.
-      const shaken = broke(fight(attacking, defending, `c${seed}`).attacker);
-      const steady = broke(
-        fight(attacking, defending, `c${seed}`, fold({ kind: 'steady_nerve' })).attacker,
-      );
-      shakenTotal += shaken;
-      steadyTotal += steady;
-      if (shaken > steady) kept += 1;
-      expect(steady, `steady nerve cost a stack on seed c${seed}`).toBeLessThanOrEqual(shaken);
+    for (const suppressor of [17, 18, 19, 20]) {
+      const defending: Army = { suppressor };
+      for (let seed = 0; seed < 30; seed += 1) {
+        // The seed is part of the fixture, since a fight is deterministic from it.
+        const shaken = broke(fight(attacking, defending, `c${seed}`).attacker);
+        const steady = broke(
+          fight(attacking, defending, `c${seed}`, fold({ kind: 'steady_nerve' })).attacker,
+        );
+        shakenTotal += shaken;
+        steadyTotal += steady;
+        if (shaken > steady) kept += 1;
+        const where = `${suppressor} Suppressors, seed c${seed}`;
+        expect(steady, `steady nerve cost a stack at ${where}`).toBeLessThanOrEqual(shaken);
+      }
     }
-    expect(kept, 'the holding changed nothing in thirty fights').toBeGreaterThanOrEqual(10);
+    expect(kept, 'the holding changed nothing in 120 fights').toBeGreaterThanOrEqual(16);
     expect(steadyTotal).toBeLessThan(shakenTotal);
   });
 });

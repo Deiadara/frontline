@@ -1,17 +1,35 @@
 import {
+  brokerRate,
+  chairSettlesAt,
+  supplyMarkup,
   officerIsWorking,
   markFromPoints,
+  seatPoints,
+  describeOverseerPassive,
   type AttributeLift,
   type Attributes,
   type Base,
   type Commander,
   type CrewOfficer,
+  type CrewOverseer,
   type CrewResponse,
   type OfficerRole,
   type SeatedOfficer,
 } from '@frontline/shared';
-import { roleFit } from '../roles/requirements.js';
-import { liftedOfficerSheet, officerLiftRoom } from './standing.js';
+import {
+  chairLineFor,
+  crewEffectsFor,
+  officerFitReader,
+  standingEffectsFor,
+  type ChairLineContext,
+  type OfficerFitReader,
+  liftedOfficerSheet,
+  liftedOverseerReceipt,
+  officerLiftRoom,
+  type LiftRoom,
+} from './standing.js';
+import { ledgerFor } from '../bar/hire.js';
+import { researchHead } from '../research/tracks.js';
 import type { Repositories } from '../db/repos/index.js';
 import { districtUnitSlots, type DistrictUnitSlots } from '../district/unit-slots.js';
 
@@ -36,6 +54,9 @@ export function projectCrewOfficer(
     attributes: officer.attributes,
     lift: [],
   },
+  /** The crew's side of the chair's line, when the caller has it (`chairLineContext`). */
+  context?: ChairLineContext,
+  now: Date = new Date(),
 ): CrewOfficer {
   return {
     officerId: officer.id,
@@ -50,12 +71,8 @@ export function projectCrewOfficer(
     // §D4: sent as the raw clock rather than as a boolean, so the card can count down to it.
     injuredUntil: officer.injuredUntil,
     /*
-     * How well they fit the chair, as a mark.
-     *
-     * Computed here rather than shipped as the score it comes from: `roleFit` reads the role
-     * requirement table, which is server-side only (B8/B8a), and the score itself is fine grained
-     * enough that a player comparing two of them could work backwards toward the weights. The mark
-     * is the coarse hint the leak guard's own note allows.
+     * How well they fit the chair, as a mark: the seat's points (`seatPoints`, the public tags and
+     * their tiers) said out loud.
      *
      * Null on the bench. A mark is a statement about a fit, and somebody with no chair has nothing
      * to fit: the same officer reads differently in two roles, which is the point of showing it.
@@ -65,7 +82,35 @@ export function projectCrewOfficer(
      * plus 2 from the Overseer and the mark under them was the mark for 20. Whichever of the two
      * is right, they cannot both be on the same card.
      */
-    mark: officer.role === null ? null : markFromPoints(roleFit(lifted.attributes, officer.role)),
+    mark:
+      officer.role === null ? null : markFromPoints(seatPoints(lifted.attributes, officer.role)),
+    // What the chair gives, off the points it is paid on (`chairLineFor`, 2026-10-04). Nothing
+    // for somebody laid up: the chair pays nothing while they are (bug pass, the same day).
+    passive:
+      officer.role === null || !officerIsWorking(officer, now)
+        ? null
+        : chairLineFor(officer, officer.role, seatPoints(lifted.attributes, officer.role), context),
+    // Seated in the last few hours: the card counts down to when the chair starts giving.
+    chairFrom: officer.role === null ? null : (chairSettlesAt(officer, now)?.toISOString() ?? null),
+  };
+}
+
+/** The Overseer's card on the crew screen, or null before one is chosen (2026-10-04). */
+function projectCrewOverseer(repos: Repositories, base: Base, room: LiftRoom): CrewOverseer | null {
+  const owner = repos.users.findById(base.ownerId);
+  const overseer = owner?.overseerId ? repos.overseers.findById(owner.overseerId) : undefined;
+  if (!overseer) return null;
+  const lifted = liftedOverseerReceipt(overseer.attributes, room);
+  const points = room.overseerPoints ?? seatPoints(lifted.attributes, 'overseer');
+  return {
+    name: overseer.name,
+    portraitId: overseer.portraitId,
+    attributes: overseer.attributes,
+    lifted: lifted.attributes,
+    lift: lifted.lift,
+    perks: overseer.perks,
+    mark: markFromPoints(points),
+    passive: describeOverseerPassive(points),
   };
 }
 
@@ -84,12 +129,36 @@ export function projectCrew(repos: Repositories, base: Base): CrewResponse {
    * out of the room in both directions: they lift nobody, and `crewSheetsFor` drops them.
    */
   const room = officerLiftRoom(repos, base);
+  const context = chairLineContext(repos, base, officerFitReader(repos, base));
   return {
     level: base.level,
     housing: housingOf(districtUnitSlots(repos, base)),
+    // §H7: the book is widened from this screen too (maintainer, 2026-09-30), at the crew's price.
+    payroll: ledgerFor(base, crewEffectsFor(repos, base)),
+    overseer: projectCrewOverseer(repos, base, room),
     officers: base.commanders.map((officer) =>
-      projectCrewOfficer(officer, liftedOfficerSheet(officer, room)),
+      projectCrewOfficer(officer, liftedOfficerSheet(officer, room), context),
     ),
+  };
+}
+
+/**
+ * What the chair lines need from the crew (`ChairLineContext`): the Researcher's share of the
+ * curved research sum, and the market's own rates at this crew's level and discount.
+ */
+export function chairLineContext(
+  repos: Repositories,
+  base: Base,
+  fit: OfficerFitReader,
+  now: Date = new Date(),
+): ChairLineContext {
+  const discount = standingEffectsFor(repos, base, now).marketDiscountPercent;
+  return {
+    researchAddsPercent: researchHead(repos, base, fit)?.addsPercent ?? null,
+    marketRates: {
+      worth: brokerRate(base.level, discount, null),
+      markup: supplyMarkup(discount, null),
+    },
   };
 }
 
@@ -111,9 +180,9 @@ export function seatedRoles(commanders: readonly Commander[]): OfficerRole[] {
  *
  * An injured officer is **out**: no ratings, no perks, no lift on anybody else, and none of the
  * services their chair unlocks, until their twelve hours are up (`OFFICER_INJURY_HOURS`). The
- * sheet fold already honoured that (`officerLiftRoom` drops them before best-of); the chairs did
- * not, so a crew whose Consigliere was in a hospital bed still had their counter-intel, their
- * Master of Whispers still ran the network, and their Fabricator still cut cards.
+ * sheet fold already honoured that (`officerLiftRoom` leaves them out of the room); the chairs did
+ * not, so a crew whose Master of Whispers was in a hospital bed still ran the network, and
+ * their Fabricator still cut cards.
  *
  * An officer on the bench is out the same way (maintainer, 2026-09-28), through the same
  * predicate (`officerIsWorking`), so this list and the fold drop the same people.

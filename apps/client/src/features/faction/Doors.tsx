@@ -1,10 +1,11 @@
-import type { FactionMember, FactionResponse } from '@frontline/shared';
+import { dayInZone, type FactionMember, type FactionResponse } from '@frontline/shared';
 import { Icon } from '../../components/ui/Icon';
 import { Modal } from '../../components/ui/Modal';
 import { OnArt } from '../game/PlateRoom';
 import { Roster } from './Roster';
 import { ledger } from './ledger';
 import { Door, WindowHead } from './parts';
+import { usePlayerZone } from '../settings/usePlayerZone';
 
 /**
  * The doors along the foot of the room, and the two windows that have no other way in.
@@ -64,6 +65,7 @@ export function MembersWindow({
 /** The log: what has happened at this table, newest first (`ledger.ts`). */
 export function LedgerWindow({ data, onClose }: { data: FactionResponse; onClose: () => void }) {
   const entries = ledger(data);
+  const zone = usePlayerZone();
   return (
     <Modal onClose={onClose} labelledBy="log-title" size="default" data-testid="faction-log-window">
       <WindowHead id="log-title" title="The log" onClose={onClose} />
@@ -82,7 +84,7 @@ export function LedgerWindow({ data, onClose }: { data: FactionResponse; onClose
                 {entry.text}
               </span>
               <span className="shrink-0 font-display text-[10px] tabular-nums text-ink-500">
-                {entry.at.slice(0, 10)}
+                {dayInZone(new Date(entry.at), zone)}
               </span>
             </li>
           ))

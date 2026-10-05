@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { findUnit, isCombatUnit, UNIT_CATALOG, UNIT_MODIFIERS, type Army } from '../units/index.js';
 import { winnerLossFraction } from './attrition.js';
 import { bareBattlefield } from './battlefield.js';
-import { effectiveStats } from './effects.js';
+import { effectiveStats, outnumberedWeight } from './effects.js';
 import { noTerritoryEffects } from '../city/index.js';
 import { evasionCut, exchange, ignoresGate, missChance, targetBonusPercent } from './matchup.js';
 import {
@@ -65,7 +65,7 @@ const bare = (unit: Parameters<typeof effectiveStats>[0]) =>
   effectiveStats(
     unit,
     bareBattlefield(),
-    { defending: false, outnumbered: false },
+    { defending: false, outnumbered: 0 },
     noTerritoryEffects(),
   );
 
@@ -380,7 +380,7 @@ describe('a taunting stack takes the fire off the line behind it', () => {
     const effective = effectiveStats(
       spec,
       bareBattlefield(),
-      { defending: false, outnumbered: false },
+      { defending: false, outnumbered: 0 },
       noTerritoryEffects(),
     );
     return {
@@ -540,24 +540,30 @@ describe('a shield line screens in proportion to its size', () => {
   const middling = sweep({ razors: 30, ironsides: 3 }, { razors: 40 });
   const half = sweep({ razors: 22, ironsides: 6 }, { razors: 40 });
 
+  // Re-measured 2026-10-02, when being outnumbered started counting unit slots instead of heads
+  // (maintainer ruling P10-B). A line with Ironsides in it had felt outnumbered by a Razor line
+  // of the same weight, two heads for every Ironside; it no longer does, so every rate rose.
   it('no longer lets one Ironside carry a losing line', () => {
-    // Measured 36% (was 100%). The Ironside falls in about two fights of three (was never).
-    expect(token.rate).toBeGreaterThan(0.2);
-    expect(token.rate).toBeLessThan(0.5);
-    expect(token.wallFell).toBeGreaterThan(0.4);
+    // Measured 41% (36% by heads, 100% before the screen was sized). The Ironside falls in about
+    // one fight of nine since morale reads wounds (2026-10-05, three of five before): the line it
+    // screens breaks and runs before the wall is ground down, which is the morale change working.
+    expect(token.rate).toBeGreaterThan(0.25);
+    expect(token.rate).toBeLessThan(0.55);
+    expect(token.wallFell).toBeGreaterThan(0.05);
   });
 
   it('gives a wall about half its line the fire it was built for', () => {
-    // Measured 25% for 30+3 and 67% for 22+6 (were 100% and 93%).
-    expect(middling.rate).toBeGreaterThan(0.12);
-    expect(middling.rate).toBeLessThan(0.4);
-    expect(half.rate).toBeGreaterThan(0.55);
-    expect(half.rate).toBeLessThan(0.85);
+    // Measured 71% for 30+3 and 100% for 22+6 (25% and 67% by heads; 100% and 93% before the
+    // screen was sized). 39 Razors alone take 30% off the same 40.
+    expect(middling.rate).toBeGreaterThan(0.55);
+    expect(middling.rate).toBeLessThan(0.85);
+    expect(half.rate).toBeGreaterThan(0.9);
     expect(half.rate).toBeGreaterThan(token.rate + 0.15);
   });
 
   it('screens a big line no more than its three slots are worth', () => {
-    // Measured 55% against 203 Razors (was 100%); a plain mirror of 203 is about 49%.
+    // Measured 58% against 203 Razors (55% by heads, 100% before the screen was sized); a plain
+    // mirror of 203 is about 49%.
     expect(sweep({ razors: 200, ironsides: 1 }, { razors: 203 }).rate).toBeLessThan(0.75);
   });
 });
@@ -581,6 +587,47 @@ const neverFalls = (rates: number[], what: string) => {
 };
 
 describe('more of a unit is never worse, and nothing hard-caps (maintainer, 2026-09-29)', () => {
+  /**
+   * Last Stand was a step at 1.5 to 1 until 2026-10-02, and Wardens holding against 90 Razors
+   * won 55% with 29, 74% with 30 and 39% with 31: the 31st switched it off for the whole line.
+   * It ramps now (`outnumberedWeight`), and the same sweep reads 0, 7, 39, 70, 85, 94, 99.
+   */
+  it('never lowers a held line for another Warden in it, across where Last Stand fades', () => {
+    const rates = [26, 27, 28, 29, 30, 31, 32, 33].map((wardens) => {
+      let held = 0;
+      for (let i = 0; i < 300; i += 1) {
+        if (fight({ razors: 90 }, { wardens }, `stand-${i}`).winner === 'defender') held += 1;
+      }
+      return held / 300;
+    });
+    neverFalls(rates, 'Wardens holding against 90 Razors');
+  });
+
+  it('ramps "when outnumbered" from even numbers to two to one', () => {
+    expect(outnumberedWeight(20, 20)).toBe(0);
+    expect(outnumberedWeight(16, 20)).toBe(0);
+    expect(outnumberedWeight(30, 20)).toBe(0.5);
+    expect(outnumberedWeight(40, 20)).toBe(1);
+    expect(outnumberedWeight(90, 20)).toBe(1);
+    expect(outnumberedWeight(10, 0)).toBe(0);
+    const wardens = findUnit('wardens')!;
+    const half = effectiveStats(
+      wardens,
+      bareBattlefield(),
+      { defending: false, outnumbered: 0.5 },
+      noTerritoryEffects(),
+    );
+    const full = effectiveStats(
+      wardens,
+      bareBattlefield(),
+      { defending: false, outnumbered: 1 },
+      noTerritoryEffects(),
+    );
+    const none = bare(wardens);
+    expect(half.offense - none.offense).toBeCloseTo((full.offense - none.offense) / 2);
+    expect(full.offense).toBeGreaterThan(none.offense);
+  });
+
   it('never lowers a line for another Ironside in it', () => {
     const rates = sweepRates(
       [0, 1, 2, 3, 4, 6, 8].map((n) => ({ razors: 30, ...(n > 0 ? { ironsides: n } : {}) })),
@@ -907,7 +954,7 @@ describe('a breaching sheet hits through the gate', () => {
     effectiveStats(
       findUnit('wardens')!,
       bareBattlefield(),
-      { defending: true, outnumbered: false },
+      { defending: true, outnumbered: 0 },
       { ...noTerritoryEffects(), gatePercent },
     );
 
@@ -949,7 +996,7 @@ describe('who is too intimidated to fight (§D3)', () => {
     const effective = effectiveStats(
       spec,
       bareBattlefield(),
-      { defending: false, outnumbered: false },
+      { defending: false, outnumbered: 0 },
       noTerritoryEffects(),
     );
     return {
@@ -1131,7 +1178,7 @@ describe('counting the line honestly', () => {
      *
      * This read sixteen Razors against them as an earned last stand, which was true while the
      * engine counted heads and is false now: sixteen slots against twenty is the Wardens being
-     * the *heavier* line. Thirty Razors is the ratio `OUTNUMBERED_RATIO` actually asks for.
+     * the *heavier* line. Thirty Razors are past even, so Last Stand holds in part (`outnumberedWeight`).
      */
     expect(reasons(army({ razors: 30 }))).toContain(lastStand);
     // Ten Razors and forty porters do not: the porters never form a line.
@@ -1184,9 +1231,10 @@ describe('how outnumbered a side is', () => {
     }).attacker;
 
   it('stops counting the enemy stacks that have run', () => {
+    // In unit slots since 2026-10-02: a Warden is two of them.
     const us = sideOf({ razors: 10 });
     const them = sideOf({ razors: 10, wardens: 10 });
-    expect(outnumberedBy(us, them)).toBe(2);
+    expect(outnumberedBy(us, them)).toBe(3);
 
     for (const stack of them.stacks) if (stack.unit.id === 'wardens') stack.brokeAt = 2;
 
@@ -1194,7 +1242,7 @@ describe('how outnumbered a side is', () => {
   });
 
   it('stops counting our own stacks that have run, which made a collapse feel safer', () => {
-    const us = sideOf({ razors: 10, wardens: 10 });
+    const us = sideOf({ razors: 10, wardens: 5 });
     const them = sideOf({ razors: 20 });
     expect(outnumberedBy(us, them)).toBe(1);
 

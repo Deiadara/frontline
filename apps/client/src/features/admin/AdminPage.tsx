@@ -21,7 +21,7 @@ import { useEffect, useState } from 'react';
 import { Navigate, useNavigate } from 'react-router-dom';
 import { ResourceIcon } from '../../components/Resources';
 import { Button } from '../../components/ui/Button';
-import { Confirm } from '../../components/ui/Confirm';
+import { LeaveDialog } from '../../components/LeaveDialog';
 import { NumberField } from '../../components/ui/NumberField';
 import { Dropdown } from '../../components/ui/Dropdown';
 import { Panel } from '../../components/ui/Panel';
@@ -32,6 +32,8 @@ import {
   useAdminKnobs,
   useAdminReset,
   useAdminMockBattle,
+  useFaction,
+  useMe,
 } from '../../lib/queries';
 import { InfoNote, PageShell, ScreenLoadSheet } from '../game/PageShell';
 import { formatDayClock } from '@frontline/shared';
@@ -111,9 +113,9 @@ const PRESETS: readonly Preset[] = [
        * Half the chairs, at a middling rating (maintainer, 2026-09-22).
        *
        * An officer is the Bar's to give and the Bar settles at midnight, so a preset that does
-       * not seat anybody hands a reviewer a mid-game crew with nineteen empty chairs: no
+       * not seat anybody hands a reviewer a mid-game crew with thirteen empty chairs: no
        * spying, no research track, no role fit. Half is the shape of the era. The
-       * count is derived rather than typed, so a nineteenth role does not leave this at nine.
+       * count is derived rather than typed, so a change to the list of chairs does not leave it stale.
        */
       officers: { count: Math.ceil(OFFICER_ROLES.length / 2), rating: 55 },
       resources: {
@@ -427,7 +429,7 @@ function StateKnobs({ snapshot }: { snapshot: AdminSnapshot }) {
             Empty every queue
           </Button>
           <span className="font-body text-[12px] text-ink-300">
-            Build, training and research, so the next thing can be watched from the start.
+            Build, muster and research, so the next thing can be watched from the start.
           </span>
         </div>
 
@@ -448,7 +450,7 @@ function StateKnobs({ snapshot }: { snapshot: AdminSnapshot }) {
 function GrantsPanel() {
   const grant = useAdminGrant();
   const [parts, setParts] = useState(20);
-  const [track, setTrack] = useState<OfficerRole>('security_officer');
+  const [track, setTrack] = useState<OfficerRole>('veteran');
   const [depth, setDepth] = useState(5);
   const [stock, setStock] = useState(5);
   const [unit, setUnit] = useState<string>(PLAYER_UNITS[0]?.id ?? '');
@@ -679,6 +681,41 @@ function FightsPanel() {
   );
 }
 
+/**
+ * Clean slate's "are you sure", which is also a faction's door (maintainer, 2026-09-30).
+ *
+ * The reset walks the old life out of its faction by the route Leave takes, so a leader with people
+ * at the table is warned it disbands and may name who leads after them, exactly as on their own
+ * file. Its own component so the faction is read when the question is asked, not polled for as
+ * long as the Console is open; nothing is drawn until that read has answered, so the question a
+ * leader is asked is never the one for somebody with no table.
+ */
+function StartOverDialog({
+  onConfirm,
+  onCancel,
+}: {
+  onConfirm: (successorId: string | undefined) => void;
+  onCancel: () => void;
+}) {
+  const faction = useFaction();
+  const me = useMe();
+  if (faction.isPending || me.isPending) return null;
+  const table = faction.data?.faction ? faction.data : undefined;
+  const leads = table?.rank === 'leader' && table.members.length > 1;
+  return (
+    <LeaveDialog
+      faction={table}
+      selfId={me.data?.user.id ?? ''}
+      title="Start over?"
+      body={`This crew goes back to its first second: the district emptied, every location you hold given back to the city, the inventory and the shelf cleared, and the research undone. Every fight, mission and spy job it has going is forfeit, and it walks out of its faction.${leads ? ` You lead ${table.faction?.name ?? 'it'}, so it is disbanded when you go, for all ${table.members.length} of you, unless you name somebody to lead it.` : ''} You pick a character again. Nothing about it can be undone.`}
+      confirm={(heir) => (heir ? `Wipe it, ${heir.username} leads` : 'Wipe it')}
+      testId="confirm-reset"
+      onCancel={onCancel}
+      onConfirm={onConfirm}
+    />
+  );
+}
+
 export function AdminPage() {
   const query = useAdmin();
   const knobs = useAdminKnobs();
@@ -724,7 +761,7 @@ export function AdminPage() {
       }
     >
       <InfoNote tone="warn" label="Testing mode">
-        Builds, training, drills, location upgrades and the columns you send take{' '}
+        Builds, musters, drills, location upgrades and the columns you send take{' '}
         <strong>{snapshot.state.actionSeconds} seconds</strong>, missions and research a minute, and
         nothing is charged, though screens show the real prices and times. A column the game walks
         home for you, after a fight or a faction ending, keeps the real pace. Gates about progress
@@ -785,15 +822,11 @@ export function AdminPage() {
         </div>
 
         {wiping && (
-          <Confirm
-            title="Start over?"
-            body="This crew goes back to its first second: the district emptied, every location you hold given back to the city, the inventory and the shelf cleared, and the research undone. Every fight, mission and spy job it has going is forfeit, and it walks out of its faction. You pick a character again. Nothing about it can be undone."
-            confirm="Wipe it"
-            testId="confirm-reset"
+          <StartOverDialog
             onCancel={() => setWiping(false)}
-            onConfirm={() => {
+            onConfirm={(successorId) => {
               setWiping(false);
-              reset.mutate(undefined, {
+              reset.mutate(successorId, {
                 // The picker lives at the root: with no overseer, `/game` has nothing to draw.
                 onSuccess: () => {
                   void navigate('/');

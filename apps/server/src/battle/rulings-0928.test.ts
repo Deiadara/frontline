@@ -291,6 +291,30 @@ describe('one fight per place', () => {
   });
 });
 
+// Maintainer, 2026-10-04: empty ground is walked onto, never fought for.
+describe('no fight on empty ground', () => {
+  it('refuses a call on a place nobody holds, and says to walk in', async () => {
+    const world = await makeWorld('attacker');
+    const caller = await register(world, 'caller');
+    const plot = world.app.repos.city.control(PLOT)!;
+    world.app.repos.city.put({ ...plot, holder: { kind: 'unoccupied' }, garrison: {} });
+    const slots = declarableSlots(new Date());
+
+    const refused = await world.app.inject({
+      method: 'POST',
+      url: '/api/battles/declare',
+      headers: auth(caller.token),
+      payload: {
+        target: { kind: 'location', districtId: 'steelbelt', locationId: PLOT },
+        scheduledFor: slots[0]!.toISOString(),
+      },
+    });
+    expect(refused.statusCode).toBe(409);
+    expect(refused.body).toContain('Send units to walk in');
+    expect(world.app.repos.sieges.pending()).toHaveLength(0);
+  });
+});
+
 describe('winners hold what they take', () => {
   it('holds the ground even when the call asked not to', async () => {
     const world = await makeWorld('attacker');

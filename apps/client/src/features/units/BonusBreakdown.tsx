@@ -11,7 +11,7 @@ import { cn } from '../../lib/cn';
  * gauntlet)."
  *
  * The chips were three numbers with nothing behind them, and a number a player cannot account for
- * is one they cannot plan against: a crew wondering how to train faster has a completely different
+ * is one they cannot plan against: a crew wondering how to muster faster has a completely different
  * next move depending on whether the seventy points are mostly the Gauntlet (build it up) or mostly
  * one drillmaster (do not lose them).
  *

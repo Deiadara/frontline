@@ -3,9 +3,9 @@ import {
   RESOURCE_ORDER,
   findUnit,
   notorietyUpgradeCost,
-  trainingCost,
+  musterCost,
   supplyBoard,
-  trainingRefund,
+  musterRefund,
   type MarketResponse,
   type ResourceKey,
 } from '@frontline/shared';
@@ -33,11 +33,11 @@ test.use({ viewport: { width: 1600, height: 1000 } });
 
 /** The chips the batch below is charged against, with what each one is charged. */
 function billOf(unitId: string, count: number): [ResourceKey, number][] {
-  const bill = trainingCost(
+  const bill = musterCost(
     findUnit(unitId)!,
     count,
-    unitsResponse.trainingCostReduction,
-    unitsResponse.trainingSuppliesReduction ?? 0,
+    unitsResponse.musterCostReduction,
+    unitsResponse.musterSuppliesReduction ?? 0,
   );
   return RESOURCE_ORDER.flatMap((kind) => {
     const amount = bill[kind] ?? 0;
@@ -45,7 +45,7 @@ function billOf(unitId: string, count: number): [ResourceKey, number][] {
   });
 }
 
-test('a training order throws a red minus onto every stockpile it is charged against', async ({
+test('a muster order throws a red minus onto every stockpile it is charged against', async ({
   page,
 }) => {
   await installApi(page, lateGame);
@@ -57,7 +57,7 @@ test('a training order throws a red minus onto every stockpile it is charged aga
   const bill = billOf('razors', 1);
   expect(bill.length, 'the fixture must charge for a batch').toBeGreaterThan(1);
 
-  await page.getByTestId('unit-razors').getByRole('button', { name: 'Train' }).click();
+  await page.getByTestId('unit-razors').getByRole('button', { name: 'Muster' }).click();
 
   // Asserted while it is still on screen: a figure lives 1.6 seconds, and the loop below takes
   // longer than that between its first and last assertion.
@@ -76,12 +76,12 @@ test('a training order throws a red minus onto every stockpile it is charged aga
 test('cancelling a batch throws a green plus for what came back', async ({ page }) => {
   await installApi(page, lateGame);
   await page.goto('/game/units');
-  await expect(page.getByTestId('training-queue')).toBeVisible();
+  await expect(page.getByTestId('muster-queue')).toBeVisible();
   await settleFonts(page);
 
   // The one order still inside its window (`bench.spec.ts` pins which, and why).
   const order = unitsResponse.queue.find((entry) => entry.id === 'order-2')!;
-  const back = trainingRefund(order);
+  const back = musterRefund(order);
   const paid = RESOURCE_ORDER.flatMap((kind) =>
     (back[kind] ?? 0) > 0 ? [[kind, back[kind] ?? 0] as [ResourceKey, number]] : [],
   );
@@ -125,7 +125,7 @@ test('buying a rank throws a red minus onto the infamy chip', async ({ page }) =
 
 /**
  * §C: the maintainer's second named case. Starting a research programme is a click that spends, so it
- * throws the same red figures a training order does.
+ * throws the same red figures a muster order does.
  *
  * The Lab is worth its own run rather than a second unit test because nothing else on the page
  * moves the stockpile: the response is the Archive, the charge only reaches the HUD through the
@@ -179,10 +179,10 @@ test('a spend lands under the button that spent it, and a refund stays on its ch
   await settleFonts(page);
 
   const bill = billOf('razors', 1);
-  const train = page.getByTestId('unit-razors').getByRole('button', { name: 'Train' });
-  const button = await train.boundingBox();
-  if (!button) throw new Error('the Train button has no box');
-  await train.click();
+  const muster = page.getByTestId('unit-razors').getByRole('button', { name: 'Muster' });
+  const button = await muster.boundingBox();
+  if (!button) throw new Error('the Muster button has no box');
+  await muster.click();
 
   const float = page.getByTestId(`delta-${bill[0]![0]}`);
   await expect(float).toHaveAttribute('data-anchored', 'press');
@@ -217,11 +217,11 @@ test('two presses on two cards draw two columns, each under its own button', asy
   await page.getByRole('button', { name: 'Rabble' }).click();
   await settleFonts(page);
 
-  const left = page.getByTestId('unit-razors').getByRole('button', { name: 'Train' });
-  const right = page.getByTestId('unit-anodics').getByRole('button', { name: 'Train' });
+  const left = page.getByTestId('unit-razors').getByRole('button', { name: 'Muster' });
+  const right = page.getByTestId('unit-anodics').getByRole('button', { name: 'Muster' });
   const leftBox = await left.boundingBox();
   const rightBox = await right.boundingBox();
-  if (!leftBox || !rightBox) throw new Error('a Train button has no box');
+  if (!leftBox || !rightBox) throw new Error('a Muster button has no box');
   expect(rightBox.x, 'the two cards must sit side by side').toBeGreaterThan(leftBox.x + 200);
 
   await left.click();
@@ -240,11 +240,11 @@ test('two presses on two cards draw two columns, each under its own button', asy
 test("a refund's figure lands under the Cancel that asked for it", async ({ page }) => {
   await installApi(page, lateGame);
   await page.goto('/game/units');
-  await expect(page.getByTestId('training-queue')).toBeVisible();
+  await expect(page.getByTestId('muster-queue')).toBeVisible();
   await settleFonts(page);
   // The one order still inside its window (`bench.spec.ts` pins which, and why).
   const order = unitsResponse.queue.find((entry) => entry.id === 'order-2')!;
-  const paid = RESOURCE_ORDER.filter((kind) => (trainingRefund(order)[kind] ?? 0) > 0);
+  const paid = RESOURCE_ORDER.filter((kind) => (musterRefund(order)[kind] ?? 0) > 0);
   await page.getByTestId(`cancel-${order.id}`).click();
   const float = page.getByTestId(`delta-${paid[0]!}`);
   await expect(float.getByTestId('delta-gain')).toBeVisible();
@@ -255,10 +255,10 @@ test("a refund's figure lands under the Cancel that asked for it", async ({ page
 
 /**
  * The testing build quotes a bill and does not take it (`admin/mode.ts`), so the stockpile never
- * moves and the diff has nothing to throw. Pressing Train and seeing nothing read as a button that
+ * moves and the diff has nothing to throw. Pressing Muster and seeing nothing read as a button that
  * did not work, so the screen announces the bill it quoted, drawn as the spend it would have been.
  */
-test('in admin mode a training order still throws its bill', async ({ page }) => {
+test('in admin mode a muster order still throws its bill', async ({ page }) => {
   await installApi(page, adminGame);
   await page.goto('/game/units');
   await expect(page.getByTestId('unit-catalogue')).toBeVisible();
@@ -266,7 +266,7 @@ test('in admin mode a training order still throws its bill', async ({ page }) =>
   await settleFonts(page);
 
   const bill = billOf('razors', 1);
-  await page.getByTestId('unit-razors').getByRole('button', { name: 'Train' }).click();
+  await page.getByTestId('unit-razors').getByRole('button', { name: 'Muster' }).click();
 
   const first = page.getByTestId(`delta-${bill[0]![0]}`);
   await expect(first.getByTestId('delta-waived')).toBeVisible();

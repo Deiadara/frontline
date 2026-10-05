@@ -2,7 +2,7 @@ import {
   drillEndsAt,
   queueCompletesAt,
   researchCompletesAt,
-  trainingCompletesAt,
+  musterCompletesAt,
 } from '@frontline/shared';
 import type { BaseWork } from '../db/repos/bases.js';
 import type { Repositories } from '../db/repos/index.js';
@@ -17,7 +17,7 @@ export function workDue(work: BaseWork, now: Date): boolean {
   const at = now.getTime();
   return (
     work.buildQueue.some((order) => queueCompletesAt(order).getTime() <= at) ||
-    work.trainingQueue.some((order) => trainingCompletesAt(order).getTime() <= at) ||
+    work.musterQueue.some((order) => musterCompletesAt(order).getTime() <= at) ||
     (work.research.active !== null && researchCompletesAt(work.research.active).getTime() <= at) ||
     work.training.sessions.some((session) => drillEndsAt(session) <= at)
   );

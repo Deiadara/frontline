@@ -3,6 +3,7 @@ import {
   DEFAULT_CITY_ID,
   SALTMARCH_CITY_ID,
   TERMINUS_CITY_ID,
+  playerLevelGrants,
   type BarResponse,
   type LocationControl,
 } from '@frontline/shared';
@@ -288,5 +289,30 @@ describe('what a city’s room is stocked against', () => {
     const { served, unmoved } = await tomorrow();
 
     expect(served, 'ground held in a city buys no say in it').toBeGreaterThan(unmoved);
+  });
+});
+
+/*
+ * A refused read must not use up a level-up (bug pass, 2026-10-02). The read drained the marker and
+ * then refused the city, and the screen only reads `levelUp` off an answer, so the level was never
+ * announced anywhere. `/missions` checks the city first for the same reason.
+ */
+describe('a level-up waiting when the Bar refuses a city', () => {
+  it('is still there for the next read that is answered', async () => {
+    const app = await makeApp();
+    const one = await player(app, 'bar_levelled');
+    app.repos.bases.setPendingLevelUp(one.baseId, {
+      level: 4,
+      levelsGained: 1,
+      grants: playerLevelGrants(4),
+      unlocks: [],
+    });
+
+    const shut = await readBar(app, one.token, TERMINUS_CITY_ID);
+    expect(shut.json<{ error?: { code: string } }>().error?.code).toBe('CITY_SHUT');
+
+    const home = await readBar(app, one.token);
+    expect(home.statusCode, home.body.slice(0, 200)).toBe(200);
+    expect(home.json<BarResponse>().levelUp?.level).toBe(4);
   });
 });

@@ -81,21 +81,21 @@ export function Readings({
             icon="faction"
             label="Seats"
             value={`${seats}/${MAX_FACTION_MEMBERS}`}
-            note={`A faction holds ${MAX_FACTION_MEMBERS} districts. An invitation from a chief or the leader is the only way into one of them.`}
+            note={`A faction seats ${MAX_FACTION_MEMBERS} crews. An invitation from a chief or the leader is the only way in.`}
           />
           <Reading
             testId="dial-units"
             icon="units"
             label="Unit Slots"
             value={units.toLocaleString()}
-            note="The unit slots taken up by battle units across the whole table: every fighting unit everybody here has trained, at home, garrisoned or on the road, counted against the slots in their districts. It moves as people train and as fights are paid for."
+            note="The unit slots taken up by the battle units standing at home in every district at the table. Units out on a job, at a gate or posted on ground are not counted until they are back. It moves as crews muster units, send parties out and lose fights."
           />
           <Reading
             testId="dial-earned"
             icon="infamy"
             label="Earned"
             value={Math.round(earned).toLocaleString()}
-            note="Infamy won in battle by the people at this table. It is what the standings rank factions by, and it is not the same as what anybody is holding in their pocket."
+            note="Infamy won in declared fights by the people at this table; jobs and battle missions do not add to it. It is what the standings rank factions by, and it is not the same as what anybody is holding in their pocket."
           />
           <Reading
             testId="dial-level"

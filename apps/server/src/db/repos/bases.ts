@@ -20,7 +20,7 @@ import {
   type Building,
   type Army,
   type BuildQueue,
-  type TrainingQueue,
+  type MusterQueue,
   type Commander,
   CommanderSchema,
   EconomyStateSchema,
@@ -52,7 +52,7 @@ interface BaseRow {
   build_queue_json: string;
   army_json: string;
   gate_army_json: string | null;
-  training_queue_json: string;
+  muster_queue_json: string;
   commanders_json: string;
   training_json: string | null;
   inventory_json: string | null;
@@ -81,12 +81,12 @@ export interface BaseStanding {
 }
 
 /** The four clocks a crew's own work runs on. See {@link BasesRepo.listWorkInFlight}. */
-export type BaseWork = Pick<Base, 'id' | 'buildQueue' | 'trainingQueue' | 'research' | 'training'>;
+export type BaseWork = Pick<Base, 'id' | 'buildQueue' | 'musterQueue' | 'research' | 'training'>;
 
 const BaseWorkSchema = BaseSchema.pick({
   id: true,
   buildQueue: true,
-  trainingQueue: true,
+  musterQueue: true,
   research: true,
   training: true,
 });
@@ -188,12 +188,12 @@ export interface BasesRepo {
   /** §A1: the allegiance's name. The only field on a base a player types. */
   updateName(baseId: string, name: string): void;
   /**
-   * The units at home and the training queue behind them (§A5), as one statement.
+   * The units at home and the muster queue behind them (§A5), as one statement.
    *
    * They move together for the same reason the district and its queue do: a settle that added the
-   * units and failed to drop the order would train them again on the next read.
+   * units and failed to drop the order would muster them again on the next read.
    */
-  updateArmy(baseId: string, army: Army, queue: TrainingQueue): void;
+  updateArmy(baseId: string, army: Army, queue: MusterQueue): void;
   /** The gate garrison alone (2026-09-22). */
   updateGateArmy(baseId: string, army: Army): void;
 }
@@ -239,7 +239,7 @@ function storedResources(raw: unknown): unknown {
  * next removal somebody forgets to write one for, and the account is dead again.
  *
  * Measured rather than assumed: of the ten columns that store a content id, **six** refused the row
- * outright (army, training queue, building kind, building modification, officer role, officer
+ * outright (army, muster queue, building kind, building modification, officer role, officer
  * trait) and only three degraded. That asymmetry was an accident of which schemas happened to use a
  * key schema, not a decision.
  *
@@ -266,7 +266,7 @@ const KNOWN_ROLES = new Set<string>(OFFICER_ROLES);
  * is right for a retired id and wrong for one it has merely never been taught about. Anything that
  * can be on the bench has to be named here.
  */
-function knownTrainingQueue(raw: unknown): unknown {
+function knownMusterQueue(raw: unknown): unknown {
   if (!Array.isArray(raw)) return raw;
   return (raw as unknown[]).filter((order) => {
     if (!isRow(order)) return true;
@@ -489,7 +489,7 @@ function rowToBase(row: BaseRow): Base {
     // Null is a crew from before the split: nobody at the door (migration 0110).
     gateArmy:
       row.gate_army_json === null ? undefined : withoutRetiredUnits(readJson(row.gate_army_json)),
-    trainingQueue: knownTrainingQueue(readJson(row.training_queue_json)),
+    musterQueue: knownMusterQueue(readJson(row.muster_queue_json)),
     commanders: knownCommanders(readJson(row.commanders_json)),
     // Left to the schema's own default when the column is empty, rather than defaulted here: a
     // district written before the Training tab existed still opens, with today's allowance.
@@ -573,7 +573,7 @@ export function createBasesRepo(db: AppDatabase): BasesRepo {
     `INSERT INTO bases
        (id, owner_id, name, district_id, level, is_bot,
         resources_json, economy_json, progression_json, research_json,
-        buildings_json, build_queue_json, army_json, training_queue_json,
+        buildings_json, build_queue_json, army_json, muster_queue_json,
         commanders_json, training_json, inventory_json, fitted_upgrades_json,
         unit_loadouts_json, fleet_json, addons_json,
         created_at)
@@ -596,7 +596,7 @@ export function createBasesRepo(db: AppDatabase): BasesRepo {
     `UPDATE bases SET
         name = ?, district_id = ?, level = ?, is_bot = ?,
         resources_json = ?, economy_json = ?, progression_json = ?, research_json = ?,
-        buildings_json = ?, build_queue_json = ?, army_json = ?, training_queue_json = ?,
+        buildings_json = ?, build_queue_json = ?, army_json = ?, muster_queue_json = ?,
         commanders_json = ?, training_json = ?, inventory_json = ?, fitted_upgrades_json = ?,
         unit_loadouts_json = ?, fleet_json = ?, addons_json = ?,
         created_at = ?
@@ -616,9 +616,9 @@ export function createBasesRepo(db: AppDatabase): BasesRepo {
     'SELECT id, owner_id, name, district_id, level, is_bot, economy_json FROM bases',
   );
   const workInFlightStmt = db.prepare(
-    `SELECT id, build_queue_json, training_queue_json, research_json, training_json FROM bases
+    `SELECT id, build_queue_json, muster_queue_json, research_json, training_json FROM bases
       WHERE build_queue_json <> '[]'
-         OR training_queue_json <> '[]'
+         OR muster_queue_json <> '[]'
          OR json_extract(research_json, '$.active') IS NOT NULL
          OR json_array_length(training_json, '$.sessions') > 0`,
   );
@@ -655,7 +655,7 @@ export function createBasesRepo(db: AppDatabase): BasesRepo {
   );
   const updateNameStmt = db.prepare('UPDATE bases SET name = ? WHERE id = ?');
   const updateArmyStmt = db.prepare(
-    'UPDATE bases SET army_json = ?, training_queue_json = ? WHERE id = ?',
+    'UPDATE bases SET army_json = ?, muster_queue_json = ? WHERE id = ?',
   );
   // Lazy, for the reason above: prepared once the column exists.
   let gateArmyStmt: ReturnType<AppDatabase['prepare']> | undefined;
@@ -678,7 +678,7 @@ export function createBasesRepo(db: AppDatabase): BasesRepo {
         JSON.stringify(base.buildings),
         JSON.stringify(base.buildQueue),
         JSON.stringify(base.army),
-        JSON.stringify(base.trainingQueue),
+        JSON.stringify(base.musterQueue),
         JSON.stringify(base.commanders),
         JSON.stringify(base.training),
         JSON.stringify(base.inventory),
@@ -707,7 +707,7 @@ export function createBasesRepo(db: AppDatabase): BasesRepo {
         JSON.stringify(base.buildings),
         JSON.stringify(base.buildQueue),
         JSON.stringify(base.army),
-        JSON.stringify(base.trainingQueue),
+        JSON.stringify(base.musterQueue),
         JSON.stringify(base.commanders),
         JSON.stringify(base.training),
         JSON.stringify(base.inventory),
@@ -739,14 +739,14 @@ export function createBasesRepo(db: AppDatabase): BasesRepo {
     listWorkInFlight() {
       const rows = workInFlightStmt.all() as Pick<
         BaseRow,
-        'id' | 'build_queue_json' | 'training_queue_json' | 'research_json' | 'training_json'
+        'id' | 'build_queue_json' | 'muster_queue_json' | 'research_json' | 'training_json'
       >[];
       // Through the same repairs `rowToBase` applies, so a retired id cannot fail this sweep.
       return rows.map((row) =>
         BaseWorkSchema.parse({
           id: row.id,
           buildQueue: knownBuildQueue(readJson(row.build_queue_json)),
-          trainingQueue: knownTrainingQueue(readJson(row.training_queue_json)),
+          musterQueue: knownMusterQueue(readJson(row.muster_queue_json)),
           research: knownResearch(readJson(row.research_json)),
           training:
             row.training_json === null ? undefined : knownTraining(readJson(row.training_json)),

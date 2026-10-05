@@ -2,6 +2,7 @@ import { BLUEPRINTS } from '../blueprints/catalog.js';
 import { BUILDING_KINDS } from '../building/kinds.js';
 import { EXECUTIONER_THRESHOLD, SYNDIC_ARMOR, SYNDIC_PENETRATION } from '../city/combine.js';
 import { MISC_AREA_ID } from '../missions.areas.js';
+import { MAX_LOCATION_LEVEL } from '../city/locations.js';
 import {
   CHAPEL_LOCATIONS,
   COMBINE_DISTRICTS,
@@ -13,6 +14,7 @@ import { markIndex } from '../crew/marks.js';
 import type { FeatSpec } from './feats.js';
 import { featRewardValue, type FeatEra, type FeatReward, type FeatSize } from './rewards.js';
 import type { FeatMeasure } from './measures.js';
+import { shapeFeatRewards } from './shaping.js';
 
 /**
  * The feats (maintainer request, 2026-09-13): nearly five hundred things to go and do.
@@ -28,6 +30,10 @@ import type { FeatMeasure } from './measures.js';
  * times. That is not only brevity: a helper is priced once, in one place, against the survey of
  * what the live economy actually pays, so an author choosing `purse('mid', 'medium')` cannot
  * accidentally hand over four times what the feat beside it pays for the same work.
+ *
+ * A helper prices a reward; what it is paid **in** is dealt by era at the end of the file
+ * (`shapeFeatRewards`, maintainer ruling P8-A, 2026-10-02), so the bundles below are a value and
+ * a hint at the currency rather than what lands. Rewards written out by hand stay as written.
  *
  * ## What the set is trying to cover
  *
@@ -54,7 +60,7 @@ import type { FeatMeasure } from './measures.js';
  * Most chains are two, three or four rungs, which is the right length for a thing with three
  * interesting sizes. The trouble with a board made only of those is that a crew six months in has
  * the top of every one of them and the screen has nothing left to say. So eight of the groups
- * above carry one ladder of **ten** each: `runs`, `kills`, `taken`, `addons`, `trained`, `caps`,
+ * above carry one ladder of **ten** each: `runs`, `kills`, `taken`, `addons`, `mustered`, `caps`,
  * `infamy` and `faction`. Whatever you spend your evenings doing, there is a rung above the one you
  * are on. The frontier has no ten-rung ladder, and should not have one yet: two open cities is not
  * enough map to ask anybody for ten sizes of the same thing.
@@ -70,6 +76,16 @@ import type { FeatMeasure } from './measures.js';
 // --- the reward helpers, priced once ---
 
 /**
+ * Every reward a helper below built, so the era deal (`shaping.ts`) knows which rewards are a
+ * price to be paid in the era's mix and which were written out by hand for one feat.
+ */
+const BUILT_BY_HELPER = new WeakSet<FeatReward>();
+const built = (reward: FeatReward): FeatReward => {
+  BUILT_BY_HELPER.add(reward);
+  return reward;
+};
+
+/**
  * ## What the early bundles are made of, and why they changed (maintainer, 2026-09-18)
  *
  * The early tiers used to be caps and scrap, and scrap is the one thing the opening is not short
@@ -83,7 +99,7 @@ import type { FeatMeasure } from './measures.js';
  * two helpers that stack on top of `medium`, so it stops at 1,812 rather than at the 2,180 the
  * band would allow.
  */
-const purse = (era: FeatEra, size: FeatSize): FeatReward =>
+const purseBundle = (era: FeatEra, size: FeatSize): FeatReward =>
   ({
     early: {
       small: { resources: { caps: 240, scrap: 40, planks: 40, oil: 20 } },
@@ -120,18 +136,22 @@ const purse = (era: FeatEra, size: FeatSize): FeatReward =>
     },
   })[era][size];
 
+const purse = (era: FeatEra, size: FeatSize): FeatReward => built(purseBundle(era, size));
+
 /**
  * Experience. A fifth of what it was before the level curve was retuned (2026-09-28): a level
  * costs about a fifth of the XP it did, and a late feat paying 260,000 took a crew from level 50
  * to 58 at once. `CAPS_PER_XP` rose by the same five, so every band still prices the same.
  */
-const lesson = (era: FeatEra, size: FeatSize): FeatReward => ({
+const lessonBundle = (era: FeatEra, size: FeatSize): FeatReward => ({
   xp: {
     early: { small: 30, medium: 180, large: 600 },
     mid: { small: 320, medium: 2_000, large: 8_400 },
     late: { small: 1_800, medium: 11_000, large: 52_000 },
   }[era][size],
 });
+
+const lesson = (era: FeatEra, size: FeatSize): FeatReward => built(lessonBundle(era, size));
 
 /**
  * Bodies.
@@ -140,10 +160,10 @@ const lesson = (era: FeatEra, size: FeatSize): FeatReward => ({
  * to Nexus 15 when both carriers were re-gated on the building that signs them
  * (`units/catalog.ts`), so an early feat handing them over was handing a new crew a unit it could
  * not replace for a fortnight, on a reward whose whole job is to teach what a bench is for.
- * Scavengers are one bed each and trainable from the first second, so a crew paid them can go and
+ * Scavengers are one bed each and musterable from the first second, so a crew paid them can go and
  * buy more of the same.
  */
-const recruits = (era: FeatEra, size: FeatSize): FeatReward =>
+const recruitsBundle = (era: FeatEra, size: FeatSize): FeatReward =>
   ({
     early: {
       small: { units: { razors: 3, scavengers: 2 } },
@@ -161,6 +181,8 @@ const recruits = (era: FeatEra, size: FeatSize): FeatReward =>
       large: { units: { juggernauts: 100, ironsides: 80, snipers: 60 } },
     },
   })[era][size];
+
+const recruits = (era: FeatEra, size: FeatSize): FeatReward => built(recruitsBundle(era, size));
 
 /**
  * The first fighters a crew sees, paid by the first mission feats it finishes (maintainer,
@@ -195,7 +217,7 @@ const FIRST_SQUAD: FeatReward = {
  * gates and the refit table and fails this file if it drifts), and the value the band wants is
  * made up in **caps** rather than in parts nobody can spend.
  */
-const kit = (era: FeatEra, size: FeatSize): FeatReward =>
+const kitBundle = (era: FeatEra, size: FeatSize): FeatReward =>
   ({
     early: {
       small: { items: { scrap_servo: 2 } },
@@ -228,8 +250,8 @@ const kit = (era: FeatEra, size: FeatSize): FeatReward =>
           optic_cluster: 12,
         },
       },
-      // The one feat that finishes a crew's parts problem for good: one of everything the game
-      // will ever ask for. Bounded by that and not a unit past it.
+      // A value only since the era deal (2026-10-02): what a late reward pays in parts is dealt in
+      // `shaping.ts`, out of one budget the size of what the game will ever ask for.
       large: {
         ...purse('late', 'large'),
         items: {
@@ -245,6 +267,8 @@ const kit = (era: FeatEra, size: FeatSize): FeatReward =>
       },
     },
   })[era][size];
+
+const kit = (era: FeatEra, size: FeatSize): FeatReward => built(kitBundle(era, size));
 
 /** Pages of one blueprint. The only reward that points at a particular thing a crew may want. */
 const leaves = (pageId: string, count: number): FeatReward => ({ items: { [pageId]: count } });
@@ -266,16 +290,20 @@ const contraband = (...ids: [string, ...string[]]): FeatReward => ({ boosts: ids
  * behind: `spoils('late', 'large')` has to stay under `rise(4)`, the rung most of these chains
  * climb onto next, and a full late purse would put it at twice that.
  */
-const spoils = (era: FeatEra, size: FeatSize): FeatReward => ({
+const spoilsBundle = (era: FeatEra, size: FeatSize): FeatReward => ({
   ...purse(era, size === 'small' ? 'small' : 'medium'),
   ...lesson(era, size === 'large' ? 'medium' : 'small'),
 });
 
+const spoils = (era: FeatEra, size: FeatSize): FeatReward => built(spoilsBundle(era, size));
+
 /** Caps and a lesson: what building something teaches, so what a building feat pays. */
-const wages = (era: FeatEra, size: FeatSize): FeatReward => ({
+const wagesBundle = (era: FeatEra, size: FeatSize): FeatReward => ({
   ...purse(era, size),
   ...lesson(era, size === 'large' ? 'medium' : 'small'),
 });
+
+const wages = (era: FeatEra, size: FeatSize): FeatReward => built(wagesBundle(era, size));
 
 /**
  * What a rung above the authored ones pays: one ladder, thirteen steps (maintainer, 2026-09-16).
@@ -360,7 +388,7 @@ const squadAt = (times: number): FeatReward => ({
 const SQUAD_SHARE = featRewardValue(squadAt(1)) / featRewardValue(coinAt(1));
 
 /** What step `step` of the ladder pays, in the currency the chain is about. */
-const rise = (step: number, flavour: DeepFlavour): FeatReward => {
+const riseBundle = (step: number, flavour: DeepFlavour): FeatReward => {
   const index = Math.min(Math.max(step, 0), RISE_MULTIPLES.length - 1);
   const times = RISE_MULTIPLES[index] ?? 1;
   switch (flavour) {
@@ -402,6 +430,8 @@ const rise = (step: number, flavour: DeepFlavour): FeatReward => {
       return { xp: Math.round(60_000 * times) };
   }
 };
+
+const rise = (step: number, flavour: DeepFlavour): FeatReward => built(riseBundle(step, flavour));
 
 /** The size that goes with a step, for the author and for the band check. */
 export function riseSize(step: number): FeatSize {
@@ -1264,7 +1294,7 @@ const FIGHTING: FeatSpec[] = [
     {
       id: 'deployed_5',
       name: 'The Levy',
-      blurb: 'Forty five thousand units put on the ground, one muster at a time.',
+      blurb: 'Forty five thousand units put on the ground, one deployment at a time.',
       era: 'late',
       size: 'large',
       target: 45_000,
@@ -1289,7 +1319,7 @@ const FIGHTING: FeatSpec[] = [
       reward: rise(6, 'bodies'),
     },
   ]),
-  ...chain('muster', 'supply_deployed', [
+  ...chain('committed', 'supply_deployed', [
     {
       id: 'muster_1',
       name: 'A Hundred on the Ground',
@@ -1328,7 +1358,7 @@ const FIGHTING: FeatSpec[] = [
     },
     {
       id: 'muster_5',
-      name: 'The Standing Muster',
+      name: 'The Standing Army',
       blurb: 'Twenty five thousand unit slots put on the ground.',
       era: 'late',
       size: 'large',
@@ -2000,7 +2030,8 @@ const FIGHTING: FeatSpec[] = [
     {
       id: 'repelled_3',
       name: 'The District Holds',
-      blurb: 'Forty break-ins called on your district, every one of them stopped at the gate.',
+      blurb:
+        'Forty break-ins on your district, every one of them thrown back with the gate already down.',
       era: 'late',
       size: 'large',
       target: 40,
@@ -2013,8 +2044,8 @@ const FIGHTING: FeatSpec[] = [
    *
    * A trap now takes `bite` times the square root of the column (`trapBite`), so on a column of 200
    * the five that bite take 2, 2, 3, 3 and 4, 2.8 on average, and Razor Wire takes nobody. Ten is
-   * four traps sprung. 120 is 43, between the 40 and the 90 of the `traps` ladder beside this one.
-   * 500 is 179, short of the 200 laid for The Ground Bites, or 56 Flooded Cellars on the 1,000-strong
+   * four traps sprung. 120 is 43, between the 30 and the 100 of the `sprung` ladder. 500 is 179,
+   * short of the 200 sprung for Every Way In Is Bad, or 56 Flooded Cellars on the 1,000-strong
    * columns of the late game (9 each). The cheapest way there is Pressure Plates: 250 of them on
    * columns of 200, 175,000 scrap at list price against the 828,800 the old rung asked.
    */
@@ -3127,6 +3158,107 @@ const CITY: FeatSpec[] = [
     },
   ]),
   /*
+   * Working up the ground you hold, and raising the wall on a district you hold whole (maintainer
+   * ruling P8-C, 2026-10-02). Both are mechanics with their own costs, clocks and levels, and no
+   * feat measured either. A level counts when it lands, for whoever holds the ground then.
+   */
+  ...chain('workings', 'location_levels_raised', [
+    {
+      id: 'workings_1',
+      name: 'Improvements',
+      blurb: 'Work a level onto a location you hold. It pays more from the day it lands.',
+      era: 'early',
+      size: 'small',
+      target: 1,
+      reward: purse('early', 'small'),
+    },
+    {
+      id: 'workings_2',
+      name: 'Ten Levels of Sweat',
+      blurb: 'Ten levels worked onto held ground, across however many places.',
+      era: 'mid',
+      size: 'small',
+      target: 10,
+      reward: wages('mid', 'small'),
+    },
+    {
+      id: 'workings_3',
+      name: 'Rent From Every Brick',
+      blurb: 'Forty levels worked up. Half the street pays rent on something you rebuilt.',
+      era: 'late',
+      size: 'small',
+      target: 40,
+      reward: wages('late', 'small'),
+    },
+    {
+      id: 'workings_4',
+      name: 'Rebuilt in Your Image',
+      blurb: 'A hundred and twenty levels of work on held ground.',
+      era: 'late',
+      size: 'medium',
+      target: 120,
+      reward: rise(2, 'coin'),
+    },
+  ]),
+  ...chain('pride', 'location_level_held', [
+    {
+      id: 'pride_1',
+      name: 'Kept Up',
+      blurb: 'Hold a location worked up to level four.',
+      era: 'mid',
+      size: 'small',
+      target: 4,
+      reward: purse('mid', 'small'),
+    },
+    {
+      id: 'pride_2',
+      name: 'The Showpiece',
+      blurb: 'Hold a location at level seven. People come to look at it.',
+      era: 'late',
+      size: 'small',
+      target: 7,
+      reward: purse('late', 'small'),
+    },
+    {
+      id: 'pride_3',
+      name: 'Nothing Left to Fix',
+      blurb: 'Hold a location at level ten, as far as the ground goes.',
+      era: 'late',
+      size: 'medium',
+      target: MAX_LOCATION_LEVEL,
+      reward: rise(1, 'coin'),
+    },
+  ]),
+  ...chain('walls', 'gate_levels_raised', [
+    {
+      id: 'walls_1',
+      name: 'A Wall of Your Own',
+      blurb: 'Raise the gate on a district you hold whole by one level.',
+      era: 'mid',
+      size: 'small',
+      target: 1,
+      reward: wages('mid', 'small'),
+    },
+    {
+      id: 'walls_2',
+      name: 'Higher Every Week',
+      blurb: 'Ten levels raised on captured gates. Taking it back off you gets dearer by the day.',
+      era: 'late',
+      size: 'small',
+      target: 10,
+      reward: wages('late', 'small'),
+    },
+    {
+      id: 'walls_3',
+      name: 'The Fortified Frontier',
+      blurb: 'Thirty levels raised on the gates of ground you took.',
+      era: 'late',
+      size: 'medium',
+      target: 30,
+      reward: rise(2, 'coin'),
+    },
+  ]),
+  /*
    * Breaking gates, not holding them (audit, 2026-09-28). A won gate fight takes the door off its
    * hinges for `GATE_BREACH_HOURS` and opens the district to a raid; nobody holds a gate after it.
    * The ladder promised doors that answered to you and counted the break, so the words moved.
@@ -3704,7 +3836,8 @@ const DISTRICT: FeatSpec[] = [
       {
         id: 'scrapyard_2',
         name: 'The Whole Works',
-        blurb: 'A Scrapyard at twelve. There is nothing they cannot fit.',
+        blurb:
+          'A Scrapyard at twelve. Most of the catalogue is open; the masterpieces wait above it.',
         era: 'mid',
         size: 'medium',
         target: 12,
@@ -4112,68 +4245,164 @@ const DISTRICT: FeatSpec[] = [
     ],
     'garage',
   ),
+  // P14-B (2026-10-02): the two structures that had no ladder.
+  ...chain(
+    'apothecary',
+    'building_level',
+    [
+      {
+        id: 'apothecary_1',
+        name: 'Shelves',
+        blurb: 'An Apothecary at three. Somewhere to keep what the runs bring home.',
+        era: 'early',
+        size: 'medium',
+        target: 3,
+        reward: wages('early', 'medium'),
+      },
+      {
+        id: 'apothecary_2',
+        name: 'Nothing Goes Off',
+        blurb: 'An Apothecary at twelve. The stores stop throwing things away.',
+        era: 'mid',
+        size: 'medium',
+        target: 12,
+        reward: wages('mid', 'medium'),
+      },
+      {
+        id: 'apothecary_3',
+        name: 'The Stores Run Deep',
+        blurb: 'Seventeen levels of shelving. A siege would take a season to empty it.',
+        era: 'late',
+        size: 'medium',
+        target: 17,
+        reward: rise(1, 'coin'),
+      },
+      {
+        id: 'apothecary_4',
+        name: 'The Apothecary, Finished',
+        blurb: 'Twenty. Every store in the district is as big as building alone will make it.',
+        era: 'late',
+        size: 'medium',
+        target: 20,
+        reward: rise(2, 'coin'),
+      },
+    ],
+    'apothecary',
+  ),
+  ...chain(
+    'infirmary',
+    'building_level',
+    [
+      {
+        id: 'infirmary_1',
+        name: 'Clean Sheets',
+        blurb: 'Put up an Infirmary. Some of the ones who fall in a won fight walk home.',
+        era: 'mid',
+        size: 'medium',
+        target: 1,
+        reward: purse('mid', 'medium'),
+      },
+      {
+        id: 'infirmary_2',
+        name: 'A Ward of Its Own',
+        blurb: 'An Infirmary at four. The stretchers come back fuller than they went out.',
+        era: 'late',
+        size: 'medium',
+        target: 4,
+        reward: purse('late', 'medium'),
+      },
+      {
+        id: 'infirmary_3',
+        name: 'Surgeons on the Books',
+        blurb: 'An Infirmary at seven. Wounds that used to be the end are a week off now.',
+        era: 'late',
+        size: 'large',
+        target: 7,
+        reward: wages('late', 'large'),
+      },
+      {
+        id: 'infirmary_4',
+        name: 'The Infirmary, Finished',
+        blurb: 'Ten levels. If they are breathing when the fight ends, they are coming home.',
+        era: 'late',
+        size: 'large',
+        target: 10,
+        reward: rise(7, 'coin'),
+      },
+    ],
+    'infirmary',
+  ),
+  /*
+   * Two ladders since 2026-10-02 (maintainer ruling P11-B). The trap ladder counted traps cut at
+   * the Scrapyard while its blurbs said "set" and "laid", and nothing counted a trap that actually
+   * went off. Cutting one stays on `traps_built`; the rungs about laying one are on `traps_sprung`,
+   * one for every trap that went off under a fight this crew was defending.
+   */
   ...chain('traps', 'traps_built', [
     {
-      id: 'traps_1',
-      name: 'Something Nasty',
-      blurb: 'Set one trap on your own ground.',
-      era: 'early',
-      size: 'small',
-      target: 1,
-      reward: kit('early', 'small'),
-    },
-    {
-      id: 'traps_2',
+      id: 'traps_cut_1',
       name: 'Ten Surprises',
-      blurb: 'Ten traps built. The approach is not a walk any more.',
+      blurb: 'Ten traps cut at the Scrapyard. The approach is not a walk any more.',
       era: 'mid',
       size: 'small',
       target: 10,
       reward: kit('mid', 'small'),
     },
     {
-      id: 'traps_3',
+      id: 'traps_cut_2',
       name: 'The Whole Yard Is a Trap',
-      blurb: 'Forty. There is no safe line through it.',
+      blurb: 'Forty built. There is no safe line through what is stacked by the gate.',
       era: 'late',
       size: 'small',
       target: 40,
       reward: kit('late', 'small'),
     },
     {
-      id: 'traps_4',
-      name: 'Ninety Nasty Surprises',
-      blurb: 'Laid around the perimeter and mostly forgotten about.',
-      era: 'late',
-      size: 'small',
-      target: 90,
-      reward: rise(0, 'coin'),
-    },
-    {
-      id: 'traps_5',
-      name: 'The Ground Bites',
-      blurb: 'Two hundred traps laid. Walking here is a decision.',
-      era: 'late',
-      size: 'medium',
-      target: 200,
-      reward: rise(1, 'coin'),
-    },
-    {
-      id: 'traps_6',
+      id: 'traps_cut_3',
       name: 'Nobody Walks In',
-      blurb: 'Four hundred and fifty traps. The perimeter does the first half of every fight.',
+      blurb:
+        'Four hundred and fifty traps built. The perimeter does the first half of every fight.',
       era: 'late',
       size: 'medium',
       target: 450,
       reward: rise(2, 'coin'),
     },
+  ]),
+  ...chain('sprung', 'traps_sprung', [
     {
-      id: 'traps_7',
-      name: 'A Thousand Ways In, All Bad',
-      blurb: 'A thousand traps laid over a lifetime of being visited.',
+      id: 'sprung_1',
+      name: 'Something Nasty',
+      blurb: 'Lay a trap under a fight you are defending, and let somebody walk onto it.',
+      era: 'early',
+      size: 'small',
+      target: 1,
+      reward: kit('early', 'small'),
+    },
+    {
+      id: 'sprung_2',
+      name: 'Thirty Nasty Surprises',
+      blurb: 'Thirty traps gone off under columns that came for you.',
+      era: 'mid',
+      size: 'small',
+      target: 30,
+      reward: kit('mid', 'small'),
+    },
+    {
+      id: 'sprung_3',
+      name: 'The Ground Bites',
+      blurb: 'A hundred traps sprung. Walking here is a decision.',
       era: 'late',
       size: 'medium',
-      target: 1_000,
+      target: 100,
+      reward: rise(1, 'coin'),
+    },
+    {
+      id: 'sprung_4',
+      name: 'Every Way In Is Bad',
+      blurb: 'Two hundred traps laid under two hundred visits, and every one of them went off.',
+      era: 'late',
+      size: 'medium',
+      target: 200,
       reward: rise(3, 'coin'),
     },
   ]),
@@ -4493,10 +4722,10 @@ const CREW: FeatSpec[] = [
    * eight Razors (`crew/starting.ts`), because the board's first runs are minutes long now and
    * what they want is loot capacity. This feat still pays five more, for the one thing a player
    * has already done by the time they read this sentence, and it has to: the rule this rung is
-   * held to below is that what it pays is **trainable by a bare district**, so the player can go
+   * held to below is that what it pays is **musterable by a bare district**, so the player can go
    * and buy more of what just landed, and every fighter in the game is behind a Gauntlet that
    * wants Nexus 3. Fighters are earned instead: the first mission feats pay Razors (`FIRST_SQUAD`),
-   * and the training floor sells them once the Gauntlet is up. The rung after this one is
+   * and the muster bench sells them once the Gauntlet is up. The rung after this one is
    * `first_jobs`, which pays three more carriers.
    *
    * Standalone rather than the head of a ladder, because it is the one feat in the catalogue
@@ -4567,7 +4796,7 @@ const CREW: FeatSpec[] = [
     {
       id: 'roster_5',
       name: 'The Standing Host',
-      blurb: 'Sixteen hundred units on the books at the same time.',
+      blurb: 'Sixteen hundred units at home and at the gate at the same time.',
       era: 'late',
       size: 'large',
       target: 1_600,
@@ -4578,7 +4807,8 @@ const CREW: FeatSpec[] = [
     {
       id: 'beds_1',
       name: 'Forty Slots Full',
-      blurb: 'Hold units worth forty unit slots at home. The Quarters decide how many.',
+      blurb:
+        'Units worth forty unit slots on your books, wherever they stand. The Quarters decide how many.',
       era: 'early',
       size: 'small',
       target: 40,
@@ -4587,7 +4817,7 @@ const CREW: FeatSpec[] = [
     {
       id: 'beds_2',
       name: 'Three Hundred',
-      blurb: 'Three hundred unit slots filled in your district. Most of them eat.',
+      blurb: 'Three hundred unit slots on your books, home or away. Most of them eat.',
       era: 'mid',
       size: 'small',
       target: 300,
@@ -4595,8 +4825,8 @@ const CREW: FeatSpec[] = [
     },
     {
       id: 'beds_3',
-      name: 'A Thousand at Home',
-      blurb: 'A thousand unit slots under your roof, all of them fed.',
+      name: 'A Thousand on the Books',
+      blurb: 'A thousand unit slots to feed, at home and out on the ground you hold.',
       era: 'late',
       size: 'medium',
       target: 1_000,
@@ -4613,8 +4843,9 @@ const CREW: FeatSpec[] = [
     },
     {
       id: 'beds_5',
-      name: 'Every Bed in the District',
-      blurb: 'Two thousand two hundred unit slots, all of them occupied.',
+      name: 'Every Bed Spoken For',
+      blurb:
+        'Two thousand two hundred unit slots, all of them occupied, wherever they sleep tonight.',
       era: 'late',
       size: 'large',
       target: 2_200,
@@ -4622,53 +4853,53 @@ const CREW: FeatSpec[] = [
     },
   ]),
   /*
-   * The second bench (maintainer, 2026-09-21). The floor takes one person at a time until the
+   * The third place in the queue (maintainer, 2026-10-04). The floor holds two drills until the
    * Professor's fourth rung, and this is the one feat that says the rung is worth researching:
-   * the tally only moves once a drill starts beside a drill already running.
+   * the tally only moves once a drill is queued with two already on the list.
    */
   solo(
     {
       id: 'second_chair',
-      name: 'Two at the Bench',
+      name: 'Third in Line',
       blurb:
-        'Put two people through drills at the same time. The Professor’s Second Chair opens the second bench.',
+        'Queue a third drill on the training floor. The Professor’s Second Chair opens the third place.',
       era: 'mid',
       size: 'small',
       target: 1,
       reward: lesson('mid', 'small'),
     },
-    'drills_paired',
+    'drills_third_in_line',
   ),
-  ...chain('trained', 'units_trained', [
+  ...chain('mustered', 'units_mustered', [
     {
-      id: 'trained_1',
+      id: 'mustered_1',
       name: 'Put Them Through It',
-      blurb: 'Train twenty five units, start to finish.',
+      blurb: 'Muster twenty five units, start to finish.',
       era: 'early',
       size: 'small',
       target: 25,
       reward: lesson('early', 'small'),
     },
     {
-      id: 'trained_2',
-      name: 'The Drill Yard',
-      blurb: 'Four hundred trained. The queue never empties.',
+      id: 'mustered_2',
+      name: 'The Busy Bench',
+      blurb: 'Four hundred mustered. The queue never empties.',
       era: 'mid',
       size: 'medium',
       target: 400,
       reward: lesson('mid', 'medium'),
     },
     {
-      id: 'trained_3',
+      id: 'mustered_3',
       name: 'Two Thousand Through the Gate',
-      blurb: 'Most of them are not here any more. You trained them anyway.',
+      blurb: 'Most of them are not here any more. You mustered them anyway.',
       era: 'late',
       size: 'medium',
       target: 2_000,
       reward: lesson('late', 'medium'),
     },
     {
-      id: 'trained_4',
+      id: 'mustered_4',
       name: 'A Generation',
       blurb: 'Ten thousand units through the yard. You are where soldiers come from.',
       era: 'late',
@@ -4677,17 +4908,16 @@ const CREW: FeatSpec[] = [
       reward: recruits('late', 'large'),
     },
     {
-      id: 'trained_5',
+      id: 'mustered_5',
       name: 'Two Generations',
-      blurb:
-        'Twenty two thousand through the drill yard. The instructors were trained here as well.',
+      blurb: 'Twenty two thousand off the bench. The veterans who run it came off it too.',
       era: 'late',
       size: 'large',
       target: 22_000,
       reward: rise(7, 'bodies'),
     },
     {
-      id: 'trained_6',
+      id: 'mustered_6',
       name: 'Bigger Than the District',
       blurb:
         'Forty eight thousand units. More people have passed the gate than live on the street outside it.',
@@ -4697,17 +4927,17 @@ const CREW: FeatSpec[] = [
       reward: rise(8, 'bodies'),
     },
     {
-      id: 'trained_7',
+      id: 'mustered_7',
       name: 'A Hundred Thousand Through',
-      blurb: 'Trained, kitted and sent out. The yard runs whether anybody is watching it or not.',
+      blurb: 'Mustered, kitted and sent out. The yard runs whether anybody is watching it or not.',
       era: 'late',
       size: 'large',
       target: 105_000,
       reward: rise(9, 'bodies'),
     },
     {
-      id: 'trained_8',
-      name: 'Nobody Learned It Anywhere Else',
+      id: 'mustered_8',
+      name: 'Nobody Mustered Anywhere Else',
       blurb:
         'Two hundred and thirty thousand. The city’s whole trade in soldiers runs through one gate.',
       era: 'late',
@@ -4716,22 +4946,61 @@ const CREW: FeatSpec[] = [
       reward: rise(10, 'bodies'),
     },
     {
-      id: 'trained_9',
-      name: 'Half a Million Taught',
-      blurb: 'The drill is older than most of the crews using it against you.',
+      id: 'mustered_9',
+      name: 'Half a Million Mustered',
+      blurb: 'The bench is older than most of the crews fielding units against you.',
       era: 'late',
       size: 'large',
       target: 500_000,
       reward: rise(11, 'bodies'),
     },
     {
-      id: 'trained_10',
+      id: 'mustered_10',
       name: 'The Institution',
       blurb: 'A million and more through the yard. It will outlive everybody who ever ran it.',
       era: 'late',
       size: 'large',
       target: 1_100_000,
       reward: rise(12, 'bodies'),
+    },
+  ]),
+  // P14-B (2026-10-02): the medics' work, counted after every won fight and battle job.
+  ...chain('medics', 'casualties_recovered', [
+    {
+      id: 'medics_1',
+      name: 'Walked Home',
+      blurb: 'Ten of your dead brought round after fights you won.',
+      era: 'mid',
+      size: 'small',
+      target: 10,
+      reward: purse('mid', 'small'),
+    },
+    {
+      id: 'medics_2',
+      name: 'Stitched and Sent Back',
+      blurb: 'A hundred patched up and back in the line. The medics drink with the crew now.',
+      era: 'late',
+      size: 'small',
+      target: 100,
+      reward: recruits('late', 'small'),
+    },
+    {
+      id: 'medics_3',
+      name: 'Nobody Is Left Behind',
+      blurb: 'Four hundred brought back off fields you held.',
+      era: 'late',
+      size: 'medium',
+      target: 400,
+      reward: rise(2, 'bodies'),
+    },
+    {
+      id: 'medics_4',
+      name: 'The Ward Never Empties',
+      blurb: 'A thousand who should have stayed where they fell, back on their feet.',
+      era: 'late',
+      size: 'large',
+      target: 1_000,
+      reward: rise(4, 'bodies'),
     },
   ]),
   ...chain('kinds', 'unit_kinds_held', [
@@ -4803,36 +5072,102 @@ const CREW: FeatSpec[] = [
     {
       id: 'officers_3',
       name: 'A Staff',
-      blurb: 'Eight officers. Somebody good for every chair.',
+      blurb: 'Seven officers. Half the chairs filled with somebody good.',
       era: 'late',
       size: 'medium',
-      target: 8,
+      target: 7,
       reward: purse('late', 'medium'),
     },
     {
       id: 'officers_4',
-      name: 'Twelve at the Table',
+      name: 'Ten at the Table',
       blurb: 'Officers on the books, each with an opinion and a wage.',
       era: 'late',
       size: 'medium',
-      target: 12,
+      target: 10,
       reward: rise(3, 'coin'),
     },
     {
       id: 'officers_5',
       name: 'A Full Table',
-      blurb: 'Sixteen officers. The payroll is a line of work on its own.',
+      blurb: 'Thirteen officers: every chair in the crew has somebody in it.',
       era: 'late',
       size: 'large',
-      target: 16,
+      // Every chair (maintainer, 2026-10-04): thirteen of them since the chair rework.
+      target: 13,
+      reward: rise(4, 'coin'),
+    },
+  ]),
+  /*
+   * How wide the payroll book is (maintainer, 2026-09-30). A new crew holds 200 and a Nexus at 12
+   * holds 500 on its own; 2,700 is a finished Nexus and Quarters with their four payroll cards
+   * (1,400), twenty expansions (17,400 caps) and an A- Fixer.
+   *
+   * The three late rungs are sized for a crew with all eleven payroll cards fitted, which with a
+   * finished Nexus and Quarters multiplies the Nexus's 700 by 3.2 to 2,240, and an A- Fixer, whose
+   * passive adds a share of the whole book (35.7%, 2026-10-04). Expansions are a flat 30 on top at
+   * 300 caps, then 60 more each (maintainer, 2026-10-01), so `n` of them cost `300n + 30n(n - 1)`.
+   * 4,000 takes 24 (23,760 caps), 5,500 takes 61 (128,100) and 8,000 takes 122 (479,460), about
+   * what the old scrap rungs cost at the market's 2.5 caps a scrap. A crew in
+   * the progression simulation has earned 577,796 caps off its jobs by level ninety, so the top
+   * rung is a late crew that has put most of its jobs' caps into the book. `catalog.test.ts` holds
+   * the counts and the prices.
+   */
+  ...chain('payroll', 'payroll_capacity', [
+    {
+      id: 'payroll_1',
+      name: 'Money on the Table',
+      blurb: 'A payroll book of five hundred caps.',
+      era: 'early',
+      size: 'medium',
+      target: 500,
+      reward: purse('early', 'medium'),
+    },
+    {
+      id: 'payroll_2',
+      name: 'Wages on Friday',
+      blurb: 'Twenty seven hundred caps promised, and every one of them good.',
+      era: 'mid',
+      size: 'medium',
+      // With an A- Fixer, as the late rungs are sized (2026-10-04): twenty expansions on the
+      // Nexus's and the Quarters' own cards.
+      target: 2700,
+      reward: purse('mid', 'medium'),
+    },
+    {
+      id: 'payroll_3',
+      name: 'An Office for It',
+      blurb: 'Four thousand caps. Somebody keeps the book full time now.',
+      era: 'late',
+      size: 'medium',
+      target: 4000,
+      reward: purse('late', 'medium'),
+    },
+    {
+      id: 'payroll_4',
+      name: 'The Big Book',
+      blurb: 'Five and a half thousand caps on the payroll.',
+      era: 'late',
+      size: 'medium',
+      target: 5500,
+      reward: rise(3, 'coin'),
+    },
+    {
+      id: 'payroll_5',
+      name: 'Everybody Gets Paid',
+      blurb: 'Eight thousand caps: a book the top of the Bar takes seriously.',
+      era: 'late',
+      size: 'large',
+      target: 8000,
       reward: rise(4, 'coin'),
     },
   ]),
   /*
    * A signing is a Bar auction won, and a crew sits at two tables a day, three from level 40
-   * (`maxOpenAuctionsFor`), about day 23 at the pace that puts level 50 on day 41. The top rung
-   * was 1,200: over a year of winning every table. At the caps, 23 + (600 - 2 * 23) / 3 = 208
-   * days for the top rung, and 400 lands at day 141. `catalog.test.ts` holds it there.
+   * (`maxOpenAuctionsFor`), about day 23 at the pace that puts level 50 on day 41. Retuned to the
+   * three-month game on 2026-10-02 (maintainer ruling P8-B): the top rung, 260, is 87 days at
+   * three tables a day, and 94 at the pace above, 23 + (260 - 2 * 23) / 3. `catalog.test.ts`
+   * holds it there.
    */
   ...chain('hired', 'officers_hired', [
     {
@@ -4874,28 +5209,28 @@ const CREW: FeatSpec[] = [
     {
       id: 'hired_5',
       name: 'The Revolving Door',
-      blurb: 'Two hundred officers hired. The Bar keeps a stool for you.',
+      blurb: 'A hundred and fifty officers hired. The Bar keeps a stool for you.',
       era: 'late',
       size: 'medium',
-      target: 200,
+      target: 150,
       reward: rise(1, 'coin'),
     },
     {
       id: 'hired_6',
-      name: 'Four Hundred Signed On',
-      blurb: 'Four hundred signed. It is hard to find a crew you have not staffed.',
+      name: 'Two Hundred and Ten Signed On',
+      blurb: 'Two hundred and ten signed. It is hard to find a crew you have not staffed.',
       era: 'late',
       size: 'medium',
-      target: 400,
+      target: 210,
       reward: rise(2, 'coin'),
     },
     {
       id: 'hired_7',
       name: 'The Employer',
-      blurb: 'Six hundred officers hired. Most of the city has worked under your name.',
+      blurb: 'Two hundred and sixty officers hired. Most of the city has worked under your name.',
       era: 'late',
       size: 'medium',
-      target: 600,
+      target: 260,
       reward: rise(3, 'coin'),
     },
   ]),
@@ -4935,6 +5270,39 @@ const CREW: FeatSpec[] = [
       size: 'large',
       target: 20,
       reward: rise(6, 'schooling'),
+    },
+  ]),
+  /*
+   * The Overseer's own grade (maintainer, 2026-10-04): what sizes the lift on every seated officer,
+   * so a grade climbed is the whole room climbing with it. A fresh Overseer reads F- to F+.
+   */
+  ...chain('overseer_grade', 'overseer_grade', [
+    {
+      id: 'overseer_grade_1',
+      name: 'Graded E',
+      blurb: 'Your Overseer graded E or better on their own seat.',
+      era: 'early',
+      size: 'medium',
+      target: markIndex('E'),
+      reward: lesson('early', 'medium'),
+    },
+    {
+      id: 'overseer_grade_2',
+      name: 'Graded C',
+      blurb: 'C or better. Every officer in a chair stands a little taller for it.',
+      era: 'mid',
+      size: 'medium',
+      target: markIndex('C'),
+      reward: lesson('mid', 'medium'),
+    },
+    {
+      id: 'overseer_grade_3',
+      name: 'Graded A',
+      blurb: 'A or better: the room is lifted by somebody worth following.',
+      era: 'late',
+      size: 'large',
+      target: markIndex('A'),
+      reward: lesson('late', 'large'),
     },
   ]),
   ...chain(
@@ -5002,7 +5370,7 @@ const CREW: FeatSpec[] = [
     {
       id: 'peak_2',
       name: 'Eighty',
-      blurb: 'The band where a skill starts paying its bonus properly.',
+      blurb: 'The band where a skill starts counting properly in a chair\u2019s grade.',
       era: 'mid',
       size: 'medium',
       target: 80,
@@ -5211,74 +5579,75 @@ const TRADE: FeatSpec[] = [
       },
       {
         id: 'caps_3',
-        name: 'Three Million',
+        name: 'A Million and a Half',
         blurb: 'Through your hands over a lifetime. Very little of it stayed.',
         era: 'late',
         size: 'large',
-        target: 3_000_000,
+        target: 1_500_000,
         reward: purse('late', 'large'),
       },
       {
         id: 'caps_4',
-        name: 'Eight Million',
+        name: 'Three and a Half Million',
         blurb: 'Earned, and mostly spent again. The pile was never the point.',
         era: 'late',
         size: 'large',
-        target: 8_000_000,
+        target: 3_500_000,
         reward: rise(6, 'coin'),
       },
       {
         id: 'caps_5',
-        name: 'Twenty One Million',
+        name: 'Six Million',
         blurb: 'Through the till over a lifetime. The till has been replaced twice.',
         era: 'late',
         size: 'large',
-        target: 21_000_000,
+        target: 6_000_000,
         reward: rise(7, 'coin'),
       },
       {
         id: 'caps_6',
         name: 'The House Bank',
-        blurb: 'Fifty five million earned. Other crews keep their float with you now.',
+        blurb: 'Nine million earned. Other crews keep their float with you now.',
         era: 'late',
         size: 'large',
-        target: 55_000_000,
+        target: 9_000_000,
         reward: rise(8, 'coin'),
       },
       {
         id: 'caps_7',
         name: 'Past the Counting House',
-        blurb: 'A hundred and forty five million. Nobody audits you, because nobody could.',
+        blurb: 'Twelve million. Nobody audits you, because nobody could.',
         era: 'late',
         size: 'large',
-        target: 145_000_000,
+        target: 12_000_000,
         reward: rise(9, 'coin'),
       },
       {
         id: 'caps_8',
         name: 'The Rate Is Whatever You Say',
-        blurb: 'Three hundred and eighty million earned. The market moves when you buy bread.',
+        blurb: 'Fifteen and a half million earned. The market moves when you buy bread.',
         era: 'late',
         size: 'large',
-        target: 380_000_000,
+        target: 15_500_000,
         reward: rise(10, 'coin'),
       },
       {
         id: 'caps_9',
-        name: 'A Thousand Million',
+        name: 'Eighteen and a Half Million',
         blurb: 'The figure stops meaning anything and you have it anyway.',
         era: 'late',
         size: 'large',
-        target: 1_000_000_000,
+        target: 18_500_000,
         reward: rise(11, 'coin'),
       },
       {
         id: 'caps_10',
         name: 'Money Is a Thing You Do',
-        blurb: 'Two and a half billion earned. Currency is a habit of yours the city picked up.',
+        blurb:
+          'Twenty one million earned in one season. Currency is a habit of yours the city picked up.',
         era: 'late',
         size: 'large',
-        target: 2_600_000_000,
+        target: 21_000_000,
         reward: rise(12, 'coin'),
       },
     ],
@@ -5327,28 +5696,28 @@ const TRADE: FeatSpec[] = [
       {
         id: 'metal_5',
         name: 'The Smelter Never Cools',
-        blurb: 'Eight hundred thousand. Other crews buy theirs; you make yours.',
+        blurb: 'Six hundred thousand. Other crews buy theirs; you make yours.',
         era: 'late',
         size: 'large',
-        target: 800_000,
+        target: 600_000,
         reward: rise(4, 'coin'),
       },
       {
         id: 'metal_6',
-        name: 'Three Million Ingots',
+        name: 'A Million Ingots and More',
         blurb: 'The hard currency of anything worth building, through your hands.',
         era: 'late',
         size: 'large',
-        target: 3_000_000,
+        target: 1_200_000,
         reward: rise(5, 'coin'),
       },
       {
         id: 'metal_7',
         name: 'Where the Metal Comes From',
-        blurb: 'Ten million earned. The city’s good steel has your fingerprints on it.',
+        blurb: 'Two million earned. The city’s good steel has your fingerprints on it.',
         era: 'late',
         size: 'large',
-        target: 10_000_000,
+        target: 2_000_000,
         reward: rise(6, 'coin'),
       },
     ],
@@ -5432,46 +5801,46 @@ const TRADE: FeatSpec[] = [
     {
       id: 'trade_4',
       name: 'The House Always Sells',
-      blurb: 'Two hundred and fifty sales. The board moves when you say it moves.',
+      blurb: 'A hundred and fifty sales. The board moves when you say it moves.',
       era: 'late',
       size: 'medium',
-      target: 250,
+      target: 150,
       reward: purse('late', 'medium'),
     },
     {
       id: 'trade_5',
-      name: 'Six Hundred Deals',
+      name: 'Three Hundred Deals',
       blurb: 'Listings of yours taken by somebody else, one a day from each buyer.',
       era: 'late',
       size: 'medium',
-      target: 600,
+      target: 300,
       reward: rise(3, 'coin'),
     },
     {
       id: 'trade_6',
       name: 'Your Prices Are the Prices',
-      blurb: 'Fourteen hundred sales. Your prices are the prices.',
+      blurb: 'Five hundred sales. Your prices are the prices.',
       era: 'late',
       size: 'large',
-      target: 1_400,
+      target: 500,
       reward: rise(4, 'coin'),
     },
     {
       id: 'trade_7',
-      name: 'Three Thousand Handshakes',
+      name: 'Seven Hundred and Fifty Handshakes',
       blurb: 'Sales closed. Nobody checks your goods any more.',
       era: 'late',
       size: 'large',
-      target: 3_000,
+      target: 750,
       reward: rise(5, 'coin'),
     },
     {
       id: 'trade_8',
       name: 'The Market Is You',
-      blurb: 'Six and a half thousand deals. The board is mostly your paper.',
+      blurb: 'Nine hundred and fifty deals. The board is mostly your paper.',
       era: 'late',
       size: 'large',
-      target: 6_500,
+      target: 950,
       reward: rise(6, 'coin'),
     },
   ]),
@@ -5497,54 +5866,54 @@ const TRADE: FeatSpec[] = [
     {
       id: 'buys_3',
       name: 'The Best Customer',
-      blurb: 'A hundred and fifty buys. The Runner keeps things back for you.',
+      blurb: 'A hundred and twenty buys. The Runner keeps things back for you.',
       era: 'late',
       size: 'medium',
-      target: 150,
+      target: 120,
       reward: purse('late', 'medium'),
     },
     {
       id: 'buys_4',
-      name: 'Four Hundred Bought',
+      name: 'Three Hundred Bought',
       blurb: 'Listings, supply runs, the Broker and the Runner, one deal a day with each.',
       era: 'late',
       size: 'medium',
-      target: 400,
+      target: 300,
       reward: rise(3, 'coin'),
     },
     {
       id: 'buys_5',
-      name: 'A Thousand Times Paid',
+      name: 'Six Hundred Times Paid',
       blurb: 'Bought rather than built, and faster for it.',
       era: 'late',
       size: 'large',
-      target: 1_000,
+      target: 600,
       reward: rise(4, 'coin'),
     },
     {
       id: 'buys_6',
       name: 'First Call at the Broker',
-      blurb: 'Two and a half thousand purchases. The Broker takes your call first.',
+      blurb: 'Nine hundred purchases. The Broker takes your call first.',
       era: 'late',
       size: 'large',
-      target: 2_500,
+      target: 900,
       reward: rise(5, 'coin'),
     },
     {
       id: 'buys_7',
       name: 'Everything Has a Price',
-      blurb: 'Six thousand deals taken. You have never once made your own rope.',
+      blurb: 'Twelve hundred deals taken. You have never once made your own rope.',
       era: 'late',
       size: 'large',
-      target: 6_000,
+      target: 1_200,
       reward: rise(6, 'coin'),
     },
   ]),
   /*
    * The fence lets a crew win one lot a day, two from level 50 (`blackMarketTakesPerDay`), which
-   * the audit's pace puts at about day 41 (2026-09-28). The top rung was 2,200: over three years
-   * at that ceiling. At the caps, 41 + (420 - 41) / 2 = 230.5 days for the top rung; 280 lands at
-   * day 161 and 350 at day 196. `catalog.test.ts` holds it there.
+   * the audit's pace puts at about day 41 (2026-09-28). Retuned to the three-month game on
+   * 2026-10-02 (maintainer ruling P8-B): the top rung, 175, is 88 days at the two-a-day ceiling,
+   * and about 108 at the audit's pace, 41 + (175 - 41) / 2. `catalog.test.ts` holds it there.
    */
   ...chain('contraband', 'contraband_taken', [
     {
@@ -5583,37 +5952,37 @@ const TRADE: FeatSpec[] = [
     {
       id: 'contraband_4',
       name: 'A Standing Arrangement',
-      blurb: 'Two hundred won back there. They restock for you specifically.',
+      blurb: 'Ninety won back there. They restock for you specifically.',
       era: 'late',
       size: 'large',
-      target: 200,
+      target: 90,
       reward: spoils('late', 'large'),
     },
     {
       id: 'contraband_5',
-      name: 'Two Hundred and Eighty Off the Shelf',
+      name: 'A Hundred and Twenty Off the Shelf',
       blurb: 'Back-room lots won at midnight and used by morning.',
       era: 'late',
       size: 'large',
-      target: 280,
+      target: 120,
       reward: rise(4, 'coin'),
     },
     {
       id: 'contraband_6',
       name: 'The Back Room Regular',
-      blurb: 'Three hundred and fifty crates won. They stopped asking what it is for.',
+      blurb: 'A hundred and fifty crates won. They stopped asking what it is for.',
       era: 'late',
       size: 'large',
-      target: 350,
+      target: 150,
       reward: rise(5, 'coin'),
     },
     {
       id: 'contraband_7',
       name: 'Nothing Is Off Limits',
-      blurb: 'Four hundred and twenty crates won in the back room over a lifetime.',
+      blurb: 'A hundred and seventy five crates won in the back room in one season.',
       era: 'late',
       size: 'large',
-      target: 420,
+      target: 175,
       reward: rise(6, 'coin'),
     },
   ]),
@@ -5635,85 +6004,167 @@ const NAME: FeatSpec[] = [
     {
       id: 'infamy_2',
       name: 'Talked About',
-      blurb: 'Two and a half thousand earned. The street has an opinion.',
+      blurb: 'Fifteen hundred earned. The street has an opinion.',
       era: 'mid',
       size: 'medium',
-      target: 2_500,
+      target: 1_500,
       reward: purse('mid', 'medium'),
     },
     {
       id: 'infamy_3',
       name: 'A Name Like a Threat',
-      blurb: 'Eight thousand infamy earned over a lifetime.',
+      blurb: 'Four thousand infamy earned over a lifetime.',
       era: 'late',
       size: 'large',
-      target: 8_000,
+      target: 4_000,
       reward: purse('late', 'large'),
     },
     {
       id: 'infamy_4',
       name: 'Told as a Warning',
-      blurb: 'Twelve thousand earned. People end arguments with your name.',
+      blurb: 'Seven thousand earned. People end arguments with your name.',
       era: 'late',
       size: 'large',
-      target: 12_000,
+      target: 7_000,
       reward: rise(6, 'schooling'),
     },
     {
       id: 'infamy_5',
       name: 'No Introduction',
-      blurb: 'Seventeen thousand. Nobody asks which crew.',
+      blurb: 'Ten thousand. Nobody asks which crew.',
       era: 'late',
       size: 'large',
-      target: 17_000,
+      target: 10_000,
       reward: rise(7, 'schooling'),
     },
     {
       id: 'infamy_6',
-      name: 'The Price of a Rank',
-      blurb: 'Twenty thousand, which is about what the first eleven rungs of the ladder cost.',
+      name: 'Thirteen Thousand',
+      blurb: 'Thirteen thousand, and every point of it paid for in somebody else’s blood.',
       era: 'late',
       size: 'large',
-      target: 20_000,
+      target: 13_000,
       reward: rise(8, 'schooling'),
     },
     {
       id: 'infamy_7',
       name: 'Past Grading',
       blurb:
-        'Twenty eight thousand. The street stopped grading you against other crews a while back.',
+        'Sixteen and a half thousand. The street stopped grading you against other crews a while back.',
       era: 'late',
       size: 'large',
-      target: 28_000,
+      target: 16_500,
       reward: rise(9, 'schooling'),
     },
     {
       id: 'infamy_8',
       name: 'A Story Told Wrong',
       blurb:
-        'Thirty six thousand. The versions people tell are worse than the truth, and you let them be.',
+        'Twenty thousand. The versions people tell are worse than the truth, and you let them be.',
       era: 'late',
       size: 'large',
-      target: 36_000,
+      target: 20_000,
       reward: rise(10, 'schooling'),
     },
     {
       id: 'infamy_9',
-      name: 'Forty Six Thousand Reasons',
+      name: 'Twenty Three Thousand Reasons',
       blurb: 'Earned one dead body and one taken street at a time.',
       era: 'late',
       size: 'large',
-      target: 46_000,
+      target: 23_500,
       reward: rise(11, 'schooling'),
     },
     {
       id: 'infamy_10',
       name: 'The Name Itself',
-      blurb: 'Sixty thousand infamy earned. The city has run out of ways of saying it.',
+      blurb:
+        'Forty three and a half thousand infamy earned. The city has run out of ways of saying it.',
       era: 'late',
       size: 'large',
-      target: 60_000,
+      // Ninety days of fights with a B Field Commander's share on them (maintainer, 2026-10-04).
+      target: 43_500,
       reward: rise(12, 'schooling'),
+    },
+  ]),
+  // P11-B (2026-10-02): what the wallet is for. A name bought on a fight's own screen.
+  ...chain('names', 'names_burned', [
+    {
+      id: 'names_1',
+      name: 'Spend It',
+      blurb: 'Burn your name on a fight: buy a boost on the fight screen with infamy.',
+      era: 'mid',
+      size: 'small',
+      target: 1,
+      reward: purse('mid', 'small'),
+    },
+    {
+      id: 'names_2',
+      name: 'Debts Called In',
+      blurb: 'Ten names burned. The street knows what your word buys.',
+      era: 'late',
+      size: 'small',
+      target: 10,
+      reward: spoils('late', 'small'),
+    },
+    {
+      id: 'names_3',
+      name: 'Nothing Left Owed',
+      blurb: 'Forty names burned. Nobody in the city owes you a thing.',
+      era: 'late',
+      size: 'medium',
+      target: 40,
+      reward: spoils('late', 'medium'),
+    },
+  ]),
+  // The Stackhouse (maintainer, 2026-10-05): one bet riding at a time, so these count fights.
+  ...chain('stackhouse', 'stackhouse_bets', [
+    {
+      id: 'stackhouse_1',
+      name: 'Put It Down',
+      blurb: 'Place your first bet at the Stackhouse, in the back of the Black Market.',
+      era: 'mid',
+      size: 'small',
+      target: 1,
+      reward: purse('mid', 'small'),
+    },
+    {
+      id: 'stackhouse_2',
+      name: 'A Regular',
+      blurb: 'Twenty five bets laid at the Stackhouse. They keep your chair warm.',
+      era: 'late',
+      size: 'small',
+      target: 25,
+      reward: spoils('late', 'small'),
+    },
+  ]),
+  ...chain('stackhouse_wins', 'stackhouse_wins', [
+    {
+      id: 'stackhouse_wins_1',
+      name: 'House Money',
+      blurb: 'Win five bets at the Stackhouse.',
+      era: 'mid',
+      size: 'small',
+      target: 5,
+      reward: purse('mid', 'small'),
+    },
+    {
+      id: 'stackhouse_wins_2',
+      name: 'Called It',
+      blurb: 'Twenty bets won. The book has started to watch which way you lean.',
+      era: 'late',
+      size: 'small',
+      target: 20,
+      reward: spoils('late', 'small'),
+    },
+    {
+      id: 'stackhouse_wins_3',
+      name: 'The House Pays You',
+      blurb: 'Fifty bets won at the Stackhouse.',
+      era: 'late',
+      size: 'medium',
+      target: 50,
+      reward: spoils('late', 'medium'),
     },
   ]),
   ...chain('notoriety', 'notoriety', [
@@ -5775,29 +6226,31 @@ const NAME: FeatSpec[] = [
     },
     {
       id: 'research_3',
-      name: 'Sixty',
-      blurb: 'Sixty rungs finished. Whole tracks are behind you.',
+      name: 'Forty Five',
+      blurb: 'Forty five rungs finished. Whole tracks are behind you.',
       era: 'late',
       size: 'medium',
-      target: 60,
+      // The ladder kept its shares of the catalogue when it went from 170 rungs to 130 with the
+      // chair rework (2026-10-04): about a third, two thirds and nine tenths.
+      target: 45,
       reward: kit('late', 'medium'),
     },
     {
       id: 'research_4',
-      name: 'A Hundred and Ten Programmes',
+      name: 'Eighty Five Programmes',
       blurb: 'Finished at the bench. The Lab has a filing problem.',
       era: 'late',
       size: 'medium',
-      target: 110,
+      target: 85,
       reward: rise(3, 'schooling'),
     },
     {
       id: 'research_5',
       name: 'Most of What There Is to Know',
-      blurb: 'A hundred and fifty programmes done and written up.',
+      blurb: 'A hundred and fifteen programmes done and written up.',
       era: 'late',
       size: 'large',
-      target: 150,
+      target: 115,
       reward: rise(4, 'schooling'),
     },
     {
@@ -5806,9 +6259,10 @@ const NAME: FeatSpec[] = [
       blurb: 'Every programme the Lab has ever been able to run.',
       era: 'late',
       size: 'large',
-      // 180 since 2026-09-22: eighteen chairs, ten rungs each. It was 190 with the Scout's track,
-      // and a target above the ceiling is a feat that sits at 94% for ever.
-      target: 180,
+      // 130 since 2026-10-04: thirteen chairs, ten rungs each. It was 190 with the Scout's track,
+      // 180 with the Consigliere's and 170 before the chair rework, and a target above the ceiling
+      // is a feat that sits short of done for ever.
+      target: 130,
       reward: rise(5, 'schooling'),
     },
   ]),
@@ -6108,7 +6562,7 @@ const NAME: FeatSpec[] = [
     {
       id: 'level_3',
       name: 'Level Twenty',
-      blurb: 'Forty five thousand experience. Most of it was walking.',
+      blurb: 'Twenty eight thousand experience. Most of it was walking.',
       era: 'mid',
       size: 'medium',
       target: 20,
@@ -6117,7 +6571,7 @@ const NAME: FeatSpec[] = [
     {
       id: 'level_4',
       name: 'Level Thirty',
-      blurb: 'A hundred and thirty thousand experience. The city treats you differently.',
+      blurb: 'Seventy five thousand experience. The city treats you differently.',
       era: 'mid',
       size: 'large',
       target: 30,
@@ -6126,7 +6580,7 @@ const NAME: FeatSpec[] = [
     {
       id: 'level_5',
       name: 'Level Fifty',
-      blurb: 'Half a million experience. There is not much left that is new.',
+      blurb: 'A quarter of a million experience. There is not much left that is new.',
       era: 'mid',
       size: 'large',
       target: 50,
@@ -6177,17 +6631,19 @@ const PEOPLE: FeatSpec[] = [
     },
   ]),
   /*
-   * Only fights feed a faction's infamy (`creditFaction` in `battle/resolve.ts`), and a table seats
-   * five. The audit put a crew that fights every day at about 300 fight infamy a day, which is also
-   * the pace that reaches `infamy_10` (60,000) in 200 days, so a full table banks about 1,500 a
-   * day. The ladder ran to forty million: seventy years of that. From `faction_5` it is retuned so
-   * the top rung, 330,000, is 220 days of a full table fighting daily. `catalog.test.ts` holds it.
+   * Only fights feed a faction's infamy (`creditFaction` in `battle/resolve.ts`). The ladder reads
+   * the member's **own** share, the "Earned here" on the member window (maintainer ruling P3-D,
+   * 2026-10-02): it read the table's lifetime total, so a recruit joining a table with 300,000
+   * banked collected nine rungs at once, left, and the next recruit did the same. One crew that
+   * fights every day banks about 300 a day (the audit's figure, see the infamy ladder), so the top
+   * rung, 43,500 with a B Field Commander's share (2026-10-04), is the three-month game of a crew
+   * that fought at one table throughout.
    */
   ...chain('faction', 'faction_infamy', [
     {
       id: 'faction_1',
       name: 'Under One Badge',
-      blurb: 'Be at a table that has won five hundred infamy between them.',
+      blurb: 'Earn five hundred infamy in fights at the table you sit at now.',
       era: 'mid',
       size: 'medium',
       target: 500,
@@ -6196,151 +6652,86 @@ const PEOPLE: FeatSpec[] = [
     {
       id: 'faction_2',
       name: 'A Faction Worth the Name',
-      blurb: 'Five thousand won under the badge you wear.',
+      blurb: 'Two and a half thousand of it won under the badge you wear.',
       era: 'late',
       size: 'medium',
-      target: 5_000,
+      target: 2_500,
       reward: purse('late', 'medium'),
     },
     {
       id: 'faction_3',
       name: 'A Name Spoken Carefully',
-      blurb: 'Fifty thousand infamy under one badge. Nobody calls a fight on you lightly.',
+      blurb: 'Five thousand won under one badge. Nobody calls a fight on your table lightly.',
       era: 'late',
       size: 'large',
-      target: 50000,
+      target: 5_000,
       reward: rise(4, 'bodies'),
     },
     {
       id: 'faction_4',
       name: 'The Badge Travels',
-      blurb: 'A hundred and thirty thousand under one badge. Wearing it gets you served first.',
+      blurb: 'Eight thousand under one badge. Wearing it gets you served first.',
       era: 'late',
       size: 'large',
-      target: 130_000,
+      target: 8_000,
       reward: rise(6, 'bodies'),
     },
     {
       id: 'faction_5',
       name: 'A Table Nobody Sits At Twice',
-      blurb: 'A hundred and sixty five thousand won between you.',
+      blurb: 'Eleven thousand of your own, banked at one table.',
       era: 'late',
       size: 'large',
-      target: 165_000,
+      target: 11_000,
       reward: rise(7, 'bodies'),
     },
     {
       id: 'faction_6',
       name: 'Everybody Has Lost Somebody',
-      blurb:
-        'Two hundred thousand under the badge. Every crew in the city has lost someone to yours.',
+      blurb: 'Fourteen thousand under the badge. Every crew in the city has lost someone to yours.',
       era: 'late',
       size: 'large',
-      target: 200_000,
+      target: 14_000,
       reward: rise(8, 'bodies'),
     },
     {
       id: 'faction_7',
       name: 'A Condition of the City',
-      blurb: 'Two hundred and thirty five thousand. You are not a faction, you are weather.',
+      blurb: 'Seventeen and a half thousand. You are not a member, you are weather.',
       era: 'late',
       size: 'large',
-      target: 235_000,
+      target: 17_500,
       reward: rise(9, 'bodies'),
     },
     {
       id: 'faction_8',
       name: 'What the Colours Mean',
       blurb:
-        'Two hundred and seventy thousand won together. Nobody has to be told what they are looking at.',
+        'Twenty one thousand won for the table. Nobody has to be told what they are looking at.',
       era: 'late',
       size: 'large',
-      target: 270_000,
+      target: 21_000,
       reward: rise(10, 'bodies'),
     },
     {
       id: 'faction_9',
       name: 'The Other Government',
-      blurb: 'Three hundred thousand under one badge. The Combine negotiates rather than declares.',
+      blurb: 'Twenty four thousand under one badge. The Combine negotiates rather than declares.',
       era: 'late',
       size: 'large',
-      target: 300_000,
+      target: 24_000,
       reward: rise(11, 'bodies'),
     },
     {
       id: 'faction_10',
       name: 'One Badge, One City',
       blurb:
-        'Three hundred and thirty thousand. There is the city, and there is you, and lately those are one sentence.',
+        'Forty three and a half thousand. There is the city, and there is your table, and lately those are one sentence.',
       era: 'late',
       size: 'large',
-      target: 330_000,
+      // Ninety days of fights with a B Field Commander's share on them (maintainer, 2026-10-04).
+      target: 43_500,
       reward: rise(12, 'bodies'),
-    },
-  ]),
-  ...chain('letters', 'messages_sent', [
-    {
-      id: 'letters_1',
-      name: 'Say Something',
-      blurb: 'Write to somebody. The city is other people.',
-      era: 'early',
-      size: 'small',
-      target: 1,
-      reward: purse('early', 'small'),
-    },
-    {
-      id: 'letters_2',
-      name: 'Correspondence',
-      blurb: 'Twenty five letters out. Half of them were about ground.',
-      era: 'mid',
-      size: 'small',
-      target: 25,
-      reward: purse('mid', 'small'),
-    },
-    {
-      id: 'letters_3',
-      name: 'Everybody Knows Somebody',
-      blurb: 'A hundred and fifty letters. Half the city owes you an answer.',
-      era: 'late',
-      size: 'small',
-      target: 150,
-      reward: lesson('late', 'small'),
-    },
-    {
-      id: 'letters_4',
-      name: 'Four Hundred Letters',
-      blurb: 'Written and sent. Somebody reads all of these.',
-      era: 'late',
-      size: 'small',
-      target: 400,
-      reward: rise(0, 'coin'),
-    },
-    {
-      id: 'letters_5',
-      name: 'The Correspondent',
-      blurb: 'Nine hundred letters out. Half the city owes you a reply.',
-      era: 'late',
-      size: 'medium',
-      target: 900,
-      reward: rise(1, 'coin'),
-    },
-    {
-      id: 'letters_6',
-      name: 'Two Thousand Sent',
-      blurb: 'Letters. There is a version of this city that runs on your post.',
-      era: 'late',
-      size: 'medium',
-      target: 2_000,
-      reward: rise(2, 'coin'),
-    },
-    {
-      id: 'letters_7',
-      name: 'Nothing Goes Unsaid',
-      blurb: 'Four and a half thousand letters sent over a lifetime of having opinions.',
-      era: 'late',
-      size: 'medium',
-      target: 4_500,
-      reward: rise(3, 'coin'),
     },
   ]),
   solo(
@@ -6376,20 +6767,24 @@ const PEOPLE: FeatSpec[] = [
  * step's predecessor coming first, and the screen groups by the run of entries sharing a chain, so
  * a chain split across the file would draw as two ladders. `catalog.test.ts` holds both.
  */
-export const FEATS: readonly FeatSpec[] = [
-  ...WORK,
-  ...DISTRICT_WORK,
-  ...FIGHTING,
-  ...COMBINE,
-  ...WEEK,
-  ...CITY,
-  ...FRONTIER,
-  ...DISTRICT,
-  ...CREW,
-  ...TRADE,
-  ...NAME,
-  ...PEOPLE,
-];
+export const FEATS: readonly FeatSpec[] = shapeFeatRewards(
+  [
+    ...WORK,
+    ...DISTRICT_WORK,
+    ...FIGHTING,
+    ...COMBINE,
+    ...WEEK,
+    ...CITY,
+    ...FRONTIER,
+    ...DISTRICT,
+    ...CREW,
+    ...TRADE,
+    ...NAME,
+    ...PEOPLE,
+  ],
+  // Paid in the era's mix (maintainer ruling P8-A, 2026-10-02); a reward written by hand stays.
+  (reward) => BUILT_BY_HELPER.has(reward),
+);
 
 const BY_ID = new Map(FEATS.map((feat) => [feat.id, feat]));
 

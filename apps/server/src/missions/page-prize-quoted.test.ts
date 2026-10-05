@@ -86,7 +86,7 @@ async function crewAtTheBoard(): Promise<{ app: FastifyInstance; token: string; 
   if (!base) throw new Error('the fixture crew has no base');
   // Somebody to send, and somebody to lead them: a launch with neither is refused for a reason
   // this test is not about.
-  app.repos.bases.updateArmy(baseId, { razors: 10 }, base.trainingQueue);
+  app.repos.bases.updateArmy(baseId, { razors: 10 }, base.musterQueue);
   // Seated: the bench leads nothing (maintainer, 2026-09-28).
   app.repos.bases.updateCommanders(baseId, [
     createCommander('off-1', 'Halvard Nyx', 'field_commander'),

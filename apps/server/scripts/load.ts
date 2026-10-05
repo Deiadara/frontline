@@ -181,7 +181,7 @@ async function play(samples: Sample[], player: Player, until: number): Promise<v
     if (Date.now() >= nextWrite) {
       nextWrite += WRITE_MS;
       await (tick % 2 === 0
-        ? call(samples, 'POST', '/api/units/train', player.headers, { unitId: 'razors', count: 1 })
+        ? call(samples, 'POST', '/api/units/muster', player.headers, { unitId: 'razors', count: 1 })
         : call(samples, 'POST', '/api/base/build', player.headers, { kind: 'generator' }));
     }
     tick += 1;

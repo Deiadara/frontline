@@ -1,6 +1,11 @@
 import {
   MISC_AREA_ID,
+  RESOURCE_KG,
+  carriedHome,
+  findMissionTemplate,
   makeAttributes,
+  missionCarry,
+  offerOfMission,
   missionCompletesAt,
   type CrewResponse,
   type Mission,
@@ -80,6 +85,7 @@ const board: MissionsResponse = {
   justResolved: [],
   resources: { caps: 0, supplies: 0, oil: 0, scrap: 0, highQualityMetal: 0, planks: 0 },
   activeLimit: 3,
+  xpBonusPercent: 0,
   areas: [],
   army: { razors: 6 },
   serverNow: NOW,
@@ -127,7 +133,7 @@ beforeEach(() => {
     if (path.endsWith('/me')) return reply({});
     throw new Error(`unstubbed request: ${path}`);
   });
-  useSession.setState({ token: 'token' });
+  useSession.setState({ signedIn: true });
 });
 
 afterEach(() => {
@@ -284,6 +290,13 @@ describe('what a returned crew came back with (§E5)', () => {
         spoils: {},
       }),
       home('r-errand', 'scrap-run', { outcome: 'success' }),
+      // Turned round on the road: settled as a failure, but nobody was lost.
+      home('r-recalled', 'scrap-run', {
+        outcome: 'failure',
+        recalledAt: minutesAgo(40),
+        rewards: {},
+        spoils: {},
+      }),
     ],
   };
 
@@ -350,6 +363,14 @@ describe('what a returned crew came back with (§E5)', () => {
    * an empty haul would be the game answering a question nobody survived to ask, and there is no
    * report to open: nobody came back to write one.
    */
+  it('tags a recalled run as called back, not lost', async () => {
+    served = returned;
+    renderPage();
+    const row = (await screen.findByTestId('mission-open-r-recalled')).closest('li');
+    expect(row).toHaveTextContent('Called back');
+    expect(row).not.toHaveTextContent('Lost');
+  });
+
   it('says only that nobody came back when there was no report, and opens no window', async () => {
     served = returned;
     renderPage();
@@ -386,5 +407,36 @@ describe('a crew in flight', () => {
     // to call the crew back rather than navigate.
     const recall = await screen.findByTestId('recall-mission-m-fresh');
     expect(track.contains(recall)).toBe(false);
+  });
+});
+
+/*
+ * Bug pass, 2026-10-02: the row promised the card's whole haul, and the return trims it to what
+ * the party can lift. One Razor on a long job carries a fraction of it.
+ */
+describe('what a crew out is quoted', () => {
+  it('promises what the party can carry home, not the whole haul', async () => {
+    const mission = out('m-light', 'deep-expedition', 30, 24 * 60);
+    served = { ...board, missions: [mission] };
+    const full = offerOfMission(mission, findMissionTemplate(mission.templateId)!).rewards;
+    const carried = carriedHome(full, missionCarry(mission.force), RESOURCE_KG);
+    const trimmed = (Object.keys(full) as (keyof typeof full)[]).find(
+      (key) => Math.round(carried[key] ?? 0) < Math.round(full[key] ?? 0),
+    );
+    if (trimmed === undefined) throw new Error('fixture: one Razor carries the whole haul');
+    renderPage();
+
+    const worth = await screen.findByTestId('mission-worth-m-light');
+    expect(worth).toHaveTextContent(`+${Math.round(carried[trimmed] ?? 0).toLocaleString()}`);
+    expect(worth).not.toHaveTextContent(`+${Math.round(full[trimmed] ?? 0).toLocaleString()}`);
+  });
+  // On a fight the return trims to the survivors as well, which this line cannot know.
+  it('says "at most" on a fight, and not on plain work', async () => {
+    const fight = out('m-fight', 'foundry-raid', 30, 24 * 60);
+    const plain = out('m-plain', 'deep-expedition', 30, 24 * 60);
+    served = { ...board, missions: [fight, plain] };
+    renderPage();
+    expect(await screen.findByTestId('mission-worth-m-fight')).toHaveTextContent('at most');
+    expect(screen.getByTestId('mission-worth-m-plain')).not.toHaveTextContent('at most');
   });
 });

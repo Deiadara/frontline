@@ -1,4 +1,7 @@
 import {
+  cityIsOpen,
+  findDistrict,
+  findLocation,
   DEFAULT_BADGE,
   MOVE_GATE_MINUTES,
   type ActionsResponse,
@@ -68,7 +71,7 @@ async function makeWorld(): Promise<{ me: Stack; ally: Stack }> {
 
 function arm(stack: Stack, army: Record<string, number>): void {
   const base = stack.app.repos.bases.findById(stack.baseId)!;
-  stack.app.repos.bases.updateArmy(base.id, army, base.trainingQueue);
+  stack.app.repos.bases.updateArmy(base.id, army, base.musterQueue);
 }
 
 // `byRail` carries a Zod default, so the parsed type has it and a hand-written body does not.
@@ -132,7 +135,10 @@ describe('district and gate', () => {
       await me.app.inject({ method: 'GET', url: '/api/units', headers: auth(me.token) })
     ).json<UnitsResponse>();
     expect(roster.gateArmy).toEqual({ razors: 4 });
-    expect(roster.moveDestinations.map((d) => d.label)).toEqual(['Your District', 'Your Gate']);
+    expect(roster.moveDestinations.filter((d) => d.group !== 'empty').map((d) => d.label)).toEqual([
+      'Your District',
+      'Your Gate',
+    ]);
   });
 
   it('refuses what is not standing at the source, and vehicles from anywhere but home', async () => {
@@ -250,6 +256,39 @@ describe('ground', () => {
     expect(taken.holder).toEqual({ kind: 'crew', baseId: me.baseId });
     expect(taken.garrison).toEqual({ razors: 4 });
     expect(me.app.repos.feats.tallies(me.baseId).locations_captured).toBe(1);
+  });
+
+  // P6-A (2026-10-02): empty ground is on the Move dialog's list, under a heading of its own.
+  it('lists empty ground in an open city as a destination, and nothing a fight is called on', async () => {
+    const { me } = await makeWorld();
+    const press = me.app.repos.city.control('steelbelt-press')!;
+    me.app.repos.city.put({ ...press, holder: { kind: 'unoccupied' }, garrison: {} });
+    const empty = async () =>
+      (await me.app.inject({ method: 'GET', url: '/api/units', headers: auth(me.token) }))
+        .json<UnitsResponse>()
+        .moveDestinations.filter((d) => d.group === 'empty')
+        .map((d) => (d.place.kind === 'location' ? d.place.locationId : null));
+
+    expect(await empty()).toContain('steelbelt-press');
+    // ...and not once a fight is called on it: a walk-in there is refused as `under_fire`.
+    me.app.repos.sieges.insert({
+      id: 'called-on-press',
+      target: { kind: 'location', districtId: 'steelbelt', locationId: 'steelbelt-press' },
+      attackerBaseId: me.baseId,
+      defender: { kind: 'unoccupied' },
+      scheduledFor: new Date(Date.now() + 9 * 3_600_000).toISOString(),
+      declaredAt: new Date().toISOString(),
+      resolvedAt: null,
+      seed: 'seed',
+      holdAfterCapture: true,
+      wokeSleepers: false,
+    });
+    expect(await empty()).not.toContain('steelbelt-press');
+    // ...and only ground in a city that is open: Saltmarch's empty plots are not on it.
+    for (const id of await empty()) {
+      const city = findDistrict(findLocation(id!)!.districtId)!.cityId;
+      expect(cityIsOpen(city), id!).toBe(true);
+    }
   });
 
   it('refuses ground somebody else holds, and ground nobody of yours has seen', async () => {

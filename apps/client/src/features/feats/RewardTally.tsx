@@ -14,7 +14,7 @@ import { cn } from '../../lib/cn';
 /**
  * What a feat pays, as a row of small drawn tokens.
  *
- * Five channels, one vocabulary. The alternative the first draft had was a sentence per channel
+ * Six channels, one vocabulary. The alternative the first draft had was a sentence per channel
  * ("600 caps, 200 scrap and 120 planks, plus 150 experience"), which is unreadable at a hundred
  * and sixty entries and impossible to scan for the one thing a player is short of. A token with
  * the game's own glyph on it is the same information at a glance, and it is the same glyph the
@@ -90,6 +90,17 @@ export function rewardTokens(reward: FeatReward): Token[] {
       amount: `x${count}`,
       name: findUnit(id)?.name ?? id,
       tone: 'text-iris-100',
+    });
+  }
+
+  // Drawn on the claim (P8-A, 2026-10-02), so the rung can only promise how many.
+  if (reward.pages !== undefined) {
+    tokens.push({
+      key: 'pages',
+      glyph: <Icon name="inventory" className="h-4 w-4" />,
+      amount: `x${reward.pages}`,
+      name: reward.pages === 1 ? 'A random blueprint page' : 'Random blueprint pages',
+      tone: 'text-verdigris-100',
     });
   }
 

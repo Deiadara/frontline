@@ -326,7 +326,8 @@ export const UNIFIED_BONUSES: Readonly<Record<string, UnifiedBonus>> = {
   },
   steelbelt: {
     title: 'Run of the Belt',
-    bonus: { kind: 'training_cost', percent: 10 },
+    // Cut from 10 with every general muster cut (maintainer, 2026-10-01).
+    bonus: { kind: 'muster_cost', percent: 2 },
   },
   'chrome-row': {
     title: 'The Row Runs For You',
@@ -345,7 +346,7 @@ export const UNIFIED_BONUSES: Readonly<Record<string, UnifiedBonus>> = {
   },
   'glasshouse-fields': {
     title: 'The Green Belt Is Fed',
-    bonus: { kind: 'training_speed', percent: 15 },
+    bonus: { kind: 'muster_speed', percent: 15 },
   },
   blacksite: {
     title: 'The Garrison Is Yours',

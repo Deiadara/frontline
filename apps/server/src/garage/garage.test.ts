@@ -1,11 +1,16 @@
-import { MAX_PER_VEHICLE, findVehicle, type GarageResponse } from '@frontline/shared';
+import {
+  MAX_PER_VEHICLE,
+  MAX_MUSTER_QUEUE,
+  findVehicle,
+  type GarageResponse,
+} from '@frontline/shared';
 import type { FastifyInstance } from 'fastify';
 import { afterEach, describe, expect, it } from 'vitest';
 import { buildApp } from '../app.js';
 import { loadConfig } from '../config.js';
 import { openDatabase, runMigrations, type AppDatabase } from '../db/index.js';
 import { districtUnitSlots } from '../district/unit-slots.js';
-import { settleTraining } from '../units/training.js';
+import { settleMuster } from '../units/muster.js';
 import { chooseOverseer } from '../testing/overseer.js';
 
 /**
@@ -54,7 +59,7 @@ async function garage(app: FastifyInstance, token: string): Promise<GarageRespon
  * Run the bench forward so a queued machine is delivered.
  *
  * A vehicle is queued rather than parked now (maintainer request, 2026-09-15): `/garage/build`
- * puts an order on the units' bench and `settleTraining` is what moves it into `base.fleet`. The
+ * puts an order on the units' bench and `settleMuster` is what moves it into `base.fleet`. The
  * tests below therefore have to advance a clock where they used to read the yard immediately.
  *
  * Done by rewinding the order's `startedAt` past its own duration rather than by sleeping, which
@@ -63,15 +68,15 @@ async function garage(app: FastifyInstance, token: string): Promise<GarageRespon
  */
 function finishTheBench(app: FastifyInstance, baseId: string): void {
   const base = app.repos.bases.findById(baseId)!;
-  const long = base.trainingQueue.reduce((most, order) => Math.max(most, order.durationSeconds), 0);
+  const long = base.musterQueue.reduce((most, order) => Math.max(most, order.durationSeconds), 0);
   const started = new Date(Date.now() - (long + 60) * 1000).toISOString();
   app.repos.bases.updateArmy(
     base.id,
     base.army,
-    base.trainingQueue.map((order) => ({ ...order, startedAt: started })),
+    base.musterQueue.map((order) => ({ ...order, startedAt: started })),
   );
-  const settled = settleTraining(app.repos, app.repos.bases.findById(baseId)!, new Date());
-  expect(settled.base.trainingQueue, 'the bench emptied').toEqual([]);
+  const settled = settleMuster(app.repos, app.repos.bases.findById(baseId)!, new Date());
+  expect(settled.base.musterQueue, 'the bench emptied').toEqual([]);
 }
 
 function raiseGarage(app: FastifyInstance, baseId: string, level: number): void {
@@ -160,7 +165,7 @@ describe('the Garage page (§B11)', () => {
      */
     const ordered = app.repos.bases.findById(baseId)!;
     expect(ordered.fleet.motorcycle, 'not parked yet').toBeUndefined();
-    expect(ordered.trainingQueue.map((one) => one.unitId)).toEqual(['motorcycle']);
+    expect(ordered.musterQueue.map((one) => one.unitId)).toEqual(['motorcycle']);
     expect(ordered.resources.scrap).toBeLessThan(before.scrap);
     expect(ordered.resources.oil).toBeLessThan(before.oil);
 
@@ -375,7 +380,7 @@ describe('what a machine costs the district (§A1)', () => {
 
     // On the bench: the bed is claimed, and the yard has not moved.
     const queued = housed(app, baseId);
-    expect(queued.training - before.training).toBe(1);
+    expect(queued.mustering - before.mustering).toBe(1);
     expect(queued.fleet).toBe(before.fleet);
     expect(queued.total).toBe(before.total + 1);
 
@@ -384,7 +389,7 @@ describe('what a machine costs the district (§A1)', () => {
     finishTheBench(app, baseId);
     const landed = housed(app, baseId);
     expect(landed.fleet).toBe(before.fleet + 1);
-    expect(landed.training).toBe(before.training);
+    expect(landed.mustering).toBe(before.mustering);
     expect(landed.total).toBe(queued.total);
   });
 
@@ -404,7 +409,7 @@ describe('what a machine costs the district (§A1)', () => {
       app.repos.bases.updateArmy(
         base.id,
         { ...base.army, razors: (base.army.razors ?? 0) + spare },
-        base.trainingQueue,
+        base.musterQueue,
       );
     fill(room);
     expect(housed(app, baseId).spare).toBe(0);
@@ -414,12 +419,28 @@ describe('what a machine costs the district (§A1)', () => {
     expect(bike.refusal).toBe('Nowhere in the district to house the crew for another one');
     const refused = await build(app, token, 'motorcycle');
     expect(refused.statusCode, refused.body.slice(0, 200)).toBe(409);
-    expect(app.repos.bases.findById(baseId)!.trainingQueue).toEqual([]);
+    expect(app.repos.bases.findById(baseId)!.musterQueue).toEqual([]);
 
     // The positive control: one bed back, and the same request stands.
     fill(room - 1);
     expect(housed(app, baseId).spare).toBe(1);
     expect((await build(app, token, 'motorcycle')).statusCode).toBe(200);
+  });
+
+  // Bug pass, 2026-10-02: the card offered Build on a full bench, and said nothing of what was on it.
+  it('says the bench is full on the page, and counts what is waiting on it', async () => {
+    const { app, token, baseId } = await makeStack();
+    raiseGarage(app, baseId, 2);
+    stock(app, baseId);
+    grantBlueprint(app, baseId, 'bp_motorcycle');
+    for (let order = 0; order < MAX_MUSTER_QUEUE; order += 1) {
+      expect((await build(app, token, 'motorcycle')).statusCode).toBe(200);
+    }
+
+    const bike = (await garage(app, token)).vehicles.find((row) => row.id === 'motorcycle')!;
+    expect(bike.onBench).toBe(MAX_MUSTER_QUEUE);
+    expect(bike.refusal).toBe('The bench is full');
+    expect((await build(app, token, 'motorcycle')).statusCode).toBe(409);
   });
 
   it('keeps charging for a machine that is out on a run', async () => {
@@ -435,7 +456,7 @@ describe('what a machine costs the district (§A1)', () => {
 
     /*
      * Loading it onto a run takes it out of `base.fleet`. If the yard were the whole sum the bed
-     * would come free, a training order would take it, and the bike would come home into a
+     * would come free, a muster order would take it, and the bike would come home into a
      * district with no room for it: the same hole `unitsAbroad` closes for units.
      */
     const base = app.repos.bases.findById(baseId)!;

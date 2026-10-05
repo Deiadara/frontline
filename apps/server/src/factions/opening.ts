@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { FOUND_FACTION_PLAYER_LEVEL, MAX_FACTION_MEMBERS } from '@frontline/shared';
+import { FOUND_FACTION_PLAYER_LEVEL, MAX_FACTION_MEMBERS, displayNameOf } from '@frontline/shared';
 import type { Repositories } from '../db/repos/index.js';
 import { seededFactionId } from '../seed/index.js';
 import { sendMessage } from '../social/send.js';
@@ -69,17 +69,15 @@ export function offerOpeningInvitationAt(
      */
     const inviter = leader?.userId ?? user.id;
     sendMessage(repos, {
-      sender: { id: inviter, username: faction.name },
+      sender: { id: inviter, signature: faction.name },
       senderFaction: faction.name,
       recipients: [user.id],
       audience: 'player',
-      addressedTo: user.username,
+      addressedTo: displayNameOf(user),
       subject: `An invitation to ${faction.name}`,
       body:
         `${faction.name} has asked you to join them.\n\n` +
-        `${faction.blurb || 'They have not written down what they are for.'}\n\n` +
-        'Accepting puts your district at their table: your army shows up on their roster, ' +
-        'their fights show up on yours, and either of you can send help to the other.',
+        (faction.blurb || 'They have not written down what they are for.'),
       sentAt: new Date(now),
       invite: { inviteId, factionId: faction.id },
       notification: {

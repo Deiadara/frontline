@@ -12,12 +12,13 @@ import {
   BoostStashSchema,
 } from './market/blackmarket.js';
 import { DisplayNameSchema, PasswordSchema } from './accounts.js';
+import { LeaveFactionRequestSchema, type LeaveFactionRequest } from './api.social.js';
 import { IdSchema, IsoDateTimeSchema, UsernameSchema } from './primitives.js';
 import { PLAYER_LEVEL_UNLOCKS } from './progression/unlocks.js';
 import { PartialResourcesSchema } from './resources.js';
 import { TimezoneSchema } from './time/zone.js';
 import { PlayerIconSchema, SoundVolumeSchema, UserSchema } from './user.js';
-import { ArmySchema } from './units/training.js';
+import { ArmySchema } from './units/muster.js';
 
 /**
  * The account half of the REST contract: who you are, what you have set, what the back room is
@@ -287,7 +288,7 @@ export const AdminKnobsRequestSchema = z
      * one assertion that sends an empty payload and expects a refusal.
      */
     notoriety: z.number().int().min(0).max(MAX_NOTORIETY).optional(),
-    /** Empty every queue: build, training, research. For getting back to a clean bench. */
+    /** Empty every queue: build, muster, research. For getting back to a clean bench. */
     clearQueues: z.boolean().optional(),
     /**
      * Seat this many officers, one per role, at the given rating.
@@ -353,7 +354,7 @@ export const AdminGrantRequestSchema = z
     /**
      * Every rung up to and including this step, on every track (maintainer request, 2026-09-14).
      *
-     * A programme is ten rungs deep, and the presets want a crew standing part-way up all nineteen
+     * A programme is ten rungs deep, and the presets want a crew standing part-way up all thirteen
      * of them rather than at the top of one. `technologies` cannot say that: it is all-or-one-track
      * by construction, so "seven of ten everywhere" had no spelling before this.
      *
@@ -370,7 +371,7 @@ export const AdminGrantRequestSchema = z
      *
      * The one thing a reviewer could not reach through the API at all. A crew is handed carriers
      * and no fighters now (`crew/starting.ts`), and every fighting unit is behind a Gauntlet at
-     * Nexus 3, so a live test that wants to watch a *battle* had to build and train its way there
+     * Nexus 3, so a live test that wants to watch a *battle* had to build and muster its way there
      * or lean on whatever the opening happened to hand out. Added to the roster rather than
      * setting it, like every other grant on this route.
      */
@@ -398,6 +399,13 @@ export const AdminSnapshotSchema = z.object({
   ),
 });
 export type AdminSnapshot = z.infer<typeof AdminSnapshotSchema>;
+
+/**
+ * Clean slate. It walks the old life out of its faction by the same door `POST /factions/leave`
+ * does, so it takes the same successor (maintainer, 2026-09-30).
+ */
+export const AdminResetRequestSchema = LeaveFactionRequestSchema;
+export type AdminResetRequest = LeaveFactionRequest;
 
 export const AdminMutationResponseSchema = z.object({ admin: AdminSnapshotSchema });
 export type AdminMutationResponse = z.infer<typeof AdminMutationResponseSchema>;

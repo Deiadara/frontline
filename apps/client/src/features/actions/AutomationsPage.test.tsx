@@ -45,3 +45,42 @@ describe('the best-fit choice', () => {
     expect(tip).not.toMatch(/nobody/i);
   });
 });
+
+// P5-A (2026-10-02): the label follows the mode, at random before Field Promotions.
+describe('the chase line', () => {
+  const powers = (optimise: boolean) => ({
+    unlocked: true,
+    slots: 1,
+    cooldownMs: 15 * 60_000,
+    bestFit: true,
+    optimise,
+    orders: ['missions'],
+  });
+  const renderWith = (optimise: boolean) => {
+    useAutomations.mockReturnValue({
+      data: {
+        powers: powers(optimise),
+        slots: [],
+        officers: [],
+        serverNow: '2026-09-28T12:00:00.000Z',
+      },
+    });
+    render(
+      <MemoryRouter>
+        <AutomationsPage />
+      </MemoryRouter>,
+    );
+  };
+
+  it('says it picks at random before the rung that makes it pick the best', () => {
+    renderWith(false);
+    expect(screen.getByTestId('automation-0-chase-random')).toHaveTextContent('at random');
+    expect(screen.queryByTestId('automation-0-optimise')).toBeNull();
+  });
+
+  it('offers the best job overall once that rung is researched', () => {
+    renderWith(true);
+    expect(screen.queryByTestId('automation-0-chase-random')).toBeNull();
+    expect(screen.getByTestId('automation-0-optimise')).toBeInTheDocument();
+  });
+});

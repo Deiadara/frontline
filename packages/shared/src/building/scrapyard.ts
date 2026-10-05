@@ -1,9 +1,9 @@
 import type { TrapSpec } from '../battle/traps.js';
 import type { ModificationRarity } from '../modification-rarity.js';
-import { RESOURCE_KEYS, type PartialResources } from '../resources.js';
-import type { UnitModificationSpec } from '../units/modifications.js';
-import { OFFICER_MARK_CEILING, OFFICER_MARK_FLOOR } from '../crew/marks.js';
-import type { ModificationSpec } from './modifications.js';
+import { RESOURCE_KEYS, type PartialResources, type ResourceKey } from '../resources.js';
+import { UNIT_MODIFICATIONS, type UnitModificationSpec } from '../units/modifications.js';
+import { CHAIR_PASSIVE_CAP } from '../crew/passives.js';
+import { MODIFICATIONS, type ModificationSpec } from './modifications.js';
 
 /**
  * What the Scrapyard's own level is worth (maintainer request, 2026-09-10).
@@ -35,7 +35,13 @@ export function scrapyardDiscountPercent(level: number): number {
 }
 
 /**
- * A bill with the yard's discount on it.
+ * The two lines of a Scrapyard bill the Salvager cuts (maintainer, 2026-10-04: "the salvager
+ * reduces anything built by the scrapyards' scrap and HQ metal by X%").
+ */
+export const SALVAGER_CUT_LINES: readonly ResourceKey[] = ['scrap', 'highQualityMetal'];
+
+/**
+ * A bill with the yard's discount on it, and the Salvager's on its scrap and HQ metal.
  *
  * Every line present stays present and no line drops below one: a discount that removed the metal
  * line from an advanced bracket would silently break the rule that metal is what marks one out.
@@ -43,66 +49,96 @@ export function scrapyardDiscountPercent(level: number): number {
 export function scrapyardPrice(
   cost: PartialResources,
   level: number,
-  /** The Fabricator's cut, 0 when the chair is empty. See {@link yardCostCutPercent}. */
-  officerCutPercent = 0,
+  /** The Salvager's passive (`passives.ts`), 0 when the chair is empty. */
+  salvagerCutPercent = 0,
 ): PartialResources {
   const off = scrapyardDiscountPercent(level) / 100;
-  const officerOff = Math.max(0, Math.min(MAX_YARD_COST_CUT, officerCutPercent)) / 100;
+  const salvagerOff =
+    Math.max(0, Math.min(CHAIR_PASSIVE_CAP.scrapyard_cost, salvagerCutPercent)) / 100;
   const priced: PartialResources = {};
   for (const key of RESOURCE_KEYS) {
     const amount = cost[key];
     if (amount === undefined) continue;
     // Multiplied rather than summed, so the two discounts compose instead of racing each other to
-    // a hundred: a maxed yard and a perfect Fabricator take 30% off what is left, not 30 points
-    // off a number that was already most of the way to free.
-    priced[key] = Math.max(1, Math.round(amount * (1 - off) * (1 - officerOff)));
+    // a hundred: a maxed yard and a perfect Salvager take half off what is left, not 50 points off
+    // a number that was already most of the way to free.
+    const salvaged = SALVAGER_CUT_LINES.includes(key) ? 1 - salvagerOff : 1;
+    priced[key] = Math.max(1, Math.round(amount * (1 - off) * salvaged));
   }
   return priced;
 }
 
 /**
- * §C1d, second half: what the Fabricator takes off the yard's bill (maintainer, 2026-09-22).
- *
- * The Fabricator's sheet used to reach nothing at all outside its own research track. It gated no
- * Scrapyard card (it is named as `OFFICER_FOR_UNIT_FALLBACK`, and every unit card already has a
- * louder stat, so the fallback never fired), and nothing else in the game read it. A chair whose
- * only effect is to unlock its own reading list is a chair a player has no reason to fill well.
- *
- * So it buys price, exactly as each research chair buys price on its own track: the same curve,
- * the same ceiling, and points rather than marks, so a better Fabricator is continuously cheaper
- * rather than merely opening a door. Their duties are craft, engineering, salvage and dexterity,
- * which is a description of the person who runs a cutting yard.
- *
- * Applied after the yard's own level discount and before the per-line floor, so nothing is free
- * however good they are.
+ * What the yard's level takes off every bill, as the plate prints it. The Salvager's cut is not in
+ * it since it reaches two lines only (2026-10-04); the response carries it on its own.
  */
-export const MAX_YARD_COST_CUT = 30;
-
-export function yardCostCutPercent(points: number): number {
-  const above = Math.max(0, Math.min(OFFICER_MARK_CEILING, points) - OFFICER_MARK_FLOOR);
-  return (above / (OFFICER_MARK_CEILING - OFFICER_MARK_FLOOR)) * MAX_YARD_COST_CUT;
+export function scrapyardBillCutPercent(level: number): number {
+  return Math.round(scrapyardDiscountPercent(level));
 }
 
 /** The plain bolt-ons: open the day the yard is standing. */
 export const SCRAPYARD_LEVEL_FOR_BASIC = 1;
-/** The ADVANCED rung of {@link SCRAPYARD_LEVEL_FOR_RARITY}. */
-export const SCRAPYARD_LEVEL_FOR_ADVANCED_MODIFICATION = 4;
+
 /**
- * Modification cards by rarity, unit and structure alike: BASIC is open with the yard, MASTERPIECE
- * waits for a serious one.
+ * The levels each rarity of card opens across, unit and structure alike (maintainer ruling
+ * P13-A, 2026-10-02: every Scrapyard level unlocks something, and the most advanced cards and
+ * traps need the top levels).
  *
- * The four rungs are the ones the yard already opened things at, so the swap from the three refit
- * tiers (1, 3, 7) moved no player's threshold: INTRICATE sits where tier two did, MASTERPIECE where
- * tier three did, and ADVANCED on the rung the advanced building modifications opened at.
- * `scrapyard.test.ts` holds that the ladder climbs strictly with the rarity, in the order
- * `MODIFICATION_RARITIES` lists them.
+ * It was four rungs, 1, 3, 4 and 7, so the catalogue was fully open at level 7 and levels 8 to 20
+ * bought only scrap. The bands cover all twenty, and each card opens at a level inside its band
+ * (`spreadOverBands`), the cheaper first, so every level of the yard opens cards of its own.
  */
-export const SCRAPYARD_LEVEL_FOR_RARITY: Readonly<Record<ModificationRarity, number>> = {
-  basic: SCRAPYARD_LEVEL_FOR_BASIC,
-  intricate: 3,
-  advanced: SCRAPYARD_LEVEL_FOR_ADVANCED_MODIFICATION,
-  masterpiece: 7,
+export const SCRAPYARD_RARITY_BANDS: Readonly<
+  Record<ModificationRarity, readonly [from: number, to: number]>
+> = {
+  basic: [SCRAPYARD_LEVEL_FOR_BASIC, 3],
+  intricate: [4, 8],
+  advanced: [9, 13],
+  masterpiece: [14, 20],
 };
+
+/** Where each rarity's band starts: the first level a card of that grade can be cut at. */
+export const SCRAPYARD_LEVEL_FOR_RARITY: Readonly<Record<ModificationRarity, number>> = {
+  basic: SCRAPYARD_RARITY_BANDS.basic[0],
+  intricate: SCRAPYARD_RARITY_BANDS.intricate[0],
+  advanced: SCRAPYARD_RARITY_BANDS.advanced[0],
+  masterpiece: SCRAPYARD_RARITY_BANDS.masterpiece[0],
+};
+/** The ADVANCED rung of {@link SCRAPYARD_LEVEL_FOR_RARITY}. */
+export const SCRAPYARD_LEVEL_FOR_ADVANCED_MODIFICATION = SCRAPYARD_LEVEL_FOR_RARITY.advanced;
+
+/**
+ * Each card's level inside its rarity's band: the cards of a rarity sorted by what they are worth
+ * (dearest last, ties by id) and dealt evenly across the band, so every level opens some.
+ */
+function spreadOverBands<T extends { id: string; rarity: ModificationRarity }>(
+  cards: readonly T[],
+  worth: (card: T) => number,
+): ReadonlyMap<string, number> {
+  const levels = new Map<string, number>();
+  for (const [rarity, [from, to]] of Object.entries(SCRAPYARD_RARITY_BANDS) as [
+    ModificationRarity,
+    readonly [number, number],
+  ][]) {
+    const ofRarity = cards
+      .filter((card) => card.rarity === rarity)
+      .sort((a, b) => worth(a) - worth(b) || a.id.localeCompare(b.id));
+    const width = to - from + 1;
+    ofRarity.forEach((card, index) => {
+      levels.set(card.id, from + Math.floor((index * width) / ofRarity.length));
+    });
+  }
+  return levels;
+}
+
+// A structure card is priced off its magnitude (`modificationPrice`), a unit card off its bill.
+const STRUCTURE_CARD_LEVELS = spreadOverBands(
+  MODIFICATIONS.filter((spec) => spec.yardLevel === undefined),
+  (spec) => spec.magnitude,
+);
+const UNIT_CARD_LEVELS = spreadOverBands(UNIT_MODIFICATIONS, (spec) =>
+  RESOURCE_KEYS.reduce((total, key) => total + (spec.cost[key] ?? 0), 0),
+);
 /**
  * Traps by id, one rung each, in the order they are worth having.
  *
@@ -116,12 +152,13 @@ export const SCRAPYARD_LEVEL_FOR_RARITY: Readonly<Record<ModificationRarity, num
  * below, so the two swapped.
  */
 export const SCRAPYARD_LEVEL_FOR_TRAP: Readonly<Record<string, number>> = {
+  // Spread over the whole yard since 2026-10-02 (P13-A): the two that bite hardest need its top.
   trap_razor_wire: 1,
-  trap_pressure_plates: 2,
-  trap_gas_shell: 3,
-  trap_fuel_fougasse: 4,
-  trap_collapse: 5,
-  trap_flooded_cellar: 6,
+  trap_pressure_plates: 3,
+  trap_gas_shell: 6,
+  trap_fuel_fougasse: 10,
+  trap_collapse: 15,
+  trap_flooded_cellar: 20,
 };
 
 /**
@@ -131,11 +168,14 @@ export const SCRAPYARD_LEVEL_FOR_TRAP: Readonly<Record<string, number>> = {
  * who had learnt the ladder on one bench had learnt the wrong thing about the other.
  */
 export function scrapyardLevelForModification(spec: ModificationSpec): number {
-  return SCRAPYARD_LEVEL_FOR_RARITY[spec.rarity];
+  // A card cut below its old band keeps the rung it opened at (`ModificationSpec.yardLevel`).
+  return (
+    spec.yardLevel ?? STRUCTURE_CARD_LEVELS.get(spec.id) ?? SCRAPYARD_LEVEL_FOR_RARITY[spec.rarity]
+  );
 }
 
 export function scrapyardLevelForUpgrade(spec: UnitModificationSpec): number {
-  return SCRAPYARD_LEVEL_FOR_RARITY[spec.rarity];
+  return UNIT_CARD_LEVELS.get(spec.id) ?? SCRAPYARD_LEVEL_FOR_RARITY[spec.rarity];
 }
 
 export function scrapyardLevelForTrap(spec: TrapSpec): number {

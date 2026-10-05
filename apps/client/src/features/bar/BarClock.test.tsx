@@ -98,7 +98,7 @@ beforeEach(() => {
   fetchMock.mockReset();
   vi.useFakeTimers({ shouldAdvanceTime: true });
   vi.setSystemTime(NOW);
-  useSession.setState({ token: 'session-token', user: null });
+  useSession.setState({ signedIn: true, user: null });
 });
 
 afterEach(() => {
@@ -116,7 +116,11 @@ describe('a table’s clock', () => {
 
     renderBar();
     await waitFor(() => expect(onTheClock()).toBe(90));
-    const readsBefore = fetchMock.mock.calls.length;
+    // Reads of the Bar only: the page also holds `/me` for the player's clock face, and that poll
+    // has its own five-second beat and feeds nothing on the table's clock.
+    const barReads = () =>
+      fetchMock.mock.calls.filter(([path]) => String(path).endsWith('/bar')).length;
+    const readsBefore = barReads();
 
     // Five seconds of wall clock, which is less than the ten-second poll: nothing is asked in
     // between, so anything that moves on screen moved because of the local tick.
@@ -125,10 +129,9 @@ describe('a table’s clock', () => {
     });
 
     expect(onTheClock()).toBe(85);
-    expect(
-      fetchMock.mock.calls.length,
-      'the clock was refreshed by a refetch rather than by ticking',
-    ).toBe(readsBefore);
+    expect(barReads(), 'the clock was refreshed by a refetch rather than by ticking').toBe(
+      readsBefore,
+    );
   });
 
   it('runs the table out and closes it without being asked again', async () => {

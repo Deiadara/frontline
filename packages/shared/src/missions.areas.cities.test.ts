@@ -12,7 +12,8 @@ import {
 import { CITY_DISTRICTS, isContested } from './city/districts.js';
 import { TERMINUS_CITY_ID, cityOf, districtsOfCity, unifiedBonusFor } from './city/atlas.js';
 import { DEFAULT_CITY_ID } from './city/cities.js';
-import { MAX_MISSION_SPEED_BONUS, hastenedMinutes } from './missions.js';
+import { hastenedMinutes } from './missions.js';
+import { MISSION_SPEED_CEILING } from './economy/soft-bounds.js';
 import { GAME_TIMEZONE } from './time/zone.js';
 
 /**
@@ -110,8 +111,8 @@ describe('whose boards a crew is shown', () => {
 /**
  * The two Terminus districts that pay mission speed (maintainer, 2026-09-24).
  *
- * `mission_speed` is a divisor channel: the job leg is `minutes / (1 + percent/100)`, capped at
- * {@link MAX_MISSION_SPEED_BONUS}. The Yards pay 12 and the Blockhouse 25, and the rule the atlas
+ * `mission_speed` is a divisor channel: the job leg is `minutes / (1 + percent/100)`, the percent
+ * bent under its ceiling (`missionSpeedCut`). The Yards pay 12 and the Blockhouse 25, and the rule the atlas
  * enforces is that a unified bonus may not repeat a kind found *inside its own district*, so two
  * districts paying the same kind is allowed and intended. What this checks is that the two add up
  * and that the total is nowhere near the clamp, because a pair that silently capped would make the
@@ -128,7 +129,7 @@ describe('holding both ends of the line', () => {
     const blockhouse = speedOf('blockhouse');
     expect(yards).toBe(12);
     expect(blockhouse).toBe(25);
-    expect(yards + blockhouse).toBeLessThan(MAX_MISSION_SPEED_BONUS);
+    expect(yards + blockhouse).toBeLessThan(MISSION_SPEED_CEILING);
   });
 
   it('takes more off the clock for both than for either alone', () => {
@@ -138,6 +139,6 @@ describe('holding both ends of the line', () => {
     const both = hastenedMinutes(job, yards + blockhouse);
     expect(both).toBeLessThan(hastenedMinutes(job, blockhouse));
     expect(hastenedMinutes(job, blockhouse)).toBeLessThan(hastenedMinutes(job, yards));
-    expect(both).toBeGreaterThan(hastenedMinutes(job, MAX_MISSION_SPEED_BONUS));
+    expect(both).toBeGreaterThan(hastenedMinutes(job, 1_000));
   });
 });

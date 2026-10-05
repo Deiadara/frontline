@@ -12,7 +12,7 @@ import { UNIT_CATALOG, UNIT_MODIFICATIONS, findUnit } from '../units/index.js';
 import { bareBattlefield } from './battlefield.js';
 import { effectiveStats } from './effects.js';
 
-const CONTEXT = { defending: false, outnumbered: false } as const;
+const CONTEXT = { defending: false, outnumbered: 0 } as const;
 
 /**
  * The hundred-point ceiling holds on the battlefield, not only on the sheet.
@@ -61,7 +61,7 @@ describe('the hundred-point ceiling on the battlefield', () => {
       const seen = effectiveStats(
         unit,
         worst,
-        { defending: true, outnumbered: true },
+        { defending: true, outnumbered: 1 },
         hostile,
         everything,
       );
@@ -78,7 +78,7 @@ describe('the hundred-point ceiling on the battlefield', () => {
 
   it('still lets damage and hit points run past a hundred', () => {
     const razors = findUnit('razors')!;
-    const seen = effectiveStats(razors, worst, { defending: true, outnumbered: true }, hostile, []);
+    const seen = effectiveStats(razors, worst, { defending: true, outnumbered: 1 }, hostile, []);
     expect(seen.offense).toBeGreaterThan(100);
     expect(seen.vitality).toBeGreaterThan(100);
   });

@@ -22,7 +22,7 @@ import { unlockedUnits } from './unlocks.js';
  * is an `Army`, which is a free-form map of unit id to count, and nothing in its type stops a feat
  * from paying out a Suppressor. There are 496 feats. Nobody is going to read them all again.
  *
- * What a breach would look like in the game: a player holding a unit with no price, no training
+ * What a breach would look like in the game: a player holding a unit with no price, no muster
  * clock and no gate, that no screen can explain, that the Scrapyard cannot refit and that the
  * balance sheet does not price. It would not crash. It would just be wrong, quietly, for good.
  */

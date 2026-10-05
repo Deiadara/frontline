@@ -16,11 +16,11 @@ import {
   OVERSEER_PRESETS,
   OverseerPresetSchema,
 } from './overseer.js';
-import { OFFICER_ROLES, OFFICER_ROLE_LABELS, RESKILLING_ROLE } from './roles.js';
+import { OFFICER_ROLES, OFFICER_ROLE_LABELS } from './roles.js';
 import { PERK_CATALOG, PERK_CATEGORIES, findPerk } from './crew/perks.js';
 
 describe('the attribute set', () => {
-  // B3/B5: wide enough that all 19 roles have their own field. The server-side requirement
+  // B3/B5: wide enough that all 13 roles have their own field. The server-side requirement
   // table pins the stronger claim (one distinct primary per role); this is the floor.
   it('is many attributes, with no duplicates, covering every group', () => {
     expect(ATTRIBUTE_NAMES.length).toBeGreaterThanOrEqual(OFFICER_ROLES.length);
@@ -116,18 +116,13 @@ describe('PERK_CATALOG', () => {
 describe('officer roles', () => {
   // C1: the 19 positions the board listed, less the Scout, whose chair went on 2026-09-22 when
   // scouting became the Master of Whispers' work and nobody's journey.
-  it('declares the 18 positions, each with a label', () => {
-    expect(OFFICER_ROLES).toHaveLength(18);
-    expect(new Set(OFFICER_ROLES).size).toBe(18);
+  // Thirteen since the chair rework (maintainer, 2026-10-04).
+  it('declares the 13 positions, each with a label', () => {
+    expect(OFFICER_ROLES).toHaveLength(13);
+    expect(new Set(OFFICER_ROLES).size).toBe(13);
     for (const role of OFFICER_ROLES) {
       expect(OFFICER_ROLE_LABELS[role].length).toBeGreaterThan(0);
     }
-  });
-
-  // C4: W4 (reskilling, §G4) reads this binding rather than inventing its own role check.
-  it('binds reskilling to a real role', () => {
-    expect(OFFICER_ROLES).toContain(RESKILLING_ROLE);
-    expect(RESKILLING_ROLE).toBe('professor');
   });
 });
 

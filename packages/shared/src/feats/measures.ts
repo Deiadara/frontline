@@ -66,9 +66,12 @@ export const FEAT_MEASURES = [
   'unit_kinds_held',
   'fleet_size',
   'officers_held',
+  // Maintainer, 2026-09-30: the book grows by purchase with no top, so how wide it is is a ladder.
+  'payroll_capacity',
   'officer_best_mark',
   'overseer_skills_at',
   'overseer_best_skill',
+  'overseer_grade',
   'districts_held_whole',
   'locations_held',
   // The second city (maintainer, 2026-09-24): what a crew has done somewhere it does not live.
@@ -76,6 +79,8 @@ export const FEAT_MEASURES = [
   'districts_held_whole_abroad',
   'cities_held',
   'rail_stations_held',
+  // P8-C (2026-10-02): the best-worked holding this crew stands on.
+  'location_level_held',
   'faction_infamy',
   'faction_seats',
   'blueprints_unlocked',
@@ -126,8 +131,8 @@ export const FEAT_MEASURES = [
   // The week (maintainer, 2026-09-24): the NPC army erodes, and Monday morning puts it back.
   'districts_emptied',
   'plots_held_through_regrowth',
-  'units_trained',
-  'drills_paired',
+  'units_mustered',
+  'drills_third_in_line',
   'overseer_taken',
   'buildings_raised',
   'officers_hired',
@@ -149,8 +154,18 @@ export const FEAT_MEASURES = [
   'locations_captured',
   'gates_breached',
   'traps_built',
+  // P11-B (2026-10-02): a trap that went off under a fight, and a name burned on one.
+  'traps_sprung',
+  'names_burned',
+  // The Stackhouse (2026-10-05): bets put down, and bets that came in.
+  'stackhouse_bets',
+  'stackhouse_wins',
+  // P14-B (2026-10-02): the medics' work.
+  'casualties_recovered',
+  // P8-C (2026-10-02): working up held ground, and raising a captured gate.
+  'location_levels_raised',
+  'gate_levels_raised',
   'addons_built',
-  'messages_sent',
 ] as const;
 
 export const FeatMeasureSchema = z.enum(FEAT_MEASURES);
@@ -201,9 +216,20 @@ export const FEAT_MEASURE_SPECS: Readonly<Record<FeatMeasure, FeatMeasureSpec>> 
   unit_kinds_held: { source: 'crew', scoped: false, unit: 'kinds' },
   fleet_size: { source: 'crew', scoped: false, unit: 'machines' },
   officers_held: { source: 'crew', scoped: false, unit: 'officers' },
+  /**
+   * The payroll book's ceiling right now, in caps (`economy/payroll.ts`): the Nexus, the
+   * expansions bought, the Quarters and the payroll cards. A crew measure, because demolishing the
+   * Nexus or pulling a card shrinks it and the question is "how wide is your book".
+   */
+  payroll_capacity: { source: 'crew', scoped: false, unit: 'caps' },
   officer_best_mark: { source: 'crew', scoped: false, unit: 'marks' },
   overseer_skills_at: { source: 'crew', scoped: true, unit: 'skills' },
   overseer_best_skill: { source: 'crew', scoped: false, unit: 'points' },
+  /**
+   * The Overseer's own grade, as an index on the mark ladder (2026-10-04): read on the seat
+   * `ROLE_IMPORTANCE.overseer` and the sheet the Right Hand lifts, the one the crew screen shows.
+   */
+  overseer_grade: { source: 'crew', scoped: false, unit: 'marks' },
   districts_held_whole: { source: 'crew', scoped: false, unit: 'districts' },
   locations_held: { source: 'crew', scoped: false, unit: 'holdings' },
   /**
@@ -218,7 +244,8 @@ export const FEAT_MEASURE_SPECS: Readonly<Record<FeatMeasure, FeatMeasureSpec>> 
    * and taking ground, and it keeps living where it lived, so "abroad" has to be derived from the
    * map on every read or it is a fact that goes stale the first time a district is moved.
    *
-   * `cities_held` counts cities the crew holds at least one location in, home included. It is not
+   * `cities_held` counts cities the crew holds at least one location in, home only when something
+   * there is held. It is not
    * the same question as `locations_held_abroad > 0`: a crew that has taken a platform in Terminus
    * and nothing at all in Ashfall is abroad but is only in one city.
    */
@@ -233,6 +260,8 @@ export const FEAT_MEASURE_SPECS: Readonly<Record<FeatMeasure, FeatMeasureSpec>> 
    * both ends, and one Station is a building rather than a railway.
    */
   rail_stations_held: { source: 'crew', scoped: false, unit: 'platforms' },
+  /** The highest level among the locations this crew holds right now. */
+  location_level_held: { source: 'crew', scoped: false, unit: 'levels' },
   faction_infamy: { source: 'crew', scoped: false, unit: 'infamy' },
   faction_seats: { source: 'crew', scoped: false, unit: 'seats' },
   blueprints_unlocked: { source: 'crew', scoped: false, unit: 'blueprints' },
@@ -356,9 +385,9 @@ export const FEAT_MEASURE_SPECS: Readonly<Record<FeatMeasure, FeatMeasureSpec>> 
    */
   districts_emptied: { source: 'tally', scoped: false, unit: 'districts' },
   plots_held_through_regrowth: { source: 'tally', scoped: false, unit: 'holdings' },
-  units_trained: { source: 'tally', scoped: false, unit: 'units' },
-  /** Drills started while somebody else was already on the floor: the second bench, used. */
-  drills_paired: { source: 'tally', scoped: false, unit: 'drills' },
+  units_mustered: { source: 'tally', scoped: false, unit: 'units' },
+  /** Drills queued with two already on the list: the Professor's third place, used. */
+  drills_third_in_line: { source: 'tally', scoped: false, unit: 'drills' },
   /**
    * The moment an account picks the person the district answers to, counted once and for ever.
    *
@@ -427,8 +456,21 @@ export const FEAT_MEASURE_SPECS: Readonly<Record<FeatMeasure, FeatMeasureSpec>> 
   locations_captured: { source: 'tally', scoped: false, unit: 'holdings' },
   gates_breached: { source: 'tally', scoped: false, unit: 'gates' },
   traps_built: { source: 'tally', scoped: false, unit: 'traps' },
+  /** A trap of this crew's that went off under a fight, killing or not (`springAnyTrap`). */
+  traps_sprung: { source: 'tally', scoped: false, unit: 'traps' },
+  /** A name bought with infamy on a fight's own screen (`/battles/boost`). Crates do not count. */
+  names_burned: { source: 'tally', scoped: false, unit: 'names' },
+  /** A bet put down at the Stackhouse (`blackmarket/stackhouse.ts`). */
+  stackhouse_bets: { source: 'tally', scoped: false, unit: 'bets' },
+  /** A Stackhouse bet that came in: the side backed won the fight. */
+  stackhouse_wins: { source: 'tally', scoped: false, unit: 'bets' },
+  /** The crew's dead brought round after a won fight, declared or a battle job. */
+  casualties_recovered: { source: 'tally', scoped: false, unit: 'units' },
+  /** A level of work on held ground landing, for whoever holds it when it lands. */
+  location_levels_raised: { source: 'tally', scoped: false, unit: 'levels' },
+  /** A level on a captured gate landing, for whoever holds the district whole when it lands. */
+  gate_levels_raised: { source: 'tally', scoped: false, unit: 'levels' },
   addons_built: { source: 'tally', scoped: false, unit: 'fittings' },
-  messages_sent: { source: 'tally', scoped: false, unit: 'letters' },
 };
 
 /**

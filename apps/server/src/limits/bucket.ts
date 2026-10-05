@@ -93,6 +93,11 @@ export class RateLimiter {
     };
   }
 
+  /** Drops one caller's window, as if it had rolled. */
+  forget(key: string): void {
+    this.#windows.delete(key);
+  }
+
   /** Drops windows that have already rolled. Called on a timer; safe to call at any time. */
   #makeRoom(): void {
     this.sweep();

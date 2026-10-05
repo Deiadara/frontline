@@ -1,4 +1,5 @@
 import {
+  chairPassiveOf,
   factionXpBonus,
   resolvePlayerXpAward,
   type Base,
@@ -11,6 +12,43 @@ import {
 import { crewEffectsFor } from '../crew/standing.js';
 import { offerOpeningInvitationAt } from '../factions/opening.js';
 import type { Repositories } from '../db/repos/index.js';
+
+/**
+ * The percentage points every XP award to this crew carries: the district's and the crew's.
+ *
+ * Its own function so the missions board can quote it and the mission settle can record what it
+ * paid, off the same sum the award banks.
+ */
+export function playerXpBonusPercent(
+  repos: Repositories,
+  base: Base,
+  /** The instant the award is judged at: a settle passes its own, so a chair settling or an
+   *  officer laid up is read at the mission's mark rather than at the wall clock (2026-10-05). */
+  now: Date = new Date(),
+): number {
+  return factionXpBonus(base.buildings) + crewEffectsFor(repos, base, now).xpGainPercent;
+}
+
+/**
+ * The Professor's passive: percentage points more on every mission's XP (maintainer, 2026-10-04).
+ * Missions only, so it rides as the award's `extraPercent` on the mission settle and nowhere else.
+ */
+export function professorXpPercent(
+  repos: Repositories,
+  base: Base,
+  now: Date = new Date(),
+): number {
+  return chairPassiveOf(crewEffectsFor(repos, base, now), 'professor', 'mission_xp');
+}
+
+/** What a mission's XP is paid with: every award's bonus and the Professor's on top. */
+export function missionXpBonusPercent(
+  repos: Repositories,
+  base: Base,
+  now: Date = new Date(),
+): number {
+  return playerXpBonusPercent(repos, base, now) + professorXpPercent(repos, base, now);
+}
 
 export interface AwardedXp {
   /** The base with its new level and banked XP already applied. */
@@ -49,7 +87,7 @@ export function awardPlayerXp(
      * `crewEffectsFor` rather than `standingEffectsFor`: what a crew has learnt to squeeze out of
      * a job is about the people, and holding a Gas Station does not teach anybody anything.
      */
-    factionXpBonus(base.buildings) + crewEffectsFor(repos, base).xpGainPercent + extraPercent,
+    playerXpBonusPercent(repos, base) + extraPercent,
     amount,
   );
   repos.bases.updateProgression(base.id, award.level, award.progression);

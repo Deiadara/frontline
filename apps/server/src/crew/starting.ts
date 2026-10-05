@@ -88,12 +88,12 @@ export function startingBase({
      * day one and win. The opening is a different shape now: the board's first runs are minutes
      * rather than hours (`earlyMissionRamp`), so what a new crew needs on the first evening is
      * loot capacity, and carriers are what carries loot. Fighters are earned instead: off the
-     * early feat bands that pay them, and off the training floor once the Gauntlet is up. The
+     * early feat bands that pay them, and off the muster bench once the Gauntlet is up. The
      * maintainer's rule is that you start with carriers and you earn the rest.
      */
     army: { scavengers: 8 },
     gateArmy: {},
-    trainingQueue: [],
+    musterQueue: [],
     training: startingTraining(now),
     inventory: {},
     fittedUpgrades: [],

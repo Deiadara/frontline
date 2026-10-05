@@ -389,7 +389,7 @@ describe('who goes, and what they can carry (§A5, §E)', () => {
 
   /**
    * And trims it proportionally when they cannot. This is the one thing that makes the support
-   * tier worth training rather than a curiosity: two Razors bring back a quarter of what six
+   * tier worth mustering rather than a curiosity: two Razors bring back a quarter of what six
    * Scavengers do off the same job.
    */
   it('trims a payout the crew cannot lift, across every line rather than the awkward ones', () => {

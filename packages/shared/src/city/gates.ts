@@ -1,12 +1,10 @@
 import { z } from 'zod';
 import { BUILDING_MAX_LEVEL } from '../building/kinds.js';
 import { buildingBuildSeconds, buildingCost } from '../building/cost.js';
-import {
-  GATE_DEFENSE_PERCENT_PER_LEVEL,
-  GATE_INTEL_RESISTANCE_PER_LEVEL,
-} from '../building/standing.js';
+import { GATE_DEFENSE_PERCENT_PER_LEVEL } from '../building/standing.js';
 import { IdSchema, IsoDateTimeSchema } from '../primitives.js';
-import type { PartialResources } from '../resources.js';
+import { PartialResourcesSchema, type PartialResources } from '../resources.js';
+import type { Building } from '../building/state.js';
 
 /**
  * The gate on a district somebody has taken whole (maintainer request, §B7).
@@ -45,19 +43,47 @@ export const CapturedGateSchema = z.object({
   upgradingUntil: IsoDateTimeSchema.nullable().default(null),
   /** When it began, so the first tenth of it can be called off (`time/cancel.ts`). */
   upgradingSince: IsoDateTimeSchema.nullable().default(null),
+  /**
+   * What the raise in progress was charged, so calling it off refunds that and not a price read
+   * again at the cancel (2026-10-05): the price now takes the Engineer, and a cut seated for the
+   * order and gone by the cancel would refund more than was paid. Null on a row written before.
+   */
+  upgradePaid: PartialResourcesSchema.nullable().optional(),
 });
 export type CapturedGate = z.infer<typeof CapturedGateSchema>;
 
+/** A captured gate's raise runs 10% over the Gate's own curve (maintainer, 2026-10-05). */
+export const CAPTURED_GATE_PRICE_RISE = 1.1;
+
 /**
- * What raising a captured gate costs and takes.
- *
- * The Gate's own curve, unchanged, which is the maintainer's rule: "costs pretty much the same things
- * to upgrade". Priced against an empty district rather than the crew's own, because the discounts
- * a home district earns (its Generator, its perks) are improvements to *that* district's yard and
- * do not reach a wall four districts away.
+ * What prices a crew's raise: its home district's build-cost cards, its own points off a build,
+ * and its Engineer. All three reach a captured gate since 2026-10-05 (maintainer: "apply both"):
+ * it is a building raised by the same crew, and it was the one build the Engineer did not touch.
  */
-export function capturedGateCost(toLevel: number): PartialResources {
-  return buildingCost('gate', toLevel, []);
+export interface GatePricing {
+  buildings?: readonly Building[];
+  crewCostPercent?: number;
+  engineerPercent?: number;
+}
+
+/**
+ * What raising a captured gate costs: the Gate's own curve with the crew's discounts, as any build
+ * takes them (`buildingCost`), then the rise. Every line stays at least one.
+ */
+export function capturedGateCost(toLevel: number, pricing: GatePricing = {}): PartialResources {
+  const bill = buildingCost(
+    'gate',
+    toLevel,
+    pricing.buildings ?? [],
+    pricing.crewCostPercent ?? 0,
+    pricing.engineerPercent ?? 0,
+  );
+  return Object.fromEntries(
+    Object.entries(bill).map(([key, amount]) => [
+      key,
+      Math.max(1, Math.round((amount ?? 0) * CAPTURED_GATE_PRICE_RISE)),
+    ]),
+  );
 }
 
 export function capturedGateSeconds(toLevel: number): number {
@@ -69,18 +95,6 @@ export function capturedGateDefensePercent(level: number): number {
   return Math.max(0, level) * GATE_DEFENSE_PERCENT_PER_LEVEL;
 }
 
-/**
- * §B7: and how much less a spy reading this district comes away with.
- *
- * The board's rule is that "the spying part is true for all gates as well". It lands on the same
- * `intelResistancePercent` a home Gate does, so a spy looking at a district behind a level 8
- * captured gate is up against exactly what they would be looking at a home district behind a
- * level 8 one.
- */
-export function capturedGateIntelResistancePercent(level: number): number {
-  return Math.max(0, level) * GATE_INTEL_RESISTANCE_PER_LEVEL;
-}
-
 /** Why a crew cannot raise this gate right now, already worded, or null when they can. */
 export type CapturedGateRefusal = 'not_held' | 'already_working' | 'at_ceiling' | 'cannot_afford';
 
@@ -88,12 +102,14 @@ export function capturedGateRefusal(input: {
   holdsDistrict: boolean;
   gate: CapturedGate | undefined;
   stock: PartialResources;
+  /** The crew's discounts, so the refusal judges the price it would be charged. */
+  pricing?: GatePricing;
 }): CapturedGateRefusal | null {
   if (!input.holdsDistrict) return 'not_held';
   const level = input.gate?.level ?? CAPTURED_GATE_START_LEVEL;
   if (input.gate?.upgradingUntil) return 'already_working';
   if (level >= CAPTURED_GATE_MAX_LEVEL) return 'at_ceiling';
-  const price = capturedGateCost(level + 1);
+  const price = capturedGateCost(level + 1, input.pricing);
   for (const [resource, amount] of Object.entries(price)) {
     if ((input.stock[resource as keyof PartialResources] ?? 0) < (amount ?? 0)) {
       return 'cannot_afford';

@@ -5,7 +5,17 @@ import {
   installApi,
   settleFonts,
 } from './harness';
-import { adminGame, bar, blackMarket, featsMe, fullQueue, lateGame, market, me } from './fixtures';
+import {
+  adminGame,
+  bar,
+  blackMarket,
+  featsMe,
+  fullQueue,
+  lateGame,
+  lateGameBase,
+  market,
+  me,
+} from './fixtures';
 
 /**
  * Three layouts that only change at the edge that needed them (maintainer, 2026-09-29).
@@ -346,3 +356,167 @@ async function expectBidRowWhole(page: Page, field: string, pay: string): Promis
     .evaluate((node) => node.scrollWidth > node.clientWidth + 1);
   expect(cut, 'the second figure is cut').toBe(false);
 }
+
+/*
+ * The market and raid bug pass (2026-10-01): three things that change one label or add one row, held
+ * to the layout gates at the narrowest frame, the board's own 1440 and the widest.
+ */
+const MARKET_FRAMES = [
+  [1024, 768],
+  [1440, 900],
+  [1920, 1080],
+] as const;
+
+/** Whether an element's text is cut inside its own box. */
+async function isCut(page: Page, testId: string): Promise<boolean> {
+  return page.getByTestId(testId).evaluate((node) => node.scrollWidth > node.clientWidth + 1);
+}
+
+for (const [width, height] of MARKET_FRAMES) {
+  test(`the supply run's ration reads in units of the pick at ${width}x${height}`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width, height });
+    await installApi(page, lateGame);
+    await page.goto('/game/market');
+    await expect(page.getByTestId('vendor-stock')).toBeVisible();
+    await settleFonts(page);
+    // HQ metal is the longest word the label takes, so it is the widest the header gets.
+    await page.getByTestId('supply-resource-highQualityMetal').click();
+    const left = page.getByTestId('supply-left');
+    await expect(left).toContainText(/^[\d,]+ HQ metal left$/);
+    // The head is one row: the ration's figure sits level with the bar and the reset note.
+    const [bar, figure, note] = await Promise.all([
+      page.getByTestId('supply-allowance').locator('[role="progressbar"]').first().boundingBox(),
+      left.boundingBox(),
+      page
+        .getByTestId('supply-allowance')
+        .getByText(/resets at/)
+        .boundingBox(),
+    ]);
+    expect(bar && figure && note, 'the supply head did not draw').toBeTruthy();
+    for (const box of [bar!, note!]) {
+      expect(Math.abs(box.y + box.height / 2 - (figure!.y + figure!.height / 2))).toBeLessThan(4);
+    }
+    expect(await isCut(page, 'supply-left'), 'the ration figure is cut').toBe(false);
+    await expectNothingOverflowsTheScreen(page);
+    await expectNothingClippedHorizontally(page);
+    await page.screenshot({
+      path: `screenshots/layout-edges/supply-units-${width}x${height}.png`,
+    });
+  });
+
+  test(`the Broker takes and pays caps at ${width}x${height}`, async ({ page }) => {
+    await page.setViewportSize({ width, height });
+    await installApi(page, lateGame);
+    await page.goto('/game/market');
+    await expect(page.getByTestId('vendor-stock')).toBeVisible();
+    await settleFonts(page);
+    for (const [give, take] of [
+      ['caps', 'scrap'],
+      ['oil', 'caps'],
+    ] as const) {
+      await page.getByTestId(`broker-give-${give}`).click();
+      await page.getByTestId(`broker-take-${take}`).click();
+      await expect(page.getByTestId('broker-answer')).not.toContainText(/^0/);
+      /*
+       * The caps tile adds no row to either picker, so nothing under it moves. Six tiles take the
+       * rows five did: one from 1280 up, and two at 1024, where the five materials already wrapped
+       * four and one.
+       */
+      for (const picker of ['broker-give', 'broker-take']) {
+        const { rows, perRow } = await page
+          .getByTestId(picker)
+          .locator('button')
+          .evaluateAll((tiles) => {
+            // `offsetTop`, not the box: the picked tile is lifted half a pixel by a transform.
+            const tops = tiles.map((tile) => (tile as HTMLElement).offsetTop);
+            return {
+              rows: new Set(tops).size,
+              perRow: tops.filter((top) => top === Math.min(...tops)).length,
+            };
+          });
+        expect(rows, `${picker} took a row more than five tiles`).toBe(Math.ceil(5 / perRow));
+        expect(rows, `${picker} wrapped at ${width}`).toBe(width >= 1280 ? 1 : 2);
+      }
+      const scrolls = await page
+        .getByTestId('barter-quote')
+        .evaluate((node) => node.scrollHeight > node.clientHeight + 1);
+      expect(scrolls, 'the Broker band scrolls').toBe(false);
+      await expectNothingOverflowsTheScreen(page);
+      await expectNothingClippedHorizontally(page);
+      await page.screenshot({
+        path: `screenshots/layout-edges/broker-${give}-${take}-${width}x${height}.png`,
+      });
+    }
+  });
+
+  test(`a raided district says so on its Production panel at ${width}x${height}`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width, height });
+    const now = Date.now();
+    const raided = {
+      ...lateGame,
+      base: {
+        ...lateGameBase,
+        economy: {
+          ...lateGameBase.economy,
+          // A crushing raid two hours ago, four hours and a minute still to run.
+          disruption: {
+            since: new Date(now - 2 * 3_600_000).toISOString(),
+            until: new Date(now + 4 * 3_600_000 + 60_000).toISOString(),
+            percent: 30,
+          },
+        },
+      },
+    };
+    await installApi(page, raided);
+    await page.goto('/game/base');
+    await page.getByTestId('reports-toggle').click();
+    const row = page.getByTestId('production-raided');
+    await row.scrollIntoViewIfNeeded();
+    await settleFonts(page);
+    await expect(row).toHaveText(/Raided\s*-30% for 4h( 1m)?$/);
+    await expect(row).toBeInViewport({ ratio: 1 });
+    await expectNothingOverflowsTheScreen(page);
+    await expectNothingClippedHorizontally(page);
+    await page.screenshot({ path: `screenshots/layout-edges/raided-${width}x${height}.png` });
+  });
+}
+
+for (const [width, height] of [
+  [1024, 768],
+  [1440, 900],
+] as const) {
+  test(`the Runner's note says the effective market discount at ${width}x${height}`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width, height });
+    await installApi(page, lateGame);
+    await page.route('**/api/market', (route) =>
+      route.fulfill({ json: { ...market, marketDiscountPercent: 45 } }),
+    );
+    await page.goto('/game/market');
+    await expect(page.getByTestId('vendor-stock')).toBeVisible();
+    await settleFonts(page);
+    await page.getByTestId('info-note').hover();
+    const line = page.getByTestId('market-discount');
+    await expect(line).toContainText('Your market discount is 26%');
+    await expect(line).toBeInViewport({ ratio: 1 });
+    await expectNothingOverflowsTheScreen(page);
+    await expectNothingClippedHorizontally(page);
+    await page.screenshot({
+      path: `screenshots/layout-edges/market-discount-note-${width}x${height}.png`,
+    });
+  });
+}
+
+test('an unraided district draws no raid row', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await installApi(page, lateGame);
+  await page.goto('/game/base');
+  await page.getByTestId('reports-toggle').click();
+  await expect(page.getByTestId('production')).toBeVisible();
+  await expect(page.getByTestId('production-raided')).toHaveCount(0);
+});

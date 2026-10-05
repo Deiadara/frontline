@@ -97,9 +97,10 @@ async function makeStack(username: string): Promise<Stack> {
   const purse = app.repos.bases.findById(baseId)!.economy;
   app.repos.bases.updateEconomy(baseId, { ...purse, infamy: DECLARE_INFAMY_COST * 8 });
   // Razors on the books, explicitly: a fresh crew is handed Scavengers and no fighters
-  // (`crew/starting.ts`, 2026-09-23), and this file deploys four Razors into a fight.
+  // (`crew/starting.ts`, 2026-09-23), and this file deploys twenty Razors into a fight: the least
+  // commitment a fight needs at the lock (2026-10-05).
   const armed = app.repos.bases.findById(baseId)!;
-  app.repos.bases.updateArmy(baseId, { ...armed.army, razors: 20 }, armed.trainingQueue);
+  app.repos.bases.updateArmy(baseId, { ...armed.army, razors: 40 }, armed.musterQueue);
 
   return { app, db, token, baseId };
 }
@@ -129,7 +130,7 @@ async function readyFight(stack: Stack): Promise<{ battleId: string; mark: Date 
     method: 'POST',
     url: '/api/battles/deploy',
     headers: auth(stack.token),
-    payload: { battleId: battle.id, changes: { razors: 4 }, perimeterChanges: {} },
+    payload: { battleId: battle.id, changes: { razors: 20 }, perimeterChanges: {} },
   });
 
   const mark = new Date(Date.now() - 60_000);
@@ -165,7 +166,7 @@ describe('a fight lands on its mark', () => {
      * is what tells the two apart, and swapping the two settles in `tickWorld` turns this to 0.
      */
     const [report] = stack.app.repos.sieges.resolvedFor(stack.baseId, 5);
-    expect(report?.analysis.attacker.committed).toBe(4);
+    expect(report?.analysis.attacker.committed).toBe(20);
   });
 
   /**

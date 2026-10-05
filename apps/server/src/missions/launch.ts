@@ -118,6 +118,8 @@ export function launchMission(args: {
    */
   travelSpeedPercent?: number;
   roadMinutesOff?: number;
+  /** The Cartographer's cut off the road's base (`roadMinutes`, 2026-10-04). */
+  roadBaseCutPercent?: number;
   /**
    * The opening band this crew is in, or null once they are past it (`missions.ramp.ts`).
    *
@@ -129,6 +131,9 @@ export function launchMission(args: {
   ramp?: EarlyRampBand | null;
   /**
    * §D5: what the officer *leading this run* takes off the road (`leadArrivalPercent`), or 0.
+   *
+   * The travel legs only, never the job's own clock (maintainer, 2026-10-01): the card says "off
+   * the road", and a declared fight's march spends it the same way (`battle/movement.ts`).
    *
    * Separate from `missionSpeedPercent` above, and the separation is the whole point. That one is a
    * fact about the crew, true when the card is drawn, so the card quotes it and the pay is priced
@@ -191,6 +196,7 @@ export function launchMission(args: {
     missionSpeedPercent = 0,
     travelSpeedPercent = 0,
     roadMinutesOff = 0,
+    roadBaseCutPercent = 0,
     ramp = null,
     leadSpeedPercent = 0,
     missionSpoilsPercent = 0,
@@ -221,10 +227,10 @@ export function launchMission(args: {
       anyRide,
     }),
   );
-  // The clock the crew actually keeps: the ground's cut and, on a led run, the officer's on top.
-  const runSpeedPercent = missionSpeedPercent + Math.max(0, leadSpeedPercent);
+  // The job's own clock: the ground's cut and nothing else. Short Way is "off the road", and the
+  // maintainer's ruling (2026-10-01) is that it is spent on the road alone, as it is on a march.
   const durationMinutes = adminMinutes(
-    hastenedMinutes(templateTimings(template, grade).durationMinutes, runSpeedPercent),
+    hastenedMinutes(templateTimings(template, grade).durationMinutes, missionSpeedPercent),
     admin,
   );
   // A job in another city is that far further away, each way (`missionWalkMinutes`).
@@ -237,9 +243,10 @@ export function launchMission(args: {
           pace,
           // The road's own cuts, summed the way every other road in the game sums them: the
           // ground's shortcut, the leader's Short Way and the crew's own pace off `travelSpeedPercent`.
-          // `roadMinutes` clamps the total at `MAX_TRAVEL_SPEED_BONUS`, so this cannot run away.
-          runSpeedPercent + Math.max(0, travelSpeedPercent),
+          // `roadMinutes` bends the total under `TRAVEL_SPEED_CEILING`, so this cannot run away.
+          missionSpeedPercent + Math.max(0, leadSpeedPercent) + Math.max(0, travelSpeedPercent),
           Math.max(0, roadMinutesOff),
+          roadBaseCutPercent,
         ),
     durationMinutes,
   });

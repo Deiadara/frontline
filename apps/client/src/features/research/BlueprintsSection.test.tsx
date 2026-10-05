@@ -34,7 +34,7 @@ const resources = Object.fromEntries(
 
 function marketWith(inventory: Inventory): MarketResponse {
   return {
-    reimagining: { hasHeadOfResearch: false, hasReimaginingResearch: false },
+    reimagining: { hasResearcher: false, hasReimaginingResearch: false },
     serverNow: NOW,
     cityId: DEFAULT_CITY_ID,
     cities: [DEFAULT_CITY_ID],
@@ -123,7 +123,7 @@ const showUnlocked = () => screen.getByRole('switch', { name: /Show unlocked/ })
 beforeEach(() => {
   vi.stubGlobal('fetch', fetchMock);
   fetchMock.mockReset();
-  useSession.setState({ token: 'session-token', user: null });
+  useSession.setState({ signedIn: true, user: null });
 });
 
 afterEach(() => {

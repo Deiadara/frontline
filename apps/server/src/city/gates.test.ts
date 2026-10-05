@@ -1,4 +1,6 @@
 import {
+  SPY_ACCURACY_RESEARCH_ID,
+  SPY_ESTIMATE_RESEARCH_ID,
   BUILD_BOOST_PERCENT,
   BUILD_BOOST_MS,
   BUILDING_MAX_LEVEL,
@@ -6,8 +8,12 @@ import {
   CAPTURED_GATE_START_LEVEL,
   CITY_DISTRICTS,
   GATE_DEFENSE_PERCENT_PER_LEVEL,
-  GATE_INTEL_RESISTANCE_PER_LEVEL,
   STARTING_RESOURCES,
+  CAPTURED_GATE_PRICE_RISE,
+  buildingCost,
+  cancelRefund,
+  createCommander,
+  makeAttributes,
   capturedGateCost,
   capturedGateDefensePercent,
   capturedGateSeconds,
@@ -20,7 +26,6 @@ import {
   startingTraining,
   type Base,
   SPY_GATE_POINTS_PER_LEVEL,
-  capturedGateIntelResistancePercent,
   counterScore,
 } from '@frontline/shared';
 import { describe, expect, it } from 'vitest';
@@ -37,7 +42,7 @@ import {
   resetGateOnDistrictLost,
   settleCapturedGates,
 } from './gates.js';
-import { groundBehind } from '../spying/spying.js';
+import { composeSpyReport, groundBehind, readGround } from '../spying/spying.js';
 
 /**
  * §B7: the gate on a district a crew has taken whole (maintainer request).
@@ -74,7 +79,7 @@ function stack(): { repos: Repositories; base: Base } {
     buildings: [],
     buildQueue: [],
     army: {},
-    trainingQueue: [],
+    musterQueue: [],
     training: startingTraining(HOUR),
     inventory: {},
     fittedUpgrades: [],
@@ -160,6 +165,47 @@ describe('raising one', () => {
     expect(result.gate.level).toBe(1);
   });
 
+  /** Maintainer, 2026-10-05: the crew's discounts and its Engineer reach a gate, and it runs 10% dearer. */
+  it('runs 10% over the Gate at home, and takes a perfect Engineer’s half off', () => {
+    const plain = buildingCost('gate', 2, []);
+    expect(capturedGateCost(2).caps).toBe(Math.round((plain.caps ?? 0) * CAPTURED_GATE_PRICE_RISE));
+
+    const { repos, base } = stack();
+    takeWhole(repos, base.id, DISTRICT.id);
+    const engineer = createCommander('eng', 'Vasso', 'engineer', makeAttributes(100));
+    repos.bases.updateCommanders(base.id, [engineer]);
+    const withEngineer = repos.bases.findById(base.id)!;
+    const result = raiseCapturedGate(repos, withEngineer, DISTRICT.id, new Date(HOUR));
+    if (result.kind !== 'started') throw new Error(result.kind);
+    const charged = base.resources.caps - result.base.resources.caps;
+    expect(charged).toBe(capturedGateCost(2, { engineerPercent: 50 }).caps);
+    expect(charged).toBeLessThan(capturedGateCost(2).caps!);
+    expect(result.gate.upgradePaid?.caps).toBe(charged);
+  });
+
+  it('refunds what the order was charged, not a price read again without the Engineer', () => {
+    const { repos, base } = stack();
+    takeWhole(repos, base.id, DISTRICT.id);
+    repos.bases.updateCommanders(base.id, [
+      createCommander('eng', 'Vasso', 'engineer', makeAttributes(100)),
+    ]);
+    const result = raiseCapturedGate(
+      repos,
+      repos.bases.findById(base.id)!,
+      DISTRICT.id,
+      new Date(HOUR),
+    );
+    if (result.kind !== 'started') throw new Error(result.kind);
+    const paid = result.gate.upgradePaid!;
+    // The Engineer leaves before the cancel: the refund must not grow.
+    repos.bases.updateCommanders(base.id, []);
+    const before = repos.bases.findById(base.id)!;
+    const cancelled = cancelGateRaise(repos, before, DISTRICT.id, new Date(HOUR), true);
+    if (cancelled.kind !== 'cancelled') throw new Error(cancelled.kind);
+    expect(cancelled.refund).toEqual(cancelRefund(paid));
+    expect(cancelled.refund.caps!).toBeLessThan(paid.caps!);
+  });
+
   /*
    * Bug pass, 2026-09-29: the testing build flattened every build clock and waived every bill
    * except this one, which charged in full and ran the real clock.
@@ -224,6 +270,8 @@ describe('raising one', () => {
     expect(landed.level).toBe(2);
     expect(landed.upgradingUntil).toBeNull();
     expect(landed.upgradingTo).toBeNull();
+    // P8-C: the walls ladder counts the level that landed, for the crew holding the district.
+    expect(repos.feats.tallies(base.id)['gate_levels_raised']).toBe(1);
   });
 
   /** "you can get it up to MAX level", and no further. */
@@ -251,22 +299,20 @@ describe('raising one', () => {
 });
 
 describe('what one is worth', () => {
-  /** The same rates a home Gate pays, which is the maintainer's rule for both halves. */
-  it('defends and blurs at exactly the home Gate rates', () => {
+  /**
+   * The same rate a home Gate pays. Against a spy both are read off the level in the contest
+   * (`SPY_GATE_POINTS_PER_LEVEL`), so that half needs no figure of its own.
+   */
+  it('defends at exactly the home Gate rate', () => {
     expect(capturedGateDefensePercent(8)).toBe(8 * GATE_DEFENSE_PERCENT_PER_LEVEL);
-    expect(capturedGateIntelResistancePercent(8)).toBe(8 * GATE_INTEL_RESISTANCE_PER_LEVEL);
   });
 
   it('is worth nothing at level zero', () => {
     expect(capturedGateDefensePercent(0)).toBe(0);
-    expect(capturedGateIntelResistancePercent(0)).toBe(0);
   });
 
   it('is worth more the higher it goes', () => {
     expect(capturedGateDefensePercent(10)).toBeGreaterThan(capturedGateDefensePercent(3));
-    expect(capturedGateIntelResistancePercent(10)).toBeGreaterThan(
-      capturedGateIntelResistancePercent(3),
-    );
   });
 });
 
@@ -478,6 +524,44 @@ describe('what a captured gate changes (2026-09-22: read by spies, since nothing
 
     expect(walled).toBeGreaterThan(bare);
     expect(walled - bare).toBe((10 - CAPTURED_GATE_START_LEVEL) * SPY_GATE_POINTS_PER_LEVEL);
+  });
+
+  // Nobody stands at a gate held from elsewhere between fights (maintainer, 2026-10-02): the
+  // report says so, with no accuracy or estimate to dress up an empty that is not a count.
+  it('reports a gate held from elsewhere as nobody standing there now, not an accurate empty', () => {
+    const { repos, base } = stack();
+    rival(repos, base);
+    takeWhole(repos, 'b2', DISTRICT.id);
+    const looked = groundBehind(repos, base, GATE);
+    const heading = { id: 'r1', target: GATE, tier: null, capsPaid: 0, foundOut: false };
+    // A reader with both rungs, so a missing figure is the ruling and not the research.
+    const reader = {
+      ...base,
+      research: {
+        ...base.research,
+        technologies: [SPY_ACCURACY_RESEARCH_ID, SPY_ESTIMATE_RESEARCH_ID],
+      },
+    };
+    const read = composeSpyReport(
+      repos,
+      reader,
+      heading,
+      readGround(reader, looked, 500),
+      new Date(HOUR),
+    );
+    expect(read.failed).toBe(false);
+    expect(read.heldFromAway).toBe(true);
+    expect(read.accuracy).toBeNull();
+    expect(read.unseen).toBeNull();
+    // A spy who cannot beat the counter still comes back with nothing, as on any empty ground.
+    const beaten = composeSpyReport(
+      repos,
+      reader,
+      heading,
+      readGround(reader, looked, 0),
+      new Date(HOUR),
+    );
+    expect(beaten.failed).toBe(true);
   });
 
   it('shuts every location behind it: from outside, the gate is the only thing to read', () => {

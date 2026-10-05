@@ -92,3 +92,47 @@ describe('the report and the Combine', () => {
     expect(screen.queryByTestId('report-under-leader')).toBeNull();
   });
 });
+
+/**
+ * Maintainer, 2026-09-30: "The Combine's infamy is irrelevant. Don't show it anywhere." Infamy is a
+ * crew's name; the looters have none either, so their column drops the row too.
+ */
+describe('infamy on the report', () => {
+  const earned = (attacker: number, defender: number): BattleAnalysis => ({
+    ...analysis,
+    attacker: { ...analysis.attacker, infamy: attacker },
+    defender: { ...analysis.defender, infamy: defender },
+  });
+  const drawAgainst = (report: BattleAnalysis, defenderKind: 'crew' | 'government' | 'looters') =>
+    render(
+      <BattleReportModal
+        analysis={report}
+        side="attacker"
+        defenderKind={defenderKind}
+        onClose={() => undefined}
+      />,
+    );
+  const infamyIn = (column: 'mine' | 'theirs') =>
+    screen.getByTestId(`report-side-${column}`).textContent?.includes('Infamy earned') ?? false;
+
+  it.each(['government', 'looters'] as const)(
+    'leaves it off the %s column and keeps it on the crew’s',
+    (holder) => {
+      drawAgainst(earned(40, 25), holder);
+      expect(infamyIn('mine')).toBe(true);
+      expect(infamyIn('theirs')).toBe(false);
+    },
+  );
+
+  it('draws no infamy row at all when only the Combine would have had one', () => {
+    drawAgainst(earned(0, 25), 'government');
+    expect(infamyIn('mine')).toBe(false);
+    expect(infamyIn('theirs')).toBe(false);
+  });
+
+  it('still prints both crews’ figures in a fight between two crews', () => {
+    drawAgainst(earned(40, 25), 'crew');
+    expect(infamyIn('mine')).toBe(true);
+    expect(infamyIn('theirs')).toBe(true);
+  });
+});

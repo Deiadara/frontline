@@ -5,8 +5,10 @@ import {
   OFFICER_ROLE_LABELS,
   officerPortraits,
   type CrewOfficer,
+  type CrewOverseer,
   type CrewResponse,
   type OfficerRole,
+  type PayrollLedger,
 } from '@frontline/shared';
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
@@ -17,16 +19,19 @@ import { Modal } from '../../components/ui/Modal';
 import { InkButton } from '../../components/ui/InkButton';
 import { MarkStamp } from '../../components/ui/MarkStamp';
 import { OfficerPortrait } from '../overseer/OfficerPortrait';
+import { OverseerPortrait } from '../overseer/OverseerPortrait';
 import { AttributeSheet } from '../overseer/AttributeSheet';
 import { PerkTags } from '../../components/PerkTags';
 import { cn } from '../../lib/cn';
 import { useCrew, useReassignOfficer, useReleaseOfficer } from '../../lib/queries';
+import { PayrollMeter } from '../../components/Payroll';
 import { PageShell } from '../game/PageShell';
 import { ScreenLoad } from '../../components/ui/LoadFailure';
 import { ErrorNote } from '../../components/ui/ErrorNote';
+import { formatRemaining } from '../base/format';
 
 /**
- * The crew (GDD §C1, §C2): the eighteen chairs, and who is sitting in them.
+ * The crew (GDD §C1, §C2): the seventeen chairs, and who is sitting in them.
  *
  * This screen used to be the **assignee** page, and most of it was arithmetic about a pool: three
  * figures across the top counting units granted by player level, a row of pips on every card
@@ -51,7 +56,7 @@ interface SeatProps {
 /**
  * One chair, filled or empty.
  *
- * A fixed frame, for the roster's reason: eighteen of these run down a page and the eye should not
+ * A fixed frame, for the roster's reason: seventeen of these run down a page and the eye should not
  * have to re-find the name on each one. The portrait is the top two thirds and it is the whole
  * point of the card; everything under it is the caption.
  */
@@ -88,7 +93,7 @@ function Seat({ role, officer, portraitId, onOpen }: SeatProps) {
       >
         {/* The empty chair, drawn (`.ink-chair`). A dashed frame rather than a grey block: a
             vacancy is a shape waiting to be filled, and a solid panel reads as something that is
-            broken instead. Most of the eighteen start empty, so this is the state a player spends
+            broken instead. Most of the seventeen start empty, so this is the state a player spends
             the most time looking at and it earns a real drawing rather than an icon. */}
         {/*
          * Exactly as tall as a portrait (maintainer, 2026-09-22: the empty chairs are broken,
@@ -202,7 +207,7 @@ function Seat({ role, officer, portraitId, onOpen }: SeatProps) {
        * There were four group peaks and a level here. The level is gone with the mechanic, and the
        * four numbers went because they were the wrong summary for this screen: every officer's
        * sheet sits in the same narrow recruitment band, so four numbers in the low twenties on
-       * eighteen cards is a wall of noise that never decides anything. A perk is the opposite: it
+       * seventeen cards is a wall of noise that never decides anything. A perk is the opposite: it
        * is discrete, it is the reason this person is worth their wage, and there are at most three.
        * The sheet is still one click away in the window.
        */}
@@ -211,6 +216,64 @@ function Seat({ role, officer, portraitId, onOpen }: SeatProps) {
       <span className={FOOTER}>
         {officer.perks.length > 0 ? (
           <PerkTags perks={officer.perks} tone="card" side="top" nested />
+        ) : (
+          <span className="font-body text-[12px] italic leading-snug text-ink-400">
+            No specialities.
+          </span>
+        )}
+      </span>
+    </button>
+  );
+}
+
+/** What the Overseer's chair reads as, on the card, the window and the effects page. */
+const OVERSEER_LABEL = 'Overseer';
+
+/**
+ * The Overseer, first on the grid (maintainer, 2026-10-04).
+ *
+ * The filled seat's card to the pixel, so the grid stays one shape: the painting, the mark their
+ * own seat earns stamped in the corner, the chair's name and theirs over the wash, and their perks
+ * underneath. The Overseer is in no chair, never on the bench and never let go, which is why this
+ * is its own component rather than a `Seat` with a role nobody can be reassigned to.
+ */
+function OverseerSeat({ overseer, onOpen }: { overseer: CrewOverseer; onOpen: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      data-testid="seat-overseer"
+      className={cn(CARD, 'text-left hover:border-brass-300/50')}
+    >
+      <span className="relative w-full shrink-0 overflow-hidden" style={{ aspectRatio: '4 / 5' }}>
+        {/* `fill` takes the frame's shape and crops to it from the top, where the head is. */}
+        <OverseerPortrait
+          portraitId={overseer.portraitId}
+          aspect="fill"
+          showTag={false}
+          className="!absolute inset-0 !border-0"
+        />
+        <MarkStamp
+          mark={overseer.mark}
+          className="right-[7%] top-[5%] h-[26%] w-[26%] text-oxblood-300/90 drop-shadow-[0_1px_2px_rgba(0,0,0,0.55)]"
+          tip={`${OVERSEER_LABEL}: ${overseer.mark}`}
+        />
+        <span
+          aria-hidden
+          className="absolute inset-x-0 bottom-0 h-1/2 bg-gradient-to-t from-[rgb(24_20_22)] via-[rgb(24_20_22)]/80 to-transparent"
+        />
+        <span className="absolute inset-x-0 bottom-0 flex flex-col gap-0.5 px-3.5 pb-2.5">
+          <span className="truncate font-display text-[11px] font-bold uppercase tracking-[0.16em] text-brass-300">
+            {OVERSEER_LABEL}
+          </span>
+          <span className="break-words font-stamp text-[19px] leading-tight text-ink-100">
+            {overseer.name}
+          </span>
+        </span>
+      </span>
+      <span className={FOOTER}>
+        {overseer.perks.length > 0 ? (
+          <PerkTags perks={overseer.perks} tone="card" side="top" nested />
         ) : (
           <span className="font-body text-[12px] italic leading-snug text-ink-400">
             No specialities.
@@ -377,7 +440,7 @@ function ChairWindow({
                           <span className="tabular-nums">
                             {officer.weeklyWage.toLocaleString()}
                           </span>{' '}
-                          caps / wk
+                          caps
                         </span>
                       </span>
                     </button>
@@ -460,7 +523,7 @@ function OfficerWindow({
             </p>
           </div>
           <span className="flex items-center gap-3">
-            {/* §H7: what this person costs, every week, for as long as they are on the books.
+            {/* §H7: what this person takes off the book, for as long as they are on it.
                 The one number about an officer that keeps mattering after the hire, and it was
                 only ever visible at the Bar. A mood badge used to sit here instead. */}
             <span className="flex flex-col items-end leading-none">
@@ -470,7 +533,7 @@ function OfficerWindow({
               <span className="mt-1 font-display text-[15px] font-bold tabular-nums text-brass-300">
                 {officer.weeklyWage.toLocaleString()}
                 <span className="ml-1 text-[10px] font-normal tracking-[0.12em] text-ink-400">
-                  caps / wk
+                  caps
                 </span>
               </span>
             </span>
@@ -575,6 +638,8 @@ function OfficerWindow({
                 data-testid="reassign-role"
               />
             </div>
+            {officer.passive != null && <ChairPassive passive={officer.passive} />}
+            {officer.chairFrom != null && <ChairSettling from={officer.chairFrom} />}
             {/* Edged by the chair they are actually sitting in: every row is coloured by how much
                 this position cares about that skill, which is the whole reason a sheet is worth
                 reading on the crew screen rather than only at the Bar. */}
@@ -598,8 +663,133 @@ function OfficerWindow({
   );
 }
 
+/** What a chair pays the crew, in the server's words (`describeChairPassive`). */
+function ChairPassive({ passive }: { passive: string }) {
+  return (
+    <p
+      className="break-words font-body text-[13px] leading-snug text-ink-200"
+      data-testid="chair-passive"
+    >
+      {passive}
+    </p>
+  );
+}
+
 /**
- * The eighteen chairs, the ones with somebody in them first.
+ * A chair taken in the last few hours gives nothing yet (`CHAIR_SETTLE_HOURS`, maintainer
+ * 2026-10-05), and the window says when it starts. Read off the local clock: the crew query
+ * refetches on every move, and a minute of drift on a six-hour wait is not worth a server clock.
+ */
+function ChairSettling({ from }: { from: string }) {
+  const left = Date.parse(from) - Date.now();
+  // A window left open past the hour would otherwise promise "another 0s".
+  if (!(left > 0)) return null;
+  return (
+    <p
+      className="break-words font-body text-[12px] italic leading-snug text-oxblood-300"
+      data-testid="chair-settling"
+    >
+      Settling in: the chair gives nothing for another {formatRemaining(left)}.
+    </p>
+  );
+}
+
+/**
+ * The Overseer's file: the officer window less everything that does not apply to the player.
+ *
+ * No wage, because the Overseer draws none. No "Let go", because there is nobody to let go. The
+ * chair is printed rather than offered: it sits where the dropdown does, in the same box, so the
+ * window is the same shape as every officer's, but it has no arrow and does not open.
+ */
+function OverseerWindow({ overseer, onClose }: { overseer: CrewOverseer; onClose: () => void }) {
+  return (
+    <Modal
+      onClose={onClose}
+      labelledBy="overseer-window-title"
+      size="wide"
+      className="h-[85vh] border-brass-300/40"
+    >
+      <div
+        className="flex min-h-0 flex-1 flex-col overflow-y-auto"
+        data-testid="crew-detail-overseer"
+      >
+        <div className="flex shrink-0 flex-wrap items-start justify-between gap-3 border-b border-surface-600/60 px-5 py-4">
+          <div className="min-w-0">
+            <h2
+              id="overseer-window-title"
+              className="font-stamp text-2xl leading-tight text-ink-100"
+            >
+              {overseer.name}
+            </h2>
+            <p className="mt-0.5 font-display text-[13px] uppercase tracking-[0.16em] text-brass-300">
+              {OVERSEER_LABEL}
+            </p>
+          </div>
+          <Button type="button" variant="ghost" size="sm" onClick={onClose}>
+            Close
+          </Button>
+        </div>
+
+        <div className="grid min-h-0 flex-1 gap-4 p-5 md:grid-cols-[14rem_minmax(0,1fr)]">
+          <div className="flex flex-col gap-3">
+            <span className="painted rivets edge-lit relative block aspect-[4/5] w-full overflow-hidden border-2 border-brass-500/40">
+              <OverseerPortrait
+                portraitId={overseer.portraitId}
+                aspect="fill"
+                showTag={false}
+                className="!absolute inset-0 !border-0"
+              />
+            </span>
+            {overseer.perks.length > 0 ? (
+              <PerkTags perks={overseer.perks} tone="card" />
+            ) : (
+              <p className="font-body text-[12px] italic leading-snug text-ink-400">
+                Brings no speciality to the crew.
+              </p>
+            )}
+            <InkButton to="/game/training" icon="training" className="mt-1 w-full">
+              Training
+            </InkButton>
+          </div>
+
+          <div className="flex min-w-0 flex-col gap-3">
+            <div className="flex min-w-0 flex-wrap items-center gap-3">
+              <span className="shrink-0 font-display text-[11px] font-bold uppercase tracking-[0.2em] text-brass-300">
+                Their chair
+              </span>
+              <span aria-hidden className="ink-rule block min-w-0 flex-1" />
+              {/* The dropdown trigger's box without the arrow, the hover or the button: there is
+                  one chair the Overseer can sit in and this is it. */}
+              <span
+                // The trigger's measured height (38px at every width): a button's own line box sets
+                // it, which a span does not have, and the window should not move between the two.
+                className="brushed edge-lit relative flex min-h-[2.375rem] w-full min-w-0 items-center rounded-sm border border-surface-600 bg-surface-800/80 px-3 py-2"
+                data-testid="overseer-chair"
+              >
+                <span className="min-w-0 truncate font-stamp text-[14px] leading-tight text-ink-100">
+                  {OVERSEER_LABEL}
+                </span>
+              </span>
+            </div>
+            <ChairPassive passive={overseer.passive} />
+            <AttributeSheet
+              attributes={overseer.attributes}
+              lifted={overseer.lifted}
+              lift={overseer.lift}
+              columns={2}
+              roomy
+              // Edged by the Overseer's own seat, the one their grade is read on (2026-10-04).
+              role="overseer"
+            />
+          </div>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+/**
+ * The seventeen chairs, the ones with somebody in them first.
  *
  * In `OFFICER_ROLES` order alone the roster opened on whoever happened to fall at the top of that
  * list, and on most crews that is nobody: at 1440 the first row was four vacancies 479px tall and
@@ -627,11 +817,41 @@ function seated(officers: readonly CrewOfficer[]): OfficerRole[] {
     .filter((role): role is OfficerRole => role !== null);
 }
 
+/**
+ * §H7: the payroll book on the screen the people are on (maintainer, 2026-09-30).
+ *
+ * One line under the header: what is committed against the book. Widening it is done at the Bar
+ * or the Nexus, both of which open the same window (maintainer, 2026-10-01).
+ */
+function CrewPayroll({ ledger }: { ledger: PayrollLedger }) {
+  return (
+    <div className="flex flex-wrap items-center gap-x-4 gap-y-2" data-testid="crew-payroll">
+      <span className="flex items-baseline gap-2">
+        <span className="font-display text-[11px] uppercase tracking-[0.18em] text-ink-300">
+          Payroll
+        </span>
+        <span className="font-display text-[13px] font-bold tabular-nums text-brass-300">
+          {ledger.committed.toLocaleString()}
+          <span className="text-ink-300"> / {ledger.capacity.toLocaleString()}</span>
+          <span className="ml-1 text-[10px] font-normal uppercase tracking-[0.12em] text-ink-400">
+            caps
+          </span>
+        </span>
+      </span>
+      <span className="w-28">
+        <PayrollMeter ledger={ledger} />
+      </span>
+    </div>
+  );
+}
+
 function Layout({ data }: { data: CrewResponse }) {
   const reassign = useReassignOfficer();
   const [opened, setOpened] = useState<string | null>(null);
   /** The empty chair a player has clicked, if any. Separate state: a vacancy has no officer id. */
   const [chair, setChair] = useState<OfficerRole | null>(null);
+  const [overseerOpen, setOverseerOpen] = useState(false);
+  const overseer = data.overseer ?? null;
   const open = data.officers.find((officer) => officer.officerId === opened);
   const bench = data.officers.filter((officer) => officer.role === null);
   /*
@@ -666,6 +886,8 @@ function Layout({ data }: { data: CrewResponse }) {
         </Link>
       </div>
 
+      <CrewPayroll ledger={data.payroll} />
+
       {/* Reassignment is refused by an ordinary race: somebody took the chair in another tab. The
           mutation was read only for `isPending`, so a refusal left the window open with nothing
           said, and the window staying open was the whole of the feedback. */}
@@ -684,6 +906,10 @@ function Layout({ data }: { data: CrewResponse }) {
         />
       )}
 
+      {overseerOpen && overseer !== null && (
+        <OverseerWindow overseer={overseer} onClose={() => setOverseerOpen(false)} />
+      )}
+
       {open !== undefined && (
         <OfficerWindow
           officer={open}
@@ -695,7 +921,7 @@ function Layout({ data }: { data: CrewResponse }) {
         />
       )}
 
-      {/* No panel around it. Eighteen cards inside a bordered box is a box with a border you have
+      {/* No panel around it. Seventeen cards inside a bordered box is a box with a border you have
           to look past; the cards are the surface, and the page they sit on already scrolls. */}
       <div
         /*
@@ -715,6 +941,10 @@ function Layout({ data }: { data: CrewResponse }) {
         className="grid auto-rows-fr gap-4 sm:grid-cols-2 lg:grid-cols-4 [@media(min-width:1600px)]:grid-cols-5 [@media(min-width:1920px)]:grid-cols-6"
         data-testid="crew-books"
       >
+        {/* The Overseer first, always, and outside the chair count above: they hold no chair. */}
+        {overseer !== null && (
+          <OverseerSeat overseer={overseer} onOpen={() => setOverseerOpen(true)} />
+        )}
         {chairOrder(data.officers).map(({ role, officer }) => (
           <Seat
             key={role}
@@ -733,7 +963,7 @@ function Layout({ data }: { data: CrewResponse }) {
        * The bench, under the chairs (maintainer request).
        *
        * Below rather than mixed in, because these are the same kind of thing in a different state
-       * and a roster is read as eighteen posts: somebody with no post does not belong in the grid
+       * and a roster is read as seventeen posts: somebody with no post does not belong in the grid
        * of posts. Drawn only when there is somebody on it, so a crew that has never used the bench
        * never sees a heading for it.
        *
@@ -751,10 +981,6 @@ function Layout({ data }: { data: CrewResponse }) {
               {bench.length} signed, no chair
             </span>
           </div>
-          <p className="max-w-prose font-body text-[13px] leading-relaxed text-ink-300">
-            On the books and drawing a wage, and nothing else: no skills, no specialities, nobody to
-            lead a run or a fight until they have a chair. They can still train in the meantime.
-          </p>
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4 [@media(min-width:1600px)]:grid-cols-5 [@media(min-width:1920px)]:grid-cols-6">
             {bench.map((officer) => (
               <BenchCard

@@ -60,7 +60,10 @@ const view: BattleView = {
   withdrawalOpen: true,
   // Different counts in the two places on purpose: a window reading the wrong one still draws a
   // number, and only a fixture where the two differ can say which it read.
-  muster: { army: { razors: 3 }, perimeter: { razors: 2 }, size: 5 },
+  // The reader's own row, and the side around it with an ally's 20 Razors on it: the window reads
+  // the first, and a window reading the side would offer twenty it cannot bring home.
+  own: { army: { razors: 3 }, perimeter: { razors: 2 }, size: 5 },
+  muster: { army: { razors: 23 }, perimeter: { razors: 2 }, size: 25 },
   enemySize: 10,
   enemyIntel: 'A rough count.',
   opponentName: 'Looters',
@@ -84,7 +87,7 @@ function option(unitId: string, owned: number): UnitOption {
     name: spec.name,
     tier: spec.tier,
     blurb: spec.blurb,
-    trainedAt: spec.trainedAt,
+    musteredAt: spec.musteredAt,
     unique: spec.unique,
     // Vitality carries a figure that appears nowhere else in the game, so finding it in the card
     // says the card was drawn from the roster response rather than from anything the dialog
@@ -94,7 +97,7 @@ function option(unitId: string, owned: number): UnitOption {
     rules: [],
     affinities: [],
     cost: spec.cost,
-    trainSeconds: spec.trainSeconds,
+    musterSeconds: spec.musterSeconds,
     unitSlots: spec.unitSlots,
     unlocked: true,
     missing: [],
@@ -126,8 +129,8 @@ const roster: UnitsResponse = {
   fleet: {},
   queue: [],
   resources: STARTING_RESOURCES,
-  trainingCostReduction: 0,
-  trainingSpeedBonus: 0,
+  musterCostReduction: 0,
+  musterSpeedBonus: 0,
   built: [],
 };
 
@@ -191,7 +194,7 @@ beforeEach(() => {
   fetchMock.mockReset();
   confirmed.mockReset();
   stubApi();
-  useSession.setState({ token: 'session-token', user: null });
+  useSession.setState({ signedIn: true, user: null });
 });
 
 afterEach(() => {
@@ -226,6 +229,8 @@ describe('the deploy dialog (§A4)', () => {
       within(screen.getByTestId('deploy-razors')).getByText(/3 in the line/),
     ).toBeInTheDocument();
     expect(screen.queryByTestId('ring-razors')).toBeNull();
+    // Only your own come back: the ally's twenty on the side are not yours to withdraw.
+    expect(field('line-razors').min).toBe('-3');
 
     fireEvent.change(field('line-razors'), { target: { value: '2' } });
     fireEvent.click(screen.getByTestId('deploy-confirm'));
@@ -265,7 +270,7 @@ describe('the deploy dialog (§A4)', () => {
     // The figures on the card come from `/units`, and nothing else in this window carries them.
     expect(within(card).getByText('1234')).toBeInTheDocument();
     expect(within(card).getByTestId('marks-razors')).toBeInTheDocument();
-    // The card is read, not acted on: no price box, so no Train order from a battle window.
+    // The card is read, not acted on: no price box, so no Muster order from a battle window.
     expect(within(card).queryByTestId('action-razors')).toBeNull();
   });
 });
@@ -326,6 +331,36 @@ describe('a unit that will not board', () => {
  * The verdict is the server's (`DeployQuoteResponse.inTime`), because the server is what folds a
  * late column out of the fight; the window's job is to say it plainly either way.
  */
+/*
+ * Bug pass, 2026-10-02: the march puts the crew's walking bonus on every walker, and the window
+ * quoted the pace without it.
+ */
+describe('a crew that walks faster than its sheets', () => {
+  it('quotes the pace the march will walk at', async () => {
+    fetchMock.mockImplementation((path: string) => {
+      if (String(path).endsWith('/units')) {
+        return Promise.resolve({
+          headers: new Headers(),
+          ok: true,
+          status: 200,
+          statusText: '',
+          json: () => Promise.resolve({ ...roster, unitSpeedPercent: 12 }),
+        } as Response);
+      }
+      throw new Error(`unstubbed request: ${String(path)}`);
+    });
+    open('line', { vehicles: { armoured_car: 1 } }, { ...ARMY, the_colossus: 1 });
+    fireEvent.change(field('line-the_colossus'), { target: { value: '1' } });
+
+    const speed = findUnit('the_colossus')!.stats.speed;
+    await waitFor(() =>
+      expect(screen.getByTestId('deploy-column')).toHaveTextContent(
+        `Held to ${Math.round(speed * 1.12)} by`,
+      ),
+    );
+  });
+});
+
 describe('the deploy dialog says whether the column arrives in time', () => {
   function quoting(answer: { minutes: number; arrivesAt: string; inTime: boolean }): void {
     fetchMock.mockImplementation((path: string) => {

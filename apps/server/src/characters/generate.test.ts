@@ -11,7 +11,7 @@ import {
   type OfficerRole,
 } from '@frontline/shared';
 import { describe, expect, it } from 'vitest';
-import { ROLE_REQUIREMENTS, roleFit } from '../roles/requirements.js';
+import { ROLE_REQUIREMENTS, templateFit } from '../roles/requirements.js';
 import { ORDINARY_ROLL, generateCharacter, rollRecruit, type RollShape } from './generate.js';
 
 /**
@@ -93,7 +93,7 @@ describe('generateCharacter', () => {
   /*
    * B7: the shape of the perk roll, which is the balance of the whole perk book.
    *
-   * A perk is a permanent crew-wide bonus and there are nineteen chairs, so the weighting has to
+   * A perk is a permanent crew-wide bonus and there are thirteen chairs, so the weighting has to
    * keep three-perk recruits rare: common ones would turn a full roster into a stack of
    * multipliers rather than a set of choices. Just over half the Bar carries at least one, so the
    * keyword line is worth reading without being the only thing on the card.
@@ -171,7 +171,7 @@ describe('generateCharacter', () => {
  *    ~91% of sheets named their role outright.
  *  - **signal**: is the affinity still genuinely the recruit's best role? It has to be: a
  *    recruit shaped for master_of_whispers really is the best master_of_whispers. The player simply cannot *prove*
- *    it, and cannot compute `roleFit` at all, because the weights never leave the server.
+ *    it, and cannot compute `templateFit` at all, because the weights never leave the server.
  *    Selling that certainty is what the §B9 research task (W7) is for.
  */
 describe('what a sheet gives away about its affinity (B8)', () => {
@@ -344,7 +344,7 @@ describe('what a sheet gives away about its affinity (B8)', () => {
   it('still leaves the affinity the best-fitting role by a wide margin', () => {
     const ranks = ROLLS.map((roll) => {
       const byFit = OFFICER_ROLES.map(
-        (role) => [role, roleFit(roll.attributes, role)] as const,
+        (role) => [role, templateFit(roll.attributes, role)] as const,
       ).sort((a, b) => b[1] - a[1]);
       return byFit.findIndex(([role]) => role === roll.affinity) + 1;
     });

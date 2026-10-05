@@ -14,7 +14,18 @@
  * three legendaries are taken off the map first: their shadow is a second, deliberate climb on
  * top of the garrison (the district screen names it), and this file is about the garrison.
  *
- * Measured 2026-09-29 with this file's own walk, on the engine as it stood that evening:
+ * Measured 2026-09-29 with this file's own walk, on the engine as it stood that evening, and again
+ * 2026-10-01 after the Combine retune (Greycoat offense 122 to 112, Suppressor 372 to 400): the
+ * Glasshouse's Greycoats fell from 29 to 24 and the Blacksite's Suppressors rose from 161 to 192,
+ * and nothing else moved. The Glasshouse at 24 against the Yards at 34 is two rungs, the edge of
+ * what the same-difficulty test below allows.
+ *
+ * Measured again 2026-10-02, when being outnumbered started counting unit slots (P10-B) and Last
+ * Stand started ramping with the odds (P10-A). A Razor column no longer frightens a Suppressor by
+ * outnumbering it four heads to one, so everything from difficulty 6 up rose, and the Blacksite's
+ * half-Suppressor mix rose past the CCS's. The two top mixes were re-shared to keep the climb:
+ * 7 and 8 went from half and half to 60% Enforcers and 40% Suppressors, and 9 and 10 from a
+ * quarter Greycoats, 35% Enforcers and 40% Suppressors to 10%, 35% and 55%.
  *
  * | District          | Holder, difficulty | Plot                          | Razors |
  * | ----------------- | ------------------ | ----------------------------- | ------ |
@@ -22,18 +33,18 @@
  * | Coldwater Halt    | looters, 1         | `coldwater-halt-signal`       | 14     |
  * | Steelbelt         | Combine, 2         | `steelbelt-bonefield`         | 20     |
  * | Ironmouth         | looters, 2         | `ironmouth-arches`            | 20     |
- * | Glasshouse Fields | Combine, 3         | `glasshouse-fields-berm`      | 29     |
+ * | Glasshouse Fields | Combine, 3         | `glasshouse-fields-berm`      | 24     |
  * | Marshalling Yards | looters, 3         | `marshalling-yards-signalbox` | 34     |
  * | Chrome Row        | looters, 4         | `chrome-row-cathode`          | 48     |
  * | Bonded Row        | looters, 4         | `bonded-row-crated`           | 57     |
  * | Undergrid         | looters, 5         | `undergrid-lair`              | 68     |
- * | Telemetry Hill    | Combine, 6         | `telemetry-hill-array`        | 96     |
+ * | Telemetry Hill    | Combine, 6         | `telemetry-hill-array`        | 114    |
  * | Annexes           | Combine, 6         | `annexes-scaffold`            | 114    |
- * | Viaduct           | Combine, 7         | `viaduct-archnineteen`        | 136    |
- * | Blacksite         | Combine, 8         | `blacksite-pile`              | 161    |
- * | Last Platform     | Combine, 9         | `last-platform-armoury`       | 161    |
- * | Blockhouse        | Combine, 10        | `blockhouse-chapel`           | 228    |
- * | CCS               | Combine, 10        | `ccs-armory`                  | 228    |
+ * | Viaduct           | Combine, 7         | `viaduct-archnineteen`        | 228    |
+ * | Blacksite         | Combine, 8         | `blacksite-pile`              | 272    |
+ * | Last Platform     | Combine, 9         | `last-platform-armoury`       | 272    |
+ * | Blockhouse        | Combine, 10        | `blockhouse-chapel`           | 384    |
+ * | CCS               | Combine, 10        | `ccs-armory`                  | 323    |
  *
  * With the looter garrisons put back on the old head count and nothing else changed, the same walk
  * read 10 at Coldwater, 12 at Ironmouth, 17 on the Yards, 24 and 29 on Chrome and Bonded Row and
@@ -107,7 +118,7 @@ function crew(): Base {
     buildQueue: [],
     // A reserve no column dents, so every fight is sent at the size it was asked for.
     army: { razors: 1_000_000 },
-    trainingQueue: [],
+    musterQueue: [],
     training: startingTraining(now),
     inventory: {},
     fittedUpgrades: [],
@@ -246,7 +257,9 @@ describe('the difficulty ladder, across allegiances', () => {
 
   /*
    * A quarter-octave rung either way is the noise of a dozen fights, and a whole difficulty step
-   * near the top is only one or two rungs (7, 8 and 9 read 136, 161 and 161). Two steps apart is
+   * near the top is only one or two rungs (7, 8 and 9 read 272, 323 and 323 on 2026-10-05: the
+   * Blacksite and the Last Platform land on the same rung, which the one-rung allowance covers;
+   * the CCS Armory at 10 reads 384). Two steps apart is
    * a climb the reading has to show.
    */
   it('asks for more force the higher the difficulty', () => {

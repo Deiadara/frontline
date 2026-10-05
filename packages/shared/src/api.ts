@@ -10,11 +10,12 @@ import {
   BarAuctionSchema,
 } from './bar/index.js';
 import { BaseSchema, BaseSummarySchema, DistrictNameSchema } from './base.js';
+import { BadgeSchema } from './factions/badge.js';
 import { PayrollLedgerSchema } from './economy/payroll.js';
 import { BattleResultSchema } from './battle/types.js';
 import {
   ArmySchema,
-  TrainingQueueSchema,
+  MusterQueueSchema,
   UnitStatsSchema,
   UnitTierSchema,
   UNIT_UPGRADE_SLOTS,
@@ -123,7 +124,7 @@ export type ApiError = z.infer<typeof ApiErrorSchema>;
 // --- auth ---
 export const RegisterRequestSchema = z.object({
   // Reserved at the door rather than in `UsernameSchema`, which also parses the seeded bots' own
-  // rows: `Vex_Combine` is on the list precisely because a bot already holds it.
+  // rows: `Vex_Holdings` is on the list precisely because a bot already holds it.
   username: UsernameSchema.refine((name) => !isReservedName(name), RESERVED_NAME_MESSAGE),
   password: PasswordSchema,
 });
@@ -136,10 +137,30 @@ export const LoginRequestSchema = z.object({
 });
 export type LoginRequest = z.infer<typeof LoginRequestSchema>;
 
+/**
+ * The session also arrives as an httpOnly cookie (security pass, 2026-09-30), which is what the
+ * browser client signs in with: it ignores `token` and never stores it. The token stays in the body
+ * for scripted callers, the playthrough and the tests, which send it back as `Bearer`. Only these
+ * two answers carry it, and both need the password, so a script injected into the page later has
+ * no way to read one.
+ */
 export const AuthResponseSchema = z.object({
   token: z.string().min(1),
   user: UserSchema,
 });
+
+/**
+ * The header the client puts on every request, and the value it carries (security pass,
+ * 2026-09-30).
+ *
+ * The session cookie is `SameSite=Strict`, so another site's page cannot make a browser send it.
+ * This header is the second lock on the same door, for a browser or an embedded webview that gets
+ * SameSite wrong: a cross-site form cannot set a header at all, and a cross-site `fetch` that sets
+ * one has to ask first (a CORS preflight), which the server answers for its own origin only. The
+ * server refuses any write that rides the cookie without it.
+ */
+export const CSRF_HEADER = 'X-Requested-With';
+export const CSRF_HEADER_VALUE = 'frontline';
 export type AuthResponse = z.infer<typeof AuthResponseSchema>;
 
 // --- session ---
@@ -199,6 +220,19 @@ export const MeResponseSchema = z.object({
    * same reason as the quotes: a client without it falls back to the structures alone.
    */
   productionRates: FractionalResourcesSchema.optional(),
+  /**
+   * The crew's half of those rates: line speed, per-resource yields and a raid's cut. A structure's
+   * window runs `structureProductionRates` over it, so the figure it prints for one structure is
+   * that structure's share of the panel's. Optional for the same reason as the rates.
+   */
+  productionYield: z
+    .object({
+      productionPercent: z.number(),
+      storageCapacityPercent: z.number(),
+      resourceYieldPercent: FractionalResourcesSchema.optional(),
+      raidCutPercent: z.number().optional(),
+    })
+    .optional(),
   /**
    * The two badges the HUD draws, on every screen.
    *
@@ -454,6 +488,15 @@ export const DistrictDetailResponseSchema = z.object({
   /** Every location in the district. A garrison on ground not yours is left out of each. */
   locations: z.array(LocationViewSchema),
   holder: LocationHolderSchema.nullable(),
+  /**
+   * The faction of the crew holding every location here, for the "Held by" plaque on the painting
+   * (maintainer, 2026-09-30). Null when nobody holds it whole, when the holder is not a crew, and
+   * when that crew sits at no table. Public, like the badge the standings print beside a name.
+   */
+  holderFaction: z
+    .object({ name: z.string().min(1), badge: BadgeSchema })
+    .nullable()
+    .default(null),
   /** The §A4 unified bonus for taking every location here, named and described. */
   unified: z.object({ title: z.string(), effect: z.string() }).nullable(),
   /** Set on residential ground: the crew that lives here, and whether they can be raided. */
@@ -568,20 +611,20 @@ export const BonusLineSchema = z.object({
 });
 export type BonusLine = z.infer<typeof BonusLineSchema>;
 
-/** The three training figures on the roster's head, each as the lines that add up to it. */
-export const TrainingBreakdownSchema = z.object({
+/** The three muster figures on the roster's head, each as the lines that add up to it. */
+export const MusterBreakdownSchema = z.object({
   cost: z.array(BonusLineSchema),
   supplies: z.array(BonusLineSchema),
   speed: z.array(BonusLineSchema),
 });
-export type TrainingBreakdown = z.infer<typeof TrainingBreakdownSchema>;
+export type MusterBreakdown = z.infer<typeof MusterBreakdownSchema>;
 
 export const UnitOptionSchema = z.object({
   id: z.string().min(1),
   name: z.string().min(1),
   tier: UnitTierSchema,
   blurb: z.string().min(1),
-  trainedAt: BuildingKindSchema,
+  musteredAt: BuildingKindSchema,
   unique: z.boolean(),
   stats: UnitStatsSchema,
   modifiers: z.array(z.object({ label: z.string(), description: z.string(), when: z.string() })),
@@ -613,16 +656,16 @@ export const UnitOptionSchema = z.object({
     }),
   ),
   cost: PartialResourcesSchema,
-  trainSeconds: z.number().int().positive(),
+  musterSeconds: z.number().int().positive(),
   unitSlots: z.number().int().positive(),
   /**
-   * §A4: percentage points this unit's *own* ground takes off, on top of `trainingCostReduction`.
+   * §A4: percentage points this unit's *own* ground takes off, on top of `musterCostReduction`.
    *
    * Per unit rather than on the response, because that is what the rule is: working the Doghouse
    * up makes Cyberhounds cheaper and quicker and does nothing at all for a Razor. The crew-wide
    * figures stay where they are; these two are added to them for this row and no other.
    *
-   * Optional out of the parser like `trainingSuppliesReduction`: the server always sends them, and
+   * Optional out of the parser like `musterSuppliesReduction`: the server always sends them, and
    * requiring them would mean writing two zeroes into every roster fixture in the tree. Read as
    * `?? 0`.
    */
@@ -632,14 +675,22 @@ export const UnitOptionSchema = z.object({
    * The two figures above as named lines, for this unit's own Bonuses page.
    *
    * Just this unit's private half: the crew-wide lines are on the response once, in
-   * `trainingBreakdown`, and repeating them on forty rows would be forty copies of one answer. The
+   * `musterBreakdown`, and repeating them on forty rows would be forty copies of one answer. The
    * page a player opens concatenates the two.
    *
    * Absent, rather than an empty pair, when this crew holds none of the ground this unit calls
    * home or holds it only at level one, which is every unit on a new crew.
+   *
+   * `supplies` is the one line a raised cost cut costs the supplies-only points: they taper in the
+   * room the cost cut leaves on the supplies line (`suppliesLineCut`, 2026-10-01). Absent when the
+   * ground does not move the cost cut.
    */
   homeBonus: z
-    .object({ cost: z.array(BonusLineSchema), speed: z.array(BonusLineSchema) })
+    .object({
+      cost: z.array(BonusLineSchema),
+      speed: z.array(BonusLineSchema),
+      supplies: z.array(BonusLineSchema).optional(),
+    })
     .optional(),
   unlocked: z.boolean(),
   /** The clauses this crew has not met, in the player's words. Empty when unlocked. */
@@ -713,7 +764,7 @@ export const UnitsResponseSchema = z.object({
   /** Units standing on captured places, summed across the city. */
   garrisoned: ArmySchema,
   /**
-   * Units committed to a fight: a muster on the ground, or a column still walking to one.
+   * Units committed to a fight: a force on the ground, or a column still walking to one.
    *
    * Sent for the same reason `garrisoned` is. Both are away and both are counted in `unitSlotsUsed`
    * (§A1: they are still people this crew feeds), so a roster that showed neither would report
@@ -722,23 +773,36 @@ export const UnitsResponseSchema = z.object({
   abroad: ArmySchema,
   unitSlotsUsed: z.number().int().nonnegative(),
   unitSlotsCap: z.number().int().nonnegative(),
-  queue: TrainingQueueSchema,
+  queue: MusterQueueSchema,
   resources: ResourcesSchema,
-  /** Everything territory is doing to training right now, so the page can explain a price. */
-  trainingCostReduction: z.number(),
-  trainingSpeedBonus: z.number(),
+  /**
+   * Everything territory is doing to mustering right now, so the page can explain a price.
+   *
+   * The cost cut is already stopped at the floor price. The speed (and `musterSuppliesReduction`
+   * below) is the raw sum: `musterSecondsFor` and `musterCost` taper it together with a unit's own
+   * ground, so a screen prints `musterSpeedAfterTaper` of it (and `suppliesOnlyCut` of the
+   * supplies, beside the cost cut) and passes the sums on untouched.
+   */
+  musterCostReduction: z.number(),
+  musterSpeedBonus: z.number(),
   /**
    * §B5: the Greenhouse's cut, which lands on the **supplies** line and on no other.
    *
-   * A second field rather than a bigger `trainingCostReduction`, for the same reason
-   * `trainingCost` takes it as a second argument: folding the two together would quote a Razor's
+   * A second field rather than a bigger `musterCostReduction`, for the same reason
+   * `musterCost` takes it as a second argument: folding the two together would quote a Razor's
    * scrap as cheaper than the route charges for it.
    *
    * Optional on the way *out* of the parser, like `Base.addons`: the server always sends it, and
    * making it required would mean writing a zero into every roster fixture in the tree to say what
    * "absent" already says. Read it as `?? 0`.
    */
-  trainingSuppliesReduction: z.number().optional(),
+  musterSuppliesReduction: z.number().optional(),
+  /**
+   * The Veteran's passive: percent off every line of a muster bill, after the other cuts
+   * (`musterCost`'s `veteranPercent`, 2026-10-04). Optional out of the parser like
+   * `musterSuppliesReduction`; read it as `?? 0`.
+   */
+  musterVeteranReduction: z.number().optional(),
   /**
    * Where each of those three figures came from, line by line (maintainer, 2026-09-17).
    *
@@ -752,10 +816,10 @@ export const UnitsResponseSchema = z.object({
    * client has. `units/breakdown.ts` holds it, and a test there pins each list's sum to the total
    * it explains, which is what stops a new contributor landing in one and not the other.
    *
-   * Optional out of the parser for the same reason `trainingSuppliesReduction` is: every roster
+   * Optional out of the parser for the same reason `musterSuppliesReduction` is: every roster
    * fixture in the tree would otherwise have to write three empty lists to say what absent says.
    */
-  trainingBreakdown: TrainingBreakdownSchema.optional(),
+  musterBreakdown: MusterBreakdownSchema.optional(),
   /**
    * Every card the Scrapyard has built, whether or not it is in a bracket somewhere.
    *
@@ -773,7 +837,7 @@ export const UnitsResponseSchema = z.object({
    * accepting them: a crew holding Yard Discipline could send its Scavengers to its own fight
    * and not to an ally's, with nothing on screen saying why.
    *
-   * Optional out of the parser for the same reason `trainingSuppliesReduction` is: the server
+   * Optional out of the parser for the same reason `musterSuppliesReduction` is: the server
    * always sends it, and making it required would mean writing `false` into every roster fixture
    * in the tree to say what absent already says. Read it as `?? false`, which is the strict
    * reading and the one every crew without the programme gets.
@@ -794,6 +858,13 @@ export const UnitsResponseSchema = z.object({
    * and `?? false` is the reading every crew without the waiver gets.
    */
   anyRide: z.boolean().optional(),
+  /**
+   * The crew's walking pace bonus (`unitSpeedPercent`, off the standing fold), which the march to a
+   * fight puts on every walker (`battle/movement.ts`). The deploy window and the battle page read
+   * a column's pace off this roster, and quoted it without the bonus (bug pass, 2026-10-02).
+   * Optional for the reason `anyRide` is; `?? 0` is the reading of a crew with none.
+   */
+  unitSpeedPercent: z.number().optional(),
   /**
    * §A4: the Sleepers this crew has planted on ground it does not hold (`sleepers.ts`).
    *
@@ -817,18 +888,18 @@ export const BurnUpgradeRequestSchema = z.object({
 });
 export type BurnUpgradeRequest = z.infer<typeof BurnUpgradeRequestSchema>;
 
-export const TrainUnitsRequestSchema = z.object({
+export const MusterUnitsRequestSchema = z.object({
   unitId: z.string().min(1),
   count: z.number().int().positive().max(50),
 });
-export type TrainUnitsRequest = z.infer<typeof TrainUnitsRequestSchema>;
+export type MusterUnitsRequest = z.infer<typeof MusterUnitsRequestSchema>;
 
-/** §A5: which batch on the bench to call off. See `trainingCancellable` for when it is allowed. */
-export const CancelTrainingRequestSchema = z.object({
+/** §A5: which batch on the bench to call off. See `musterCancellable` for when it is allowed. */
+export const CancelMusterRequestSchema = z.object({
   orderId: IdSchema,
   acceptWaste: AcceptWasteSchema,
 });
-export type CancelTrainingRequest = z.infer<typeof CancelTrainingRequestSchema>;
+export type CancelMusterRequest = z.infer<typeof CancelMusterRequestSchema>;
 
 // --- calling things off (maintainer request, 2026-09-12; `time/cancel.ts`) ---
 
@@ -921,11 +992,11 @@ export type RecallMoveRequest = z.infer<typeof RecallMoveRequestSchema>;
 export const CancelDrillRequestSchema = z.object({ sessionId: IdSchema });
 export type CancelDrillRequest = z.infer<typeof CancelDrillRequestSchema>;
 
-export const TrainUnitsResponseSchema = z.object({
+export const MusterUnitsResponseSchema = z.object({
   base: BaseSchema,
-  queue: TrainingQueueSchema,
+  queue: MusterQueueSchema,
 });
-export type TrainUnitsResponse = z.infer<typeof TrainUnitsResponseSchema>;
+export type MusterUnitsResponse = z.infer<typeof MusterUnitsResponseSchema>;
 
 // --- base detail ---
 export const BaseDetailResponseSchema = z.object({
@@ -954,6 +1025,13 @@ export type BaseDetailResponse = z.infer<typeof BaseDetailResponseSchema>;
  */
 export const BuildStructureRequestSchema = z.object({
   kind: BuildingKindSchema,
+  /**
+   * The level the screen was quoting, as a guard rather than an instruction: the queue still decides
+   * the level, and a mismatch is refused as stale (bug pass, 2026-10-02). Without it a second tab or
+   * a retried press bought the level after, at a price neither screen showed. The same guard as
+   * `fromNotoriety` and `fromSteps`; optional so an older client still builds.
+   */
+  level: z.number().int().positive().optional(),
 });
 export type BuildStructureRequest = z.infer<typeof BuildStructureRequestSchema>;
 
@@ -1054,6 +1132,14 @@ export const MissionOfferSchema = z.object({
   speedPercent: z.number(),
   /** What it pays on a clean run, with the grade's and the area's premium already on it. */
   rewards: PartialResourcesSchema,
+  /**
+   * The same pay when an officer leads, present only when that is more (`leadLootPercent`).
+   *
+   * Officers' loot perks pay on a run one of them leads and never on one the Overseer leads, so
+   * the send dialog swaps this in when the picker lands on an officer. Priced here rather than
+   * rescaled on the client because both figures are rounded per line.
+   */
+  ledRewards: PartialResourcesSchema.optional(),
   /** Loot slots that payout takes up, so a player can size the crew before they send it. */
   payoutSlots: z.number().int().nonnegative(),
   /** §I1: allegiance XP a clean run pays. On the card, because it is half of what a job is worth. */
@@ -1186,8 +1272,17 @@ export const MissionRoadSchema = z.object({
   travelSpeedPercent: z.number(),
   roadMinutesOff: z.number(),
   unitSpeedPercent: z.number(),
+  /**
+   * The Cartographer's cut off the road's base, before everything else (`roadMinutes`,
+   * 2026-10-04). Optional out of the parser; read it as `?? 0`.
+   */
+  baseCutPercent: z.number().optional(),
 });
 export type MissionRoad = z.infer<typeof MissionRoadSchema>;
+
+/** What a launch is refused with in a raid's last hour, and what the board says before it. */
+export const HOME_LOCKED_TEXT =
+  'A raid lands on your district within the hour. Nobody leaves home now';
 
 export const MissionsResponseSchema = z.object({
   missions: z.array(MissionSchema),
@@ -1195,6 +1290,18 @@ export const MissionsResponseSchema = z.object({
   justResolved: z.array(MissionSchema),
   resources: ResourcesSchema,
   activeLimit: z.number().int().positive(),
+  /**
+   * The percentage points every job's XP is paid with: the district's (`factionXpBonus`) and the
+   * crew's (`xpGainPercent`). The card's `xp` is the job's own figure and the award adds this, so a
+   * board that printed `xp` alone quoted 200 for a run that banked 214.
+   */
+  xpBonusPercent: z.number().default(0),
+  /**
+   * Whether a raid lands on the crew's district within the hour, which refuses every launch (bug
+   * pass, 2026-10-02): the board offered Send and the player built a party to be refused at the
+   * last press. Absent on a payload from before it, read as open.
+   */
+  homeLocked: z.boolean().optional(),
   /**
    * Every board this crew may read, `misc` first and then the districts in map order.
    *
@@ -1344,7 +1451,10 @@ export const BarResponseSchema = z.object({
   serverNow: IsoDateTimeSchema,
   recruits: z.array(BarRecruitSchema),
   officers: z.array(BarOfficerSchema),
-  /** §H8: recruit slots, `2 + level - 1`, read off W6's grant table. */
+  /**
+   * §H8: officer slots, one with the Bar and another every two levels, plus research, never past
+   * the chairs. `slotsUsed` can exceed it on an old save, which keeps everyone and hires nobody.
+   */
   slotsUsed: z.number().int().nonnegative(),
   slotsTotal: z.number().int().nonnegative(),
   /**
@@ -1423,13 +1533,10 @@ export const ReleaseOfficerResponseSchema = z.object({
 export type ReleaseOfficerResponse = z.infer<typeof ReleaseOfficerResponseSchema>;
 
 /**
- * §H7: buy one more step of standing payroll at the Nexus.
+ * §H7: buy one more expansion of standing payroll.
  *
- * No amount on the request. A step is a fixed size at a price the server quotes, so a client that
- * could name its own number would be naming its own price.
- */
-/**
- * Buying the next step of the book.
+ * No amount on the request. An expansion is a fixed size at a price the server quotes, so a client
+ * that could name its own number would be naming its own price.
  *
  * `fromSteps` is the step count the screen showed when the button was pressed. A step is bought
  * blind otherwise: two presses landing a second apart (a double click, two tabs) each buy "the
@@ -1449,7 +1556,7 @@ export const UpgradeNotorietyRequestSchema = z.object({
 export type UpgradeNotorietyRequest = z.infer<typeof UpgradeNotorietyRequestSchema>;
 
 export const IncreasePayrollResponseSchema = z.object({
-  /** Caps it cost. */
+  /** Scrap it cost (`PAYROLL_STEP_RESOURCE`). */
   spent: z.number().int().positive(),
   resources: ResourcesSchema,
   payroll: PayrollLedgerSchema,
@@ -1459,7 +1566,7 @@ export type IncreasePayrollResponse = z.infer<typeof IncreasePayrollResponseSche
 // --- research (GDD §C) ---
 
 /**
- * One rung of one of §C's eighteen role tracks, as the screen shows it.
+ * One rung of one of §C's thirteen role tracks, as the screen shows it.
  *
  * `cost` is what this crew would actually pay: the catalogue price with the track officer's own cut
  * already taken off (§C1d, §C3b), so the number on the card is the number that leaves the
@@ -1474,7 +1581,7 @@ export const LabTechSchema = z.object({
   name: z.string(),
   description: z.string(),
   cost: PartialResourcesSchema,
-  /** The clock this crew would get, after the Lab, the crew and the Head of Research. */
+  /** The clock this crew would get, after the Lab, the crew and the Researcher. */
   minutes: z.number().int().positive(),
   /** What it lands on, and how much, in the player's words. */
   effect: z.string(),
@@ -1490,16 +1597,20 @@ export type LabTech = z.infer<typeof LabTechSchema>;
  *
  * An array on the response rather than a record keyed by role: role-keyed structured data is a fit
  * hint by shape (§B8a) and the leak guard refuses it wholesale. Nothing here is the score itself.
- * `costCutPercent` is derived from it, which is the point of §C3b: a bonus that reads the points
- * has to be visible or the player cannot tell training worked.
+ * `passive` is derived from it, which is the point of §C3b: a bonus that reads the points has to be
+ * visible or the player cannot tell training worked.
  */
 export const ResearchTrackStatusSchema = z.object({
   role: OfficerRoleSchema,
   /** The officer in that chair, or null when it is empty. */
   officerName: z.string().nullable(),
   mark: OfficerMarkSchema.nullable(),
-  /** §C1d: what that officer's own sheet takes off every price on their track. */
-  costCutPercent: z.number(),
+  /**
+   * What that officer's chair does for the crew and by how much (`describeChairPassive`), or null
+   * with the chair empty. It said what they took off every price on their track until no officer
+   * cut a programme's price any more (maintainer, 2026-10-04).
+   */
+  passive: z.string().nullable(),
   /** How many of the ten are finished. */
   done: z.number().int().nonnegative(),
 });
@@ -1510,6 +1621,11 @@ export const ResearchHeadSchema = z.object({
   name: z.string(),
   mark: OfficerMarkSchema,
   timeCutPercent: z.number(),
+  /**
+   * What the Researcher adds to the clock cut once it is joined with the Lab's cards and the crew's
+   * points and curved (P7-C, 2026-10-02): the share off a clock with them, less the share without.
+   */
+  addsPercent: z.number(),
 });
 export type ResearchHead = z.infer<typeof ResearchHeadSchema>;
 
@@ -1529,7 +1645,7 @@ export const ResearchResponseSchema = z.object({
   completesAt: IsoDateTimeSchema.nullable(),
   /** §C: every rung of every track, with what is finished, what is reachable and why not. */
   technologies: z.array(LabTechSchema).default([]),
-  /** §C1b: the eighteen tracks in `OFFICER_ROLES` order, with who is standing on each. */
+  /** §C1b: the thirteen tracks in `OFFICER_ROLES` order, with who is standing on each. */
   tracks: z.array(ResearchTrackStatusSchema).default([]),
   /** §C1c: null when nobody holds the post, which shuts every track at once. */
   head: ResearchHeadSchema.nullable().default(null),
@@ -1556,7 +1672,7 @@ export const CrewOfficerSchema = z.object({
    * spreadsheet of a roster rather than a roster: the whole reason a player agonised over hiring
    * somebody at the Bar is on their sheet, and the screen where that person lives never showed it.
    * Carried on the same payload rather than fetched per officer. It is one small object and the
-   * alternative is eighteen round trips to open eighteen cards.
+   * alternative is thirteen round trips to open thirteen cards.
    */
   attributes: AttributesSchema,
   /**
@@ -1595,6 +1711,16 @@ export const CrewOfficerSchema = z.object({
    */
   mark: OfficerMarkSchema.nullable(),
   /**
+   * What their chair gives the crew and by how much (`describeChairPassive`, maintainer
+   * 2026-10-04), or null on the bench. Optional out of the parser; read it as `?? null`.
+   */
+  passive: z.string().nullable().optional(),
+  /**
+   * When their chair starts giving its passive, or null when it already does (`chairSettlesAt`,
+   * maintainer 2026-10-05). Optional out of the parser; read it as `?? null`.
+   */
+  chairFrom: IsoDateTimeSchema.nullable().optional(),
+  /**
    * §H7: the weekly fee agreed when they signed, in caps.
    *
    * On the crew payload rather than only on the Bar's, because "what am I paying this person" is a
@@ -1627,9 +1753,38 @@ export const CrewResponseSchema = z.object({
     used: z.number().int().nonnegative(),
     capacity: z.number().int().nonnegative(),
   }),
+  /** §H7: the payroll book, which the Crew screen shows and widens (maintainer, 2026-09-30). */
+  payroll: PayrollLedgerSchema,
+  /**
+   * The Overseer, drawn first on the crew screen (maintainer, 2026-10-04): in no chair, never on
+   * the bench and never let go, graded on their own seat (`ROLE_IMPORTANCE.overseer`). Null before
+   * one is chosen. Optional out of the parser; read it as `?? null`.
+   */
+  overseer: z
+    .object({
+      name: z.string(),
+      portraitId: z.string(),
+      attributes: AttributesSchema,
+      /** Their sheet as the crew fields it: their own, lifted by the Right Hand alone. */
+      lifted: AttributesSchema,
+      lift: z.array(
+        z.object({
+          attribute: AttributeNameSchema,
+          from: z.string(),
+          amount: z.number().int().positive(),
+        }),
+      ),
+      perks: PerksSchema,
+      mark: OfficerMarkSchema,
+      /** The one passive their grade pays (`describeOverseerPassive`). */
+      passive: z.string(),
+    })
+    .nullable()
+    .optional(),
   officers: z.array(CrewOfficerSchema),
 });
 export type CrewResponse = z.infer<typeof CrewResponseSchema>;
+export type CrewOverseer = NonNullable<CrewResponse['overseer']>;
 
 /** The one write answers with the refreshed screen, so the client never re-derives state. */
 export const CrewMutationResponseSchema = z.object({
@@ -1663,6 +1818,12 @@ export const TrainingSubjectSchema = z.object({
   officerRole: OfficerRoleSchema.nullable(),
   /** Everybody has a portrait: the Overseer's preset, or one off the officer pool. */
   portraitId: z.string().nullable(),
+  /**
+   * The mark the rest of the game stamps on them for their chair (`CrewOfficer.mark`), drawn on
+   * their portrait. Null on the bench and, until the Overseer has a grade of their own, for the
+   * Overseer. Optional so a fixture written before it still reads.
+   */
+  mark: OfficerMarkSchema.nullable().optional(),
   attributes: AttributesSchema,
   perks: PerksSchema,
   /** What they are doing right now, if anything. */
@@ -1671,6 +1832,14 @@ export const TrainingSubjectSchema = z.object({
   lastAttribute: AttributeNameSchema.nullable(),
   /** §D4: when they are back on their feet, or null while they are fit. Always null for the Overseer. */
   injuredUntil: IsoDateTimeSchema.nullable().default(null),
+  /**
+   * How long an hour on the floor takes this person, in seconds (maintainer, 2026-10-01).
+   *
+   * `drillSeconds` of their lifted sheet: their Speed, Resolve and Organization take up to half
+   * of `sessionSeconds` off. Optional out of the parser so a fixture without it still reads; a
+   * screen falls back to the response's `sessionSeconds`.
+   */
+  sessionSeconds: z.number().int().positive().optional(),
 });
 export type TrainingSubject = z.infer<typeof TrainingSubjectSchema>;
 
@@ -1679,9 +1848,10 @@ export const TrainingResponseSchema = z.object({
   /** Sessions still available today, and the daily allowance they come out of. */
   sessionsLeft: z.number().int().nonnegative(),
   perDay: z.number().int().positive(),
-  /** How many people may be on the floor at once: `TRAINING_BENCHES` plus the Professor's rung. */
-  benches: z.number().int().positive(),
+  /** Drills the floor's queue holds, the running one included: `TRAINING_QUEUE_SLOTS` plus the Professor's rung. */
+  queueSlots: z.number().int().positive(),
   gainPerSession: z.number().int().positive(),
+  /** The hour before anybody's sheet shortens it (`TRAINING_SECONDS`). Each subject has its own. */
   sessionSeconds: z.number().int().positive(),
   subjects: z.array(TrainingSubjectSchema),
 });
@@ -1694,7 +1864,7 @@ export const StartTrainingRequestSchema = z.object({
 export type StartTrainingRequest = z.infer<typeof StartTrainingRequestSchema>;
 
 /**
- * What the crew's attributes are currently worth, channel by channel.
+ * What the crew's perks, chairs and Lab are currently worth, channel by channel.
  *
  * Sent as the whole {@link CrewEffects} struct rather than a hand-picked few, so the profile can
  * show every lever a player has moved. It is derived from the player's own sheets and leaks
@@ -1702,8 +1872,32 @@ export type StartTrainingRequest = z.infer<typeof StartTrainingRequestSchema>;
  */
 export const CrewStandingResponseSchema = z.object({
   overseer: OverseerSchema,
-  /** Best-of across the Overseer and every officer: the sheet the effects are computed from. */
-  crewSheet: AttributesSchema,
+  /**
+   * What each working chair gives the crew, in `OFFICER_ROLES` order (maintainer, 2026-10-04).
+   *
+   * It was the crew's best-of sheet, the highest rating anybody in the room had in each skill,
+   * until a chair's work became its one passive and nothing else. An array, not a record keyed by
+   * role: role-keyed structured data is refused by the leak guard (§B8a). Everything here is read
+   * off the public tags.
+   */
+  chairs: z.array(
+    z.object({
+      role: OfficerRoleSchema,
+      officerName: z.string(),
+      mark: OfficerMarkSchema,
+      passive: z.string(),
+      /** When the chair starts giving, or null when it already does (`chairSettlesAt`). */
+      chairFrom: IsoDateTimeSchema.nullable().optional(),
+    }),
+  ),
+  /** The Overseer's own grade and the one passive it pays (`overseerLift`). */
+  overseerGrade: z.object({ mark: OfficerMarkSchema, passive: z.string() }),
+  /**
+   * The payroll book as the Bar charges it (`ledgerFor`), the Fixer's share included. The client
+   * cannot rebuild it: the Fixer's points are not on the wire (bug pass, 2026-10-04). Optional out
+   * of the parser; a screen without it falls back to the book before the Fixer.
+   */
+  payroll: PayrollLedgerSchema.optional(),
   effects: z.record(z.string(), z.number()),
   /**
    * The marks this crew's research and holdings have granted, per unit id (`unit_mark`).
@@ -1717,7 +1911,7 @@ export const CrewStandingResponseSchema = z.object({
    * What a haul is **actually** multiplied by, which `effects` above cannot say.
    *
    * `effects` is the people-only fold (`crewEffectsFor`), and that is correct for what it is for:
-   * `CrewEffectsPage` calls itself "a ledger of what eighteen people between them are worth", and
+   * `CrewEffectsPage` calls itself "a ledger of what thirteen people between them are worth", and
    * folding the ground into it would credit the officers with the district's work.
    *
    * `lootCapacityPercent` is the one channel on that struct where the difference is not cosmetic.
@@ -1731,6 +1925,11 @@ export const CrewStandingResponseSchema = z.object({
    * different things and one screen needs each.
    */
   haulPercent: z.number().default(0),
+  /**
+   * Cap Counter's cut of a job's caps (`withMissionCaps`), off the same standing fold and for the
+   * same reason: the return pays it, and a crew that is out is quoted what it will bring home.
+   */
+  missionCapsPercent: z.number().default(0),
 });
 export type CrewStandingResponse = z.infer<typeof CrewStandingResponseSchema>;
 
@@ -1794,9 +1993,11 @@ export const MarketResponseSchema = z.object({
    */
   barterRate: z.number().positive(),
   /**
-   * The crew's market discount, capped (`market/discount.ts`): what comes off a won lot at the
-   * close, off the supply run's price and off the Broker's cut. The lot screens print a bid beside
-   * what this crew would pay for it; the supply lines already carry it in `capsPerUnit`.
+   * The crew's market discount as the **raw sum** of its sources (`market/discount.ts`): what comes
+   * off a won lot at the close, off the supply run's price and off the Broker's cut. Raw because
+   * every shared price function puts it through the curve itself; a curved figure passed to one
+   * would be discounted twice. A screen that prints the discount prints
+   * `effectiveMarketDiscount` of this.
    */
   marketDiscountPercent: z.number().nonnegative().default(0),
   /*
@@ -1808,8 +2009,10 @@ export const MarketResponseSchema = z.object({
    * to "is it open" in one place, since the route re-checks the same predicate before trading.
    */
   reimagining: z.object({
-    hasHeadOfResearch: z.boolean(),
+    hasResearcher: z.boolean(),
     hasReimaginingResearch: z.boolean(),
+    /** See `ReimaginingContext.researcherBackInSeconds`. Optional for older payloads. */
+    researcherBackInSeconds: z.number().int().nonnegative().nullable().optional(),
   }),
   /**
    * Whether a Trader fit to work sits in the chair (2026-09-29). Without one the offers board
@@ -1817,6 +2020,12 @@ export const MarketResponseSchema = z.object({
    * Optional so an older payload still parses; a screen without it leaves the refusal to the server.
    */
   traderAtWork: z.boolean().optional(),
+  /**
+   * The working Trader's seat points, or null with the chair empty: what the shared rate functions
+   * take to price the broker and the supply run as the till does (`traderRates`, 2026-10-04).
+   * Optional out of the parser; read it as `?? null`.
+   */
+  traderPoints: z.number().nullable().optional(),
 });
 export type MarketResponse = z.infer<typeof MarketResponseSchema>;
 
@@ -1832,7 +2041,7 @@ export type BuySupplyRequest = z.infer<typeof BuySupplyRequestSchema>;
 // Buying off the barrow went with the maintainer's 2026-09-08 rework: every line is a lot, and the
 // request for one is `PlaceVendorBidRequestSchema` in `market/auction.ts`.
 
-/** The Broker: give one resource, take half as much of another. */
+/** The Broker: give one resource, caps included, and take half its worth in another. */
 export const BarterRequestSchema = z.object({
   give: ResourceKeySchema,
   want: ResourceKeySchema,

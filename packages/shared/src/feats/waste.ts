@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { PartialResourcesSchema, RESOURCE_KEYS, type ResourceKey } from '../resources.js';
-import { ArmySchema } from '../units/training.js';
+import { ArmySchema } from '../units/muster.js';
 import { findUnit } from '../units/index.js';
 import type { FeatReward } from './rewards.js';
 
@@ -50,7 +50,7 @@ export type FeatWaste = z.infer<typeof FeatWasteSchema>;
  */
 export interface FeatClaimRoom {
   readonly resources: Readonly<Record<ResourceKey, number>>;
-  /** Spare unit slots, the same §A1 fold training and the Garage read. */
+  /** Spare unit slots, the same §A1 fold mustering and the Garage read. */
   readonly unitSlots: number;
 }
 
@@ -64,7 +64,7 @@ export interface FeatRewardSplit {
 /**
  * Splits a reward into what fits and what does not.
  *
- * XP, items and boosts are never split: none of them has a ceiling, so all three are paid whole
+ * XP, items, boosts and random pages are never split: none of them has a ceiling, so all are paid whole
  * whatever the stores are doing. A feat that pays only those can never be wasted, which is
  * most of the catalogue.
  *
@@ -105,6 +105,7 @@ export function splitFeatReward(reward: FeatReward, room: FeatClaimRoom): FeatRe
     ...(Object.keys(paidUnits).length > 0 ? { units: paidUnits } : {}),
     ...(reward.xp !== undefined ? { xp: reward.xp } : {}),
     ...(reward.boosts ? { boosts: reward.boosts } : {}),
+    ...(reward.pages !== undefined ? { pages: reward.pages } : {}),
   };
 
   const lost = Object.keys(lostResources).length > 0 || Object.keys(lostUnits).length > 0;

@@ -345,7 +345,7 @@ describe('a standing order obeys the same doors a player does', () => {
     const base = app.repos.bases.findById(baseId)!;
     // A sheet the opening rank cannot field, beside one it can: `notorietyToField('juggernauts')`
     // is above Nobody, which is where every crew starts.
-    app.repos.bases.updateArmy(baseId, { juggernauts: 4, razors: 8 }, base.trainingQueue);
+    app.repos.bases.updateArmy(baseId, { juggernauts: 4, razors: 8 }, base.musterQueue);
     withOfficers(app, baseId);
     expect(unitsBeyondNotoriety({ juggernauts: 1 }, 0).length).toBeGreaterThan(0);
 
@@ -380,7 +380,7 @@ describe('a standing order obeys the same doors a player does', () => {
     const { app, token, baseId } = await crew();
     grant(app, baseId, [AUTOMATION_RUNGS.open, AUTOMATION_RUNGS.bestFit]);
     const base = app.repos.bases.findById(baseId)!;
-    app.repos.bases.updateArmy(baseId, { juggernauts: 4, razors: 8 }, base.trainingQueue);
+    app.repos.bases.updateArmy(baseId, { juggernauts: 4, razors: 8 }, base.musterQueue);
     withOfficers(app, baseId);
 
     // The fitted branch ranks by offense per slot, so it would reach for the Juggernauts first.
@@ -397,7 +397,7 @@ describe('a standing order obeys the same doors a player does', () => {
     const { app, token, baseId } = await crew();
     grant(app, baseId, [AUTOMATION_RUNGS.open, AUTOMATION_RUNGS.secondSlot]);
     const base = app.repos.bases.findById(baseId)!;
-    app.repos.bases.updateArmy(baseId, { razors: 40 }, base.trainingQueue);
+    app.repos.bases.updateArmy(baseId, { razors: 40 }, base.musterQueue);
     withOfficers(app, baseId);
     // Boards to fill by hand: a district hires only a crew that holds a place in it.
     holdEveryBoard(app.repos, baseId);

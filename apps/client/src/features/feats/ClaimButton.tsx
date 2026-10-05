@@ -5,7 +5,7 @@ import { DrawnFace } from '../../components/ui/DrawnMarks';
  * CLAIM: the one control on the feats screen, drawn rather than pressed out of metal.
  *
  * The kit already has two buttons and neither is right here. `Button` is a struck brass plate, the
- * machine affordance a Train or a Buy wants; `InkButton` is the drawn box, but it is a `Link` and
+ * machine affordance a Muster or a Buy wants; `InkButton` is the drawn box, but it is a `Link` and
  * this commits a write. So this is the third: the ink box's own grammar (a rectangle gone round
  * one and a bit times, overshooting the corner it started at) on a real `<button>`, with the face
  * behind it filled so that it is unmistakably the thing to hit on a card of six.

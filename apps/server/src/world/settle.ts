@@ -10,11 +10,13 @@ import { settleSleepers } from '../city/sleepers.js';
 import { settleLocationUpgrades } from '../city/actions.js';
 import { settleCapturedGates } from '../city/gates.js';
 import { settleGarrisonRegrowth } from '../city/regrowth.js';
-import { settleSpying } from '../spying/spying.js';
+import { settleSpying, snapshotSpying } from '../spying/spying.js';
 import { settleCouriers } from '../spying/courier.js';
 import { settleMoves } from '../moves/moves.js';
 import type { Repositories } from '../db/repos/index.js';
 import { liveHub } from '../live/hub.js';
+import { settleStackhouse } from '../blackmarket/stackhouse.js';
+import { callOffUnderstrength } from '../battle/understrength.js';
 import { guardStage } from './guard.js';
 
 /**
@@ -96,21 +98,27 @@ export function settleWorld(
    * battles on exactly midnight, for the remaining units", and midnight is a half-hour slot a
    * fight can be called for. `settleBattles` takes every fight at or before `dueBy`.
    */
+  // Calls nobody means to fight are off at the lock (maintainer, 2026-10-05): under twenty unit
+  // slots on the attacking side, everybody walks home and every bet on it is refunded.
+  guardStage('under-strength calls', 0, () => callOffUnderstrength(repos, now));
   const late = guardStage('last week’s battles', [], () =>
     settleBattles(repos, engine, now, lastWeekBoundary(now)),
   ).length;
   const regrown = guardStage('regrowth', 0, () => settleGarrisonRegrowth(repos, now));
   const fights = late + guardStage('battles', [], () => settleBattles(repos, engine, now)).length;
+  // The Stackhouse's bets on the fights that just landed, or were abandoned (2026-10-05).
+  guardStage('stackhouse bets', 0, () => settleStackhouse(repos, now));
   guardStage('crews coming home', null, () => bringCrewsHome?.(repos, now));
   if (bringCrewsHome) guardStage('automations', 0, () => settleAutomations(repos, now, admin));
-  // Spy jobs with the receipts: a report reads the ground as it stands after the fights above,
-  // which is the ground the runners actually arrive at.
+  // Spy jobs with the receipts: the runners read the ground the moment they reach it, after the
+  // fights above, and deliver the read when they are home.
+  guardStage('spy snapshots', 0, () => snapshotSpying(repos, now));
   guardStage('spying', 0, () => settleSpying(repos, now));
   // Turned Runners: one report a day at the Athens boundary, reading the same settled ground.
   guardStage('couriers', 0, () => settleCouriers(repos, now));
   const tables = guardStage('bar auctions', 0, () => settleBarAuctions(repos, now, admin));
-  const lots = guardStage('runner lots', 0, () => settleVendorAuctions(repos, now));
-  guardStage('black market lots', 0, () => settleBlackMarketLots(repos, now, GAME_TIMEZONE));
+  const lots = guardStage('runner lots', 0, () => settleVendorAuctions(repos, now, admin));
+  guardStage('black market lots', 0, () => settleBlackMarketLots(repos, now, GAME_TIMEZONE, admin));
   // Listings past their lifetime and claims past their 24 hours, whether or not anybody looks.
   const board = guardStage('market board', 0, () => settleMarketBoard(repos, now));
   if (fights > 0 || landed > 0 || moved > 0 || planted > 0 || gates > 0 || regrown > 0) {

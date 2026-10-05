@@ -615,7 +615,7 @@ for (const size of VIEWPORTS) {
      * Scrapyard hid 36, the Generator 35, the Garage 24 and the Lab 16.
      *
      * Three separate claims, because they fail separately. The body may not be hiding anything it
-     * did not have to; the bench door, which is the *last* thing down the deck and therefore the
+     * did not have to; the bracket rack, which is the *last* thing down the deck and therefore the
      * first casualty, has to be whole and on screen; and the window itself has to fit the frame it
      * is drawn over, which nothing else checks because a modal is portalled out of `#root` and
      * `expectNothingOverflowsTheScreen` only ever looks inside it.
@@ -653,8 +653,8 @@ for (const size of VIEWPORTS) {
         expect(hidden.outside, `${kind}: the window is ${hidden.outside}px off the frame`).toBe(0);
 
         await expect(
-          page.getByTestId(`structure-build-addons-${kind}`),
-          `${kind}: the door to the bench is not on screen`,
+          page.getByTestId(`slots-${kind}`),
+          `${kind}: the bracket rack is not on screen`,
         ).toBeInViewport({ ratio: 1 });
 
         // Inside the loop, not after it. Run once at the end this would sweep a closed dialog and
@@ -667,10 +667,44 @@ for (const size of VIEWPORTS) {
         if (kind === CENTRAL_BUILDING) {
           await page.screenshot({ path: `screenshots/hideout/dialog-played-${tag}.png` });
         }
+        // The Gate's line says what it is worth in a fight and nothing against spies
+        // (maintainer, 2026-10-01: spy strength is not public).
+        if (kind === 'gate') {
+          await expect(page.getByTestId('structure-bonus')).toContainText('% defence');
+          await expect(page.getByTestId('structure-bonus')).not.toContainText(/points|spy/i);
+          await page.screenshot({ path: `screenshots/hideout/dialog-gate-${tag}.png` });
+        }
 
         await page.keyboard.press('Escape');
         await expect(dialog).toBeHidden();
       }
+    });
+
+    /**
+     * The Nexus's payroll door opens the same window as the Bar's (maintainer, 2026-10-01): named
+     * Increase payroll to match, and with no eyebrow naming the Nexus.
+     */
+    test(`the payroll book off the Nexus at ${tag}`, async ({ page }) => {
+      await installApi(page, playedDistrict());
+      await page.goto('/game/base');
+      await page.locator('[data-testid="plot-nexus"]').click();
+      // The Nexus's own line quotes the payroll its levels add, in caps and with no week in it
+      // (maintainer, 2026-10-01).
+      const line = page.getByTestId('structure-bonus');
+      await expect(line).toContainText(/^Nexus \d+ · \+[\d,]+ caps payroll/);
+      await expect(line).not.toContainText(/wk|week/i);
+      await expect(line).toBeInViewport({ ratio: 1 });
+      const door = page.getByTestId('nexus-open-payroll');
+      await expect(door).toHaveText('Increase payroll');
+      await door.click();
+      const book = page.getByTestId('payroll-dialog');
+      await expect(book).toBeVisible();
+      await settleFonts(page);
+      await expect(book).not.toContainText(/the nexus/i);
+      await expect(book).not.toContainText(/wk|week/i);
+      await expect(book.getByTestId('increase-payroll')).toBeInViewport({ ratio: 1 });
+      await expectNothingClippedVertically(page, '[data-testid="payroll-dialog"]');
+      await page.screenshot({ path: `screenshots/hideout/payroll-book-${tag}.png` });
     });
 
     /**

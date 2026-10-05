@@ -94,8 +94,8 @@ function stubApi(anyRide = false): void {
             fleet: {},
             queue: [],
             resources: STARTING_RESOURCES,
-            trainingCostReduction: 0,
-            trainingSpeedBonus: 0,
+            musterCostReduction: 0,
+            musterSpeedBonus: 0,
             built: [],
             anyRide,
           }),
@@ -105,7 +105,7 @@ function stubApi(anyRide = false): void {
   });
 }
 
-function open(over: Partial<BattleView> = {}, army: Army = ARMY) {
+function open(over: Partial<BattleView> = {}, army: Army = ARMY, walking: Army = {}) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false, refetchOnWindowFocus: false } },
   });
@@ -118,6 +118,7 @@ function open(over: Partial<BattleView> = {}, army: Army = ARMY) {
         bagPercent={0}
         notoriety={100_000}
         mode="line"
+        walking={walking}
         pending={false}
         error={null}
         onClose={() => undefined}
@@ -135,7 +136,7 @@ beforeEach(() => {
   vi.stubGlobal('fetch', fetchMock);
   fetchMock.mockReset();
   stubApi();
-  useSession.setState({ token: 'session-token', user: null });
+  useSession.setState({ signedIn: true, user: null });
 });
 
 afterEach(() => {
@@ -143,6 +144,18 @@ afterEach(() => {
 });
 
 describe('what the machines will seat', () => {
+  // The server counts everybody the machines will have carried by the mark: what already stands
+  // there and what is still walking, not only this batch (bug pass, 2026-10-02).
+  it('leaves no seat for a batch when a column on the road already fills the machines', () => {
+    open({ vehicles: { motorcycle: 1 } }, ARMY, { razors: 2 });
+    expect(field('line-razors').max).toBe('0');
+  });
+
+  it("counts the crew's own units already standing there against the seats", () => {
+    open({ vehicles: { motorcycle: 1 }, own: { army: { razors: 1 }, perimeter: {}, size: 1 } });
+    expect(field('line-razors').max).toBe('1');
+  });
+
   it('puts no ceiling on a column with nothing loaded', () => {
     open();
     fireEvent.click(screen.getByTestId('deploy-max-razors'));

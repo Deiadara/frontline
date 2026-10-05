@@ -65,7 +65,7 @@ function open(data: FactionResponse, me?: MeResponse) {
 
 beforeEach(() => {
   vi.stubGlobal('fetch', vi.fn());
-  useSession.setState({ token: 'session-token', user: null });
+  useSession.setState({ signedIn: true, user: null });
 });
 
 describe('the join sheet', () => {

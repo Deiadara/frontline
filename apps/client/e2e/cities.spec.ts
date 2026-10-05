@@ -1,6 +1,12 @@
-import { CITIES, DEFAULT_CITY_ID, districtsOfCity } from '@frontline/shared';
+import {
+  CITIES,
+  DEFAULT_CITY_ID,
+  DISTRICT_NAME_MAX,
+  districtsOfCity,
+  type CityResponse,
+} from '@frontline/shared';
 import { expect, test } from '@playwright/test';
-import { lateGame } from './fixtures';
+import { cityFor, lateGame, lateGameBase } from './fixtures';
 import {
   expectNoImagesClipped,
   expectNothingOverflowsTheScreen,
@@ -183,52 +189,79 @@ test('a city you pick is the city you end up looking at', async ({ page }) => {
 });
 
 /**
- * A district tag is a scrap of paper with a name on it, and a name is one line.
+ * A district tag is one line, always (maintainer, 2026-09-25, and again 2026-10-05).
  *
- * The tag carried a width cap and `break-words`, which every Ashfall name happened to fit inside.
- * Terminus's Marshalling Yards is twenty-one characters and wrapped, so one tag on that map was
- * two lines tall and read as a different kind of object from the eleven beside it (maintainer,
- * 2026-09-25). Measured on the rendered box rather than on the class, because a cap removed
- * somewhere else in the cascade would put it back without touching this component.
+ * The first pass measured authored names on a fixture where nobody held a district outright, so
+ * no tag carried the Combine's mark, and the mark is twenty pixels: a Combine-held Marshalling
+ * Yards wrapped on the real map while this stayed green. So every district here is held, every tag
+ * wears the mark, and the crew's own plot carries a 28-character name (`DISTRICT_NAME_MAX`), the
+ * longest label the map can be asked to print. Each one has to be a single line and lie wholly
+ * inside the painting's window on screen.
  */
-test('no district tag wraps, in either city', async ({ page }) => {
-  await page.setViewportSize({ width: 1280, height: 720 });
-  await installApi(page, lateGame);
+test('no district tag wraps or leaves the map, in either city', async ({ page }) => {
+  const longest = 'The Brotherhood of the Rails';
+  expect(longest).toHaveLength(DISTRICT_NAME_MAX);
+  const held = (map: CityResponse): CityResponse => ({
+    ...map,
+    districts: map.districts.map((one) => ({ ...one, holder: { kind: 'government' } })),
+  });
 
-  for (const city of CITIES.filter((one) => one.open)) {
-    await page.goto('/game/city');
-    await expect(page.getByTestId('cities-view')).toBeVisible();
-    await page.getByTestId(`city-card-${city.id}`).click();
-    await expect(page.getByTestId('cities-view')).toHaveCount(0);
-    await settleFonts(page);
+  for (const [width, height] of [
+    [1024, 768],
+    [1280, 720],
+  ] as const) {
+    await page.setViewportSize({ width, height });
+    await installApi(page, { ...lateGame, base: { ...lateGameBase, name: longest } });
+    // After the harness, so it is matched first.
+    await page.route(
+      (url) => url.pathname.endsWith('/api/city'),
+      (route) =>
+        route.fulfill({
+          json: held(cityFor(new URL(route.request().url()).searchParams.get('city') ?? '')),
+        }),
+    );
 
-    /*
-     * Authored names only, and that is the point of the cap rather than a hole in the test.
-     *
-     * A crew names its own ground, and `DistrictNameSchema` allows far longer than anything in the
-     * catalogue, so a player-named tag wrapping is the cap doing its job. What must never wrap is
-     * a name the game itself wrote, because that is a fixed string somebody could have measured.
-     */
-    const authored = districtsOfCity(city.id).map((one) => one.name.toUpperCase());
-    const wrapped = await page.evaluate((names: string[]) => {
-      const tall: string[] = [];
-      for (const tag of document.querySelectorAll('[data-testid^="district-tag-"]')) {
-        // The plate is the one child with the name in it; the other is the hover glow.
-        const plate = [...tag.querySelectorAll('span')].find((one) => one.textContent?.trim());
-        if (!plate) continue;
-        const text = plate.textContent?.trim() ?? '';
-        if (!names.includes(text.toUpperCase())) continue;
-        const line = parseFloat(getComputedStyle(plate).lineHeight);
-        const box = plate.getBoundingClientRect();
-        if (box.height > line * 1.6) tall.push(`${text} at ${box.height}px`);
-      }
-      return tall;
-    }, authored);
-    expect(wrapped, `${city.name}: tags on more than one line`).toEqual([]);
+    for (const city of CITIES.filter((one) => one.open)) {
+      await page.goto('/game/city');
+      await expect(page.getByTestId('cities-view')).toBeVisible();
+      await page.getByTestId(`city-card-${city.id}`).click();
+      await expect(page.getByTestId('cities-view')).toHaveCount(0);
+      await settleFonts(page);
+      const tags = page.locator('[data-testid^="district-tag-"]');
+      await expect(tags).toHaveCount(districtsOfCity(city.id).length);
 
-    // A guard on the sweep: no tags at all would pass the assertion above having measured nothing.
-    const drawn = await page.locator('[data-testid^="district-tag-"]').count();
-    expect(drawn, `${city.name}: no tags on the map`).toBe(districtsOfCity(city.id).length);
+      const found = await page.evaluate(() => {
+        const room = document.querySelector('[data-testid="city-room"]')!.getBoundingClientRect();
+        const left = Math.max(0, room.left);
+        const right = Math.min(window.innerWidth, room.right);
+        const top = Math.max(0, room.top);
+        const bottom = Math.min(window.innerHeight, room.bottom);
+        const tall: string[] = [];
+        const outside: string[] = [];
+        let marked = 0;
+        for (const tag of document.querySelectorAll('[data-testid^="district-tag-"]')) {
+          // The plate is the one child with the name in it; the other is the hover glow.
+          const plate = [...tag.querySelectorAll(':scope > span')].find((one) =>
+            one.textContent?.trim(),
+          ) as HTMLElement | undefined;
+          if (!plate) continue;
+          if (plate.querySelector('svg')) marked += 1;
+          const text = plate.textContent?.trim() ?? '';
+          const line = parseFloat(getComputedStyle(plate).lineHeight);
+          const box = plate.getBoundingClientRect();
+          if (box.height > line * 1.6) tall.push(`${text} at ${box.height}px`);
+          if (box.left < left || box.right > right || box.top < top || box.bottom > bottom) {
+            outside.push(`${text} at ${Math.round(box.left)}..${Math.round(box.right)}`);
+          }
+        }
+        return { tall, outside, marked };
+      });
+      const where = `${city.name} at ${width}x${height}`;
+      expect(found.tall, `${where}: tags on more than one line`).toEqual([]);
+      expect(found.outside, `${where}: tags off the painting`).toEqual([]);
+      // A guard on the sweep: the mark is what wrapped, so every tag has to be wearing it.
+      expect(found.marked, `${where}: tags without the mark`).toBe(districtsOfCity(city.id).length);
+    }
   }
 });
 

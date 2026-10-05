@@ -6,26 +6,19 @@ import {
   type AttributeName,
   type Attributes,
 } from '../attributes.js';
-import { AttributesSchema } from '../attributes.js';
 import { noTerritoryEffects } from '../city/index.js';
 import {
-  ATTRIBUTE_EFFECTS,
   EFFECT_CHANNELS,
-  attributesDriving,
+  chairPassiveOf,
   combineEffects,
-  contributionOf,
   crewEffects,
-  crewSheet,
-  effectsOfSheet,
   noCrewEffects,
   speedMultiplier,
-  peakUplift,
-  IMPORTANCE_SHARE,
   type CrewMember,
 } from './effects.js';
 import { findPerk } from './perks.js';
 import { blackMarketDay } from '../market/blackmarket.js';
-import { importanceOf } from './importance.js';
+import { seatPoints } from './importance.js';
 import type { OfficerRole } from '../roles.js';
 import {
   OVERSEER_SUBJECT,
@@ -39,6 +32,8 @@ import {
   cancelDrill,
   drillProgressAt,
   drillRemainingMs,
+  drillUnderway,
+  nextDrillStart,
   rollDay,
   trainingDay,
   sessionFor,
@@ -54,155 +49,39 @@ const NOW = '2026-08-16T09:00:00.000Z';
 const later = (seconds: number): string => new Date(Date.parse(NOW) + seconds * 1000).toISOString();
 
 describe('what a crew is worth', () => {
-  it('gives every attribute somewhere to land', () => {
-    for (const name of ATTRIBUTE_NAMES) {
-      expect(ATTRIBUTE_EFFECTS[name], name).toBeDefined();
-      expect(EFFECT_CHANNELS, name).toContain(ATTRIBUTE_EFFECTS[name].channel);
-    }
-  });
-
-  /**
-   * Every channel is driven by something.
-   *
-   * A channel nobody drives is a lever the game reads and no player can ever move: the exact
-   * failure this whole module exists to end, reintroduced one field at a time.
+  /*
+   * No best-of any more (maintainer, 2026-10-04): an officer's skills reach the crew through their
+   * chair's passive alone, read off `chairPoints`, and never as a per-skill bonus on a shared sheet.
    */
-  it('leaves no channel without a driver', () => {
-    for (const channel of EFFECT_CHANNELS) {
-      expect(attributesDriving(channel), channel).not.toHaveLength(0);
-    }
+  const member = (role: OfficerRole | null, attributes: Attributes): CrewMember => ({
+    attributes,
+    role,
+    perks: [],
   });
 
-  it('says something specific about each attribute rather than restating the number', () => {
-    for (const name of ATTRIBUTE_NAMES) {
-      const summary = ATTRIBUTE_EFFECTS[name].summary;
-      expect(summary.length, name).toBeGreaterThan(30);
-      expect(summary, name).not.toMatch(/%/);
-    }
+  it("pays no channel off anybody's skills, whoever holds them", () => {
+    const brilliant = crewEffects([
+      member(null, makeAttributes(100)),
+      member('trader', makeAttributes(100)),
+      member('raid_boss', makeAttributes(100)),
+    ]);
+    const blank = noCrewEffects();
+    for (const channel of EFFECT_CHANNELS) expect(brilliant[channel], channel).toBe(blank[channel]);
   });
 
-  it('is worth nothing at zero and something real at the ceiling', () => {
-    expect(effectsOfSheet(makeAttributes(0))).toEqual(noCrewEffects());
-    const maxed = effectsOfSheet(makeAttributes(MAX_ATTRIBUTE));
-    for (const channel of EFFECT_CHANNELS) {
-      expect(maxed[channel], channel).toBeGreaterThan(0);
-    }
+  it("records each working chair's seat points, and nobody's out of a chair", () => {
+    const sheet = makeAttributes(40, { analysis: 90 });
+    const effects = crewEffects([member('researcher', sheet), member(null, sheet)]);
+    expect(effects.chairPoints).toEqual({ researcher: seatPoints(sheet, 'researcher') });
   });
 
-  /** A channel two attributes drive is worth twice as much as one only one drives. */
-  it('adds up the attributes sharing a channel', () => {
-    const sheet = makeAttributes(40);
-    const effects = effectsOfSheet(sheet);
-    for (const channel of EFFECT_CHANNELS) {
-      expect(effects[channel], channel).toBe(
-        attributesDriving(channel).length * contributionOf(40),
-      );
-    }
-  });
-
-  describe('best-of across the room', () => {
-    /** The player. No seat, so everything they know is available all the time. */
-    const overseer = (over: Partial<Attributes> = {}, base = 10): CrewMember => ({
-      attributes: makeAttributes(base, over),
-      role: null,
-      perks: [],
-    });
-    /*
-     * An officer in a real chair.
-     *
-     * These used to spell their duties out inline, because which skills a seat used was a
-     * server-side table this package could not reach. `ROLE_IMPORTANCE` is public now (the board's
-     * call: the sheet draws it as coloured borders), so the tests name the chair and read the same
-     * table the game does, which is the version that fails when the table changes.
-     */
-    const officer = (role: OfficerRole, over: Partial<Attributes> = {}, base = 10): CrewMember => ({
-      attributes: makeAttributes(base, over),
-      role,
-      perks: [],
-    });
-
-    /**
-     * What one rating is worth in one chair, uplift and all: the rule, restated for the reader.
-     *
-     * Rounded, because `crewSheet` rounds: the sheet is an `Attributes` and that is integers.
-     */
-    const worth = (member: CrewMember, name: AttributeName): number =>
-      Math.round(
-        member.attributes[name] *
-          IMPORTANCE_SHARE[importanceOf(member.role as OfficerRole, name)] *
-          peakUplift(member),
-      );
-
-    it('takes the highest rating anybody has, attribute by attribute', () => {
-      const engineer = officer('lead_engineer', { engineering: 70 });
-      const spy = officer('master_of_whispers', { stealth: 65 });
-      const sheet = crewSheet([engineer, spy]);
-      // Engineering is the Lead Engineer's irreplaceable skill and Stealth is the Master of Whispers', so
-      // each is paid in full, lifted by whatever their peaks are worth.
-      expect(sheet.engineering).toBeCloseTo(worth(engineer, 'engineering'), 5);
-      expect(sheet.stealth).toBeCloseTo(worth(spy, 'stealth'), 5);
-      // Neither chair rates Medicine at all, so the best on offer is a quarter of somebody's 10.
-      expect(sheet.medicine).toBeCloseTo(
-        Math.max(worth(engineer, 'medicine'), worth(spy, 'medicine')),
-        5,
-      );
-      expect(sheet.medicine).toBeLessThan(10);
-    });
-
-    /**
-     * Hiring somebody can never make the crew worse.
-     *
-     * The reason best-of was chosen over a mean, stated as a property: a mean punishes a player
-     * for hiring a specialist, and a game where the correct move is to hire nobody has no Bar.
-     */
-    it('never drops a channel when another person joins', () => {
-      const before = crewEffects([overseer({}, 30)]);
-      const after = crewEffects([
-        overseer({}, 30),
-        officer('master_of_whispers', { signals: 80 }, 4),
-      ]);
-      for (const channel of EFFECT_CHANNELS) {
-        expect(after[channel], channel).toBeGreaterThanOrEqual(before[channel]);
-      }
-    });
-
-    it('counts the Overseer as one of the people in the room', () => {
-      const alone = crewEffects([overseer({ cryptography: 90 })]);
-      const hired = crewEffects([overseer(), officer('master_of_whispers', { cryptography: 90 })]);
-      expect(alone.intelResistancePercent).toBeGreaterThanOrEqual(hired.intelResistancePercent);
-    });
-
-    /**
-     * §C2: the seat is half the hire.
-     *
-     * The rule the whole assignment layer stands on: the same person, hired at the same wage, is
-     * worth their full Cryptography in a seat that reads cipher traffic and a third of it in one
-     * that kicks doors. Before this, the two were numerically identical and the §G screen changed
-     * nothing at all.
-     */
-    it('pays a person their full rating only in the job they are actually doing', () => {
-      // The Master of Whispers rates Cryptography as useful; the Raid Boss does not rate it at all.
-      const rightChair = officer('master_of_whispers', { cryptography: 90 });
-      const wrongChair = officer('raid_boss', { cryptography: 90 });
-      const onDuty = crewSheet([rightChair]);
-      const off = crewSheet([wrongChair]);
-      expect(onDuty.cryptography).toBeCloseTo(worth(rightChair, 'cryptography'), 5);
-      expect(off.cryptography).toBeCloseTo(worth(wrongChair, 'cryptography'), 5);
-      expect(off.cryptography).toBeLessThan(onDuty.cryptography);
-    });
-
-    /** And it is a real ordering, not a rounding: the right ordinary person beats the wrong star. */
-    it('lets an ordinary officer in the right seat beat a brilliant one in the wrong seat', () => {
-      const star = crewSheet([officer('raid_boss', { stealth: 95 })]);
-      const journeyman = crewSheet([officer('master_of_whispers', { stealth: 50 })]);
-      expect(journeyman.stealth).toBeGreaterThan(star.stealth);
-    });
-
-    /** The Overseer is exempt, and that is the point of being the one who is not an employee. */
-    it('never discounts the Overseer, whatever the attribute', () => {
-      const sheet = crewSheet([overseer({ encyclopedia: 80 })]);
-      expect(sheet.encyclopedia).toBe(80);
-    });
+  it("pays a chair's passive only to the chair, however good somebody elsewhere is", () => {
+    // A brilliant analyst sitting as Trader does not speed up research: the Researcher does.
+    const analyst = makeAttributes(10, { analysis: 100, intuition: 100, encyclopedia: 100 });
+    const asTrader = crewEffects([member('trader', analyst)]);
+    expect(chairPassiveOf(asTrader, 'researcher', 'research_speed')).toBe(0);
+    const asResearcher = crewEffects([member('researcher', analyst)]);
+    expect(chairPassiveOf(asResearcher, 'researcher', 'research_speed')).toBeGreaterThan(0);
   });
 
   describe('territory and crew together', () => {
@@ -234,15 +113,9 @@ describe('what a crew is worth', () => {
 /**
  * Perks (§B7): what an officer brings, as opposed to what they are rated at.
  *
- * The two halves of `crewEffects` compose differently on purpose, and that is the whole design of
- * the hiring layer. An attribute is **best-of**: one specialist is enough, so a second cryptographer
- * adds nothing and the interesting question is "who is your best X". A perk **sums**: it is a thing
- * a person brought with them, so two officers who each know a foundry manager know two of them, and
- * filling nineteen chairs is worth the wage bill.
- *
- * Getting that backwards in either direction breaks something real. Best-of perks would make the
- * roster a search for one good hire and the other eighteen chairs decoration; summed attributes
- * would make hiring anybody strictly better and turn the sheet into a headcount.
+ * A perk **sums**: it is a thing a person brought with them, so two officers who each know a
+ * foundry manager know two of them. Skills reach the crew through each chair's passive instead
+ * (2026-10-04), so a perk is the one thing every person in the room adds whatever chair they sit in.
  */
 describe('what an officer brings (§B7)', () => {
   const plain = (perks: string[] = []): CrewMember => ({
@@ -293,16 +166,6 @@ describe('what an officer brings (§B7)', () => {
     expect(() => crewEffects([plain(['a_perk_that_was_retired'])])).not.toThrow();
     expect(crewEffects([plain(['a_perk_that_was_retired'])])).toEqual(crewEffects([plain()]));
   });
-
-  it('leaves the attribute half of the sheet alone', () => {
-    // The hazard the trait system had: a keyword that moved the carrier's own attributes made a
-    // stored sheet ambiguous about whether the bonus was already in it. A perk cannot, because it
-    // never touches the sheet at all.
-    const sheet = makeAttributes(10);
-    expect(crewSheet([{ attributes: sheet, role: null, perks: ['hard_trainer'] }])).toEqual(
-      crewSheet([{ attributes: sheet, role: null, perks: [] }]),
-    );
-  });
 });
 
 describe('drilling', () => {
@@ -329,20 +192,61 @@ describe('drilling', () => {
   });
 
   /**
-   * One person on the floor at a time (maintainer, 2026-09-21), and the Professor's Second Chair
-   * is the only thing that widens it. Pinned on both sides: the default refuses the second body
-   * while the first is still drilling, and a second bench admits exactly one more.
+   * The floor is a queue of two (maintainer, 2026-10-04), the running drill included, and the
+   * Professor's Second Chair is the only thing that lengthens it. Pinned on both sides: the
+   * default admits a second drill and refuses a third, and one more place admits exactly one more.
    */
-  it('takes one person on the floor, and one more per bench', () => {
-    const state = beginTraining(startingTraining(NOW), session(), NOW);
-    expect(trainingBlocker(state, 'officer-1', 'logic', sheet, NOW)).toBe('The floor is taken');
-    expect(trainingBlocker(state, 'officer-1', 'logic', sheet, NOW, 0, 2)).toBeNull();
-    const two = beginTraining(state, session({ id: 's2', subjectId: 'officer-1' }), NOW);
-    expect(trainingBlocker(two, 'officer-2', 'logic', sheet, NOW, 0, 2)).toBe('The floor is taken');
-    // Somebody already drilling reads their own refusal, not the floor's.
-    expect(trainingBlocker(two, 'officer-1', 'logic', sheet, NOW, 0, 2)).toBe(
+  it('holds two drills in the queue, and one more per place bought', () => {
+    const one = beginTraining(startingTraining(NOW), session(), NOW);
+    expect(trainingBlocker(one, 'officer-1', 'logic', sheet, NOW)).toBeNull();
+    const two = beginTraining(
+      one,
+      session({ id: 's2', subjectId: 'officer-1', startedAt: nextDrillStart(one, NOW) }),
+      NOW,
+    );
+    expect(trainingBlocker(two, 'officer-2', 'logic', sheet, NOW)).toBe('The queue is full');
+    expect(trainingBlocker(two, 'officer-2', 'logic', sheet, NOW, 0, 3)).toBeNull();
+    // Somebody already on the list reads their own refusal, not the queue's.
+    expect(trainingBlocker(two, OVERSEER_SUBJECT, 'logic', sheet, NOW)).toBe(
       'Already in a session',
     );
+    expect(trainingBlocker(two, 'officer-1', 'stamina', sheet, NOW)).toBe('Already in the queue');
+  });
+
+  it('starts a queued drill when the one ahead of it ends, never beside it', () => {
+    expect(nextDrillStart(startingTraining(NOW), NOW)).toBe(NOW);
+    const one = beginTraining(startingTraining(NOW), session(), NOW);
+    expect(nextDrillStart(one, later(60))).toBe(later(TRAINING_SECONDS));
+    const two = beginTraining(
+      one,
+      session({ id: 's2', subjectId: 'officer-1', startedAt: nextDrillStart(one, NOW) }),
+      NOW,
+    );
+    const waiting = sessionFor(two, 'officer-1')!;
+    expect(drillUnderway(waiting, Date.parse(later(TRAINING_SECONDS - 1)))).toBe(false);
+    expect(drillProgressAt(waiting, Date.parse(later(TRAINING_SECONDS - 1)))).toBe(0);
+    // The first pays at the hour; the second is still on the list, and pays an hour later.
+    const first = settleTraining(two, later(TRAINING_SECONDS));
+    expect(first.gains.map((gain) => gain.subjectId)).toEqual([OVERSEER_SUBJECT]);
+    expect(first.state.sessions.map((one) => one.subjectId)).toEqual(['officer-1']);
+    expect(settleTraining(first.state, later(2 * TRAINING_SECONDS)).gains).toHaveLength(1);
+  });
+
+  it('closes the queue up when a drill ahead is called off', () => {
+    const one = beginTraining(startingTraining(NOW), session(), NOW);
+    const two = beginTraining(
+      one,
+      session({ id: 's2', subjectId: 'officer-1', startedAt: nextDrillStart(one, NOW) }),
+      NOW,
+    );
+    const at = later(60);
+    const cancelled = cancelDrill(two, 'session-1', at);
+    expect(cancelled.sessions).toHaveLength(1);
+    expect(cancelled.sessions[0]?.startedAt).toBe(at);
+    expect(cancelled.used).toBe(1);
+    // Calling off the waiting one leaves the running one's clock alone.
+    const dropped = cancelDrill(two, 's2', at);
+    expect(dropped.sessions.map((one) => one.startedAt)).toEqual([NOW]);
   });
 
   it('refuses a sixth session in one day', () => {
@@ -542,41 +446,6 @@ describe('a training state parses back out of storage', () => {
       NOW,
     );
     expect(JSON.parse(JSON.stringify(state))).toEqual(state);
-  });
-});
-
-/**
- * The sheet best-of hands back is an `Attributes`, and that type is integers 0..100.
- *
- * It goes on the wire as part of `crewStanding`, where `AttributesSchema` rejects a non-integer,
- * and the failure has no symptom a developer would recognise: the client's query never resolves
- * and the Overseer's own file sits on "Reading the file…" with nothing in the console. The shares
- * and the peak uplift are both fractional multipliers, so this is not a theoretical concern.
- */
-describe('the sheet best-of hands back', () => {
-  const everyone: CrewMember[] = [
-    {
-      attributes: makeAttributes(37, { stealth: 91, deception: 63 }),
-      role: 'master_of_whispers',
-      perks: [],
-    },
-    { attributes: makeAttributes(29, { medicine: 88 }), role: 'chief_medic', perks: [] },
-    { attributes: makeAttributes(41, { intimidation: 77 }), role: 'raid_boss', perks: [] },
-    { attributes: makeAttributes(23), role: null, perks: [] },
-  ];
-
-  it('is a whole number in every attribute, and inside the scale', () => {
-    const sheet = crewSheet(everyone);
-    for (const name of ATTRIBUTE_NAMES) {
-      expect(Number.isInteger(sheet[name]), `${name} = ${sheet[name]}`).toBe(true);
-      expect(sheet[name], name).toBeGreaterThanOrEqual(0);
-      expect(sheet[name], name).toBeLessThanOrEqual(MAX_ATTRIBUTE);
-    }
-  });
-
-  /** And the schema agrees, which is the thing that actually broke. */
-  it('parses as the schema the wire uses', () => {
-    expect(AttributesSchema.safeParse(crewSheet(everyone)).success).toBe(true);
   });
 });
 

@@ -445,7 +445,7 @@ export function adjustDeployment(repos: Repositories, input: DeployInput): Deplo
   const place = fightPlaceFor(battle, base);
   if (place.kind === 'district') army = mergeArmies(army, pulledHome);
   const next: Base = { ...base, army };
-  repos.bases.updateArmy(next.id, next.army, next.trainingQueue);
+  repos.bases.updateArmy(next.id, next.army, next.musterQueue);
   if (place.kind !== 'district') walkHome(repos, next, place, pulledHome, {}, now);
   // `bodies_deployed` and `supply_deployed` are counted when the column lands, not here: see
   // `tallyColumnLanded` in `battle/movement.ts`.
@@ -490,5 +490,25 @@ export function sideOf(
    * refused by this module's own deploy route. Asking the same question the settler asks is the
    * whole fix.
    */
+  return defendingBaseOf(repos, battle)?.id === baseId ? 'defender' : null;
+}
+
+/**
+ * Which side a crew fought on in a fight that is over, or null when it was not in it.
+ *
+ * {@link sideOf} asks about today's faction, which is right for a fight still to come and wrong for
+ * history: a crew that helped a friend and has since left the faction would lose the fight from its
+ * record. The mark already moved every row to the side its crew stood on (`musterAtTheMark`), and
+ * nothing deletes them after, so the rows are the record.
+ */
+export function sideFought(
+  repos: Repositories,
+  battle: ScheduledBattle,
+  baseId: string,
+): BattleSide | null {
+  if (battle.attackerBaseId === baseId) return 'attacker';
+  for (const side of ['attacker', 'defender'] as const) {
+    if (repos.sieges.side(battle.id, side).some((row) => row.baseId === baseId)) return side;
+  }
   return defendingBaseOf(repos, battle)?.id === baseId ? 'defender' : null;
 }

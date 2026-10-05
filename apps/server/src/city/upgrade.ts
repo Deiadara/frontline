@@ -1,4 +1,5 @@
 import {
+  chairPassiveOf,
   LOCATION_CATALOG,
   canAfford,
   spendResources,
@@ -12,6 +13,7 @@ import {
   type PartialResources,
 } from '@frontline/shared';
 import { adminCost, adminSeconds, adminWaives } from '../admin/mode.js';
+import { crewEffectsFor } from '../crew/standing.js';
 import type { Repositories } from '../db/repos/index.js';
 import { creditBase, refuseWaste } from '../district/stores.js';
 
@@ -70,6 +72,11 @@ export type UpgradeOutcome =
  * live one under a name that reads like the live one is worse than no implementation at all.
  */
 
+/** The Engineer's passive on a location's next level (maintainer, 2026-10-04). */
+function engineerCutFor(repos: Repositories, base: Base, now: Date): number {
+  return chairPassiveOf(crewEffectsFor(repos, base, now), 'engineer', 'building_cost');
+}
+
 export function startUpgrade(
   repos: Repositories,
   args: {
@@ -92,7 +99,7 @@ export function startUpgrade(
   }
   if (control.upgradingUntil !== null) return { kind: 'refused', reason: 'already_working' };
 
-  const cost = upgradeCost(location.kind, control.level);
+  const cost = upgradeCost(location.kind, control.level, engineerCutFor(repos, base, now));
   const note = upgradeNote(location.kind, control.level);
   if (!cost || !note) return { kind: 'refused', reason: 'at_ceiling' };
   if (!canAfford(base.resources, cost) && !adminWaives('cannot_afford', admin)) {
@@ -102,8 +109,9 @@ export function startUpgrade(
   const until = new Date(
     now.getTime() + upgradeClockSeconds(location.kind, control.level, admin) * 1000,
   ).toISOString();
-  const upgraded: LocationControl = { ...control, upgradingUntil: until };
-  const paid: Base = { ...base, resources: spendResources(base.resources, adminCost(cost, admin)) };
+  const charged = adminCost(cost, admin);
+  const upgraded: LocationControl = { ...control, upgradingUntil: until, upgradePaid: charged };
+  const paid: Base = { ...base, resources: spendResources(base.resources, charged) };
 
   repos.city.put(upgraded);
   repos.bases.updateResources(paid.id, paid.resources);
@@ -171,10 +179,15 @@ export function cancelUpgrade(
   if (!cancelWindowOpen(Date.parse(since), total, now.getTime())) {
     return { kind: 'refused', reason: 'window_closed' };
   }
-  const refund = adminCost(cancelRefund(upgradeCost(location.kind, control.level) ?? {}), admin);
+  // What was paid at the start, not today's price: the Engineer's cut is read live, and a chair
+  // changed between the two would refund more or less than was spent (bug pass, 2026-10-04).
+  const refund = adminCost(
+    cancelRefund(control.upgradePaid ?? upgradeCost(location.kind, control.level) ?? {}),
+    admin,
+  );
   const credit = creditBase(repos, base, refund, now);
   refuseWaste(credit, args.acceptWaste);
-  const cleared: LocationControl = { ...control, upgradingUntil: null };
+  const cleared: LocationControl = { ...control, upgradingUntil: null, upgradePaid: null };
   const repaid: Base = { ...base, resources: credit.resources };
   repos.city.put(cleared);
   repos.bases.updateResources(repaid.id, repaid.resources);

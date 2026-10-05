@@ -1,4 +1,9 @@
-import { AREA_REQUIREMENTS, createCommander, type GatedArea } from '@frontline/shared';
+import {
+  makeAttributes,
+  AREA_REQUIREMENTS,
+  createCommander,
+  type GatedArea,
+} from '@frontline/shared';
 import type { FastifyInstance } from 'fastify';
 
 /**
@@ -36,7 +41,9 @@ export function openDoors(app: FastifyInstance, token: string, ...areas: GatedAr
   if (areas.includes('offers') && !base.commanders.some((one) => one.role === 'trader')) {
     app.repos.bases.updateCommanders(base.id, [
       ...base.commanders,
-      createCommander(`${base.id}-trader`, 'The Trader', 'trader'),
+      // A blank sheet, so the Trader opens the board and moves no rate (`traderRates` pays nothing
+      // at the floor of the grades, 2026-10-04): a test about the Trader seats its own.
+      createCommander(`${base.id}-trader`, 'The Trader', 'trader', makeAttributes(0)),
     ]);
   }
 }

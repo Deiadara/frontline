@@ -1,5 +1,7 @@
 import {
   RESEARCH_ITEMS,
+  buildingLevel,
+  labResearchCostCut,
   describeResearchItemRefusal,
   describeResearchPayout,
   findResearchItem,
@@ -7,11 +9,9 @@ import {
   researchItemPrice,
   researchItemRefusal,
   researchTimeCutPercent,
+  researchTimeCut,
   researchTimeReduction,
-  speedMultiplier,
-  trackCostCutPercent,
   trackProgress,
-  withReduction,
   type Base,
   type ChairMarks,
   type Commander,
@@ -22,11 +22,16 @@ import {
   type ResearchItemSpec,
   type ResearchTrackStatus,
 } from '@frontline/shared';
-import { standingEffectsFor, type OfficerFitReader } from '../crew/standing.js';
+import {
+  chairLineFor,
+  standingEffectsFor,
+  type ChairLineContext,
+  type OfficerFitReader,
+} from '../crew/standing.js';
 import type { Repositories } from '../db/repos/index.js';
 
 /**
- * §C: what the eighteen research tracks cost this particular crew, and which of them are open.
+ * §C: what the thirteen research tracks cost this particular crew, and which of them are open.
  *
  * This is the only module in the feature that reads the hidden requirement table, and it is
  * server-side for that reason (§B8, §B8a). What leaves it is a **mark**, which is the coarse hint
@@ -35,7 +40,7 @@ import type { Repositories } from '../db/repos/index.js';
  *
  * ## Why the percentages ship at all
  *
- * §C3a asks for the Head of Research's points to cut the clock and §C3b asks that every bonus read
+ * §C3a asks for the Researcher's points to cut the clock and §C3b asks that every bonus read
  * the points rather than the letter, so that training moves the number. A player who cannot see
  * the cut cannot tell whether the afternoon they spent training bought anything, and the duration
  * on the card gives it away regardless. So the derived figure ships and the score does not.
@@ -62,30 +67,15 @@ function seated(fit: OfficerFitReader, role: OfficerRole): Commander | undefined
  *
  */
 /**
- * How coarsely a cut is published, and the one dial on the §B8 trade.
+ * How coarsely a cut is published.
  *
- * Every published figure is a monotone function of one seated officer's `roleFit`, so seating
- * officers one at a time and reading them back always recovers a role's weight vector eventually.
- * Only the grain sets the price of that attack. Measured against real Bar rosters, counting
- * officers seated per role until the vector is unique (all 19 roles recovered correctly every run):
- *
- * | grain | officers per role, mean / worst |
- * | ----- | ------------------------------ |
- * | 0.1   | 5.6 / 7                        |
- * | 0.5   | 13.0 / 26                      |
- * | 1     | 23.7 / 43                      |
- * | 2     | 42.7 / 80                      |
- * | 5     | 60.7 / 109                     |
- *
- * For scale: the marks alone, with no research payload at all, cost 30.3 per role, and recruit
- * sheets already let the table be reconstructed without seating anybody (MOU-160 F1). So the
- * research payload is currently the cheapest route in, by about five times.
- *
- * It stays at a tenth because §C3b is an explicit requirement and coarsening breaks it: one point
- * of training in the chair's primary attribute moves the score by 5/13, so it moves the cost cut by
- * 0.128 and the time cut by 0.192. At a 1 grain a player trains eight points before the card
- * changes, which is the opposite of what C3b asks for. Buying parity with the marks costs C3b, and
- * that is a balance call rather than an engineering one.
+ * Every published figure is a monotone function of one seated officer's seat points. Until
+ * 2026-09-30 those were the hidden role table's weighted mean, and this grain was the price of
+ * recovering that table by seating officers one at a time and reading the cuts back (5.6 officers
+ * per role at a tenth, 60.7 at 5). The seat now reads the public tags (`seatPoints`), so there is
+ * nothing left to recover through here and the grain only has §C3b to answer to: a point of
+ * training in the chair's irreplaceable skill has to move the card. At a tenth it does; at a whole
+ * point a player could train several before the figure changed.
  */
 export const PUBLISHED_CUT_GRAIN = 0.1;
 
@@ -98,7 +88,9 @@ export const PUBLISHED_CUT_GRAIN = 0.1;
  * So the wire says the published figure and nothing behind it.
  */
 function published(percent: number): number {
-  return Math.round(percent / PUBLISHED_CUT_GRAIN) * PUBLISHED_CUT_GRAIN;
+  // Divided by the steps per point rather than multiplied by the grain: 247 * 0.1 is
+  // 24.700000000000003 in binary, and that is what the card would have printed.
+  return Math.round(percent / PUBLISHED_CUT_GRAIN) / Math.round(1 / PUBLISHED_CUT_GRAIN);
 }
 
 /** Every role has a track, and the response ships them in the catalogue's own order. */
@@ -107,7 +99,7 @@ const RESEARCH_TRACKS: readonly OfficerRole[] = [
 ];
 
 /**
- * §C1c/§C3a: the Head of Research, and what their sheet takes off every research clock.
+ * §C1c/§C3a: the Researcher, and what their sheet takes off every research clock.
  *
  * Every figure on this page is measured through {@link officerFitReader}, which reads the sheet an
  * officer actually has rather than the one printed on their card. The Lab used to read
@@ -116,52 +108,76 @@ const RESEARCH_TRACKS: readonly OfficerRole[] = [
  * that gated nothing: a crew could finish Field Promotions and watch every research gate refuse
  * the officer it had just promoted.
  */
-export function researchHead(base: Base, fit: OfficerFitReader): ResearchHead | null {
-  const officer = seated(fit, 'head_of_research');
+export function researchHead(
+  repos: Repositories,
+  base: Base,
+  fit: OfficerFitReader,
+): ResearchHead | null {
+  const officer = seated(fit, 'researcher');
   if (!officer) return null;
-  const points = fit.pointsFor(officer, 'head_of_research');
+  const points = fit.pointsFor(officer, 'researcher');
+  const clock = researchClockFor(repos, base, fit);
+  const others = clock.buildingPercent + clock.crewSpeedPercent;
   return {
     name: officer.name,
     mark: markFromPoints(points),
-    timeCutPercent: published(researchTimeCutPercent(points)),
+    timeCutPercent: clock.headCutPercent,
+    /*
+     * What the Head actually adds (maintainer ruling P7-C, 2026-10-02). The clock cut joins the
+     * Lab's cards, the crew's points and the Head and curves the sum, so a Head printed at "45%
+     * off" moved a crew's clock by far less than that. This is the curved share with them, less
+     * the curved share without.
+     */
+    addsPercent: published(
+      researchTimeCut(others + clock.headCutPercent) - researchTimeCut(others),
+    ),
   };
 }
 
-/** §C1d: what the track's own officer takes off every price on their own track, as published. */
-function trackCostCutFor(base: Base, track: OfficerRole, fit: OfficerFitReader): number {
+/**
+ * What the track's own officer does for the crew from their chair, in words, or null with the chair
+ * empty. It was what they took off every price on their own track until 2026-10-04, when the
+ * maintainer ruled that no officer cuts the price of a programme.
+ */
+function chairPassiveFor(
+  track: OfficerRole,
+  fit: OfficerFitReader,
+  context?: ChairLineContext,
+): string | null {
   const officer = seated(fit, track);
-  return officer ? published(trackCostCutPercent(fit.pointsFor(officer, track))) : 0;
+  return officer ? chairLineFor(officer, track, fit.pointsFor(officer, track), context) : null;
 }
 
 /** The two chairs a rung is gated on (§C1b, §C1c). */
 export function chairMarksFor(track: OfficerRole, fit: OfficerFitReader): ChairMarks {
   return {
     trackMark: fit.markFor(track),
-    headMark: fit.markFor('head_of_research'),
+    headMark: fit.markFor('researcher'),
   };
 }
 
-/** The eighteen tracks in `OFFICER_ROLES` order, with who is standing on each. */
-export function trackStatuses(base: Base, fit: OfficerFitReader): ResearchTrackStatus[] {
+/** The thirteen tracks in `OFFICER_ROLES` order, with who is standing on each. */
+export function trackStatuses(
+  base: Base,
+  fit: OfficerFitReader,
+  /** The crew's side of the chair lines (`chairLineContext` in `crew/roster.ts`). */
+  context?: ChairLineContext,
+): ResearchTrackStatus[] {
   return RESEARCH_TRACKS.map((role) => {
     const officer = seated(fit, role);
     return {
       role,
       officerName: officer?.name ?? null,
       mark: fit.markFor(role),
-      costCutPercent: trackCostCutFor(base, role, fit),
+      passive: chairPassiveFor(role, fit, context),
       done: trackProgress(base.research.technologies, role),
     };
   });
 }
 
-/** What this crew would actually pay for a rung, with the track officer's cut applied. */
-export function priceOf(
-  base: Base,
-  spec: ResearchItemSpec,
-  fit: OfficerFitReader,
-): PartialResources {
-  return researchItemPrice(spec, trackCostCutFor(base, spec.track, fit));
+/** What this crew would actually pay for a rung: the listed price less the Lab's cut. */
+export function priceOf(base: Base, spec: ResearchItemSpec): PartialResources {
+  return researchItemPrice(spec, labResearchCostCut(base.buildings));
 }
 
 /**
@@ -178,19 +194,25 @@ interface ResearchClock {
 }
 
 function researchClockFor(repos: Repositories, base: Base, fit: OfficerFitReader): ResearchClock {
-  const head = seated(fit, 'head_of_research');
+  const head = seated(fit, 'researcher');
   return {
     buildingPercent: researchTimeReduction(base.buildings),
     crewSpeedPercent: standingEffectsFor(repos, base).researchSpeedPercent,
-    headCutPercent: head
-      ? published(researchTimeCutPercent(fit.pointsFor(head, 'head_of_research')))
-      : 0,
+    // Settled in, like every chair's passive (bug pass, 2026-10-05): a Researcher seated an hour
+    // ago gates research at once but speeds none of it, or a hop in to start a long programme at
+    // half time and a hop out would beat the cooldown, since a project's clock is frozen at start.
+    headCutPercent:
+      head && fit.chairSettled('researcher')
+        ? published(researchTimeCutPercent(fit.pointsFor(head, 'researcher')))
+        : 0,
   };
 }
 
 /**
- * How long a rung takes once those three are applied, in the order they are earned: the Lab
- * building, the crew's own research speed, then §C3a's Head of Research.
+ * How long a rung takes once those three are applied: the Lab's research cards, the crew's
+ * own research speed and §C3a's Researcher, **added** into one sum and cut by
+ * `researchTimeCut`'s taper (maintainer, 2026-10-01: "make them add"). They used to be applied one
+ * after another, the Lab cut at 70, so three bounds compounded.
  *
  * Floored at a minute, because the whole screen is built around a clock and a project that lands
  * inside the request that started it never has one.
@@ -199,9 +221,10 @@ function researchClockFor(repos: Repositories, base: Base, fit: OfficerFitReader
  * maintainer's ledger (45 to 1000 minutes), and reading the formula ran The Whole Wire on 270.
  */
 function minutesWith(clock: ResearchClock, spec: ResearchItemSpec): number {
-  const afterBuilding = withReduction(spec.minutes, clock.buildingPercent);
-  const afterCrew = afterBuilding / speedMultiplier(clock.crewSpeedPercent);
-  return Math.max(1, Math.round(withReduction(afterCrew, clock.headCutPercent)));
+  const off = researchTimeCut(
+    clock.buildingPercent + clock.crewSpeedPercent + clock.headCutPercent,
+  );
+  return Math.max(1, Math.round(spec.minutes * (1 - off / 100)));
 }
 
 /** The same, for a caller that has one rung in hand rather than the catalogue. */
@@ -222,6 +245,7 @@ export function itemBlocker(base: Base, id: string, fit: OfficerFitReader): stri
     id,
     base.research.technologies,
     chairMarksFor(spec.track, fit),
+    buildingLevel(base.buildings, 'lab'),
   );
   return refusal === null ? null : describeResearchItemRefusal(refusal, spec);
 }
@@ -230,9 +254,10 @@ export function itemBlocker(base: Base, id: string, fit: OfficerFitReader): stri
  * The whole catalogue, with each rung's state worked out for this crew.
  *
  * Everything that does not depend on the rung is computed once, up front. `GET /research` is
- * polled every fifteen seconds and this answers 180 rungs; folding the crew's standing effects and
- * re-reading eighteen chairs inside the loop meant 180 territory-and-roster folds per read, which
- * is the whole cost of the route for a number that is the same on every row.
+ * polled every fifteen seconds and this answers 130 rungs; folding the crew's standing effects and
+ * re-reading every chair inside the loop meant a territory-and-roster fold per rung (180 per read
+ * when the catalogue was 170 rungs), which is the whole cost of the route for a number that is the
+ * same on every row.
  */
 export function labResearchItems(
   repos: Repositories,
@@ -241,32 +266,30 @@ export function labResearchItems(
 ): LabTech[] {
   const known = new Set(base.research.technologies);
   const clock = researchClockFor(repos, base, fit);
-  const headMark = fit.markFor('head_of_research');
+  const labLevel = buildingLevel(base.buildings, 'lab');
+  const labCut = labResearchCostCut(base.buildings);
+  const headMark = fit.markFor('researcher');
   const perTrack = new Map(
-    RESEARCH_TRACKS.map((role) => {
-      const officer = seated(fit, role);
-      return [
-        role,
-        {
-          costCut: officer ? published(trackCostCutPercent(fit.pointsFor(officer, role))) : 0,
-          chairs: { trackMark: fit.markFor(role), headMark },
-        },
-      ];
-    }),
+    RESEARCH_TRACKS.map((role) => [role, { chairs: { trackMark: fit.markFor(role), headMark } }]),
   );
 
   return RESEARCH_ITEMS.map((spec) => {
     const track = perTrack.get(spec.track);
     const refusal = known.has(spec.id)
       ? null
-      : researchItemRefusal(spec.id, base.research.technologies, track?.chairs ?? NO_CHAIRS);
+      : researchItemRefusal(
+          spec.id,
+          base.research.technologies,
+          track?.chairs ?? NO_CHAIRS,
+          labLevel,
+        );
     return {
       id: spec.id,
       track: spec.track,
       step: spec.step,
       name: spec.name,
       description: spec.description,
-      cost: researchItemPrice(spec, track?.costCut ?? 0),
+      cost: researchItemPrice(spec, labCut),
       minutes: minutesWith(clock, spec),
       effect: describeResearchPayout(spec),
       requiresMark: spec.requiresMark,

@@ -26,7 +26,7 @@ import {
   isCombatUnit,
   isSupportUnit,
   unitsInTier,
-  locationsTraining,
+  locationsMustering,
   ridingUnitSlots,
   unitRules,
   unitsUnlockedByLocation,
@@ -51,37 +51,37 @@ import {
   unitUnlockClauses,
   unlockedUnits,
 } from './unlocks.js';
+import { MUSTER_SPEED_KNEE } from '../time/speed.js';
 import {
   BATCH_TIME_FACTOR,
-  MAX_TRAINING_DISCOUNT,
-  MAX_TRAINING_QUEUE,
-  MAX_TRAINING_SPEED_BONUS,
-  TRAINING_COST_PER_LOCATION_LEVEL,
-  TRAINING_SPEED_PER_LOCATION_LEVEL,
-  homeTrainingBonus,
-  TRAINING_CANCEL_REFUND,
-  TRAINING_CANCEL_WINDOW,
-  TRAINING_MAX_BATCH,
-  TrainingQueueSchema,
+  MAX_MUSTER_DISCOUNT,
+  MAX_MUSTER_QUEUE,
+  MUSTER_COST_PER_LOCATION_LEVEL,
+  MUSTER_SPEED_PER_LOCATION_LEVEL,
+  homeMusterBonus,
+  MUSTER_CANCEL_REFUND,
+  MUSTER_CANCEL_WINDOW,
+  MUSTER_MAX_BATCH,
+  MusterQueueSchema,
   addToArmy,
   alreadyHolds,
   armySize,
-  maxTrainable,
-  splitDueTraining,
+  maxMusterable,
+  splitDueMuster,
   unitSlotsQueued,
   unitSlotsUsed,
   takeFromArmy,
-  trainingArrivedBy,
-  trainingBatchProgress,
-  trainingCancelWindowMs,
-  trainingCancellable,
-  trainingCost,
-  trainingRefund,
-  trainingSeconds,
-  trainingStartsAt,
-  trainingCompletesAt,
+  musterArrivedBy,
+  musterBatchProgress,
+  musterCancelWindowMs,
+  musterCancellable,
+  musterCost,
+  musterRefund,
+  musterSecondsFor,
+  musterStartsAt,
+  musterCompletesAt,
   type Army,
-} from './training.js';
+} from './muster.js';
 import { BuildQueueSchema } from '../building/queue.js';
 import { UNIT_SLOTS_PER_LOCATION, districtUnitSlotCapacity } from '../building/unit-slots.js';
 import { MAX_LOCATION_LEVEL, noTerritoryEffects, type LocationKind } from '../city/locations.js';
@@ -156,7 +156,7 @@ describe('the catalogue (§A5)', () => {
       // The price and the clock are the roster's half of the sheet. A Combine unit has neither
       // by construction (`UnitSpec.faction`), and the catalogue's own load check holds that.
       if (isCombineUnit(unit)) continue;
-      expect(unit.trainSeconds, unit.id).toBeGreaterThan(0);
+      expect(unit.musterSeconds, unit.id).toBeGreaterThan(0);
       expect(Object.keys(unit.cost).length, unit.id).toBeGreaterThan(0);
       for (const key of RESOURCE_KEYS) {
         if (unit.cost[key] !== undefined) expect(unit.cost[key], unit.id).toBeGreaterThan(0);
@@ -167,7 +167,7 @@ describe('the catalogue (§A5)', () => {
   /**
    * The ladder climbs, and it climbs over **rungs** rather than over tiers.
    *
-   * Carriers are beside the ladder rather than on it: a Hauler is slower to train than a Razor and
+   * Carriers are beside the ladder rather than on it: a Hauler is slower to muster than a Razor and
    * carries three times as much, and neither fact says anything about where they stand in a battle
    * line, because they are never in one.
    *
@@ -179,8 +179,8 @@ describe('the catalogue (§A5)', () => {
    * Specialists and Wonders overlap on every axis: a Wonder takes longer to build and eats about
    * the same unit slots while hitting slightly softer. Heavy joined them when §D12i moved the Hollow
    * Men into the wonders: the Heavy tier's own mean is held down by four line-infantry sheets a
-   * crew trains off a Gauntlet 4 (Breakers, Wardens, Sluggers, Ironsides), so with 840 seconds of
-   * Hollow Man on the other rung the training-time axis inverted by 11%. That inversion is a fact
+   * crew musters off a Gauntlet 4 (Breakers, Wardens, Sluggers, Ironsides), so with 840 seconds of
+   * Hollow Man on the other rung the muster-time axis inverted by 11%. That inversion is a fact
    * about a tier that runs from line infantry to Juggernauts, not a fault in either sheet.
    */
   it('makes power, price and time all climb with the rungs of the ladder', () => {
@@ -213,7 +213,7 @@ describe('the catalogue (§A5)', () => {
        * arbitrary ordering: the failure mode this test's own doc comment warns about, one rung up.
        */
       (unit: UnitSpec) => unit.stats.offense * unit.stats.vitality,
-      (unit: UnitSpec) => unit.trainSeconds,
+      (unit: UnitSpec) => unit.musterSeconds,
       (unit: UnitSpec) => unit.unitSlots,
     ]) {
       const series = RUNGS.map((rung) => meanOfRung(rung, pick));
@@ -273,7 +273,7 @@ describe('the catalogue (§A5)', () => {
     };
     for (const porter of unitsInTier('carrier')) {
       expect(porter.stats.speed, porter.id).toBeLessThan(average((unit) => unit.stats.speed));
-      expect(porter.trainedAt, porter.id).toBe('nexus');
+      expect(porter.musteredAt, porter.id).toBe('nexus');
     }
   });
 
@@ -284,19 +284,19 @@ describe('the catalogue (§A5)', () => {
   });
 
   /**
-   * Every recruit eats while they are being trained, so every price on the roster has a supplies
+   * Every recruit eats while they are being mustered, so every price on the roster has a supplies
    * line and a caps line.
    *
    * Both halves are asserted because the interesting failure is a *new* unit: a catalogue entry
    * added with the materials its designer was thinking about and no ration, which costs nothing to
-   * write and quietly makes one unit the only one in the game that trains for free on the stores.
+   * write and quietly makes one unit the only one in the game that musters for free on the stores.
    */
   it('charges caps and supplies for every unit on the roster', () => {
     for (const unit of PLAYER_UNITS) {
       expect(unit.cost.caps, unit.id).toBeGreaterThan(0);
       expect(unit.cost.supplies, unit.id).toBeGreaterThan(0);
       // And it survives the batch price, which is where a rounding could drop a small line.
-      expect(trainingCost(unit, 3).supplies, unit.id).toBeGreaterThan(0);
+      expect(musterCost(unit, 3).supplies, unit.id).toBeGreaterThan(0);
     }
   });
 
@@ -370,9 +370,24 @@ function capsOf(cost: PartialResources): number {
 
 describe('unlocking them (§A5)', () => {
   /**
+   * A unit the card says is "mustered at the Gauntlet" needs a Gauntlet (maintainer ruling P2-B,
+   * 2026-10-02). Twelve did not: a new crew could muster Sparks before Razors and Ironsides with
+   * no Gauntlet at all. Picked by hand by tier. A Gauntlet card does not count: the Snipers'
+   * Live-Fire Range fits any structure, so it never asked for a Gauntlet (review, 2026-10-02).
+   */
+  it('asks a Gauntlet of every unit mustered at one', () => {
+    const missing = PLAYER_UNITS.filter(
+      (unit) =>
+        unit.musteredAt === 'gauntlet' &&
+        !unit.requires.some((need) => need.kind === 'building' && need.building === 'gauntlet'),
+    ).map((unit) => unit.id);
+    expect(missing).toEqual([]);
+  });
+
+  /**
    * §B6 moved the floor: the Gauntlet is now the gate on the starters as well as on the rest, so
    * "a crew with nothing" is a crew with a Gauntlet rather than a crew with an empty plot. The
-   * claim underneath is unchanged and is the one worth holding: the first structure that trains
+   * claim underneath is unchanged and is the one worth holding: the first structure that musters
    * anybody opens a handful of rabble and porters and nothing that fights properly.
    */
   it('lets a crew with a first Gauntlet field something, and not much', () => {
@@ -418,14 +433,14 @@ describe('unlocking them (§A5)', () => {
    * Every unit in the game was behind the Gauntlet until 2026-09-18, and the Gauntlet is behind
    * Nexus 3 and Quarters 2. A new district stands a Nexus and a Generator and produces no caps,
    * so the eight Razors a crew is handed were the whole of its roster for hours: it could not
-   * train a replacement, and the only faucet that would have paid for the barracks is missions,
+   * muster a replacement, and the only faucet that would have paid for the barracks is missions,
    * which need somebody to send.
    *
    * The Scavenger is what breaks that, so what this pins is the *cheap carrier against the
    * district a new crew actually has*, not the Gauntlet clause that used to be on it. `NOTHING`
    * is the control: one Nexus is doing the work, rather than the fixture being permissive.
    */
-  it('lets a district with nothing but its Nexus train the cheap carrier', () => {
+  it('lets a district with nothing but its Nexus muster the cheap carrier', () => {
     const opening = { ...NOTHING, buildings: [building('nexus', 1), building('generator', 1)] };
     const scavengers = findUnit('scavengers');
     expect(isUnitUnlocked(scavengers!, opening)).toBe(true);
@@ -453,18 +468,19 @@ describe('unlocking them (§A5)', () => {
     for (const id of ['scavengers', 'haulers']) {
       expect(gauntletLevelFor(id), id).toBeNull();
     }
-    // The deep one really is deep: a district that could train it is most of the way up its tree.
+    // The deep one really is deep: a district that could muster it is most of the way up its tree.
     const nexus14 = { ...NOTHING, buildings: [building('nexus', 14)] };
     expect(isUnitUnlocked(findUnit('haulers')!, nexus14)).toBe(false);
   });
 
-  it('gates the board’s ten on the Gauntlet and nothing else', () => {
+  it('gates the board’s twenty three on the Gauntlet and nothing else', () => {
     const gated = UNIT_CATALOG.filter((unit) => gauntletLevelFor(unit.id) !== null).map(
       (unit) => unit.id,
     );
     expect(new Set(gated)).toEqual(new Set(GAUNTLET_UNLOCKED_UNITS));
-    // Twelve until 2026-09-18, when the two carriers moved onto the Nexus that signs them.
-    expect(gated).toHaveLength(10);
+    // Twelve until 2026-09-18, when the two carriers moved onto the Nexus that signs them; ten
+    // until 2026-10-02, when every unit mustered there was given a Gauntlet level (P2-B).
+    expect(gated).toHaveLength(23);
     for (const id of GAUNTLET_UNLOCKED_UNITS) {
       expect(gauntletLevelFor(id), id).toBeGreaterThanOrEqual(1);
       expect(gauntletLevelFor(id), id).toBeLessThanOrEqual(BUILDING_MAX_LEVEL);
@@ -689,36 +705,36 @@ describe('making them (§A5)', () => {
 
   it('discounts a batch in time but never to nothing, and floors the price at one', () => {
     const razors = findUnit('razors')!;
-    const one = trainingSeconds(razors, 1);
-    const ten = trainingSeconds(razors, 10);
+    const one = musterSecondsFor(razors, 1);
+    const ten = musterSecondsFor(razors, 10);
 
-    expect(one).toBe(razors.trainSeconds);
+    expect(one).toBe(razors.musterSeconds);
     expect(ten).toBeGreaterThan(one);
     // Cheaper per head than one at a time, but a batch of ten is not the price of one.
     expect(ten).toBeLessThan(one * 10);
     expect(ten).toBeCloseTo(one * (1 + 9 * BATCH_TIME_FACTOR), 0);
 
-    const free = trainingCost(razors, 1, 500);
+    const free = musterCost(razors, 1, 500);
     for (const key of RESOURCE_KEYS) {
       if (razors.cost[key] !== undefined) expect(free[key], key).toBeGreaterThanOrEqual(1);
     }
-    expect(trainingSeconds(razors, 1, 500)).toBeGreaterThanOrEqual(1);
+    expect(musterSecondsFor(razors, 1, 500)).toBeGreaterThanOrEqual(1);
   });
 
   it('scales the price with the batch and takes the discount off it', () => {
     const breakers = findUnit('breakers')!;
-    const plain = trainingCost(breakers, 4);
-    const cheap = trainingCost(breakers, 4, 25);
+    const plain = musterCost(breakers, 4);
+    const cheap = musterCost(breakers, 4, 25);
     expect(plain.caps).toBe((breakers.cost.caps ?? 0) * 4);
     expect(cheap.caps ?? 0).toBeLessThan(plain.caps ?? 0);
   });
 
   it('holds five orders, worked one after another', () => {
-    expect(MAX_TRAINING_QUEUE).toBe(5);
+    expect(MAX_MUSTER_QUEUE).toBe(5);
     const now = new Date('2026-08-14T12:00:00.000Z');
     const first = order('a', 'razors', 2, now, 60);
-    expect(trainingStartsAt([], now)).toEqual(now);
-    expect(trainingStartsAt([first], now)).toEqual(trainingCompletesAt(first));
+    expect(musterStartsAt([], now)).toEqual(now);
+    expect(musterStartsAt([first], now)).toEqual(musterCompletesAt(first));
   });
 
   /**
@@ -733,13 +749,13 @@ describe('making them (§A5)', () => {
     const batch = order('a', 'razors', 10, now, 450);
     const at = (seconds: number) => new Date(now.getTime() + seconds * 1000);
 
-    expect(trainingArrivedBy(batch, now)).toBe(0);
-    expect(trainingArrivedBy(batch, at(44))).toBe(0);
-    expect(trainingArrivedBy(batch, at(45))).toBe(1);
-    expect(trainingArrivedBy(batch, at(225))).toBe(5);
-    expect(trainingArrivedBy(batch, at(450))).toBe(10);
+    expect(musterArrivedBy(batch, now)).toBe(0);
+    expect(musterArrivedBy(batch, at(44))).toBe(0);
+    expect(musterArrivedBy(batch, at(45))).toBe(1);
+    expect(musterArrivedBy(batch, at(225))).toBe(5);
+    expect(musterArrivedBy(batch, at(450))).toBe(10);
     // Never more than were ordered, however long the page was left open.
-    expect(trainingArrivedBy(batch, at(99_999))).toBe(10);
+    expect(musterArrivedBy(batch, at(99_999))).toBe(10);
   });
 
   /** The settle is a read, so it has to be idempotent: no unit is ever handed over twice. */
@@ -748,16 +764,16 @@ describe('making them (§A5)', () => {
     const at = (seconds: number) => new Date(now.getTime() + seconds * 1000);
     let queue = [order('a', 'razors', 10, now, 450)];
 
-    const first = splitDueTraining(queue, at(135));
+    const first = splitDueMuster(queue, at(135));
     expect(first.delivered).toEqual([{ unitId: 'razors', count: 3 }]);
     queue = first.pending;
 
     // Read again with no time passed: nothing new has arrived.
-    const again = splitDueTraining(queue, at(135));
+    const again = splitDueMuster(queue, at(135));
     expect(again.delivered).toEqual([]);
     queue = again.pending;
 
-    const later = splitDueTraining(queue, at(450));
+    const later = splitDueMuster(queue, at(450));
     expect(later.delivered).toEqual([{ unitId: 'razors', count: 7 }]);
     expect(later.pending).toHaveLength(0);
   });
@@ -769,14 +785,14 @@ describe('making them (§A5)', () => {
       // Behind it, so its own clock has not started: `startedAt` is in the future.
       order('b', 'razors', 1, new Date(now.getTime() + 600_000), 60),
     ];
-    expect(splitDueTraining(queued, now).delivered).toEqual([]);
+    expect(splitDueMuster(queued, now).delivered).toEqual([]);
   });
 
   it('lands a finished batch and leaves the rest of the queue alone', () => {
     const now = new Date('2026-08-14T12:00:00.000Z');
     const past = new Date(now.getTime() - 3_600_000);
     const queue = [order('a', 'razors', 2, past, 60), order('b', 'ghosts', 1, now, 600)];
-    const { delivered, pending } = splitDueTraining(queue, now);
+    const { delivered, pending } = splitDueMuster(queue, now);
     expect(delivered).toEqual([{ unitId: 'razors', count: 2 }]);
     expect(pending.map((entry) => entry.id)).toEqual(['b']);
     expect(unitSlotsQueued(queue)).toBeGreaterThan(0);
@@ -785,7 +801,7 @@ describe('making them (§A5)', () => {
   /**
    * The bug that bricked a save, as a test.
    *
-   * `MAX_TRAINING_QUEUE` gates the *order*. It used to be on the stored schema as well, and testing
+   * `MAX_MUSTER_QUEUE` gates the *order*. It used to be on the stored schema as well, and testing
    * mode waives `queue_full`, so a sixth order went in and every read of that crew after it threw
    * `too_big` out of `rowToBase`: `GET /me` 500ed, the client showed `UPLINK FAILED`, and the queue
    * could not even be drained because the crew could not be loaded. A cap on a read path can only
@@ -793,10 +809,10 @@ describe('making them (§A5)', () => {
    */
   it('reads a bench longer than the cap rather than refusing to load the crew', () => {
     const now = new Date('2026-08-14T12:00:00.000Z');
-    const long = Array.from({ length: MAX_TRAINING_QUEUE + 3 }, (_, index) =>
+    const long = Array.from({ length: MAX_MUSTER_QUEUE + 3 }, (_, index) =>
       order(`q-${index}`, 'razors', 1, now, 60),
     );
-    expect(TrainingQueueSchema.parse(long)).toHaveLength(MAX_TRAINING_QUEUE + 3);
+    expect(MusterQueueSchema.parse(long)).toHaveLength(MAX_MUSTER_QUEUE + 3);
     expect(BuildQueueSchema.parse([])).toEqual([]);
   });
 
@@ -838,70 +854,68 @@ describe('changing your mind (§A5)', () => {
     // A ten-strong batch hands one over at a tenth of its clock, which is the same instant the
     // window would otherwise still be open on. Refunding then would pay for a unit being kept.
     const batch = order('a', 'razors', 10, now, 600, { caps: 400 });
-    expect(trainingCancellable(batch, now)).toBe(true);
-    expect(trainingCancellable(batch, at(0.06, 600))).toBe(true);
-    expect(trainingCancellable(batch, at(0.1, 600))).toBe(false);
-    expect(trainingCancellable({ ...batch, delivered: 1 }, now)).toBe(false);
+    expect(musterCancellable(batch, now)).toBe(true);
+    expect(musterCancellable(batch, at(0.06, 600))).toBe(true);
+    expect(musterCancellable(batch, at(0.1, 600))).toBe(false);
+    expect(musterCancellable({ ...batch, delivered: 1 }, now)).toBe(false);
   });
 
   it('opens for the first tenth of the batch and shuts after it', () => {
     const batch = order('a', 'razors', 4, now, 600, { caps: 160, supplies: 40 });
-    expect(trainingCancellable(batch, now)).toBe(true);
-    expect(trainingCancellable(batch, at(0.09))).toBe(true);
-    expect(trainingCancellable(batch, at(TRAINING_CANCEL_WINDOW))).toBe(false);
-    expect(trainingCancellable(batch, at(0.5))).toBe(false);
+    expect(musterCancellable(batch, now)).toBe(true);
+    expect(musterCancellable(batch, at(0.09))).toBe(true);
+    expect(musterCancellable(batch, at(MUSTER_CANCEL_WINDOW))).toBe(false);
+    expect(musterCancellable(batch, at(0.5))).toBe(false);
   });
 
   /** The window is a share of the batch's own clock, so a long build gives longer to notice. */
   it('gives a long batch a longer window than a short one', () => {
     const quick = order('a', 'razors', 1, now, 60);
     const slow = order('b', 'the_colossus', 1, now, 5400);
-    expect(trainingCancelWindowMs(slow, now)).toBeGreaterThan(trainingCancelWindowMs(quick, now));
-    expect(trainingCancelWindowMs(quick, at(1, 60))).toBe(0);
+    expect(musterCancelWindowMs(slow, now)).toBeGreaterThan(musterCancelWindowMs(quick, now));
+    expect(musterCancelWindowMs(quick, at(1, 60))).toBe(0);
   });
 
   it('reports how far along a batch is, and how close the next one is', () => {
     const batch = order('a', 'razors', 10, now, 450);
     const at45 = new Date(now.getTime() + 45_000);
-    expect(trainingBatchProgress(batch, now)).toMatchObject({ done: 0, total: 10 });
-    expect(trainingBatchProgress(batch, at45)).toMatchObject({ done: 1, total: 10 });
+    expect(musterBatchProgress(batch, now)).toMatchObject({ done: 0, total: 10 });
+    expect(musterBatchProgress(batch, at45)).toMatchObject({ done: 1, total: 10 });
     // Halfway to the second one.
     const half = new Date(now.getTime() + 67_500);
-    expect(trainingBatchProgress(batch, half).nextProgress).toBeCloseTo(0.5, 2);
+    expect(musterBatchProgress(batch, half).nextProgress).toBeCloseTo(0.5, 2);
     const done = new Date(now.getTime() + 450_000);
-    expect(trainingBatchProgress(batch, done)).toMatchObject({ done: 10, nextMs: 0 });
+    expect(musterBatchProgress(batch, done)).toMatchObject({ done: 10, nextMs: 0 });
   });
 
   it('hands back ninety percent of what was actually charged, and never more', () => {
     const batch = order('a', 'razors', 4, now, 600, { caps: 160, supplies: 40 });
     // Ninety percent, the same share everything cancellable gives back (`time/cancel.ts`).
-    expect(trainingRefund(batch)).toEqual({ caps: 144, supplies: 36 });
-    for (const [key, amount] of Object.entries(trainingRefund(batch))) {
+    expect(musterRefund(batch)).toEqual({ caps: 144, supplies: 36 });
+    for (const [key, amount] of Object.entries(musterRefund(batch))) {
       expect(amount, key).toBeLessThan(batch.paid[key as keyof typeof batch.paid] ?? 0);
     }
   });
 
   /**
    * The exploit this is written against: order at full price, finish a Lab project that discounts
-   * training, cancel, and be handed back more than you spent. The refund reads the recorded price,
+   * mustering, cancel, and be handed back more than you spent. The refund reads the recorded price,
    * so the discount cannot reach it.
    */
   it('refunds against the price paid rather than the price today', () => {
     const razors = findUnit('razors')!;
-    const paidFull = trainingCost(razors, 4);
-    const cheaperNow = trainingCost(razors, 4, 40);
+    const paidFull = musterCost(razors, 4);
+    const cheaperNow = musterCost(razors, 4, 40);
     expect(cheaperNow.caps ?? 0).toBeLessThan(paidFull.caps ?? 0);
     const batch = order('a', 'razors', 4, now, 600, paidFull);
-    expect(trainingRefund(batch).caps).toBe(
-      Math.floor((paidFull.caps ?? 0) * TRAINING_CANCEL_REFUND),
-    );
+    expect(musterRefund(batch).caps).toBe(Math.floor((paidFull.caps ?? 0) * MUSTER_CANCEL_REFUND));
   });
 
   /** A row written before the price was recorded: nothing to refund against, so nothing doing. */
   it('refuses to call off an order whose price was never recorded', () => {
     const legacy = order('a', 'razors', 1, now, 600, {});
-    expect(trainingCancellable(legacy, now)).toBe(false);
-    expect(trainingRefund(legacy)).toEqual({});
+    expect(musterCancellable(legacy, now)).toBe(false);
+    expect(musterRefund(legacy)).toEqual({});
   });
 });
 
@@ -912,19 +926,19 @@ describe('how many a crew could order (§A5)', () => {
    *
    * It used to be four hand-written keys, which stopped being "rich" the day units started costing
    * planks and high-quality metal: the Colossus needs 400 of the metal and the fixture held none.
-   * That went unnoticed because the unique branch of `maxTrainable` never checked the price at
+   * That went unnoticed because the unique branch of `maxMusterable` never checked the price at
    * all, so the one case that would have caught it was the case the bug lived in.
    */
   const rich = Object.fromEntries(RESOURCE_KEYS.map((key) => [key, 100_000]));
 
   it('is bounded by the beds when the stockpile is deep', () => {
-    expect(maxTrainable(razors, rich, 12)).toBe(12);
-    expect(maxTrainable(razors, rich, 0)).toBe(0);
+    expect(maxMusterable(razors, rich, 12)).toBe(12);
+    expect(maxMusterable(razors, rich, 0)).toBe(0);
   });
 
   it('is bounded by the stockpile when the district has room to spare', () => {
     const cost = razors.cost.caps ?? 1;
-    expect(maxTrainable(razors, { caps: cost * 3, supplies: 100_000 }, 50)).toBe(3);
+    expect(maxMusterable(razors, { caps: cost * 3, supplies: 100_000 }, 50)).toBe(3);
   });
 
   /**
@@ -938,31 +952,31 @@ describe('how many a crew could order (§A5)', () => {
   it('never offers a unique the crew cannot pay for', () => {
     for (const unique of PLAYER_UNITS.filter((unit) => unit.unique)) {
       const broke = Object.fromEntries(RESOURCE_KEYS.map((key) => [key, 1]));
-      expect(maxTrainable(unique, broke, 500), unique.id).toBe(0);
+      expect(maxMusterable(unique, broke, 500), unique.id).toBe(0);
 
       // And it is genuinely offered when the crew can cover it: an assertion that always reads
-      // zero would pass on a `maxTrainable` that had stopped working entirely.
+      // zero would pass on a `maxMusterable` that had stopped working entirely.
       const purse = Object.fromEntries(RESOURCE_KEYS.map((key) => [key, 1_000_000]));
-      expect(maxTrainable(unique, purse, 500), unique.id).toBe(1);
+      expect(maxMusterable(unique, purse, 500), unique.id).toBe(1);
       // Beds still bind: a crew with no room gets none however deep the stockpile.
-      expect(maxTrainable(unique, purse, 0), unique.id).toBe(0);
+      expect(maxMusterable(unique, purse, 0), unique.id).toBe(0);
     }
   });
 
   it('takes the discount into account, so Max is what the route will actually accept', () => {
     const cost = razors.cost.caps ?? 1;
     const purse = { caps: cost * 4, supplies: 100_000 };
-    expect(maxTrainable(razors, purse, 50, 50)).toBeGreaterThan(maxTrainable(razors, purse, 50));
+    expect(maxMusterable(razors, purse, 50, 50)).toBeGreaterThan(maxMusterable(razors, purse, 50));
   });
 
   it('never offers a second copy of a one-of-a-kind', () => {
     const colossus = findUnit('the_colossus')!;
-    expect(maxTrainable(colossus, rich, 50)).toBe(1);
-    expect(maxTrainable(colossus, rich, 1)).toBe(0);
+    expect(maxMusterable(colossus, rich, 50)).toBe(1);
+    expect(maxMusterable(colossus, rich, 1)).toBe(0);
   });
 
   it('stops at the batch the stepper stops at', () => {
-    expect(maxTrainable(razors, rich, 10_000)).toBe(TRAINING_MAX_BATCH);
+    expect(maxMusterable(razors, rich, 10_000)).toBe(MUSTER_MAX_BATCH);
   });
 });
 
@@ -1053,7 +1067,7 @@ describe('the bench clock climbs with the campaign', () => {
       return new Map(sorted.map((unit, index) => [unit.id, index]));
     };
     const byGate = rankOf(gateDepth);
-    const byClock = rankOf((unit) => unit.trainSeconds);
+    const byClock = rankOf((unit) => unit.musterSeconds);
     const n = fighters.length;
     const d2 = fighters.reduce(
       (total, unit) => total + (byGate.get(unit.id)! - byClock.get(unit.id)!) ** 2,
@@ -1068,7 +1082,7 @@ describe('the bench clock climbs with the campaign', () => {
    * eats rather than per unit.
    */
   it('keeps the clock per unit slot inside one order of magnitude', () => {
-    const perSupply = fighters.map((unit) => unit.trainSeconds / unit.unitSlots);
+    const perSupply = fighters.map((unit) => unit.musterSeconds / unit.unitSlots);
     expect(Math.max(...perSupply) / Math.min(...perSupply)).toBeLessThan(20);
   });
 });
@@ -1140,7 +1154,7 @@ describe('the rule flags are visible content, not engine trivia', () => {
  *
  * The Doghouse is the only one of its kind in the city and it is what puts Cyberhounds on the
  * roster, so it is the case this reads best on. The rule is narrow on purpose: it is the *held*
- * level of the place that trains this unit, and nothing else on the map touches this unit's bill.
+ * level of the place that musters this unit, and nothing else on the map touches this unit's bill.
  */
 describe('what a unit-producing location does to its own unit', () => {
   const hounds = findUnit('cyber_dogs')!;
@@ -1149,45 +1163,46 @@ describe('what a unit-producing location does to its own unit', () => {
 
   it('is worth nothing while nobody holds the place that breeds them', () => {
     // The map is built from locations the crew holds, so "nobody holds it" is an absent key.
-    expect(homeTrainingBonus(hounds, new Map())).toEqual({ costPercent: 0, speedPercent: 0 });
+    expect(homeMusterBonus(hounds, new Map())).toEqual({ costPercent: 0, speedPercent: 0 });
     // Held, but at the level it is walked into at: an upgrade nobody has bought is worth nothing.
-    expect(homeTrainingBonus(hounds, levels(1))).toEqual({ costPercent: 0, speedPercent: 0 });
+    expect(homeMusterBonus(hounds, levels(1))).toEqual({ costPercent: 0, speedPercent: 0 });
   });
 
   it('takes more off the further the place has been worked up', () => {
-    expect(homeTrainingBonus(hounds, levels(4))).toEqual({
-      costPercent: 3 * TRAINING_COST_PER_LOCATION_LEVEL,
-      speedPercent: 3 * TRAINING_SPEED_PER_LOCATION_LEVEL,
+    expect(homeMusterBonus(hounds, levels(4))).toEqual({
+      costPercent: 3 * MUSTER_COST_PER_LOCATION_LEVEL,
+      speedPercent: 3 * MUSTER_SPEED_PER_LOCATION_LEVEL,
     });
-    const top = homeTrainingBonus(hounds, levels(MAX_LOCATION_LEVEL));
-    expect(top).toEqual({ costPercent: 18, speedPercent: 27 });
-    // And still inside the ceilings every other discount is competing for.
-    expect(top.costPercent).toBeLessThan(MAX_TRAINING_DISCOUNT);
-    expect(top.speedPercent).toBeLessThan(MAX_TRAINING_SPEED_BONUS);
+    const top = homeMusterBonus(hounds, levels(MAX_LOCATION_LEVEL));
+    // The price half is one a level since the general muster cuts were cut (2026-10-01).
+    expect(top).toEqual({ costPercent: 9, speedPercent: 27 });
+    // And still inside the floor price and the speed's knee every other discount is competing for.
+    expect(top.costPercent).toBeLessThan(MAX_MUSTER_DISCOUNT);
+    expect(top.speedPercent).toBeLessThan(MUSTER_SPEED_KNEE);
   });
 
-  it('does nothing at all for a unit no location on the map trains', () => {
+  it('does nothing at all for a unit no location on the map musters', () => {
     const razors = findUnit('razors')!;
-    expect(locationsTraining(razors)).toEqual([]);
-    expect(homeTrainingBonus(razors, levels(MAX_LOCATION_LEVEL))).toEqual({
+    expect(locationsMustering(razors)).toEqual([]);
+    expect(homeMusterBonus(razors, levels(MAX_LOCATION_LEVEL))).toEqual({
       costPercent: 0,
       speedPercent: 0,
     });
   });
 
   it('shows up on the bill and on the clock', () => {
-    const home = homeTrainingBonus(hounds, levels(MAX_LOCATION_LEVEL));
-    expect(trainingCost(hounds, 2, home.costPercent).caps!).toBeLessThan(
-      trainingCost(hounds, 2).caps!,
+    const home = homeMusterBonus(hounds, levels(MAX_LOCATION_LEVEL));
+    expect(musterCost(hounds, 2, home.costPercent).caps!).toBeLessThan(musterCost(hounds, 2).caps!);
+    expect(musterSecondsFor(hounds, 2, home.speedPercent)).toBeLessThan(
+      musterSecondsFor(hounds, 2),
     );
-    expect(trainingSeconds(hounds, 2, home.speedPercent)).toBeLessThan(trainingSeconds(hounds, 2));
   });
 
   /** The gate and the home are read off one authored list, so they cannot come apart. */
   it('reads the same link the unlock reads, in both directions', () => {
     for (const kind of LOCATION_KINDS) {
       for (const unit of unitsUnlockedByLocation(kind)) {
-        expect(locationsTraining(unit), unit.id).toContain(kind);
+        expect(locationsMustering(unit), unit.id).toContain(kind);
       }
     }
   });
@@ -1214,11 +1229,11 @@ describe('the Combine roster (§A3)', () => {
     ]);
   });
 
-  it('carries no price, no gate and no clock, because there is no door to train one', () => {
+  it('carries no price, no gate and no clock, because there is no door to muster one', () => {
     for (const unit of COMBINE_UNITS) {
       expect(unit.cost, unit.id).toEqual({});
       expect(unit.requires, unit.id).toEqual([]);
-      expect(unit.trainSeconds, unit.id).toBe(0);
+      expect(unit.musterSeconds, unit.id).toBe(0);
     }
   });
 

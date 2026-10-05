@@ -1,4 +1,5 @@
 import {
+  chairPassiveOf,
   districtUnitSlotCapacity,
   mergeFleets,
   movementForce,
@@ -7,6 +8,8 @@ import {
   type Base,
   type Fleet,
   type UnitSlotDraw,
+  EVERY_LOCATION,
+  territoryEffectsFor,
 } from '@frontline/shared';
 import type { Repositories } from '../db/repos/index.js';
 import { standingEffectsFor } from '../crew/standing.js';
@@ -18,7 +21,7 @@ import { garrisonedUnits } from '../units/roster.js';
  *
  * One definition of "used", read by every gate that enforces it: ordering a unit, laying down a
  * machine, and bidding on or signing an officer at the Bar. Separate counts would drift, and the
- * failure would be silent: a district that let you build past its beds and then refused to train
+ * failure would be silent: a district that let you build past its beds and then refused to muster
  * anybody reads as a bug rather than as a rule.
  *
  * The army is in the same pool as the people now. It used to have a Gauntlet-driven ceiling of its
@@ -36,7 +39,7 @@ import { garrisonedUnits } from '../units/roster.js';
  *
  * Units at a fight count too, for the same reason and by the same argument. A crew that sends
  * four Razors to a battle has four Razors fewer on the roster, and if that is the whole sum then
- * sending them out frees their beds: the freed beds take a training order, the fight ends, and the
+ * sending them out frees their beds: the freed beds take a muster order, the fight ends, and the
  * survivors come home into a district that no longer has room for them. A slot is what this
  * crew *feeds*, not what is standing in the yard, so a column on the road and a muster on the
  * ground are both in it.
@@ -70,7 +73,7 @@ export function unitsAbroad(repos: Repositories, base: Base): Army {
    * A launch takes the force out of `base.army` and parks it on the mission row, so until this
    * they were counted nowhere: not at home, not abroad, not against the ceiling. That made the
    * §A1 unit-slot cap dodgeable by anybody with a day-long job on the board. Send the army out,
-   * watch `unitSlotsUsed` fall, train a second one into the gap, and be over the cap the moment the
+   * watch `unitSlotsUsed` fall, muster a second one into the gap, and be over the cap the moment the
    * first came home.
    *
    * They are still people this crew feeds, which is the same sentence that puts a garrison and a
@@ -84,7 +87,7 @@ export function unitsAbroad(repos: Repositories, base: Base): Army {
    *
    * The same sentence again, and the same hole it closes. A cell leaves `base.army` the moment it
    * is sent and does not come back until it is recalled or woken into a fight, so without this it
-   * was counted nowhere at all: plant the army, watch `unitSlotsUsed` fall, train a second one
+   * was counted nowhere at all: plant the army, watch `unitSlotsUsed` fall, muster a second one
    * into the room, and be over the §A1 cap the day the first lot walks home.
    *
    * Every phase, not only `waiting`: a cell on the road out and a cell on the road home are both
@@ -109,7 +112,7 @@ export function unitsAbroad(repos: Repositories, base: Base): Army {
  * Committed to a fight (the deployment row holds it until the settle hands the survivors back) or
  * carrying a crew on a run. Both take it out of `base.fleet`, which is the same trick
  * {@link unitsAbroad} exists to close: if the yard were the whole sum, sending the machines out
- * would free their beds, the freed beds would take a training order, and the convoy would come home
+ * would free their beds, the freed beds would take a muster order, and the convoy would come home
  * into a district with no room for it.
  *
  * The Garage reads this too, against `MAX_PER_VEHICLE`, so what the ceiling counts and what the
@@ -139,7 +142,15 @@ export function districtUnitSlots(
   // The ground is part of the ceiling (§B5): every location a crew holds is somewhere its people
   // live, so this has to read the same fold the rest of the game reads rather than the buildings
   // alone.
-  const capacity = districtUnitSlotCapacity(base.buildings, standingEffectsFor(repos, base));
+  const standing = standingEffectsFor(repos, base);
+  const capacity = districtUnitSlotCapacity(
+    base.buildings,
+    standing,
+    // The Steward's passive (maintainer, 2026-10-04), on the buildings' beds and the ground's own
+    // slots only: research and perk flats ride on top (2026-10-05).
+    chairPassiveOf(standing, 'steward', 'unit_slots'),
+    territoryEffectsFor(base.id, EVERY_LOCATION, repos.city.controls()).unitSlotBonus,
+  );
   const draw = unitSlotDraw({
     ...base,
     // The gate garrison draws beds like everybody else: it is the crew's army at the door.

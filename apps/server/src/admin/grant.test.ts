@@ -97,11 +97,11 @@ describe('the Console hands over', () => {
     expect(base.inventory.scrap_servo).toBe(7);
     expect(base.inventory.rotor_hub).toBe(7);
 
-    expect((await grant(app, token, { technologies: 'security_officer' })).statusCode).toBe(200);
+    expect((await grant(app, token, { technologies: 'veteran' })).statusCode).toBe(200);
     const after = await me(app, token);
-    const track = RESEARCH_ITEMS.filter((spec) => spec.track === 'security_officer');
+    const track = RESEARCH_ITEMS.filter((spec) => spec.track === 'veteran');
     for (const spec of track) expect(after.research.technologies, spec.id).toContain(spec.id);
-    const other = RESEARCH_ITEMS.find((spec) => spec.track !== 'security_officer')!;
+    const other = RESEARCH_ITEMS.find((spec) => spec.track !== 'veteran')!;
     expect(after.research.technologies).not.toContain(other.id);
   });
 
@@ -158,7 +158,7 @@ describe('the Console seats people with names', () => {
       expect(officer.name, officer.name).not.toMatch(/bench/i);
       expect(officer.name.trim().length).toBeGreaterThan(2);
     }
-    // Real names off the Bar's own list, so they are not nineteen copies of one string either.
+    // Real names off the Bar's own list, so they are not eighteen copies of one string either.
     expect(new Set(base.commanders.map((officer) => officer.name)).size).toBeGreaterThan(1);
   });
 

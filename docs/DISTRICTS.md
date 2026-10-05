@@ -45,7 +45,7 @@ and four residential plots holding none.
 
 ## Two kinds of ground
 
-**Residential** districts hold crews. A crew's own district is its base, the thirteen structures of
+**Residential** districts hold crews. A crew's own district is its base, the eleven structures of
 GDD §A1. It can be raided but never captured, so nobody loses everything they built because they
 were asleep. There are four of them and they hold no capturable locations.
 
@@ -119,8 +119,8 @@ Six districts, one regime, and four units that are never yours: the **Civic Levy
 surplus blades), the **Greycoats** (government infantry), the **Street Enforcers** (riot plate and
 shock batons) and the **Suppressors** (a belt-fed gun on a tripod). They live in
 `packages/shared/src/units/catalog.ts` behind `UnitSpec.faction`, which is what keeps them off
-every roster, every training bench, the census, the Scrapyard and the balance sheet.
-`units/faction.test.ts` sweeps all 496 feats, every mission and every blueprint to prove no content
+every roster, every muster bench, the census, the Scrapyard and the balance sheet.
+`units/faction.test.ts` sweeps every feat, every mission and every blueprint to prove no content
 path can put one on a player's books.
 
 Which units stand where is `combineGarrison` in `packages/shared/src/city/combine.ts`, and it steps
@@ -135,7 +135,13 @@ party. So a district's difficulty is one number whoever holds it: before, looter
 on a flatter line of their own, and Chrome Row at 4 and the Undergrid at 5 fell to 20 Razors while
 the Glasshouse Berm at 3 wanted 40. Measured on the real settle after the change (smallest Razor
 column taking the district's hardest ordinary plot 9 fights in 12, leaders dead; pinned as a climb
-by `apps/server/src/city/difficulty-ladder.test.ts`):
+by `apps/server/src/city/difficulty-ladder.test.ts`; re-walked 2026-10-01 after the Greycoat
+went to 112 offense and the Suppressor to 400, which moved the Glasshouse and the Blacksite only,
+and again 2026-10-02 after "outnumbered" started counting unit slots, which raised everything from
+difficulty 6 up; the two top mixes were re-shared that day to keep the climb, 7 and 8 to 60%
+Enforcers and 40% Suppressors, 9 and 10 to 10% Greycoats, 35% Enforcers and 55% Suppressors;
+and again 2026-10-05 after morale started reading wounds, which lifted 7 and 8 a rung each and left
+9 and 10 level with them, so 9 and 10 went to 5% Greycoats, 30% Enforcers and 65% Suppressors):
 
 | District          | Holder, difficulty | Hardest ordinary plot         | Razors |
 | ----------------- | ------------------ | ----------------------------- | ------ |
@@ -143,21 +149,22 @@ by `apps/server/src/city/difficulty-ladder.test.ts`):
 | Coldwater Halt    | looters, 1         | `coldwater-halt-signal`       | 14     |
 | Steelbelt         | Combine, 2         | `steelbelt-bonefield`         | 20     |
 | Ironmouth         | looters, 2         | `ironmouth-arches`            | 20     |
-| Glasshouse Fields | Combine, 3         | `glasshouse-fields-berm`      | 29     |
+| Glasshouse Fields | Combine, 3         | `glasshouse-fields-berm`      | 24     |
 | Marshalling Yards | looters, 3         | `marshalling-yards-signalbox` | 34     |
 | Chrome Row        | looters, 4         | `chrome-row-cathode`          | 48     |
 | Bonded Row        | looters, 4         | `bonded-row-crated`           | 57     |
 | The Undergrid     | looters, 5         | `undergrid-lair`              | 68     |
-| Telemetry Hill    | Combine, 6         | `telemetry-hill-array`        | 96     |
+| Telemetry Hill    | Combine, 6         | `telemetry-hill-array`        | 114    |
 | The Annexes       | Combine, 6         | `annexes-scaffold`            | 114    |
-| Viaduct           | Combine, 7         | `viaduct-archnineteen`        | 136    |
-| Blacksite         | Combine, 8         | `blacksite-pile`              | 161    |
-| Last Platform     | Combine, 9         | `last-platform-armoury`       | 161    |
-| Blockhouse        | Combine, 10        | `blockhouse-chapel`           | 228    |
-| CCS               | Combine, 10        | `ccs-armory`                  | 228    |
+| Viaduct           | Combine, 7         | `viaduct-archnineteen`        | 272    |
+| Blacksite         | Combine, 8         | `blacksite-pile`              | 323    |
+| Last Platform     | Combine, 9         | `last-platform-armoury`       | 323    |
+| Blockhouse        | Combine, 10        | `blockhouse-chapel`           | 457    |
+| CCS               | Combine, 10        | `ccs-armory`                  | 384    |
 
 With its leader standing, a coarser walk (a root of two between rungs) read the Annexes at 113, the
-Blacksite at 226 and the CCS past 320: the leaders are a second climb on top of the garrison.
+Blacksite at 226 and the CCS past 320 before the 2026-10-02 re-walk, and was not re-taken then: the
+leaders are a second climb on top of the garrison, and the figures above it moved up.
 
 ### The three who run it
 
@@ -211,17 +218,17 @@ Working industry, not a scrapyard: presses on shift, furnaces lit, a pump row se
 
 Garrison before anybody takes it: Civic Levy with a squad of Greycoats behind them.
 
-**Unified bonus, Run of the Belt:** 10% off what training units costs, for holding every location in the district.
+**Unified bonus, Run of the Belt:** 2% off what mustering units costs, for holding every location in the district (it was 10 until the general muster cuts were cut, 2026-10-01).
 
-| Location           | Kind                  | What holding it pays                                                                    |
-| ------------------ | --------------------- | --------------------------------------------------------------------------------------- |
-| No. 4 Press House  | Scrap Press           | Scrap, steadily, for as long as you hold it.                                            |
-| The Breaker's Yard | War Machine Graveyard | Hulls, plate and running gear, and troops that come back from more than they should.    |
-| Toolhouse Pawn     | Pawn Shop             | A smaller cut, and a fence who moves what a raid brings back.                           |
-| The Slag Bowl      | Skate Ground          | Everything you field moves faster.                                                      |
-| Furnace Row Pumps  | Gas Station           | Oil out of the ground, and the scrap off everything anybody abandoned on the forecourt. |
-| The Doghouse       | The Doghouse          | Working dogs, augmented, and handlers who have done this before.                        |
-| The Bone Market    | The Bone Market       | What you lose in a fight comes back as caps instead of coming back as nothing.          |
+| Location           | Kind                  | What holding it pays                                                                                                   |
+| ------------------ | --------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| No. 4 Press House  | Scrap Press           | Scrap, steadily, for as long as you hold it.                                                                           |
+| The Breaker's Yard | War Machine Graveyard | Hulls, plate and running gear, a gantry that will lift anything, and troops that come back from more than they should. |
+| Toolhouse Pawn     | Pawn Shop             | A smaller cut, and a fence who moves what a raid brings back.                                                          |
+| The Slag Bowl      | Skate Ground          | Everything you field moves faster.                                                                                     |
+| Furnace Row Pumps  | Gas Station           | Oil out of the ground, and the scrap off everything anybody abandoned on the forecourt.                                |
+| The Doghouse       | The Doghouse          | Working dogs, augmented, and handlers who have done this before.                                                       |
+| The Bone Market    | The Bone Market       | What you lose in a fight comes back as caps instead of coming back as nothing.                                         |
 
 ### Chrome Row
 
@@ -245,7 +252,7 @@ them rather than promising a sentence (maintainer, 2026-09-30).
 | Statue of the Revolutionary | Statue in a Plaza | It is what they are fighting for. A crew that holds it walks into a fight harder to frighten. |
 | The Regal                   | Cinema            | Two hours somewhere else. A crew that gets that fights differently the next day.              |
 | The Cracked Anvil           | Downtown Tavern   | A room where the city’s hardest people drink, and somebody who can introduce you.             |
-| Coin-Op Row                 | The Arcade        | Reflex work disguised as an evening off. The drills go quicker.                               |
+| Coin-Op Row                 | The Arcade        | Reflex work disguised as an evening off. Recruits come off the bench quicker.                 |
 
 ### The Undergrid
 
@@ -302,18 +309,18 @@ State hydroponics on the western flank. Government ground, but the softest of it
 
 Garrison before anybody takes it: Civic Levy with a squad of Greycoats behind them.
 
-**Unified bonus, The Green Belt Is Fed:** training runs 15% faster, for holding every location in the district.
+**Unified bonus, The Green Belt Is Fed:** mustering runs 15% faster, for holding every location in the district.
 
-| Location             | Kind         | What holding it pays                                                                                                 |
-| -------------------- | ------------ | -------------------------------------------------------------------------------------------------------------------- |
-| Glasshouse Intake    | Water Works  | Supplies, because clean water is most of what growing it takes.                                                      |
-| Fieldgate Market     | Market       | A cut of everything that changes hands.                                                                              |
-| The Berm             | High Ground  | Everything you hold in this city is harder to take off you.                                                          |
-| Hauler Yard          | Rail Yard    | Bogies, axles and drive parts by the wagonload: everything the garage has been improvising.                          |
-| The Long Ladle       | Soup Kitchen | Supplies off the ration line, and a crew that has eaten fights like one.                                             |
-| Chapel of the Furrow | The Chapel   | Everyone on your books holds together better under things that break people.                                         |
-| The Fence Camp       | Fence Camp   | More people than any building in your district could house, and every one of them looking for a reason to be useful. |
-| The Glasshouses      | Hydroponics  | Supplies straight off the beds, picked before they ever see a market.                                                |
+| Location             | Kind         | What holding it pays                                                                                                             |
+| -------------------- | ------------ | -------------------------------------------------------------------------------------------------------------------------------- |
+| Glasshouse Intake    | Water Works  | Supplies, because clean water is most of what growing it takes.                                                                  |
+| Fieldgate Market     | Market       | A cut of everything that changes hands.                                                                                          |
+| The Berm             | High Ground  | Everything you hold in this city is harder to take off you.                                                                      |
+| Hauler Yard          | Rail Yard    | Bogies, axles and drive parts by the wagonload: everything the garage has been improvising.                                      |
+| The Long Ladle       | Soup Kitchen | Supplies off the ration line, and a crew that has eaten fights like one.                                                         |
+| Chapel of the Furrow | The Chapel   | Everyone on your books holds together better under things that break people, and nobody runs because the person beside them did. |
+| The Fence Camp       | Fence Camp   | More people than any building in your district could house, and every one of them looking for a reason to be useful.             |
+| The Glasshouses      | Hydroponics  | Supplies straight off the beds, picked before they ever see a market.                                                            |
 
 ### Blacksite
 
@@ -327,16 +334,16 @@ Garrison before anybody takes it: Street Enforcers behind Suppressor positions.
 
 **Unified bonus, The Garrison Is Yours:** +15% unit offense, for holding every location in the district.
 
-| Location         | Kind                    | What holding it pays                                                                                              |
-| ---------------- | ----------------------- | ----------------------------------------------------------------------------------------------------------------- |
-| Blacksite Armory | Armory                  | Cheaper units, and a bench that will fit anything you can find a part for.                                        |
-| Outer Berm       | Barricade               | A harder approach to everything behind it.                                                                        |
-| The Watchtower   | Watchtower              | Everything your spies do, they do better: everywhere in the city, not just here.                                  |
-| Robot Pit        | Fight Pit               | Your people are harder to frighten, and better for the practice.                                                  |
-| Motor Pool       | War Machine Graveyard   | Hulls, plate and running gear, and troops that come back from more than they should.                              |
-| The Drill Hall   | The Gym                 | One more session in the day than the day has room for.                                                            |
-| Psychic Ward     | Black Clinic            | Syringes. Handed out before a fight, they bring somebody back to strength who had no right to be.                 |
-| The Pile         | Abandoned Nuclear Plant | High-quality metal out of the turbine hall, and a fuelling crew who make every barrel of oil you burn go further. |
+| Location         | Kind                    | What holding it pays                                                                                                   |
+| ---------------- | ----------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| Blacksite Armory | Armory                  | Cheaper units, and a bench that will fit anything you can find a part for.                                             |
+| Outer Berm       | Barricade               | A harder approach to everything behind it, held by people who will not leave it.                                       |
+| The Watchtower   | Watchtower              | Everything your spies do, they do better: everywhere in the city, not just here.                                       |
+| Robot Pit        | Fight Pit               | Your people are harder to frighten, and everybody on the books can hold a line, porters included.                      |
+| Motor Pool       | War Machine Graveyard   | Hulls, plate and running gear, a gantry that will lift anything, and troops that come back from more than they should. |
+| The Drill Hall   | The Gym                 | One more session in the day than the day has room for.                                                                 |
+| Psychic Ward     | Black Clinic            | Syringes. Handed out before a fight, they bring somebody back to strength who had no right to be.                      |
+| The Pile         | Abandoned Nuclear Plant | High-quality metal out of the turbine hall, and a fuelling crew who make every barrel of oil you burn go further.      |
 
 ### CCS (Civic Command Sector)
 
@@ -354,7 +361,7 @@ Garrison before anybody takes it: Suppressors, Enforcers and Greycoats, and what
 | ----------------------- | ----------------- | ------------------------------------------------------------------------------------------------------------------ |
 | Command Uplink          | Satellite Uplink  | What goes over the air in this city, your spies have already read.                                                 |
 | Combine Armory          | Armory            | Cheaper units, and a bench that will fit anything you can find a part for.                                         |
-| The Household Barricade | Barricade         | A harder approach to everything behind it.                                                                         |
+| The Household Barricade | Barricade         | A harder approach to everything behind it, held by people who will not leave it.                                   |
 | Command Broadcast       | Broadcast Station | Everyone on your books gets better at the half of the job that is talking to people.                               |
 | The Ascension Clinic    | Gene Clinic       | Work can be done on people here that cannot be done anywhere else.                                                 |
 | The Unfinished Wing     | Construction Site | Lifting gear nothing else in the city has. Some things can only be assembled standing up.                          |
@@ -516,9 +523,9 @@ whether its gate is armed. Coldwater Halt and Bonded Row are the two ways in.
 
 | District                       | Kind        | Held by                | Difficulty | Position (x, y) | Holds | Open | Station |
 | ------------------------------ | ----------- | ---------------------- | ---------- | --------------- | ----- | ---- | ------- |
-| Coldwater Halt                 | contested   | independent            | 1          | 0.08, 0.9       | 7     | 3    | yes     |
+| Coldwater Halt                 | contested   | looters                | 1          | 0.08, 0.9       | 7     | 3    | yes     |
 | Ironmouth                      | contested   | looters                | 2          | 0.22, 0.8       | 7     | 0    | yes     |
-| The Marshalling Yards          | contested   | independent            | 3          | 0.34, 0.7       | 7     | 0    | yes     |
+| The Marshalling Yards          | contested   | looters                | 3          | 0.34, 0.7       | 7     | 0    | yes     |
 | Player District (`carriage`)   | residential | independent            |            | 0.14, 0.64      | none  |      |         |
 | Bonded Row                     | contested   | looters                | 4          | 0.47, 0.6       | 8     | 3    | yes     |
 | Player District (`watertower`) | residential | independent            |            | 0.38, 0.88      | none  |      |         |
@@ -579,15 +586,15 @@ them rather than promising a sentence (maintainer, 2026-09-30).
 district and every location you hold in any city, for holding every location in the district. Deliberately not more stealth: the shafts already pay that, and a
 crew that has taken a hill should be harder to shift everywhere, not sneakier in one place.
 
-| Location               | Kind              | What holding it pays                                                                            |
-| ---------------------- | ----------------- | ----------------------------------------------------------------------------------------------- |
-| Ironmouth Halt         | Station           | The last stop before the tunnel. Linked to any other Station you hold, at fifteen minutes flat. |
-| The Ventilation Shafts | Sewer Junction    | Your people can get places without being seen getting there.                                    |
-| The Bricked Arches     | Smuggler's Tunnel | Every crew you send anywhere is back sooner. There is a shorter way and you own it.             |
-| Shaft Nine             | Chemical Plant    | Oil, cracked on site.                                                                           |
-| The Spoil Heap         | Scrap Press       | Scrap, steadily, for as long as you hold it.                                                    |
-| The Tunnel Chapel      | The Chapel        | Everyone on your books holds together better under things that break people.                    |
-| Lampman’s Row          | Pawn Shop         | A smaller cut, and a fence who moves what a raid brings back.                                   |
+| Location               | Kind              | What holding it pays                                                                                                             |
+| ---------------------- | ----------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| Ironmouth Halt         | Station           | The last stop before the tunnel. Linked to any other Station you hold, at fifteen minutes flat.                                  |
+| The Ventilation Shafts | Sewer Junction    | Your people can get places without being seen getting there.                                                                     |
+| The Bricked Arches     | Smuggler's Tunnel | Every crew you send anywhere is back sooner. There is a shorter way and you own it.                                              |
+| Shaft Nine             | Chemical Plant    | Oil, cracked on site.                                                                                                            |
+| The Spoil Heap         | Scrap Press       | Scrap, steadily, for as long as you hold it.                                                                                     |
+| The Tunnel Chapel      | The Chapel        | Everyone on your books holds together better under things that break people, and nobody runs because the person beside them did. |
+| Lampman’s Row          | Pawn Shop         | A smaller cut, and a fence who moves what a raid brings back.                                                                    |
 
 ### The Marshalling Yards
 
@@ -611,7 +618,7 @@ district.
 | The Coaling Stage  | Gas Station     | Oil out of the ground, and the scrap off everything anybody abandoned on the forecourt.     |
 | The Wagon Breakers | Scrap Press     | Scrap, steadily, for as long as you hold it.                                                |
 | Box Nine           | Watchtower      | Everything your spies do, they do better: everywhere in the city, not just here.            |
-| The Mess Room      | Downtown Tavern | A room where the city's hardest people drink, and somebody who can introduce you.           |
+| The Mess Room      | Downtown Tavern | A room where the city’s hardest people drink, and somebody who can introduce you.           |
 | The Running Sheds  | Foundry         | High-quality metal. Nothing else in the city makes it in quantity.                          |
 
 ### Bonded Row
@@ -640,7 +647,7 @@ already pays: what the whole district buys is the other counter.
 | The Crated Yard         | Construction Site | Lifting gear nothing else in the city has. Some things can only be assembled standing up.         |
 | The Kennels             | The Doghouse      | Working dogs, augmented, and handlers who have done this before.                                  |
 | The Cold Store          | Black Clinic      | Syringes. Handed out before a fight, they bring somebody back to strength who had no right to be. |
-| The Crate Ring          | Fight Pit         | Your people are harder to frighten, and better for the practice.                                  |
+| The Crate Ring          | Fight Pit         | Your people are harder to frighten, and everybody on the books can hold a line, porters included. |
 
 ### Telemetry Hill
 
@@ -687,7 +694,7 @@ thing anybody can do in this city, and the whole world prices you differently af
 | Location           | Kind                 | What holding it pays                                                                       |
 | ------------------ | -------------------- | ------------------------------------------------------------------------------------------ |
 | Viaduct Halt       | Station              | The halt on the gorge side. Linked to any other Station you hold, at fifteen minutes flat. |
-| The Arch Battery   | Barricade            | A harder approach to everything behind it.                                                 |
+| The Arch Battery   | Barricade            | A harder approach to everything behind it, held by people who will not leave it.           |
 | The Parapet        | High Ground          | Everything you hold in this city is harder to take off you.                                |
 | The Gantry Walk    | Tram Depot           | The city gets smaller. Everything you send anywhere leaves sooner and arrives faster.      |
 | Arch Nineteen      | Mad Scientist's Lair | Everything needed to make something that should not exist, and the notes explaining how.   |
@@ -713,16 +720,16 @@ Greycoat company that lives on the platform.
 **Unified bonus, The Last Platform Is Shut:** +14% unit offense, for holding every location in the
 district.
 
-| Location                   | Kind                        | What holding it pays                                                                  |
-| -------------------------- | --------------------------- | ------------------------------------------------------------------------------------- |
-| Platform One               | Station                     | The end of the line. Linked to any other Station you hold, at fifteen minutes flat.   |
-| The Customs Hall           | Downtown Market             | Every trade in the city is quoted to you at a better number than to anybody else.     |
-| The Holding Pens           | Barricade                   | A harder approach to everything behind it.                                            |
-| The Transit Clinic         | Hospital                    | What comes back from a fight comes back in better shape.                              |
-| The Platform Armoury       | Armory                      | Cheaper units, and a bench that will fit anything you can find a part for.            |
-| The Stationmaster’s Office | Statue of the Revolutionist | The black market quotes you less infamy, and your name does some of the work for you. |
-| The Cold Sidings           | War Machine Graveyard       | Hulls, plate and running gear, and troops that come back from more than they should.  |
-| The Iron Footbridge        | Smuggler's Tunnel           | Every crew you send anywhere is back sooner. There is a shorter way and you own it.   |
+| Location                   | Kind                        | What holding it pays                                                                                                      |
+| -------------------------- | --------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| Platform One               | Station                     | The end of the line. Linked to any other Station you hold, at fifteen minutes flat.                                       |
+| The Customs Hall           | Downtown Market             | Every trade in the city is quoted to you at a better number than to anybody else.                                         |
+| The Holding Pens           | Barricade                   | A harder approach to everything behind it, held by people who will not leave it.                                          |
+| The Transit Clinic         | Hospital                    | What comes back from a fight comes back in better shape.                                                                  |
+| The Platform Armoury       | Armory                      | Cheaper units, and a bench that will fit anything you can find a part for.                                                |
+| The Stationmaster’s Office | Statue of the Revolutionist | Standing under it costs you less with the people who deal in the dark, and taking it is a statement the whole city hears. |
+| The Cold Sidings           | War Machine Graveyard       | Hulls, plate and running gear, a gantry that will lift anything, and troops that come back from more than they should.    |
+| The Iron Footbridge        | Smuggler's Tunnel           | Every crew you send anywhere is back sooner. There is a shorter way and you own it.                                       |
 
 ### The Blockhouse
 
@@ -744,11 +751,12 @@ the time every job in this city takes"; scoped to the city 2026-09-30). A job on
 board or on the misc board gets nothing from it. Written in the catalogue as
 `{ kind: 'mission_speed', percent: 25, inOwnCity: true }`, because a speed channel is spent as
 `time / (1 + percent/100)` and 25 there is exactly a fifth off the clock; the card reads "-20%
-mission time in this city". Not another research or morale line, which the Records Office and the
+mission time in this city (tapers, no hard stop)". 25 is the knee of `missionSpeedCut`
+(2026-10-05), so the card alone is paid at face value. Not another research or morale line, which the Records Office and the
 Chapel already pay.
 
 The Marshalling Yards pay the same kind at 12, everywhere, and a crew holding both ends of the line
-gets both on Terminus work. That is allowed and it is the point: the rule the suite enforces is that
+gets both on Terminus work, summed and then tapered past the knee. That is allowed and it is the point: the rule the suite enforces is that
 a district's unified bonus may not be a kind that already appears _inside that district_, and
 nothing in the Blockhouse pays mission speed. Assembling both is the strongest economy in the game
 and costs the whole city.

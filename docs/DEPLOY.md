@@ -74,17 +74,60 @@ is a timestamp in the database rather than a timer in the process.
   behind it. Past ten such errors a minute, or on running out of memory or file handles, the server
   exits on purpose and systemd starts a fresh one two seconds later.
 - **Floods.** Caddy caps request bodies and slow clients. The server caps request bodies (64 KB),
-  requests per account and per address (`apps/server/src/limits/rules.ts`), live streams per
+  requests per account and per address (`apps/server/src/limits/rules.ts`), failed sign-ins per
+  account from any number of addresses (ten a quarter hour, refused before the password is
+  hashed), live streams per
   account (8), per address (40) and in total (2,000), and open sockets (`MAX_CONNECTIONS`). The
   rate-limit table itself is capped, and IPv6 callers are counted by their /64.
 - **Hostile input.** Every request body is parsed against a shared schema with bounded strings,
   numbers and lists before any handler reads it, and every amount is checked against what the crew
   actually holds before anything is paid.
-- **Sessions.** A login lasts thirty days and renews itself while the player plays. Changing a
-  password or pressing "Log out everywhere" ends every other session at once.
+- **Sessions.** A login lasts thirty days and renews itself while the player plays. The browser
+  holds it in an `HttpOnly`, `SameSite=Strict`, `Secure` cookie (`Secure` because `NODE_ENV` is
+  `production`), so no script on the page can read it, and every write that rides it must carry
+  the `X-Requested-With: frontline` header the client sends. Changing a password or pressing
+  "Log out everywhere" ends every other session at once.
 - **Losing progress.** See `docs/RECOVERY.md`: a verified snapshot every two minutes, tiered
   retention back thirty days, a copy on a second disk, and one more snapshot on every clean stop.
+  Snapshots are taken on a worker thread, so they do not pause the game: measured on a 108 MB
+  database, the longest event-loop stall during one went from about 250 ms to under 5 ms.
   `synchronous = FULL` means a write the game acknowledged is on disk.
+
+## Security headers
+
+Caddy sets them on every answer (`deploy/Caddyfile`). The one with teeth is the
+Content-Security-Policy:
+
+```
+default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self';
+connect-src 'self'; media-src 'self'; manifest-src 'self'; base-uri 'none'; form-action 'self';
+frame-ancestors 'none'; object-src 'none'
+```
+
+Everything the page loads comes from its own origin: the bundle, the stylesheet, the self-hosted
+fonts, the sounds, the images, and the API with its live channel. Nothing inline may run and no
+string may be evaluated, so a script injected into the page through some future bug does not
+execute, and has no host to send anything to if it did. `data:` images are the SVG patterns Vite
+inlines into the stylesheet. The client turns off Zod's schema compiler
+(`apps/client/src/zod-jitless.ts`), which otherwise tries `new Function` on every load.
+
+Beside it: `frame-ancestors 'none'` and `X-Frame-Options DENY` (no framing), `nosniff`,
+`Referrer-Policy no-referrer`, HSTS, a `Permissions-Policy` that turns off the device APIs the game
+never asks for, and `Cross-Origin-Opener-Policy same-origin`.
+
+`scripts/deploy-csp.test.ts` pins the policy and the client facts it depends on (no inline script
+or style in `index.html`, Zod's compiler off before the first schema). What a test cannot see is
+the bundle doing something new at run time, so after a change to the client that loads a new kind
+of thing, serve a production build with the same header and look for violations before deploying:
+
+```bash
+pnpm --filter @frontline/client build
+# Any static server that sends the header from the Caddyfile will do. Then, in Chrome devtools,
+# walk the game and filter the console for "Content Security Policy".
+```
+
+Verified on 2026-09-30 that way: the sign-in door, the character picker and all 28 game screens
+under the mocked e2e API, zero violations. Before the Zod switch, every page load had one.
 
 ## Watching it
 

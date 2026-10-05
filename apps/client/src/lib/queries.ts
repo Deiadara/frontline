@@ -16,8 +16,9 @@ import type {
   MarketMutationResponse,
   LaunchMissionInput,
   LaunchMissionResponse,
+  LevelUp,
   MeResponse,
-  TrainUnitsResponse,
+  MusterUnitsResponse,
   BuildStructureResponse,
   ResearchResponse,
   TrainingResponse,
@@ -29,6 +30,7 @@ import {
   useQuery,
   useQueryClient,
   type QueryClient,
+  useQueries,
 } from '@tanstack/react-query';
 import { useCallback, useEffect, useMemo, useRef } from 'react';
 // A value import, not a type one: `isCityShut` below asks an error whether it is one of these.
@@ -38,6 +40,7 @@ import {
   raiseGate,
   answerFactionInvite,
   createFaction,
+  blockSender,
   deleteMessage,
   disbandFaction,
   getLeaderboard,
@@ -49,6 +52,7 @@ import {
   editFactionDescription,
   editFactionIdentity,
   factionMemberAction,
+  seatFactionMember,
   getFaction,
   getMessages,
   getNotifications,
@@ -66,10 +70,10 @@ import {
   getUnits,
   plantSleepers,
   recallSleepers,
-  cancelTraining,
+  cancelMuster,
   increasePayroll,
   releaseOfficer,
-  trainUnits,
+  musterUnits,
   buildStructure,
   buyBuildBoost,
   buildAddon,
@@ -103,6 +107,8 @@ import {
   claimMarketGoods,
   getBlackMarket,
   placeBlackMarketBid,
+  getStackhouse,
+  placeStackhouseBet,
   getSettings,
   updateProfile,
   markTutorialSeen,
@@ -200,6 +206,7 @@ export const queryKeys = {
   crewStanding: ['crew-standing'] as const,
   market: ['market'] as const,
   blackMarket: ['black-market'] as const,
+  stackhouse: ['stackhouse'] as const,
   settings: ['settings'] as const,
   admin: ['admin'] as const,
   garage: ['garage'] as const,
@@ -230,6 +237,21 @@ export const queryKeys = {
 function invalidateLevelSensitive(queryClient: QueryClient): void {
   void queryClient.invalidateQueries({ queryKey: queryKeys.me });
   void queryClient.invalidateQueries({ queryKey: queryKeys.crew });
+}
+
+/**
+ * Hand a level-up to the shell toast (`ShellLevelUp`), which reads it off `me`.
+ *
+ * The server announces a level once, on whichever response drains the marker first
+ * (`takeLevelUp`), and `/missions` and a cancelled build can beat the shell's own `/me` poll to it.
+ * Only the Missions page and the build button draw their own banner off those, so any other
+ * reader passes it on here or the level goes unsaid. The toast announces each level once.
+ */
+function announceLevelUp(queryClient: QueryClient, levelUp: LevelUp | undefined): void {
+  if (!levelUp) return;
+  queryClient.setQueryData<MeResponse>(queryKeys.me, (previous) =>
+    previous ? { ...previous, levelUp } : previous,
+  );
 }
 
 /**
@@ -345,11 +367,11 @@ const SHELL_POLL_MS = 5_000;
 
 /** Authenticated session snapshot: user + overseer + base. */
 export function useMe() {
-  const token = useSession((s) => s.token);
+  const signedIn = useSession((s) => s.signedIn);
   return useQuery({
     queryKey: queryKeys.me,
     queryFn: getMe,
-    enabled: token !== null,
+    enabled: signedIn,
     refetchInterval: SHELL_POLL_MS,
   });
 }
@@ -379,11 +401,11 @@ export function useHomeCity(): string | null {
  * was bitten by exactly this and asked the server for `?city=[object Object]`).
  */
 export function useCity(city?: string) {
-  const token = useSession((s) => s.token);
+  const signedIn = useSession((s) => s.signedIn);
   return useQuery({
     queryKey: [...queryKeys.city, city ?? ''],
     queryFn: () => getCity(city),
-    enabled: token !== null,
+    enabled: signedIn,
     refetchInterval: SHELL_POLL_MS,
   });
 }
@@ -436,9 +458,14 @@ export function useRenameDistrict(baseId: string | undefined) {
   });
 }
 
-/** The mission board and everything in flight (GDD §E3, §E4). */
-export function useMissions(city?: string) {
-  const token = useSession((s) => s.token);
+/**
+ * The mission board and everything in flight (GDD §E3, §E4).
+ *
+ * `drawsLevelUp` is for the one screen that prints the board's level-up itself; every other
+ * reader hands it to the shell toast.
+ */
+export function useMissions(city?: string, { drawsLevelUp = false } = {}) {
+  const signedIn = useSession((s) => s.signedIn);
   const queryClient = useQueryClient();
   const query = useQuery({
     // The city is in the key so two boards are two cache entries, the way `useMarket` and `useBar`
@@ -446,7 +473,7 @@ export function useMissions(city?: string) {
     // until the next poll lands.
     queryKey: [...queryKeys.missions, city ?? ''],
     queryFn: () => getMissions(city),
-    enabled: token !== null,
+    enabled: signedIn,
     refetchInterval: MISSION_POLL_MS,
   });
 
@@ -465,6 +492,11 @@ export function useMissions(city?: string) {
     if (settledAt === 0) return;
     invalidateLevelSensitive(queryClient);
   }, [settledAt, queryClient]);
+
+  const levelUp = query.data?.levelUp;
+  useEffect(() => {
+    if (!drawsLevelUp) announceLevelUp(queryClient, levelUp);
+  }, [drawsLevelUp, levelUp, queryClient]);
 
   useCityDoor(city, query);
   return query;
@@ -491,6 +523,10 @@ export function useLaunchMission() {
      */
     onSettled: () => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.missions });
+      // The party leaves the roster and its machines the yard, and neither screen polls (bug pass,
+      // 2026-10-02).
+      void queryClient.invalidateQueries({ queryKey: queryKeys.units });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.garage });
       invalidateLevelSensitive(queryClient);
     },
   });
@@ -514,11 +550,11 @@ const BAR_POLL_MS = 10_000;
  * neither poll clobbers the other's tables.
  */
 export function useBar(city?: string) {
-  const token = useSession((s) => s.token);
+  const signedIn = useSession((s) => s.signedIn);
   const query = useQuery({
     queryKey: [...queryKeys.bar, city ?? ''],
     queryFn: () => getBar(city),
-    enabled: token !== null,
+    enabled: signedIn,
     refetchInterval: BAR_POLL_MS,
   });
   useCityDoor(city, query);
@@ -537,7 +573,7 @@ export function useBar(city?: string) {
  * `onSettled` rather than `onSuccess`: `/bar` settles before it refuses, so a refusal has usually
  * changed something too. See "settle first, refuse second" above.
  */
-function bidMutation(mutationFn: typeof placeBid) {
+function bidMutation<T>(mutationFn: (body: T) => ReturnType<typeof placeBid>) {
   return function useBidMutation() {
     const queryClient = useQueryClient();
     return useMutation({
@@ -568,8 +604,8 @@ export function useReleaseOfficer() {
       void queryClient.invalidateQueries({ queryKey: queryKeys.me });
       void queryClient.invalidateQueries({ queryKey: queryKeys.crew });
       // …and the fold, which is a different fact from the roster. `crewSheetsFor` builds
-      // `/overseer/me` out of everybody on the books, so somebody leaving takes their best-of
-      // ratings, their perks and the lift those perks put on every peer's sheet out with them.
+      // `/overseer/me` out of everybody working, so somebody leaving takes their chair's passive,
+      // their perks and the lift those perks put on every peer's sheet out with them.
       // `crewStanding` has no poll and a 30s `staleTime`, so without this the "what the crew is
       // buying" ledger goes on quoting a channel the departed officer was the only source of.
       void queryClient.invalidateQueries({ queryKey: queryKeys.crewStanding });
@@ -578,11 +614,17 @@ export function useReleaseOfficer() {
       // book and the caps this just moved: without this the two screens disagree until the
       // district's own poll catches up. Prefix-matched because the mutation has no base id.
       void queryClient.invalidateQueries({ queryKey: ['base'] });
+      // …and the screens priced off who is seated, which do not poll (bug pass, 2026-10-02): the
+      // Salvager's cut on every Scrapyard bill, a perk's cut on every Garage price. A release
+      // also calls off the officer's drill.
+      void queryClient.invalidateQueries({ queryKey: queryKeys.scrapyard });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.garage });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.training });
     },
   });
 }
 
-/** §H7: buy one more step of standing payroll at the Nexus. Costs caps, so the HUD refreshes. */
+/** §H7: buy one more expansion of the payroll book. Costs scrap, so the HUD refreshes. */
 export function useIncreasePayroll() {
   const queryClient = useQueryClient();
   return useMutation({
@@ -590,6 +632,8 @@ export function useIncreasePayroll() {
     onSettled: () => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.bar });
       void queryClient.invalidateQueries({ queryKey: queryKeys.me });
+      // The Crew screen prints the book (maintainer, 2026-09-30).
+      void queryClient.invalidateQueries({ queryKey: queryKeys.crew });
       // The district's own copy of the base, which prints the book and the caps this just spent.
       // See the note in `useReleaseOfficer`.
       void queryClient.invalidateQueries({ queryKey: ['base'] });
@@ -603,12 +647,12 @@ export function useIncreasePayroll() {
  * the page is open.
  */
 export function useResearch() {
-  const token = useSession((s) => s.token);
+  const signedIn = useSession((s) => s.signedIn);
   const queryClient = useQueryClient();
   const query = useQuery({
     queryKey: queryKeys.research,
     queryFn: getResearch,
-    enabled: token !== null,
+    enabled: signedIn,
     refetchInterval: RESEARCH_POLL_MS,
   });
 
@@ -629,6 +673,10 @@ export function useResearch() {
     lastFinished.current = finished;
     if (previous !== null && finished > previous) {
       void queryClient.invalidateQueries({ queryKey: queryKeys.me });
+      // ...and the crew's fold, which most rungs pay into and which does not poll: the effects
+      // page went on without the new rung for up to its 30 seconds (bug pass, 2026-10-02).
+      void queryClient.invalidateQueries({ queryKey: queryKeys.crewStanding });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.crew });
     }
   }, [finished, queryClient]);
 
@@ -637,8 +685,8 @@ export function useResearch() {
 
 /** The crew: who is in which chair, and everything about them (GDD §C1, §C2). */
 export function useCrew() {
-  const token = useSession((s) => s.token);
-  return useQuery({ queryKey: queryKeys.crew, queryFn: getCrew, enabled: token !== null });
+  const signedIn = useSession((s) => s.signedIn);
+  return useQuery({ queryKey: queryKeys.crew, queryFn: getCrew, enabled: signedIn });
 }
 
 /**
@@ -718,7 +766,7 @@ export function useCreateOverseer() {
  * this one call. `me` is invalidated because the HUD reads its resources from there.
  */
 export function useBuildStructure(baseId: string | undefined) {
-  return useBaseOrder(buildStructure, baseId);
+  return useBaseOrder(buildStructure, baseId, { drawsLevelUp: true });
 }
 
 /**
@@ -732,12 +780,18 @@ export function useCancelBuild(baseId: string | undefined) {
 function useBaseOrder<TArgs>(
   mutationFn: (args: TArgs) => Promise<BuildStructureResponse>,
   baseId: string | undefined,
+  /** Whether the caller prints the level-up itself (`BasePanel` does for a build). */
+  { drawsLevelUp = false } = {},
 ) {
   const queryClient = useQueryClient();
   return useMutation<BuildStructureResponse, ApiRequestError, TArgs>({
     mutationFn,
     onSuccess: (data) => {
       if (baseId !== undefined) setBase(queryClient, baseId, data.base);
+      if (!drawsLevelUp) announceLevelUp(queryClient, data.levelUp);
+    },
+    onError: (error) => {
+      if (!drawsLevelUp) announceLevelUp(queryClient, error.levelUp);
     },
     // `onSettled`, not `onSuccess`: "settle first, refuse second", at the top of this file. A build
     // refuses has still banked an hour of production and can have crossed a level on the way to
@@ -782,6 +836,9 @@ function useCityWrite<Body, Result>(
         void queryClient.invalidateQueries({ queryKey: queryKeys.base(baseId) });
       }
       for (const key of alsoStale) void queryClient.invalidateQueries({ queryKey: key });
+      // What the crew holds is part of its fold (a Pawn Shop's bag, a hold's speed), and the
+      // effects page does not poll (bug pass, 2026-10-02).
+      void queryClient.invalidateQueries({ queryKey: queryKeys.crewStanding });
       invalidateLevelSensitive(queryClient);
     },
   });
@@ -796,12 +853,41 @@ function useCityWrite<Body, Result>(
  * ever made it again, and the screen draws live countdowns off the payload: a finished upgrade
  * kept its clock at `0s left` beside a location still at the old level.
  */
+/**
+ * How many locations this crew is working up across the districts named, off the same cached
+ * district reads `useDistrict` makes (bug pass, 2026-10-02). The In Progress page decided "nothing
+ * is running" on whether the crew held ground at all, so a crew holding a place with nothing being
+ * worked up got an empty page with no card on it.
+ */
+export function useWorksUnderWay(districtIds: readonly string[], baseId: string | undefined) {
+  const signedIn = useSession((s) => s.signedIn);
+  const reads = useQueries({
+    queries: districtIds.map((districtId) => ({
+      queryKey: queryKeys.district(districtId),
+      queryFn: () => getDistrict(districtId),
+      enabled: signedIn,
+      refetchInterval: DISTRICT_POLL_MS,
+    })),
+  });
+  return reads.reduce(
+    (total, read) =>
+      total +
+      (read.data?.locations ?? []).filter(
+        (view) =>
+          view.holder.kind === 'crew' &&
+          view.holder.baseId === baseId &&
+          view.upgradingUntil !== null,
+      ).length,
+    0,
+  );
+}
+
 export function useDistrict(districtId: string | undefined) {
-  const token = useSession((s) => s.token);
+  const signedIn = useSession((s) => s.signedIn);
   return useQuery({
     queryKey: queryKeys.district(districtId ?? ''),
     queryFn: () => getDistrict(districtId ?? ''),
-    enabled: token !== null && districtId !== undefined,
+    enabled: signedIn && districtId !== undefined,
     refetchInterval: DISTRICT_POLL_MS,
   });
 }
@@ -861,7 +947,14 @@ export function useMoveUnits() {
   return useMutation<ActionsResponse, ApiRequestError, MoveUnitsRequest>({
     mutationFn: moveUnits,
     onSettled: () => {
-      for (const key of [queryKeys.actions, queryKeys.units, queryKeys.city, queryKeys.battles]) {
+      // The yard as well: machines leave it with a column from the district (bug pass, 2026-10-02).
+      for (const key of [
+        queryKeys.actions,
+        queryKeys.units,
+        queryKeys.city,
+        queryKeys.battles,
+        queryKeys.garage,
+      ]) {
         void queryClient.invalidateQueries({ queryKey: key });
       }
       invalidateLevelSensitive(queryClient);
@@ -874,7 +967,7 @@ export function useRecallMove() {
   return useMutation<ActionsResponse, ApiRequestError, RecallMoveRequest>({
     mutationFn: recallMove,
     onSettled: () => {
-      for (const key of [queryKeys.actions, queryKeys.units, queryKeys.city]) {
+      for (const key of [queryKeys.actions, queryKeys.units, queryKeys.city, queryKeys.garage]) {
         void queryClient.invalidateQueries({ queryKey: key });
       }
     },
@@ -883,11 +976,11 @@ export function useRecallMove() {
 
 /** The clock a move would run to, re-read as the picker changes. Nothing is moved. */
 export function useMoveQuote(body: MoveUnitsRequest | null) {
-  const token = useSession((s) => s.token);
+  const signedIn = useSession((s) => s.signedIn);
   return useQuery({
     queryKey: ['move-quote', body] as const,
     queryFn: () => quoteMove(body!),
-    enabled: token !== null && body !== null,
+    enabled: signedIn && body !== null,
     staleTime: 10_000,
   });
 }
@@ -903,11 +996,11 @@ export function useMoveQuote(body: MoveUnitsRequest | null) {
  * cannot price leaves the caller on its own upper bound rather than on a spinner.
  */
 export function useDeployQuote(body: DeployRequest | null) {
-  const token = useSession((s) => s.token);
+  const signedIn = useSession((s) => s.signedIn);
   return useQuery({
     queryKey: ['deploy-quote', body] as const,
     queryFn: () => quoteDeploy(body!),
-    enabled: token !== null && body !== null,
+    enabled: signedIn && body !== null,
     staleTime: 10_000,
     // The answer carries a landing time measured from the moment it was asked (`arrivesAt`), so a
     // window left open near the mark is re-asked rather than promising a landing that has slipped.
@@ -928,35 +1021,35 @@ export const useRecallSpy = () =>
   );
 
 /**
- * The unit roster (GDD §A5). Polled for the same reason the district page is: a training batch
+ * The unit roster (GDD §A5). Polled for the same reason the district page is: a muster batch
  * lands on this read, so the poll is what turns a finished clock into units while the page is open.
  */
 export function useUnits() {
-  const token = useSession((s) => s.token);
+  const signedIn = useSession((s) => s.signedIn);
   return useQuery({
     queryKey: queryKeys.units,
     queryFn: getUnits,
-    enabled: token !== null,
+    enabled: signedIn,
     refetchInterval: DISTRICT_POLL_MS,
   });
 }
 
 /** Put a batch on the bench. Costs resources, so the HUD refreshes with the roster. */
-export function useTrainUnits(baseId: string | undefined) {
-  return useBenchMutation(trainUnits, baseId);
+export function useMusterUnits(baseId: string | undefined) {
+  return useBenchMutation(musterUnits, baseId);
 }
 
 /** §A5: take a batch back off it, inside its window. Pays resources back, so the same refresh. */
-export function useCancelTraining(baseId: string | undefined) {
-  return useBenchMutation(cancelTraining, baseId);
+export function useCancelMuster(baseId: string | undefined) {
+  return useBenchMutation(cancelMuster, baseId);
 }
 
 function useBenchMutation<TArgs>(
-  mutationFn: (args: TArgs) => Promise<TrainUnitsResponse>,
+  mutationFn: (args: TArgs) => Promise<MusterUnitsResponse>,
   baseId: string | undefined,
 ) {
   const queryClient = useQueryClient();
-  return useMutation<TrainUnitsResponse, ApiRequestError, TArgs>({
+  return useMutation<MusterUnitsResponse, ApiRequestError, TArgs>({
     mutationFn,
     // `onSettled`: "settle first, refuse second". "You cannot afford that" is the most
     // common answer this route gives, and it is exactly the answer after which the stockpile on
@@ -964,6 +1057,9 @@ function useBenchMutation<TArgs>(
     onSettled: () => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.units });
       void queryClient.invalidateQueries({ queryKey: queryKeys.me });
+      // The Vehicles tab reads the stockpile, the beds and the bench off `/garage`, which does not
+      // poll: a batch that filled the last bed left its Build button live.
+      void queryClient.invalidateQueries({ queryKey: queryKeys.garage });
       if (baseId !== undefined) {
         void queryClient.invalidateQueries({ queryKey: queryKeys.base(baseId) });
       }
@@ -976,11 +1072,11 @@ function useBenchMutation<TArgs>(
  * of the screen is watching an hour run down: the same reason the roster and the district poll.
  */
 export function useTraining() {
-  const token = useSession((s) => s.token);
+  const signedIn = useSession((s) => s.signedIn);
   return useQuery({
     queryKey: queryKeys.training,
     queryFn: getTraining,
-    enabled: token !== null,
+    enabled: signedIn,
     refetchInterval: DISTRICT_POLL_MS,
   });
 }
@@ -1025,11 +1121,11 @@ function useTrainingWrite<TArgs>(mutationFn: (args: TArgs) => Promise<TrainingRe
 
 /** The Overseer and what the crew's sheet is currently buying. */
 export function useCrewStanding() {
-  const token = useSession((s) => s.token);
+  const signedIn = useSession((s) => s.signedIn);
   return useQuery({
     queryKey: queryKeys.crewStanding,
     queryFn: getCrewStanding,
-    enabled: token !== null,
+    enabled: signedIn,
   });
 }
 
@@ -1038,13 +1134,13 @@ export function useCrewStanding() {
  * else's listing can appear or vanish between two glances at the board.
  */
 export function useMarket(city?: string) {
-  const token = useSession((s) => s.token);
+  const signedIn = useSession((s) => s.signedIn);
   const query = useQuery({
     // The city is in the key so two markets are two cache entries: see `useBar`, which is keyed the
     // same way for the same reason.
     queryKey: [...queryKeys.market, city ?? ''],
     queryFn: () => getMarket(city),
-    enabled: token !== null,
+    enabled: signedIn,
     refetchInterval: DISTRICT_POLL_MS,
   });
   useCityDoor(city, query);
@@ -1148,14 +1244,14 @@ export const useClaimMarketGoods = marketMutation(claimMarketGoods);
  * somebody else while a player is reading it. Seeing that happen is the feature.
  */
 export function useBlackMarket(city?: string) {
-  const token = useSession((s) => s.token);
+  const signedIn = useSession((s) => s.signedIn);
   const query = useQuery({
     // The city is in the key so two rooms are two cache entries, the way `useMarket` and `useBar`
     // are keyed: without it, switching city would show the previous city's crates until the
     // refetch landed, and a crate is a lot somebody may be about to bid on.
     queryKey: [...queryKeys.blackMarket, city ?? ''],
     queryFn: () => getBlackMarket(city),
-    enabled: token !== null,
+    enabled: signedIn,
     refetchInterval: DISTRICT_POLL_MS,
   });
   useCityDoor(city, query);
@@ -1195,13 +1291,43 @@ export function usePlaceBlackMarketBid() {
   });
 }
 
+/** The Stackhouse's book (2026-10-05). Polled like the shelf: a fight landing settles a bet. */
+export function useStackhouse() {
+  const signedIn = useSession((s) => s.signedIn);
+  return useQuery({
+    queryKey: queryKeys.stackhouse,
+    queryFn: getStackhouse,
+    enabled: signedIn,
+    refetchInterval: DISTRICT_POLL_MS,
+  });
+}
+
+/**
+ * Putting a bet down. The answer is the whole book, set first so the list empties at once; the
+ * caps moved, so `me` is dropped on any answer, refusals included: the route settles finished bets
+ * before it judges this one, and that can pay out.
+ */
+export function usePlaceStackhouseBet() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: placeStackhouseBet,
+    onSuccess: (response) => {
+      queryClient.setQueryData(queryKeys.stackhouse, response);
+    },
+    onSettled: () => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.stackhouse });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.me });
+    },
+  });
+}
+
 /** The player's own record. Not polled: nobody else can change it. */
 export function useSettings() {
-  const token = useSession((s) => s.token);
+  const signedIn = useSession((s) => s.signedIn);
   return useQuery({
     queryKey: queryKeys.settings,
     queryFn: getSettings,
-    enabled: token !== null,
+    enabled: signedIn,
   });
 }
 
@@ -1247,11 +1373,11 @@ function settingsMutation<TArgs>(mutationFn: (args: TArgs) => Promise<SettingsRe
  * failed prefetch leaves an error in the cache for the screen's own hook to open on.
  */
 export function usePrefetchScreens(ready: boolean): void {
-  const token = useSession((s) => s.token);
+  const signedIn = useSession((s) => s.signedIn);
   const queryClient = useQueryClient();
 
   useEffect(() => {
-    if (token === null || !ready) return;
+    if (!signedIn || !ready) return;
     /*
      * Every entry is a **call**, never a bare fetcher.
      *
@@ -1279,7 +1405,7 @@ export function usePrefetchScreens(ready: boolean): void {
     for (const [queryKey, queryFn] of warm) {
       void queryClient.prefetchQuery({ queryKey, queryFn, staleTime: 10_000 });
     }
-  }, [token, ready, queryClient]);
+  }, [signedIn, ready, queryClient]);
 }
 
 /**
@@ -1291,11 +1417,11 @@ export function usePrefetchScreens(ready: boolean): void {
  * shut window looking open.
  */
 export function useBattles() {
-  const token = useSession((s) => s.token);
+  const signedIn = useSession((s) => s.signedIn);
   return useQuery({
     queryKey: queryKeys.battles,
     queryFn: getBattles,
-    enabled: token !== null,
+    enabled: signedIn,
     refetchInterval: DISTRICT_POLL_MS,
   });
 }
@@ -1341,6 +1467,11 @@ function battleMutation<TArgs>(mutationFn: (args: TArgs) => Promise<BattleMutati
          * the road on the other until the 5s poll happened to land.
          */
         void queryClient.invalidateQueries({ queryKey: queryKeys.actions });
+        // The yard: machines taken to a fight leave the fleet the Garage lists, and that read does
+        // not poll (bug pass, 2026-10-02).
+        void queryClient.invalidateQueries({ queryKey: queryKeys.garage });
+        // ...and the crew's fold: a fight settled on this write can hand over the ground it pays.
+        void queryClient.invalidateQueries({ queryKey: queryKeys.crewStanding });
         invalidateLevelSensitive(queryClient);
       },
     });
@@ -1354,22 +1485,22 @@ function battleMutation<TArgs>(mutationFn: (args: TArgs) => Promise<BattleMutati
  * the whole value of the screen is watching the number come down.
  */
 export function useActions() {
-  const token = useSession((s) => s.token);
+  const signedIn = useSession((s) => s.signedIn);
   return useQuery({
     queryKey: queryKeys.actions,
     queryFn: getActions,
-    enabled: token !== null,
+    enabled: signedIn,
     refetchInterval: 5000,
   });
 }
 
 /** §C2b: the Right Hand's standing orders. Polled like the road, since the world clock moves them. */
 export function useAutomations() {
-  const token = useSession((s) => s.token);
+  const signedIn = useSession((s) => s.signedIn);
   return useQuery({
     queryKey: queryKeys.automations,
     queryFn: getAutomations,
-    enabled: token !== null,
+    enabled: signedIn,
     refetchInterval: 5000,
   });
 }
@@ -1415,7 +1546,7 @@ export const useUpgradeNotoriety = battleMutation(upgradeNotoriety);
 export const useUpdateProfile = settingsMutation(updateProfile);
 export const useChangePassword = settingsMutation(changePassword);
 
-/** "Log out everywhere": the new token rides the answer, so this tab needs nothing else. */
+/** "Log out everywhere": this tab's new session rides the answer as a cookie, so it needs nothing else. */
 export function useLogoutEverywhere() {
   return useMutation({ mutationFn: logoutEverywhere });
 }
@@ -1437,7 +1568,7 @@ export const useMarkTutorialSeen = settingsMutation(markTutorialSeen);
  * broken bench in a build that should have one is still visibly broken.
  */
 export function useAdmin() {
-  const token = useSession((s) => s.token);
+  const signedIn = useSession((s) => s.signedIn);
   // Asked only when `/me` has already said the bench exists. Probing for it and treating the 404
   // as the answer worked, but it meant a production build fired a failing request on every page
   // and left a red line in every player's console.
@@ -1445,7 +1576,7 @@ export function useAdmin() {
   return useQuery({
     queryKey: queryKeys.admin,
     queryFn: getAdmin,
-    enabled: token !== null && me.data?.admin === true,
+    enabled: signedIn && me.data?.admin === true,
     retry: false,
   });
 }
@@ -1508,11 +1639,11 @@ export function useAdminMockBattle() {
 
 /** §B9: the Scrapyard, on its own page and its own key. */
 export function useScrapyard() {
-  const token = useSession((s) => s.token);
+  const signedIn = useSession((s) => s.signedIn);
   return useQuery({
     queryKey: queryKeys.scrapyard,
     queryFn: getScrapyard,
-    enabled: token !== null,
+    enabled: signedIn,
   });
 }
 
@@ -1578,11 +1709,11 @@ export const useClearModification = districtMutation(clearModification);
 
 /** §B11: the Garage, on its own page and its own key. */
 export function useGarage() {
-  const token = useSession((s) => s.token);
+  const signedIn = useSession((s) => s.signedIn);
   return useQuery({
     queryKey: queryKeys.garage,
     queryFn: getGarage,
-    enabled: token !== null,
+    enabled: signedIn,
   });
 }
 
@@ -1598,9 +1729,9 @@ export function useBuildVehicle() {
       /*
        * And the units bench, which is where a machine is actually built.
        *
-       * `POST /garage/build` calls `queueVehicle` (`apps/server/src/units/training.ts`) and that
-       * pushes the order onto `base.trainingQueue`: the same queue a batch of Razors goes on,
-       * sharing its length cap and the district's beds, with `settleTraining` the thing that later
+       * `POST /garage/build` calls `queueVehicle` (`apps/server/src/units/muster.ts`) and that
+       * pushes the order onto `base.musterQueue`: the same queue a batch of Razors goes on,
+       * sharing its length cap and the district's beds, with `settleMuster` the thing that later
        * puts the machine in the fleet. The roster's "On the bench 1 / 12" and the district's bed
        * count are therefore both a poll behind, and neither poll runs: this button is on the
        * Garage, so neither screen is mounted, and 30s of `staleTime` covers the walk to either.
@@ -1639,11 +1770,11 @@ export function useRecallMission() {
 /**
  * §C2: move an officer into a different position.
  *
- * `crewStanding` with the rest, because a chair is not decoration: `crewSheet` pays somebody their
- * full rating only in the attributes the seat they are sitting in actually uses, and somebody on
- * the bench is paid nothing at all. Taking a chair therefore moves every
- * channel of the fold `/overseer/me` reports, and that query has no poll and a 30s `staleTime`, so
- * the crew effects page kept the pre-move numbers for as long as the player stayed inside `/game`.
+ * `crewStanding` with the rest, because a chair is not decoration: each working chair pays its one
+ * passive off whoever sits in it, and somebody on the bench pays nothing at all. Taking a chair
+ * therefore moves the chair lines and the fold `/overseer/me` reports, and that query has no poll
+ * and a 30s `staleTime`, so the crew effects page kept the pre-move numbers for as long as the
+ * player stayed inside `/game`.
  */
 export function useReassignOfficer() {
   const queryClient = useQueryClient();
@@ -1660,6 +1791,9 @@ export function useReassignOfficer() {
       void queryClient.invalidateQueries({ queryKey: queryKeys.bar });
       void queryClient.invalidateQueries({ queryKey: queryKeys.training });
       void queryClient.invalidateQueries({ queryKey: queryKeys.crewStanding });
+      // The chair decides the Salvager's cut and the cards gated on a mark (bug pass, 2026-10-02).
+      void queryClient.invalidateQueries({ queryKey: queryKeys.scrapyard });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.garage });
     },
   });
 }
@@ -1708,11 +1842,11 @@ function useLabWrite<TArgs>(mutationFn: (args: TArgs) => Promise<ResearchRespons
  * on a click would show an ally's army as it was when the tab was opened.
  */
 export function useFaction() {
-  const token = useSession((s) => s.token);
+  const signedIn = useSession((s) => s.signedIn);
   return useQuery({
     queryKey: queryKeys.faction,
     queryFn: getFaction,
-    enabled: token !== null,
+    enabled: signedIn,
     refetchInterval: DISTRICT_POLL_MS,
   });
 }
@@ -1767,7 +1901,7 @@ export const useDisbandFaction = () => useFactionMutation(() => disbandFaction()
  * Re-read the crew, on demand.
  *
  * For the one caller that has to refresh `/me` without writing anything: the roster notices a
- * training batch land on its own clock, and the settle that stood the unit up also paid the §I1
+ * muster batch land on its own clock, and the settle that stood the unit up also paid the §I1
  * experience for it. Both readings have to move together or the meter at the top of the screen
  * announces the experience up to a poll after the unit appeared. A hook rather than a
  * `useQueryClient` at the call site, so every invalidation in this app is still declared in this
@@ -1782,11 +1916,11 @@ export function useRefreshCrew(): () => void {
 
 /** A crew's file. Keyed by whichever id the link carried; the server answers to both. */
 export function useCrewProfile(id: string | undefined) {
-  const token = useSession((s) => s.token);
+  const signedIn = useSession((s) => s.signedIn);
   return useQuery({
     queryKey: queryKeys.crewProfile(id ?? ''),
     queryFn: () => getCrewProfile(id ?? ''),
-    enabled: token !== null && id !== undefined,
+    enabled: signedIn && id !== undefined,
   });
 }
 
@@ -1797,11 +1931,11 @@ export function useCrewProfile(id: string | undefined) {
  * something that also moves the district, so `base` is the kind that matters. See `live.ts`.
  */
 export function useFeats() {
-  const token = useSession((s) => s.token);
+  const signedIn = useSession((s) => s.signedIn);
   return useQuery({
     queryKey: queryKeys.feats,
     queryFn: getFeats,
-    enabled: token !== null,
+    enabled: signedIn,
   });
 }
 
@@ -1914,6 +2048,10 @@ export function useClaimFeat() {
       // looking at and does not appear until something else happens to refresh it.
       void queryClient.invalidateQueries({ queryKey: queryKeys.market });
       void queryClient.invalidateQueries({ queryKey: queryKeys.blackMarket });
+      // The yards price against the stockpile and the beds a reward fills, and neither polls (bug
+      // pass, 2026-10-02).
+      void queryClient.invalidateQueries({ queryKey: queryKeys.scrapyard });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.garage });
     },
   });
 }
@@ -1943,26 +2081,30 @@ export function useClaimAllFeats() {
       void queryClient.invalidateQueries({ queryKey: queryKeys.units });
       void queryClient.invalidateQueries({ queryKey: queryKeys.market });
       void queryClient.invalidateQueries({ queryKey: queryKeys.blackMarket });
+      // The yards price against the stockpile and the beds a reward fills, and neither polls (bug
+      // pass, 2026-10-02).
+      void queryClient.invalidateQueries({ queryKey: queryKeys.scrapyard });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.garage });
     },
   });
 }
 
 /** A faction's file, as anybody reads it. Keyed by faction id. */
 export function useFactionProfile(id: string | undefined) {
-  const token = useSession((s) => s.token);
+  const signedIn = useSession((s) => s.signedIn);
   return useQuery({
     queryKey: queryKeys.factionProfile(id ?? ''),
     queryFn: () => getFactionProfile(id ?? ''),
-    enabled: token !== null && id !== undefined,
+    enabled: signedIn && id !== undefined,
   });
 }
 
 export function useLeaderboard(board: LeaderboardBoard, localOnly: boolean) {
-  const token = useSession((s) => s.token);
+  const signedIn = useSession((s) => s.signedIn);
   return useQuery({
     queryKey: queryKeys.leaderboard(board, localOnly),
     queryFn: () => getLeaderboard(board, localOnly),
-    enabled: token !== null,
+    enabled: signedIn,
     /*
      * The previous answer holds the screen, but only while it is an answer to the same question.
      *
@@ -1997,16 +2139,18 @@ export function useAnswerFactionInvite() {
     },
   };
 }
-export const useLeaveFaction = () => useFactionMutation(() => leaveFaction());
+export const useLeaveFaction = () =>
+  useFactionMutation((successorId: string | undefined) => leaveFaction(successorId));
 export const useFactionMemberAction = () => useFactionMutation(factionMemberAction);
+export const useSeatFactionMember = () => useFactionMutation(seatFactionMember);
 export const useReinforceAlly = () => useFactionMutation(reinforceAlly);
 
 export function useMessages() {
-  const token = useSession((s) => s.token);
+  const signedIn = useSession((s) => s.signedIn);
   return useQuery({
     queryKey: queryKeys.messages,
     queryFn: getMessages,
-    enabled: token !== null,
+    enabled: signedIn,
     refetchInterval: DISTRICT_POLL_MS,
   });
 }
@@ -2023,8 +2167,6 @@ function useMessageMutation<TInput>(
       // The HUD badge is on `/me`, so reading a message has to move it.
       void queryClient.invalidateQueries({ queryKey: queryKeys.me });
       void queryClient.invalidateQueries({ queryKey: queryKeys.notifications });
-      // A letter sent is counted towards a feat (`tallyMessageSent`), so the board moves with it.
-      void queryClient.invalidateQueries({ queryKey: queryKeys.feats });
     },
   });
 }
@@ -2033,13 +2175,14 @@ export const useSendMessage = () => useMessageMutation(sendMessage);
 export const useReadMessage = () => useMessageMutation(readMessage);
 export const useReadAllMessages = () => useMessageMutation(() => readAllMessages());
 export const useDeleteMessage = () => useMessageMutation(deleteMessage);
+export const useBlockSender = () => useMessageMutation(blockSender);
 
 export function useNotifications() {
-  const token = useSession((s) => s.token);
+  const signedIn = useSession((s) => s.signedIn);
   return useQuery({
     queryKey: queryKeys.notifications,
     queryFn: getNotifications,
-    enabled: token !== null,
+    enabled: signedIn,
     refetchInterval: DISTRICT_POLL_MS,
   });
 }

@@ -3,6 +3,8 @@ import {
   notorietyTier,
   type FactionStanding,
   type PlayerStanding,
+  ranked,
+  standingName,
 } from '@frontline/shared';
 import type { ReactNode, RefObject } from 'react';
 import { Link } from 'react-router-dom';
@@ -216,7 +218,7 @@ export function PlayerBoard({
                     data-testid={`standing-link-${entry.username}`}
                     className="truncate underline-offset-2 hover:text-brass-100 hover:underline"
                   >
-                    {entry.username}
+                    {standingName(entry)}
                   </Link>
                   {you && <span className="shrink-0 text-[11px] text-brass-300">you</span>}
                   {entry.isBot && <span className="shrink-0 text-[11px] text-ink-500">house</span>}
@@ -325,10 +327,27 @@ export function playerLeaders(
   sort: PlayerSort,
   youUserId: string,
 ): Leader[] {
-  return entries.slice(0, 3).map((entry) => ({
+  /*
+   * The board as ranked, by the figure the podium prints (maintainer, 2026-10-02). Under "Total
+   * infamy" the podium re-ranks by total, ties broken the way the server breaks the wallet's;
+   * every other sort keeps the board's own order, which is what the podium is for.
+   */
+  const order =
+    sort === 'total'
+      ? ranked(
+          [...entries].sort(
+            (a, b) =>
+              b.totalInfamy - a.totalInfamy ||
+              b.level - a.level ||
+              a.username.localeCompare(b.username),
+          ),
+          (entry) => entry.totalInfamy,
+        )
+      : entries;
+  return order.slice(0, 3).map((entry) => ({
     key: entry.userId,
     rank: entry.rank,
-    name: entry.username,
+    name: standingName(entry),
     href: crewFileHref(entry.userId),
     emblem: entry.factionBadge ? <FactionBadge badge={entry.factionBadge} size={16} /> : undefined,
     note: entry.factionName ?? entry.districtName,

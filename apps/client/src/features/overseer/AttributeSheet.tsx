@@ -2,14 +2,14 @@ import {
   ATTRIBUTES_BY_GROUP,
   ATTRIBUTE_GROUPS,
   ATTRIBUTE_LABELS,
-  IMPORTANCE_LABELS,
+  describeImportance,
   MAX_ATTRIBUTE,
   importanceOf,
   type AttributeGroup,
   type AttributeImportance,
   type AttributeName,
   type Attributes,
-  type OfficerRole,
+  type Seat,
 } from '@frontline/shared';
 import { DrawnRule } from '../../components/ui/DrawnMarks';
 import { cn } from '../../lib/cn';
@@ -80,9 +80,12 @@ function AttributeRow({
   const receipt = boosted
     ? [`${value} base`, ...lift.map((one) => `+${one.amount} from ${one.from}`)].join(', ')
     : null;
-  const tip = [importance === null ? null : IMPORTANCE_LABELS[importance], receipt]
-    .filter((part) => part !== null)
-    .join('. ');
+  // No line on what the skill is good for (maintainer, 2026-10-04: removed from the Overseer,
+  // officer and Bar sheets). A row with neither a chair nor a receipt has no hover at all.
+  const tip =
+    [importance === null ? null : describeImportance(importance), receipt]
+      .filter((part) => part !== null)
+      .join('. ') || undefined;
   return (
     // Without the bar this is the row the thumbnail always had, to the pixel: a 4px gap and a
     // figure that takes only the width its digits need. The bar version can afford 8px and a
@@ -93,7 +96,7 @@ function AttributeRow({
       data-testid={importance === null ? undefined : `attr-${name}`}
       data-importance={importance ?? undefined}
       data-lifted={boosted ? lifted - value : undefined}
-      data-tip={tip === '' ? undefined : tip}
+      data-tip={tip}
       className={cn(
         'flex items-center',
         bar ? 'gap-2' : 'gap-1',
@@ -263,14 +266,15 @@ export function AttributeSheet({
    */
   roomy?: boolean;
   /**
-   * The chair this person is sitting in, when they are in one.
+   * The seat this person is graded on, when they have one: an officer's chair, or `'overseer'` for
+   * the Overseer's own seat (2026-10-04).
    *
-   * Given, every row is edged by how much that chair cares about the skill; omitted, the sheet is
-   * drawn plain. Omitted is right for the Overseer, who is in no seat, and for a recruit at the Bar
-   * before anybody has decided what to hire them as: colouring a candidate's rows against a role
-   * they have not been offered would be answering the question the Bar is asking.
+   * Given, every row is edged by how much that seat cares about the skill; omitted, the sheet is
+   * drawn plain. Omitted is right for somebody on the bench, and for a recruit at the Bar before
+   * anybody has decided what to hire them as: colouring a candidate's rows against a role they have
+   * not been offered would be answering the question the Bar is asking.
    */
-  role?: OfficerRole | null;
+  role?: Seat | null;
   /**
    * The groups on paper cards rather than in dark frames: the ink frame the feats ledger and the
    * Overseer's file wear, with a hand-ruled line under a stamped heading (maintainer, 2026-09-23).

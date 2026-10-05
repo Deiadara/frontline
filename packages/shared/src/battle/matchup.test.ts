@@ -49,7 +49,7 @@ const bare = (id: string) =>
   effectiveStats(
     unit(id),
     bareBattlefield(),
-    { defending: false, outnumbered: false },
+    { defending: false, outnumbered: 0 },
     noTerritoryEffects(),
   );
 
@@ -518,7 +518,7 @@ describe('a defensive modifier makes a unit harder to kill, not harder to be hit
     effectiveStats(
       unit(id),
       bareBattlefield(),
-      { defending, outnumbered: false },
+      { defending, outnumbered: 0 },
       noTerritoryEffects(),
     );
 

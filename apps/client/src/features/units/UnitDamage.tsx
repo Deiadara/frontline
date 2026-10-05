@@ -193,7 +193,7 @@ function SideTrigger({
 }
 
 /**
- * The table itself, on the same paper the training Bonuses page is drawn on.
+ * The table itself, on the same paper the muster Bonuses page is drawn on.
  *
  * The figures are what a fight will use rather than what the sheet says, which is the same thing
  * for every unit but two: see the clamp in {@link splitResistances}.

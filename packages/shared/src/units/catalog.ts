@@ -65,7 +65,7 @@ export { UNIT_TIERS, UnitTierSchema, UNIT_TIER_LABELS, type UnitTier } from './t
  *
  * `vehicle` is deliberately about what the Garage *can build* rather than about what is parked in
  * it. A unit gate that emptied itself the moment a bike was sent out on a mission would be a unit
- * you could train on Tuesday and not on Wednesday, for reasons nothing on the screen explains.
+ * you could muster on Tuesday and not on Wednesday, for reasons nothing on the screen explains.
  */
 export type UnitRequirement =
   | { kind: 'building'; building: BuildingKind; level: number }
@@ -78,8 +78,11 @@ export interface UnitSpec {
   name: string;
   tier: UnitTier;
   blurb: string;
-  /** The structure that runs the work. Most units are trained; a few are *made*. */
-  trainedAt: BuildingKind;
+  /**
+   * The structure that musters it: the Gauntlet for most units, another structure for the few that
+   * are *made* rather than recruited.
+   */
+  musteredAt: BuildingKind;
   /** Legendary units are one of a kind. You hold one or none. */
   unique: boolean;
   /**
@@ -151,6 +154,13 @@ export interface UnitSpec {
    * long enough to be worth rallying behind, never a stack that cannot be beaten.
    */
   stalwart?: boolean;
+  /**
+   * The Saint's aura (maintainer, 2026-10-05: "presence alone steadies everyone who can see them").
+   * While a stack with it stands and has not broken, every other stack on its side is held at the
+   * wavering threshold: it can be shaken, it cannot run. Once the steadying stack breaks or falls,
+   * the line is on its own nerve again.
+   */
+  steadies?: boolean;
   /**
    * Whether the enemy's gates and traps count for nothing in a fight this unit attacks (maintainer,
    * 2026-09-26).
@@ -230,19 +240,19 @@ export interface UnitSpec {
    *
    * The Combine's own units: the conscripts, the grey infantry, the enforcers, the suppressors
    * and the three people who run the city from behind them. They are met, never held. No door in
-   * the game trains one, no roster lists one, no console grants one, and the balance sheet does
+   * the game musters one, no roster lists one, no console grants one, and the balance sheet does
    * not price one, which is what {@link PLAYER_UNITS} and {@link isPlayerUnit} exist to say in
-   * one place. `cost`, `requires` and `trainSeconds` are still on the sheet because the type is
+   * one place. `cost`, `requires` and `musterSeconds` are still on the sheet because the type is
    * shared with the roster, and they are the empty values: a Combine sheet with a price on it
    * would be a promise somebody could try to collect.
    *
-   * Absent on everything a player can train. A second faction is a second literal here and a
+   * Absent on everything a player can muster. A second faction is a second literal here and a
    * second garrison table in `city/control.ts`; nothing else in the game reads the word.
    */
   faction?: 'combine';
   requires: readonly UnitRequirement[];
   cost: PartialResources;
-  trainSeconds: number;
+  musterSeconds: number;
   /**
    * What one of these costs against the district's unit slots, and against a vehicle's seats.
    *
@@ -333,7 +343,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     name: 'Razors',
     tier: 'rabble',
     blurb: 'Light blade-wielding urban fighters. Cheap, willing, and not expected back.',
-    trainedAt: 'gauntlet',
+    musteredAt: 'gauntlet',
     unique: false,
     /**
      * The Gauntlet at its first level, and nothing else: the cheapest gate on any fighter.
@@ -341,7 +351,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
      * This doc block said "nothing at all: the only unit in the game with no requirement" until
      * 2026-09-18, and the clause under it said `gauntlet(1)`. The two had disagreed since the
      * Gauntlet moved behind Nexus 3 and Quarters 2 on 2026-09-01, which turned the sentence into
-     * a promise the opening did not keep: a new crew could train nothing at all, and the eight
+     * a promise the opening did not keep: a new crew could muster nothing at all, and the eight
      * Razors it is handed were the only bodies it would see for hours.
      *
      * What actually keeps the first session moving is the carrier bench at the bottom of this
@@ -351,7 +361,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
      */
     requires: [gauntlet(1)],
     cost: { caps: 40, supplies: 10 },
-    trainSeconds: 45,
+    musterSeconds: 45,
     unitSlots: 1,
     stats: sheet({
       speed: 45,
@@ -376,7 +386,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     tier: 'rabble',
     blurb:
       'Overqualified, over-medicated and unaccountably hard to put down. Somebody who read every book in the district, shaved most of it off, and came down here with a bottle of speed and a plan.',
-    trainedAt: 'gauntlet',
+    musteredAt: 'gauntlet',
     unique: false,
     /*
      * They are the noise. `loud` puts `noisy` on the ground the other side is standing on, which
@@ -384,12 +394,12 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
      * wants a room it cannot hear itself think in, so it brings one.
      */
     loud: true,
-    requires: [structure('scrapyard', 2)],
+    requires: [gauntlet(2), structure('scrapyard', 2)],
     /**
      * The cheapest thing in the game that can take a hit.
      *
      * Rabble tier and priced like it, but with a Warden's constitution and a middling everything
-     * else: the first unit worth fielding in numbers once there is a Gauntlet to train them in.
+     * else: the first unit worth fielding in numbers once there is a Gauntlet to muster them in.
      * (Razors remain the one thing a crew with no barracks can put on the street; that is their
      * whole job, and nothing else is allowed to take it.)
      *
@@ -413,7 +423,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
      * cheapest fighter per result after the Razor, which is the yardstick and was left alone.
      */
     cost: { caps: 90, supplies: 20, scrap: 15 },
-    trainSeconds: 60,
+    musterSeconds: 60,
     unitSlots: 2,
     stats: sheet({
       speed: 40,
@@ -450,7 +460,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     name: 'Sparks',
     tier: 'rabble',
     blurb: 'Young recruits with jury-rigged weapons. Hit hard once, then hope.',
-    trainedAt: 'gauntlet',
+    musteredAt: 'gauntlet',
     unique: false,
     /*
      * They are only dangerous in a crowd, which is the whole sheet (maintainer, 2026-09-19).
@@ -461,9 +471,9 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
      * and did not need a fourth reason to be good.
      */
     pack: true,
-    requires: [structure('generator', 2)],
+    requires: [gauntlet(1), structure('generator', 2)],
     cost: { caps: 45, supplies: 5, scrap: 20 },
-    trainSeconds: 50,
+    musterSeconds: 50,
     unitSlots: 1,
     stats: sheet({
       speed: 40,
@@ -488,11 +498,11 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     name: 'Scrapers',
     tier: 'rabble',
     blurb: 'Scavengers turned fighters. Light armour, quick hands, gone before the answer comes.',
-    trainedAt: 'gauntlet',
+    musteredAt: 'gauntlet',
     unique: false,
     requires: [gauntlet(2)],
     cost: { caps: 50, supplies: 10, scrap: 25 },
-    trainSeconds: 55,
+    musterSeconds: 55,
     unitSlots: 1,
     stats: sheet({
       speed: 50,
@@ -518,11 +528,11 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     name: 'Breakers',
     tier: 'heavy',
     blurb: 'Door-kicking close-quarters specialists. Whatever is behind it, they go through it.',
-    trainedAt: 'gauntlet',
+    musteredAt: 'gauntlet',
     unique: false,
     requires: [gauntlet(4)],
     cost: { caps: 120, supplies: 20, scrap: 60, oil: 15 },
-    trainSeconds: 150,
+    musterSeconds: 150,
     unitSlots: 2,
     stats: sheet({
       speed: 40,
@@ -546,13 +556,13 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     name: 'Wardens',
     tier: 'heavy',
     blurb: 'Defensive specialists. Considerably better at holding a location than at taking one.',
-    trainedAt: 'gauntlet',
+    musteredAt: 'gauntlet',
     unique: false,
     // Riot shields and a standing order. The job is to be the thing that is still there.
     stalwart: true,
     requires: [gauntlet(5)],
     cost: { caps: 130, supplies: 20, scrap: 80 },
-    trainSeconds: 160,
+    musterSeconds: 160,
     unitSlots: 2,
     stats: sheet({
       speed: 28,
@@ -576,11 +586,11 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     name: 'Ghosts',
     tier: 'specialist',
     blurb: 'Lightly armed and hard to pin down. Fighting them is easy. Finding them is the job.',
-    trainedAt: 'gauntlet',
+    musteredAt: 'gauntlet',
     unique: false,
     requires: [gauntlet(6)],
     cost: { caps: 230, supplies: 25, oil: 20 },
-    trainSeconds: 180,
+    musterSeconds: 180,
     unitSlots: 2,
     stats: sheet({
       speed: 50,
@@ -606,11 +616,11 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     name: 'Road Reavers',
     tier: 'wonder',
     blurb: 'Motorcycle raiders. Fast, loud, aggressive, and halfway home with your fuel.',
-    trainedAt: 'garage',
+    musteredAt: 'garage',
     unique: false,
     requires: [gauntlet(7), structure('garage', 4), canBuild('motorcycle')],
     cost: { caps: 180, supplies: 25, scrap: 90, oil: 60 },
-    trainSeconds: 200,
+    musterSeconds: 200,
     unitSlots: 2,
     stats: sheet({
       speed: 65,
@@ -653,12 +663,12 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     name: 'Ironsides',
     tier: 'heavy',
     blurb: 'A shield wall of salvaged plate. It will not beat you. It will not move, either.',
-    trainedAt: 'gauntlet',
+    musteredAt: 'gauntlet',
     unique: false,
     taunts: true,
-    requires: [structure('scrapyard', 5), structure('gate', 6)],
+    requires: [gauntlet(5), structure('scrapyard', 5), structure('gate', 6)],
     cost: { caps: 200, supplies: 30, scrap: 140, highQualityMetal: 10 },
-    trainSeconds: 240,
+    musterSeconds: 240,
     unitSlots: 3,
     stats: sheet({
       speed: 22,
@@ -690,11 +700,11 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     name: 'Ash Walkers',
     tier: 'rabble',
     blurb: 'Chem-suited troops who go where the air is wrong and come back out of it.',
-    trainedAt: 'gauntlet',
+    musteredAt: 'gauntlet',
     unique: false,
     requires: [gauntlet(6), structure('greenhouse', 5)],
     cost: { caps: 190, supplies: 30, scrap: 20, oil: 10 },
-    trainSeconds: 220,
+    musterSeconds: 220,
     unitSlots: 2,
     stats: sheet({
       speed: 35,
@@ -740,13 +750,13 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     name: 'Snipers',
     tier: 'specialist',
     blurb: 'Long range, one shot, one kill. Everything else is spent waiting for it.',
-    trainedAt: 'gauntlet',
+    musteredAt: 'gauntlet',
     unique: false,
     // A rifle at 95 range is already firing while everybody else is still crossing the yard.
     strikes_first: true,
-    requires: [structure('gate', 7), fitted('gauntlet_live_fire_range')],
+    requires: [gauntlet(7), structure('gate', 7), fitted('gauntlet_live_fire_range')],
     cost: { caps: 260, supplies: 40, scrap: 60, highQualityMetal: 12 },
-    trainSeconds: 300,
+    musterSeconds: 300,
     unitSlots: 2,
     stats: sheet({
       speed: 30,
@@ -780,7 +790,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     name: 'Stitchers',
     tier: 'specialist',
     blurb: 'Field medics. Contribute nothing to a fight and decide how many walk out of it.',
-    trainedAt: 'gauntlet',
+    musteredAt: 'gauntlet',
     unique: false,
     /**
      * The one unit in the game that is worth nothing on its own and changes every fight it is in.
@@ -794,7 +804,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     mends: true,
     requires: [gauntlet(7), structure('infirmary', 5)],
     cost: { caps: 220, supplies: 60 },
-    trainSeconds: 280,
+    musterSeconds: 280,
     /**
      * One, and the rest of this sheet, is what makes the mechanic playable rather than merely
      * present. Measured, at 42 slots of defenders against 16 Breakers across nine grounds:
@@ -841,11 +851,11 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     tier: 'specialist',
     blurb:
       'Explosive ordnance experts. Uninterested in your people; very interested in your walls.',
-    trainedAt: 'gauntlet',
+    musteredAt: 'gauntlet',
     unique: false,
-    requires: [structure('scrapyard', 6), structure('generator', 8)],
+    requires: [gauntlet(7), structure('scrapyard', 6), structure('generator', 8)],
     cost: { caps: 280, supplies: 40, scrap: 120, oil: 80, highQualityMetal: 5 },
-    trainSeconds: 330,
+    musterSeconds: 330,
     unitSlots: 3,
     stats: sheet({
       speed: 28,
@@ -869,11 +879,11 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     name: 'Kite Crews',
     tier: 'wonder',
     blurb: 'Drone operators working off rooftops. They see the fight before anybody is in it.',
-    trainedAt: 'gauntlet',
+    musteredAt: 'gauntlet',
     unique: false,
-    requires: [structure('lab', 5), structure('generator', 8)],
+    requires: [gauntlet(8), structure('lab', 5), structure('generator', 8)],
     cost: { caps: 280, supplies: 40, scrap: 40, highQualityMetal: 18 },
-    trainSeconds: 310,
+    musterSeconds: 310,
     unitSlots: 2,
     stats: sheet({
       speed: 85,
@@ -899,7 +909,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     name: 'Netrunners',
     tier: 'specialist',
     blurb: 'Combat hackers who hijack enemy augmentations mid-fight. Nobody enjoys meeting them.',
-    trainedAt: 'gauntlet',
+    musteredAt: 'gauntlet',
     unique: false,
     requires: [gauntlet(9), structure('lab', 8), fitted('lab_quantum_modeling')],
     /*
@@ -910,7 +920,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
      * cards each, and 0.5 against a plain unfitted line: most of the worth is in the jam.
      */
     cost: { caps: 300, supplies: 50, highQualityMetal: 12 },
-    trainSeconds: 380,
+    musterSeconds: 380,
     unitSlots: 3,
     stats: sheet({
       speed: 40,
@@ -952,11 +962,11 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     name: 'Sleepers',
     tier: 'specialist',
     blurb: 'Planted long ago, and useful exactly once. They are already inside.',
-    trainedAt: 'gauntlet',
+    musteredAt: 'gauntlet',
     unique: false,
-    requires: [structure('nexus', 9), fitted('nexus_encrypted_core')],
+    requires: [gauntlet(8), structure('nexus', 9), fitted('nexus_encrypted_core')],
     cost: { caps: 340, supplies: 50, oil: 30 },
-    trainSeconds: 360,
+    musterSeconds: 360,
     unitSlots: 2,
     stats: sheet({
       speed: 40,
@@ -983,13 +993,13 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     tier: 'wonder',
     blurb:
       'Augmented working dogs off the kennels under the flyover. They find what is hiding and they do not need to see it to do it.',
-    trainedAt: 'infirmary',
+    musteredAt: 'infirmary',
     unique: false,
     // They hunt as one animal, and a big pack is not a bigger dog.
     pack: true,
     requires: [structure('infirmary', 6), holds('doghouse')],
     cost: { caps: 190, supplies: 90, highQualityMetal: 15 },
-    trainSeconds: 420,
+    musterSeconds: 420,
     /**
      * Two, because one was the best buy in the game by a factor of two and nothing on the sheet
      * said so.
@@ -1031,11 +1041,16 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     tier: 'heavy',
     blurb:
       'Fully augmented heavy assault units. Barely human any more, and no longer bothered by it.',
-    trainedAt: 'gauntlet',
+    musteredAt: 'gauntlet',
     unique: false,
-    requires: [structure('generator', 10), structure('infirmary', 9), holds('gene_clinic')],
+    requires: [
+      gauntlet(11),
+      structure('generator', 10),
+      structure('infirmary', 9),
+      holds('gene_clinic'),
+    ],
     cost: { caps: 700, supplies: 105, scrap: 50, oil: 200, highQualityMetal: 20 },
-    trainSeconds: 900,
+    musterSeconds: 900,
     unitSlots: 6,
     stats: sheet({
       speed: 25,
@@ -1069,11 +1084,16 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     // out are not what a night of welding plate helps.
     tier: 'wonder',
     blurb: 'Shock troops with the fear surgically removed. It took the rest of it with it.',
-    trainedAt: 'gauntlet',
+    musteredAt: 'gauntlet',
     unique: false,
-    requires: [structure('infirmary', 10), structure('lab', 13), holds('gene_clinic')],
+    requires: [
+      gauntlet(12),
+      structure('infirmary', 10),
+      structure('lab', 13),
+      holds('gene_clinic'),
+    ],
     cost: { caps: 650, supplies: 200, highQualityMetal: 25 },
-    trainSeconds: 840,
+    musterSeconds: 840,
     unitSlots: 5,
     stats: sheet({
       speed: 45,
@@ -1099,11 +1119,11 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     name: 'The Condemned',
     tier: 'rabble',
     blurb: 'Death row, handed one last chance and a blade. Nothing left to threaten them with.',
-    trainedAt: 'gauntlet',
+    musteredAt: 'gauntlet',
     unique: false,
-    requires: [structure('quarters', 12), holds('fight_pit')],
+    requires: [gauntlet(10), structure('quarters', 12), holds('fight_pit')],
     cost: { caps: 190, supplies: 120 },
-    trainSeconds: 600,
+    musterSeconds: 600,
     unitSlots: 3,
     stats: sheet({
       speed: 40,
@@ -1132,11 +1152,11 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     tier: 'legendary',
     blurb:
       'Experimental full-spectrum cloak. Invisible until it strikes, and then briefly visible.',
-    trainedAt: 'lab',
+    musteredAt: 'lab',
     unique: true,
     requires: [structure('lab', 15), fitted('lab_shielded_datacore'), holds('satellite_uplink')],
     cost: { caps: 1500, supplies: 225, oil: 300, highQualityMetal: 250 },
-    trainSeconds: 3600,
+    musterSeconds: 3600,
     unitSlots: 8,
     stats: sheet({
       speed: 80,
@@ -1170,11 +1190,11 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     name: 'The Abomination',
     tier: 'legendary',
     blurb: 'A failed experiment that became a weapon. Unstable, devastating, and not steerable.',
-    trainedAt: 'lab',
+    musteredAt: 'lab',
     unique: true,
     requires: [structure('lab', 16), structure('infirmary', 9), holds('mad_scientist_lair')],
     cost: { caps: 1400, supplies: 400, highQualityMetal: 200 },
-    trainSeconds: 4200,
+    musterSeconds: 4200,
     unitSlots: 10,
     stats: sheet({
       speed: 40,
@@ -1201,7 +1221,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     name: 'The Colossus',
     tier: 'legendary',
     blurb: 'A single massive machine that functions like a walking fortress. It arrives slowly.',
-    trainedAt: 'garage',
+    musteredAt: 'garage',
     unique: true,
     // It does not go round the gate. It goes through, and takes some of the gate with it.
     wall_breaker: true,
@@ -1216,7 +1236,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
      */
     requires: [structure('garage', 10), structure('generator', 14), holds('construction_site')],
     cost: { caps: 2200, supplies: 330, scrap: 900, oil: 600, highQualityMetal: 400 },
-    trainSeconds: 5400,
+    musterSeconds: 5400,
     unitSlots: 12,
     // §C3: the blurb has said "it arrives slowly" since the first draft and nothing enforced it, so
     // a Colossus in a Heli Porter crossed the city at 95. It rides in nothing now, and the column
@@ -1251,13 +1271,19 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     name: 'The Saint',
     tier: 'legendary',
     blurb: 'A legendary fighter whose presence alone steadies everyone who can see them.',
-    trainedAt: 'gauntlet',
+    musteredAt: 'gauntlet',
     unique: true,
     // Nobody runs while he is preaching, and he does not stop until they carry him off.
     stalwart: true,
-    requires: [structure('quarters', 12), structure('infirmary', 10), holds('tavern')],
+    steadies: true,
+    requires: [
+      gauntlet(12),
+      structure('quarters', 12),
+      structure('infirmary', 10),
+      holds('tavern'),
+    ],
     cost: { caps: 1200, supplies: 300, highQualityMetal: 120 },
-    trainSeconds: 3000,
+    musterSeconds: 3000,
     unitSlots: 6,
     stats: sheet({
       speed: 45,
@@ -1281,11 +1307,11 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     name: 'The Cartographer',
     tier: 'legendary',
     blurb: 'Has walked every street in this city and remembers which ones are still there.',
-    trainedAt: 'lab',
+    musteredAt: 'lab',
     unique: true,
     requires: [structure('lab', 12), holds('rail_yard'), holds('satellite_uplink')],
     cost: { caps: 1000, supplies: 150, oil: 150, highQualityMetal: 100 },
-    trainSeconds: 2700,
+    musterSeconds: 2700,
     unitSlots: 5,
     stats: sheet({
       speed: 88,
@@ -1327,7 +1353,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     name: 'Twins',
     tier: 'wonder',
     blurb: 'One body, two minds, and neither of them sleeps. Nothing has ever got behind it.',
-    trainedAt: 'lab',
+    musteredAt: 'lab',
     unique: false,
     /**
      * Built rather than hired, and built by somebody who should not have been allowed to.
@@ -1339,7 +1365,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
      */
     requires: [structure('lab', 12), holds('mad_scientist_lair'), holds('gene_clinic')],
     cost: { caps: 460, supplies: 75, scrap: 60, oil: 90, highQualityMetal: 15 },
-    trainSeconds: 520,
+    musterSeconds: 520,
     unitSlots: 4,
     /*
      * Brought down the ladder with the tier, not carried down it.
@@ -1395,7 +1421,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     tier: 'carrier',
     blurb:
       'They know which floors still hold weight and which pipes still have copper in them. Hand them a bag and point at a building.',
-    trainedAt: 'nexus',
+    musteredAt: 'nexus',
     unique: false,
     combat: false,
     /**
@@ -1411,7 +1437,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
      */
     requires: [structure('nexus', 1)],
     cost: { caps: 25, supplies: 15 },
-    trainSeconds: 30,
+    musterSeconds: 30,
     unitSlots: 1,
     stats: sheet({
       // A little under average on the road, which is the trade: the biggest bag in the game on
@@ -1461,7 +1487,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     tier: 'carrier',
     blurb:
       'Barrow, harness and a back that has done this for twenty years. Slow, patient, and they never come home light.',
-    trainedAt: 'nexus',
+    musteredAt: 'nexus',
     unique: false,
     /*
      * §A5: the carrier's reading of Collective (maintainer, 2026-09-19).
@@ -1486,7 +1512,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
      */
     requires: [structure('nexus', 15)],
     cost: { caps: 60, supplies: 20, planks: 30 },
-    trainSeconds: 90,
+    musterSeconds: 90,
     unitSlots: 2,
     stats: sheet({
       speed: 22,
@@ -1520,7 +1546,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     name: 'The Crimson Dancer',
     tier: 'legendary',
     blurb: 'Went into the Fight Pit a dancer and came out on blades. Still counts the beats.',
-    trainedAt: 'gauntlet',
+    musteredAt: 'gauntlet',
     unique: true,
     // She is across the ground and among them before the line has finished forming.
     strikes_first: true,
@@ -1529,9 +1555,9 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
      * Gauntlet at the top for the fighter, a Lab deep enough to have built the legs, and the Fight
      * Pit, which is where it learned what they were for.
      */
-    requires: [structure('lab', 12), structure('quarters', 15), holds('fight_pit')],
+    requires: [gauntlet(14), structure('lab', 12), structure('quarters', 15), holds('fight_pit')],
     cost: { caps: 1400, supplies: 260, oil: 180, highQualityMetal: 200 },
-    trainSeconds: 3300,
+    musterSeconds: 3300,
     unitSlots: 6,
     stats: sheet({
       speed: 92,
@@ -1570,11 +1596,11 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     name: 'Sluggers',
     tier: 'heavy',
     blurb: 'Scrap plate and a short slug gun. Stands where it is put and makes the room expensive.',
-    trainedAt: 'gauntlet',
+    musteredAt: 'gauntlet',
     unique: false,
     requires: [gauntlet(6), structure('scrapyard', 4)],
     cost: { caps: 210, supplies: 30, scrap: 60, highQualityMetal: 8 },
-    trainSeconds: 230,
+    musterSeconds: 230,
     unitSlots: 2,
     stats: sheet({
       speed: 30,
@@ -1615,15 +1641,20 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     name: 'The Loose End',
     tier: 'legendary',
     blurb: 'Walked out of a contract nobody walks out of. The chain-blade was the severance.',
-    trainedAt: 'gauntlet',
+    musteredAt: 'gauntlet',
     unique: true,
     /**
      * A Gauntlet at the top, a Garage that can keep a powered blade fed, and a rail yard, which is
      * where somebody who has to keep moving ends up and where the contract finally lapsed.
      */
-    requires: [structure('garage', 9), structure('generator', 16), holds('rail_yard')],
+    requires: [
+      gauntlet(16),
+      structure('garage', 9),
+      structure('generator', 16),
+      holds('rail_yard'),
+    ],
     cost: { caps: 1600, supplies: 240, oil: 220, highQualityMetal: 260 },
-    trainSeconds: 3600,
+    musterSeconds: 3600,
     unitSlots: 7,
     stats: sheet({
       speed: 95,
@@ -1651,7 +1682,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
   //
   // The regime's own units, after the carriers for the same reason the carriers are after the
   // legendaries: the art manifest seeds off the index in this array, so anything new goes last.
-  // None of these is trainable: see `UnitSpec.faction`. Their sheets are written against the
+  // None of these is musterable: see `UnitSpec.faction`. Their sheets are written against the
   // player's roster they are meant to be met by, and the ladder runs up the districts they hold:
   // the Levy on the Docks, the Greycoats behind them, the Enforcers in the Annexes, the
   // Suppressors on the Blacksite, and the three legendaries where `city/combine.ts` puts them.
@@ -1661,12 +1692,12 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     tier: 'rabble',
     blurb:
       'Conscripts with a fortnight of drill and a surplus blade each. They are the Combine on every street corner because there are so many of them, and no other reason.',
-    trainedAt: 'gauntlet',
+    musteredAt: 'gauntlet',
     unique: false,
     faction: 'combine',
     requires: [],
     cost: {},
-    trainSeconds: 0,
+    musterSeconds: 0,
     unitSlots: 1,
     stats: sheet({
       speed: 40,
@@ -1697,12 +1728,12 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     tier: 'rabble',
     blurb:
       'Low-ranking government infantry, named for the coat. A rifle, a helmet, a number, and orders to hold whatever they were stood on.',
-    trainedAt: 'gauntlet',
+    musteredAt: 'gauntlet',
     unique: false,
     faction: 'combine',
     requires: [],
     cost: {},
-    trainSeconds: 0,
+    musterSeconds: 0,
     unitSlots: 1,
     stats: sheet({
       speed: 38,
@@ -1713,7 +1744,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
       resistances: { blade: 10, chemical: -20 },
       penetration: 12,
       range: 40,
-      offense: 122,
+      offense: 112,
       evasion: 8,
       stealth: 12,
       intimidation: 12,
@@ -1732,12 +1763,12 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     tier: 'specialist',
     blurb:
       'Police infantry with more plate than the Greycoats and less patience. Used for raids and for standing on streets, and the shock batons are not for show.',
-    trainedAt: 'gauntlet',
+    musteredAt: 'gauntlet',
     unique: false,
     faction: 'combine',
     requires: [],
     cost: {},
-    trainSeconds: 0,
+    musterSeconds: 0,
     unitSlots: 2,
     stats: sheet({
       speed: 42,
@@ -1767,12 +1798,12 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     tier: 'heavy',
     blurb:
       'Automatic weapons on a tripod and a crew that has been told the street is closed. Area denial: nothing crosses the ground in front of one and lives.',
-    trainedAt: 'gauntlet',
+    musteredAt: 'gauntlet',
     unique: false,
     faction: 'combine',
     requires: [],
     cost: {},
-    trainSeconds: 0,
+    musterSeconds: 0,
     unitSlots: 4,
     stats: sheet({
       speed: 24,
@@ -1783,7 +1814,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
       resistances: { blade: 30, energy: 10, explosive: -15 },
       penetration: 35,
       range: 60,
-      offense: 372,
+      offense: 400,
       evasion: 3,
       stealth: 4,
       intimidation: 45,
@@ -1802,12 +1833,12 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     tier: 'legendary',
     blurb:
       'The government liaison embedded with the industrial facilities and the private troops that guard them. Knows every yard in the Annexes and everybody who works in one, and the people around her are paid better and shoot straighter for it.',
-    trainedAt: 'gauntlet',
+    musteredAt: 'gauntlet',
     unique: true,
     faction: 'combine',
     requires: [],
     cost: {},
-    trainSeconds: 0,
+    musterSeconds: 0,
     unitSlots: 5,
     stats: sheet({
       speed: 35,
@@ -1837,12 +1868,12 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     tier: 'legendary',
     blurb:
       'The anti-personnel specialist the Blacksite sends when arrests are no longer required. Works up close, and finishes what anybody else on the field has started.',
-    trainedAt: 'gauntlet',
+    musteredAt: 'gauntlet',
     unique: true,
     faction: 'combine',
     requires: [],
     cost: {},
-    trainSeconds: 0,
+    musterSeconds: 0,
     unitSlots: 6,
     stats: sheet({
       speed: 44,
@@ -1872,14 +1903,14 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     tier: 'legendary',
     blurb:
       'The Combine, in one person, in the Chosen Chapel at the top of the city. Nobody who stands with him is frightened of anything, and some of the people who came for him stay.',
-    trainedAt: 'gauntlet',
+    musteredAt: 'gauntlet',
     unique: true,
     faction: 'combine',
     // Nobody runs while he is in the room, and he does not stop until they carry him out.
     stalwart: true,
     requires: [],
     cost: {},
-    trainSeconds: 0,
+    musterSeconds: 0,
     unitSlots: 10,
     stats: sheet({
       speed: 30,
@@ -2022,7 +2053,7 @@ export const UNIT_IDS: readonly string[] = UNIT_CATALOG.map((unit) => unit.id);
 /** Validated against the catalogue rather than declared as an enum of literals: one list. */
 export const UnitIdSchema = z.string().refine(isUnitId, { message: 'unknown unit' });
 
-/** A sheet the Combine fields and nobody trains. See `UnitSpec.faction`. */
+/** A sheet the Combine fields and nobody musters. See `UnitSpec.faction`. */
 export function isCombineUnit(unit: UnitSpec | string | undefined): boolean {
   const spec = typeof unit === 'string' ? findUnit(unit) : unit;
   return spec?.faction === 'combine';
@@ -2038,7 +2069,7 @@ export function isPlayerUnit(unit: UnitSpec | string | undefined): boolean {
  * The roster a player can hold, which is the catalogue less the Combine's own sheets.
  *
  * Every screen that lists units to a player reads this one and not {@link UNIT_CATALOG}: the
- * roster, the training bench, the census, the Scrapyard's rail, the sandbox seed and the balance
+ * roster, the muster bench, the census, the Scrapyard's rail, the sandbox seed and the balance
  * sheet. The full catalogue is for the things that meet a Combine unit rather than offer one, the
  * engine and the garrisons, and for `findUnit`, which has to resolve an enemy's id as readily as
  * your own.
@@ -2070,14 +2101,14 @@ export function unitsUnlockedByLocation(locationKind: LocationKind): UnitSpec[] 
  * nothing: they come out of a building at home and no location on the map is their home.
  *
  * A list rather than one kind because a unit is allowed more than one location clause, and the
- * caller decides what to do with two (`homeTrainingBonus` takes the best held).
+ * caller decides what to do with two (`homeMusterBonus` takes the best held).
  */
-export function locationsTraining(unit: UnitSpec): LocationKind[] {
+export function locationsMustering(unit: UnitSpec): LocationKind[] {
   return unit.requires.flatMap((need) => (need.kind === 'location' ? [need.locationKind] : []));
 }
 
 /**
- * §B6: the ten the Gauntlet unlocks, and nothing else.
+ * §B6: the twenty three the Gauntlet unlocks, and nothing else.
  *
  * The maintainer named these by hand, so the list is transcribed by hand and then *asserted* against the
  * catalogue at module load. The alternative, deriving the list from the requirements, would make
@@ -2086,7 +2117,7 @@ export function locationsTraining(unit: UnitSpec): LocationKind[] {
  *
  * It was twelve until 2026-09-18, when the two carriers came off it and were re-gated on the
  * Nexus that signs them. Neither one fights, so neither belongs to a barracks, and the Gauntlet
- * clause on the cheap one was the reason a new crew could train nothing at all.
+ * clause on the cheap one was the reason a new crew could muster nothing at all.
  */
 export const GAUNTLET_UNLOCKED_UNITS: readonly string[] = [
   'razors',
@@ -2099,6 +2130,25 @@ export const GAUNTLET_UNLOCKED_UNITS: readonly string[] = [
   'breakers',
   'wardens',
   'sluggers',
+  /*
+   * Maintainer ruling P2-B (2026-10-02): every unit the card says is mustered at the Gauntlet
+   * needs one, at a level picked by hand by tier. Early rabble 1 to 2, the mid sheets 5 to 8, the
+   * late ones 8 to 12 and the three legendaries 12 to 16.
+   */
+  'sparks',
+  'anodics',
+  // The Live-Fire Range they needed fits any structure, so it never asked for a Gauntlet.
+  'snipers',
+  'ironsides',
+  'demolishers',
+  'sleepers',
+  'kite_crews',
+  'the_condemned',
+  'juggernauts',
+  'hollow_men',
+  'the_saint',
+  'the_crimson_dancer',
+  'the_loose_end',
 ];
 
 /** The Gauntlet level `unitId` needs, or `null` when the Gauntlet is not one of its gates. */
@@ -2118,8 +2168,8 @@ export function gauntletLevelFor(unitId: string): number | null {
  * ever field, and the only symptom would be a permanently greyed row. Cheaper to trip here.
  */
 for (const unit of UNIT_CATALOG) {
-  if (!BUILDING_KINDS.includes(unit.trainedAt)) {
-    throw new Error(`${unit.id} is trained at ${unit.trainedAt}, which is not a structure`);
+  if (!BUILDING_KINDS.includes(unit.musteredAt)) {
+    throw new Error(`${unit.id} is mustered at ${unit.musteredAt}, which is not a structure`);
   }
   if (unit.tier === 'legendary' && !unit.unique) {
     throw new Error(`${unit.id} is legendary but not unique`);
@@ -2158,7 +2208,7 @@ for (const unit of UNIT_CATALOG) {
     throw new Error(`${unit.id} has no requirement at all`);
   }
   if (unit.faction !== undefined) {
-    if (unit.requires.length > 0 || Object.keys(unit.cost).length > 0 || unit.trainSeconds > 0) {
+    if (unit.requires.length > 0 || Object.keys(unit.cost).length > 0 || unit.musterSeconds > 0) {
       throw new Error(`${unit.id} is the Combine's and must carry no gate, price or clock`);
     }
   }

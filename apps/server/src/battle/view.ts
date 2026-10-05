@@ -1,4 +1,6 @@
 import {
+  estimatedForce,
+  unitSlotsUsed,
   type LineRules,
   blueprintGateMet,
   describeBlueprintGate,
@@ -23,7 +25,6 @@ import {
   describeBoostEffect,
   describeBoostUnlock,
   findBlackMarketGood,
-  findTech,
   stashCount,
   hasInfamy,
   itemCount,
@@ -52,7 +53,6 @@ import {
   armySize,
   battleBoostSlots,
   gateDefensePercent,
-  gateIntelResistancePercent,
 } from '@frontline/shared';
 import {
   crewEffectsFor,
@@ -76,7 +76,7 @@ import {
 import { assemble, battlefieldOf } from './resolve.js';
 import { presenceAt, unrowedFor, type Presence } from './alignment.js';
 import { mergeArmies, removeForce } from './forces.js';
-import { insideLock } from './lock.js';
+import { insideLock, placeLocked } from './lock.js';
 import { workingRoles } from '../crew/roster.js';
 import { officerDuty } from '../crew/duty.js';
 import { officerTravelMinutesTo } from './movement.js';
@@ -206,7 +206,7 @@ function readEnemy(
   base: Base,
   battle: ScheduledBattle,
   ownSide: BattleSide,
-): { size: number | null; quality: string } {
+): { size: number | null; quality: string; army?: Army } {
   if (ownSide === 'defender') return { size: null, quality: 'Nobody reads a column on the road.' };
   // A raid is fought by the crew's home army, behind the gate, and a spy only ever sees the gate:
   // quoting the gate report here put the wrong force's number on the board (bug pass, 2026-09-27).
@@ -218,21 +218,62 @@ function readEnemy(
       ? { kind: 'location', locationId: battle.target.locationId }
       : { kind: 'gate', districtId: battle.target.districtId };
   const report = repos.spying.latestFor(base.id, target);
-  if (!report || report.failed) {
+  if (!report) {
     return { size: null, quality: 'No spy report on this ground. Send one from the district.' };
+  }
+  const day = report.writtenAt.slice(0, 10);
+  /*
+   * The Whole Wire's exact slots, wherever a report carries them (bug pass, 2026-10-01). They are
+   * printed on a failed report too, which is the point of the rung, and the board used to call
+   * that report no report at all.
+   */
+  const standing =
+    report.totalSlots === null ? '' : ` ${report.totalSlots} unit slots stand there in all.`;
+  if (report.failed) {
+    return {
+      size: null,
+      quality: `Your spy report of ${day} came back with nothing they would put their name to.${standing}`,
+    };
+  }
+  // Nobody stands at a gate held from elsewhere between fights, so the report's empty is not a
+  // count of what would meet one, and the board says nothing rather than 0 (maintainer, 2026-10-02).
+  if (report.heldFromAway === true) {
+    return {
+      size: null,
+      quality: `Your spy report of ${day} found nobody at the gate: whoever holds it brings what they send.`,
+    };
   }
   // Before Written Reports a report counts unit slots and names nobody (maintainer, 2026-09-28),
   // and `enemySize` is a head count: the slots are said in words rather than passed off as heads.
   if (!report.unitsShown) {
     return {
       size: null,
-      quality: `Your spy report of ${report.writtenAt.slice(0, 10)} counted ${report.exposedSlots} unit slots, and named nobody.`,
+      quality: `Your spy report of ${day} counted ${report.exposedSlots} unit slots, and named nobody.${standing}`,
     };
   }
+  const missed = missedBodies(report);
+  const read =
+    missed === null
+      ? ' The odds are against the units it named.'
+      : missed > 0
+        ? ` Wardens stand in for the ${missed} it missed.`
+        : '';
   return {
     size: armySize(report.exposed),
-    quality: `From your spy report of ${report.writtenAt.slice(0, 10)}.`,
+    quality: `From your spy report of ${day}.${standing}${read}`,
+    army: mergeArmies(report.exposed, estimatedForce(missed ?? 0)),
   };
+}
+
+/**
+ * Bodies the report says it missed, or null when it cannot say. The unseen estimate when the
+ * report has that rung; otherwise what the Whole Wire's exact slots leave over, in Wardens.
+ */
+function missedBodies(report: { exposed: Army; unseen: number | null; totalSlots: number | null }) {
+  if (report.unseen !== null) return report.unseen;
+  if (report.totalSlots === null) return null;
+  const left = report.totalSlots - unitSlotsUsed(report.exposed);
+  return Math.max(0, Math.floor(left / unitSlotsUsed(estimatedForce(1))));
 }
 
 /**
@@ -256,7 +297,9 @@ function viewOf(repos: Repositories, base: Base, battle: ScheduledBattle, now: D
   const defenderBase = defendingBaseOf(repos, battle);
   const attackerName = repos.bases.findById(battle.attackerBaseId)?.name ?? 'a crew nobody knows';
 
-  const enemy = side ? readEnemy(repos, base, battle, side) : { size: null, quality: '' };
+  const enemy: ReturnType<typeof readEnemy> = side
+    ? readEnemy(repos, base, battle, side)
+    : { size: null, quality: '' };
   // Read only for a crew on a side: a bystander is told nothing about who is standing where.
   const presence = side ? presenceAt(repos, battle) : null;
   const muster = side && presence ? musterOf(repos, battle, side, presence) : null;
@@ -265,6 +308,13 @@ function viewOf(repos: Repositories, base: Base, battle: ScheduledBattle, now: D
 
   return {
     battle: shownBattle(battle, side),
+    own: deployment
+      ? {
+          army: deployment.army,
+          perimeter: deployment.perimeter,
+          size: deployedSize(deployment),
+        }
+      : null,
     targetName: targetName(battle.target, resident),
     districtName: district?.name ?? 'somewhere',
     role: side ?? 'bystander',
@@ -273,6 +323,7 @@ function viewOf(repos: Repositories, base: Base, battle: ScheduledBattle, now: D
     withdrawalOpen: !insideLock(battle, now),
     muster,
     enemySize: enemy.size,
+    enemyArmy: enemy.army ?? null,
     enemyIntel: side ? enemy.quality : 'You are not in this one.',
     opponentName:
       side === 'defender'
@@ -318,7 +369,7 @@ function viewOf(repos: Repositories, base: Base, battle: ScheduledBattle, now: D
     // §I4: a trap goes under ground you are holding, so only the defender gets a list. An attacker
     // and a bystander get an empty one rather than no field, which is the same shape the boosts
     // take and keeps the payload from saying which side the reader is on twice.
-    traps: side === 'defender' ? trapsFor(base) : [],
+    traps: side === 'defender' ? trapsFor(base, alliedTrap(repos, battle.id, base.id)) : [],
     trapId: deployment?.trapId ?? null,
   };
 }
@@ -346,7 +397,7 @@ function leadersFor(
   vehicles: Fleet,
 ): BattleLeader[] {
   // The sheet they would fight on is the lifted one (`asCombatant` in `resolve.ts`), so the row
-  // quotes that one too.
+  // quotes that one too, for their figures and for their pace on the road.
   const room = officerLiftRoom(repos, base, now);
   return base.commanders
     .filter((officer) => officerDuty(repos, base, officer, now, battle.id) === null)
@@ -367,6 +418,7 @@ function leadersFor(
         battle.target.districtId,
         officer,
         vehicles,
+        room,
       );
       if (travelMinutes === null) return [];
       return [
@@ -451,8 +503,6 @@ function structuresOf(base: Base): StructureDefence[] {
      * multiplied out of the level here: the screen must quote the number the fight will use.
      */
     defensePercent: building.kind === 'gate' ? gateDefensePercent(base.buildings) : null,
-    intelResistancePercent:
-      building.kind === 'gate' ? gateIntelResistancePercent(base.buildings) : null,
   }));
 }
 
@@ -465,7 +515,7 @@ function structuresOf(base: Base): StructureDefence[] {
  * the yard would cut one, and repeating either here would be a second copy of the Scrapyard's
  * gate wording free to drift from it.
  */
-function trapsFor(base: Base): TrapOption[] {
+function trapsFor(base: Base, allied: string | null): TrapOption[] {
   return TRAP_CATALOG.map((spec) => {
     const held = itemCount(base.inventory, spec.id as ItemId);
     return {
@@ -474,10 +524,28 @@ function trapsFor(base: Base): TrapOption[] {
       description: spec.description,
       effect: trapEffectLine(spec),
       held,
-      available: held > 0,
-      blocker: held > 0 ? '' : 'None in the bag. The Scrapyard cuts them',
+      available: held > 0 && allied === null,
+      blocker:
+        allied !== null ? allied : held > 0 ? '' : 'None in the bag. The Scrapyard cuts them',
     };
   });
+}
+
+/**
+ * Why nobody else on the defence can bury one: a side has one trap, and `/battles/trap` refuses a
+ * second (bug pass, 2026-10-02). The picker read only the reader's own row, so a defender whose
+ * ally had already set one saw "Nothing buried" and a live "Bury it" the route then turned down.
+ * Null when no ally has set one.
+ */
+function alliedTrap(repos: Repositories, battleId: string, baseId: string): string | null {
+  const row = repos.sieges
+    .side(battleId, 'defender')
+    .find((one) => one.baseId !== baseId && one.trapId !== null);
+  if (!row || row.trapId === null) return null;
+  const setter =
+    (row.baseId === null ? undefined : repos.bases.findById(row.baseId))?.name ?? 'An ally';
+  const trap = TRAP_CATALOG.find((spec) => spec.id === row.trapId)?.name ?? 'a trap';
+  return `${setter} has already set ${trap} here. A side lays one`;
 }
 
 /** Why an ally's boost list is shut: the words `/battles/boost` refuses them with. */
@@ -508,7 +576,6 @@ function boostsFor(
   principal: boolean,
 ): BattleBoostOption[] {
   const crew = {
-    technologies: base.research.technologies,
     // Chairs, not headcount: a boost unlocked by having a Raid Boss is not unlocked by having
     // signed one and left them on the bench.
     // Working chairs, not merely filled ones: an injured officer unlocks nothing (2026-09-23).
@@ -537,9 +604,8 @@ function boostsFor(
     // a future boost gated some other way cannot put a blank line on the card.
     source:
       boostGate(spec.id) === false
-        ? (describeBlueprintGate('battle_boost', spec.id) ??
-          describeBoostUnlock(spec.unlock, (id) => findTech(id)?.name ?? id))
-        : describeBoostUnlock(spec.unlock, (id) => findTech(id)?.name ?? id),
+        ? (describeBlueprintGate('battle_boost', spec.id) ?? describeBoostUnlock(spec.unlock))
+        : describeBoostUnlock(spec.unlock),
     reach: Math.round(boostCoverage(spec.effect, force, rules) * 100),
     affordable: hasInfamy(base.economy.infamy, spec.cost),
     available: boostAvailable(spec, crew, boostGate),
@@ -694,6 +760,10 @@ export function projectActions(repos: Repositories, base: Base, now: Date): Acti
         army: cell.army,
         phase: cell.phase,
         arrivesAt: cell.arrivesAt,
+        // The recall's own test (`city/sleepers.ts`): a cell on the ground is held by the last hour.
+        locked:
+          cell.phase === 'waiting' &&
+          placeLocked(repos, base, { kind: 'location', locationId: cell.locationId }, now),
       };
     }),
     /*

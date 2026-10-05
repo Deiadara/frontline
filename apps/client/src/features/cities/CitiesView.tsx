@@ -109,7 +109,8 @@ export function CitiesView({ onEnterCity, choosing }: CitiesViewProps) {
 /** What a card says about itself while a player is picking somewhere to live. */
 function homeLine(offer: CityHomeOffer | undefined): string {
   if (offer === undefined || offer.refusal === 'unbuilt') return 'No map here yet';
-  if (offer.refusal === 'full') return 'Full: four crews already live here';
+  // The city's own plot count, which is data: not every map will have four.
+  if (offer.refusal === 'full') return `Full: ${offer.plots} crews already live here`;
   return offer.free === 1 ? 'One plot left' : `${offer.free} of ${offer.plots} plots free`;
 }
 

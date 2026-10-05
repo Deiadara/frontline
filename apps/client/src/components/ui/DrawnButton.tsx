@@ -5,7 +5,7 @@ import { DrawnFace } from './DrawnMarks';
 /**
  * A button drawn with a pen rather than pressed out of brass (maintainer, 2026-09-17).
  *
- * The kit's `Button` is a struck plate, which is the right affordance on a machine: a Train, a Buy,
+ * The kit's `Button` is a struck plate, which is the right affordance on a machine: a Muster, a Buy,
  * a Deploy. It is the wrong one on a sheet of paper. The feats board established the alternative
  * and the archive followed it, and the maintainer then asked for the market and the workshops as
  * well, at which point three screens copying an inline `<DrawnFace>` and a set of padding classes is

@@ -8,7 +8,7 @@ import {
   homeBattlefield,
   LOCATION_CONTEXTS,
 } from './battlefield.js';
-import { contextBonusPercent, effectiveStats, MAX_HELD_DEFENSE } from './effects.js';
+import { contextBonusPercent, effectiveStats, HELD_DEFENSE_CEILING } from './effects.js';
 import { simulate } from './engine.js';
 
 /**
@@ -119,16 +119,11 @@ describe('what the ground does to a unit', () => {
       at: DAY,
     });
     const gated = { ...noTerritoryEffects(), gatePercent: 20 };
-    const held = effectiveStats(
-      unit('wardens'),
-      field,
-      { defending: true, outnumbered: false },
-      gated,
-    );
+    const held = effectiveStats(unit('wardens'), field, { defending: true, outnumbered: 0 }, gated);
     const came = effectiveStats(
       unit('wardens'),
       field,
-      { defending: false, outnumbered: false },
+      { defending: false, outnumbered: 0 },
       gated,
     );
     // Toughness, not damage: a wall does not make a rifle shoot harder.
@@ -140,13 +135,13 @@ describe('what the ground does to a unit', () => {
     const boosted = effectiveStats(
       unit('razors'),
       bareBattlefield(),
-      { defending: false, outnumbered: false },
+      { defending: false, outnumbered: 0 },
       { ...noTerritoryEffects(), unitOffensePercent: 20, unitMoraleFlat: 10 },
     );
     const plain = effectiveStats(
       unit('razors'),
       bareBattlefield(),
-      { defending: false, outnumbered: false },
+      { defending: false, outnumbered: 0 },
       noTerritoryEffects(),
     );
     expect(boosted.offense).toBeCloseTo(plain.offense * 1.2, 5);
@@ -256,11 +251,11 @@ describe('what the defender built reaches the fight', () => {
     const held = effectiveStats(
       wardens,
       { ...homeBattlefield('x', DAY) },
-      { defending: true, outnumbered: false },
+      { defending: true, outnumbered: 0 },
       { ...noTerritoryEffects(), defensePercent: 500 },
     );
     expect(held.vitality).toBeLessThanOrEqual(
-      wardens.stats.vitality * (1 + MAX_HELD_DEFENSE / 100),
+      wardens.stats.vitality * (1 + HELD_DEFENSE_CEILING / 100),
     );
   });
 
@@ -269,7 +264,7 @@ describe('what the defender built reaches the fight', () => {
     const attacking = effectiveStats(
       wardens,
       homeBattlefield('x', DAY),
-      { defending: false, outnumbered: false },
+      { defending: false, outnumbered: 0 },
       { ...noTerritoryEffects(), defensePercent: 60 },
     );
     expect(attacking.vitality).toBe(wardens.stats.vitality);

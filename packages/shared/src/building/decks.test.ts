@@ -27,7 +27,7 @@ import {
   fittedMagnitude,
   localProductionPercent,
 } from './effects.js';
-import { PRODUCING_BUILDINGS } from './production.js';
+import { PRODUCING_BUILDINGS, buildingProduction } from './production.js';
 import type { Building } from './state.js';
 
 /**
@@ -267,31 +267,44 @@ describe('a completed set', () => {
   });
 
   /**
-   * The Plumbing set pays into the one *local* effect, so it has to be read locally.
+   * The Plumbing set pays every producing structure in the district (maintainer, 2026-10-01: "pay
+   * the whole district").
    *
-   * `production_percent` belongs to the structure rather than the district. A set bonus of that
-   * kind paid through `districtEffects` would be a bonus that silently did nothing, which is the
-   * failure this codebase has already had twice.
+   * It used to pay only the structure holding the three cards, and four of the six that can hold
+   * them make nothing, so a set in the Apothecary printed "+10% production" and paid none. Measured
+   * on the Apothecary for that reason, against the same district with one of the three swapped for
+   * a card of another family, so the difference is the set and nothing else.
    */
-  it('pays a local set locally', () => {
+  it('pays the Plumbing set to every producing structure, wherever the set is', () => {
     expect(SET_BONUSES.plumbing.effect).toBe('production_percent');
-    const kind = 'greenhouse';
-    const three = modificationsFittingIn(kind)
-      .filter((one) => one.family === 'plumbing')
-      .slice(0, 3);
-    expect(three.length, 'the Greenhouse must fit three plumbing cards').toBe(3);
+    const kind = 'apothecary';
+    expect(PRODUCING_BUILDINGS).not.toContain(kind);
+    const plumbing = modificationsFittingIn(kind).filter((one) => one.family === 'plumbing');
+    const other = modificationsFittingIn(kind).find((one) => one.family !== 'plumbing')!;
+    expect(plumbing.length, 'the Apothecary must fit three plumbing cards').toBeGreaterThanOrEqual(
+      3,
+    );
 
-    const building = at(
-      kind,
-      three.map((o) => o.id),
-    );
-    const cards = three.reduce(
-      (total, one) => total + (one.effect === 'production_percent' ? one.magnitude : 0),
-      0,
-    );
-    expect(localProductionPercent(building)).toBeGreaterThanOrEqual(
-      cards + SET_BONUSES.plumbing.magnitude,
-    );
+    const producers = PRODUCING_BUILDINGS.map((producer) => at(producer, []));
+    const district = (cards: string[]) => [...producers, at(kind, cards)];
+    const set = district(plumbing.slice(0, 3).map((one) => one.id));
+    const broken = district([...plumbing.slice(0, 2).map((one) => one.id), other.id]);
+
+    expect(completedSet(set.at(-1)!)).toBe('plumbing');
+    for (const producer of PRODUCING_BUILDINGS) {
+      const withSet = buildingProduction(producer, set);
+      const without = buildingProduction(producer, broken);
+      for (const [key, rate] of Object.entries(without)) {
+        expect(withSet[key as keyof typeof withSet], `${producer} ${key}`).toBeCloseTo(
+          (rate ?? 0) * (1 + SET_BONUSES.plumbing.magnitude / 100),
+          6,
+        );
+      }
+    }
+    // Paid to the district, not to the structure holding the cards: no card there makes anything.
+    expect(localProductionPercent(set.at(-1))).toBe(0);
+    // ...and the line the district window prints says so.
+    expect(describeSetBonus('plumbing')).toBe('+10% production across the district');
   });
 
   it('gives every family a set worth completing', () => {
@@ -364,38 +377,16 @@ describe('a completed set', () => {
 
     for (const family of MODIFICATION_FAMILIES) {
       const line = describeSetBonus(family);
-      expect(line, family).toContain(`${SET_BONUSES[family].magnitude}%`);
       // Never the internal channel name, which is what printing the enum would leak.
       expect(line, family).not.toContain('_');
+      // The muster clock's figure is a speed, printed as the time it takes off on its own
+      // (maintainer, 2026-10-01): a minus and a smaller number than the speed.
+      if (SET_BONUSES[family].effect === 'muster_time_reduction') {
+        expect(line, family).toMatch(/^-\d+% muster time/);
+        continue;
+      }
+      expect(line, family).toContain(`${SET_BONUSES[family].magnitude}%`);
       if (reductions.includes(family)) expect(line, family).toContain('off how long');
-    }
-  });
-
-  /**
-   * A local set is worth nothing in a structure that makes nothing.
-   *
-   * The Plumbing bonus is `production_percent`, the one effect that belongs to the building rather
-   * than the district, so a Plumbing set in the Gate is three cards and no bonus. It was
-   * completable in exactly one producing structure, the Greenhouse, which is a family with one
-   * fixed answer rather than a deck decision, and one narrowed `fits` list away from having none.
-   */
-  it('lets a local set be completed in more than one structure that produces something', () => {
-    const local = MODIFICATION_FAMILIES.filter((family) =>
-      LOCAL_EFFECTS.includes(SET_BONUSES[family].effect),
-    );
-    // A guard on the guard: with no local set bonus this proves nothing at all.
-    expect(local.length, 'no set pays a local effect').toBeGreaterThan(0);
-
-    for (const family of local) {
-      const homes = PRODUCING_BUILDINGS.filter(
-        (kind) =>
-          modificationsFittingIn(kind).filter((spec) => spec.family === family).length >=
-          MODIFICATION_SET_SIZE,
-      );
-      expect(
-        homes.length,
-        `the ${family} set pays ${SET_BONUSES[family].effect}, and ${homes.length} producing structure(s) can complete it`,
-      ).toBeGreaterThan(1);
     }
   });
 
@@ -439,9 +430,9 @@ describe('a card that pays into a structure\u2019s own output', () => {
 
 describe('the rarity a card is filed under', () => {
   /** The maintainer's figure, written here rather than read off the array it is checking. */
-  const CATALOGUE_SIZE = 89;
+  const CATALOGUE_SIZE = 91;
 
-  it('holds eighty-nine cards, so nothing below can pass on an empty loop', () => {
+  it('holds ninety-one cards, so nothing below can pass on an empty loop', () => {
     expect(MODIFICATIONS).toHaveLength(CATALOGUE_SIZE);
   });
 

@@ -7,6 +7,7 @@ import {
   canEditIdentity,
   canInvite,
   canKick,
+  canNameSuccessor,
   canSetRank,
   factionHasRoom,
   FactionNameSchema,
@@ -117,6 +118,15 @@ describe('leaving', () => {
 
   it('disbands whatever the rank once the leaver is the only one there', () => {
     for (const rank of FACTION_RANKS) expect(leavingDisbands(rank, 1)).toBe(true);
+  });
+
+  /** Maintainer, 2026-09-30: a leader with members may name who leads after them on the way out. */
+  it('offers a successor to a leader with somebody left, and to nobody else', () => {
+    expect(canNameSuccessor('leader', 2)).toBe(true);
+    expect(canNameSuccessor('leader', MAX_FACTION_MEMBERS)).toBe(true);
+    expect(canNameSuccessor('leader', 1), 'nobody to hand it to').toBe(false);
+    expect(canNameSuccessor('chief', 3), 'a chief leaving ends nothing').toBe(false);
+    expect(canNameSuccessor('member', 3)).toBe(false);
   });
 
   /** The handover path, as the route performs it: rank first, then the same question again. */

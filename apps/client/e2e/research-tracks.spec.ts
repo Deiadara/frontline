@@ -1,5 +1,5 @@
 /**
- * §C: the research page, rebuilt as nineteen trades on a rail under a strip of three tabs.
+ * §C: the research page, rebuilt as thirteen trades on a rail under a strip of three tabs.
  *
  * What only a browser answers is the geometry and the ink. Four things are asserted here that a
  * unit test cannot see: the three tabs sit side by side across the top, the rail sits beside the
@@ -47,7 +47,7 @@ const box = async (page: Page, testId: string) => {
   return at;
 };
 
-test('lists all nineteen trades, beside the rungs rather than above them', async ({ page }) => {
+test('lists all thirteen trades, beside the rungs rather than above them', async ({ page }) => {
   await openTracks(page);
 
   const rail = page.getByTestId('research-tracks');
@@ -141,8 +141,8 @@ for (const size of VIEWPORTS) {
     await openTracks(page, size);
 
     // The deepest track in the fixture, which carries the longest blockers and the widest prices.
-    await page.getByTestId('research-track-head_of_growth').click();
-    await expect(page.getByTestId('tech-track-head_of_growth')).toBeVisible();
+    await page.getByTestId('research-track-steward').click();
+    await expect(page.getByTestId('tech-track-steward')).toBeVisible();
     await settleFonts(page);
 
     const cut = await page.evaluate<string[]>(() =>
@@ -166,7 +166,7 @@ for (const size of VIEWPORTS) {
      * would be a picture of a viewport nobody has.
      */
     await growPastTheFold(page);
-    await expectNoImagesClipped(page, '[data-testid="tech-track-head_of_growth"]');
+    await expectNoImagesClipped(page, '[data-testid="tech-track-steward"]');
     await expectNoImagesClipped(page, '[data-testid="research-tracks"]');
     /*
      * ...and nothing on the rail sliced by its own fold, once the window is past it.
@@ -181,31 +181,35 @@ for (const size of VIEWPORTS) {
 
 /**
  * The Master of Whispers' track off the maintainer's ledger (2026-09-28): the longest blurbs and
- * effect lines in the Lab, and prices in four resources. Drawn at the smallest size the game
- * supports, where a long line is likeliest to be cut.
+ * effect lines in the Lab, and prices in four resources. Drawn at every size the game supports:
+ * the smallest is where a long line is likeliest to be cut, and the Shared Knowledge card grew a
+ * clause on 2026-10-01.
  */
-test("draws the Master of Whispers' reworked track whole at 1024x768", async ({ page }) => {
-  await openTracks(page, VIEWPORTS[0]);
-  await page.getByTestId('research-track-master_of_whispers').click();
-  const panel = page.getByTestId('tech-track-master_of_whispers');
-  await expect(panel).toBeVisible();
-  await expect(panel.getByTestId('tech-tech_written_reports')).toContainText('Written Reports');
-  await expect(panel.getByTestId('tech-tech_shared_knowledge')).toContainText('Shared Knowledge');
-  await expect(panel.getByTestId('tech-tech_turned_runners')).toContainText('Turned Runners');
-  await settleFonts(page);
-  const cut = await page.evaluate<string[]>(() =>
-    [...document.querySelectorAll<HTMLElement>('span, p, h3, h4, button')]
-      .filter((el) => el.childElementCount === 0 && el.scrollWidth > el.clientWidth + 1)
-      .map((el) => `"${el.textContent?.trim()}" (${el.scrollWidth}>${el.clientWidth}px)`),
-  );
-  expect(cut, `cut text on the Whispers track: ${cut.join(' | ')}`).toEqual([]);
-  await expectNothingOverflowsTheScreen(page);
-  await page.screenshot({ path: 'screenshots/research-tracks-whispers.png' });
-  await panel
-    .getByTestId('tech-tech_the_whole_wire')
-    .evaluate((el) => el.scrollIntoView({ block: 'center' }));
-  await page.screenshot({ path: 'screenshots/research-tracks-whispers-deep.png' });
-});
+for (const viewport of VIEWPORTS) {
+  const tag = `${viewport.width}x${viewport.height}`;
+  test(`draws the Master of Whispers' reworked track whole at ${tag}`, async ({ page }) => {
+    await openTracks(page, viewport);
+    await page.getByTestId('research-track-master_of_whispers').click();
+    const panel = page.getByTestId('tech-track-master_of_whispers');
+    await expect(panel).toBeVisible();
+    await expect(panel.getByTestId('tech-tech_written_reports')).toContainText('Written Reports');
+    await expect(panel.getByTestId('tech-tech_shared_knowledge')).toContainText('Shared Knowledge');
+    await expect(panel.getByTestId('tech-tech_turned_runners')).toContainText('Turned Runners');
+    await settleFonts(page);
+    const cut = await page.evaluate<string[]>(() =>
+      [...document.querySelectorAll<HTMLElement>('span, p, h3, h4, button')]
+        .filter((el) => el.childElementCount === 0 && el.scrollWidth > el.clientWidth + 1)
+        .map((el) => `"${el.textContent?.trim()}" (${el.scrollWidth}>${el.clientWidth}px)`),
+    );
+    expect(cut, `cut text on the Whispers track: ${cut.join(' | ')}`).toEqual([]);
+    await expectNothingOverflowsTheScreen(page);
+    await page.screenshot({ path: `screenshots/research-tracks-whispers-${tag}.png` });
+    await panel
+      .getByTestId('tech-tech_the_whole_wire')
+      .evaluate((el) => el.scrollIntoView({ block: 'center' }));
+    await page.screenshot({ path: `screenshots/research-tracks-whispers-deep-${tag}.png` });
+  });
+}
 
 test('says why a rung is shut, in the words the server sent', async ({ page }) => {
   await openTracks(page);

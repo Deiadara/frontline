@@ -90,11 +90,14 @@ exponential approach to the ceiling that leaves the knee at the same slope. Each
 - **Intimidation** (`intimidate`). Each side's total nerve, which is the morale of every unit in it, is
   compared with the other side's total menace. Where the pressure is greater the excess buys
   silence, cheapest first: the shakiest units do not fire this fight. They still stand in the line
-  and still take casualties, so intimidation is not a way of killing anybody.
+  and still take casualties, so intimidation is not a way of killing anybody. At most
+  `MAX_INTIMIDATED_SHARE` (75%) of a line can be silenced, however great the pressure.
 - **The ambush** (`ambushShare`). Only the attacker can take one, and only with enough stealth to
   beat what the enemy can see. Worth a fraction of a round, never a whole one: a free round is a
   coin flip decided before the fight starts. Three terms multiply: how far the side's stealth
-  beats the enemy's, how much of the force is actually hidden, and `AMBUSH_ROUND_SHARE`. The
+  beats the enemy's, how much of the force is actually hidden, and `AMBUSH_ROUND_SHARE`, and the
+  product is curved past `AMBUSH_KNEE` (0.6 of a round) towards `AMBUSH_CEILING` (0.85), which it
+  never reaches (2026-10-02: a fully hidden line against a blind one read a whole round). The
   middle one is where the `ambush` mark is paid for, since a marked body hides whole and an
   unmarked one at `STEALTH_UNTAGGED_SHARE`. It was missing until 2026-09-21, and without it the
   mark was worth exactly nothing: the stealth term is a weighted mean, so for a force whose
@@ -143,8 +146,10 @@ Modelled on Total War's ladder rather than a hit-point bar, because the interest
 that morale runs out _faster the lower it already is_ (`fragility`). Four states: steady, shaken,
 wavering, broken. Breaking is a one-way door inside a fight.
 
-Each round a stack takes shock from what it lost, what the enemy's intimidation is worth, being
-outnumbered, and how much of the line broke beside it (`ROUT_CASCADE`, which is what turns a bad
+Each round a stack takes shock from what it lost (the share of its starting health gone, since
+2026-10-05: see "Casualties" below), what the enemy's intimidation is worth, being
+outnumbered (in unit slots still fighting, since 2026-10-02: by heads, twenty Wardens felt
+outnumbered two to one by forty Razors of the same weight), and how much of the line broke beside it (`ROUT_CASCADE`, which is what turns a bad
 round into a collapse). The cascade is charged on the **share of the side's bodies** that ran,
 not on the number of stacks: as a count it charged the same ten points whether two men bolted or
 half the army did, and that made a force strictly worse for containing anything fragile. Measured
@@ -158,6 +163,13 @@ A round where the stack lost nothing it did not give back, nobody broke beside i
 outnumbered is a **quiet round**, and it steadies by `MORALE_RECOVERY` less whatever the enemy is
 worth in ambient fear. Because `WINNING_RELIEF` already zeroes the casualty term for a stack that is
 winning its exchange, the side that is ahead is the side that recovers.
+
+**The Saint steadies its side** (maintainer, 2026-10-05; rule `steadies`, Steadying Presence, in
+`units/rules.ts`). While the Saint stands and has not broken, `moralePhase` holds every other stack
+on its side at `MORALE_THRESHOLDS.wavering` at worst, so nobody beside it routs; the Saint itself
+can still break. It is read once at the top of the side's morale test, so the order the stacks are walked in
+cannot decide who it reaches. Nothing else can carry it: `GrantableUnitMark` excludes it with the
+Colossus's Wall Breaker, so no location or perk hands it to another unit.
 
 Each rung of the ladder costs fire (`moraleFireShare`): a steady stack fires in full, a shaken one
 at `SHAKEN_FIRE`, a wavering one at `WAVERING_FIRE`. Until 2026-09-21 the ladder had no consequence
@@ -276,18 +288,35 @@ What the retune changed, so that each rating has a use of its own:
   scaled by how much of the line the enemy's numbers reach (`intimidationReach`).
 - **Stealth** counts towards the opening strike on unmarked units at `STEALTH_UNTAGGED_SHARE`.
 - **Casualties** are what a line breaks from. `CASUALTY_SHOCK` went from 14 to 35, and two things
-  had to change with it because the retune made them audible. The enemy's loss share is now
-  weighted by bodies (`meanLoss`): one Sniper dying beside twenty Razors is a twentieth, not half.
-  And the shock is charged on the _increase in a stack's cumulative net deficit_ (its own losses so
-  far less `WINNING_RELIEF` of the enemy's, `Stack.charged`) rather than on each round's losses
-  netted against each round's. Netted round by round, whether your body fell in the same round as
-  theirs was a coin flip worth a full shock, and in a six-body skirmish +15% vitality _lost_
-  twelve points of win rate for moving one death from round three to round four. Charged on the
-  cumulative deficit, the same skirmish is monotone in every channel.
+  had to change with it because the retune made them audible. The enemy's loss share is weighted
+  by what each stack walked in with (`meanLoss` on the round log, the pooled health below in the
+  morale test): one Sniper dying beside twenty Razors is a twentieth, not half. And the shock is charged on the _increase in a stack's cumulative net
+  deficit_ (its own losses so far less `WINNING_RELIEF` of the enemy's, `Stack.charged`) rather
+  than on each round's losses netted against each round's. Netted round by round, whether your
+  body fell in the same round as theirs was a coin flip worth a full shock, and in a six-body
+  skirmish +15% vitality _lost_ twelve points of win rate for moving one death from round three to
+  round four. Charged on the cumulative deficit, the same skirmish is monotone in every channel.
+- **Losses are read off health, not bodies** (maintainer, 2026-10-05, bug pass P2-A). Both terms
+  of the deficit are the share of starting health gone: a stack's own is `1 - pool / startedHealth`
+  (bodies it walked in with times the sheet's vitality), and the enemy's is the same over every
+  enemy stack, broken ones included. A wounded front body counted for nothing until it died and
+  then the whole shock landed at once, so a long fight between hardy sheets turned on the round
+  one body happened to fall, and adding units to a mixed line could lose fights it used to win.
+  Now a wounded line feels it before anybody dies. `morale-wounds.test.ts` pins the case that
+  found it: sixteen Anodics with one to six Razors added, against 52 Razors in a tunnel, won 60, 21,
+  34, 20, 41 and 41% and now read about 81, 79, 83, 82, 80 and 78%. The roster pins were re-measured with it: the
+  Combine's mix at difficulty 9 and 10 went to 5% Greycoats, 30% Enforcers and 65% Suppressors
+  (`docs/DISTRICTS.md`), and two boosts were repriced on their built-for lines, They Came For This
+  500 to 330 infamy and The Colossus Walks 550 to 350.
 
 Tune against the harness, not against a feeling: change a constant, run the test, read the
 ladder. The roster's own pins (`balance.test.ts`, the Combine ladders) are a separate question
-and are re-statted on top of this, not the other way round.
+and are re-statted on top of this, not the other way round. The Combine's common sheets were
+re-statted that way on 2026-10-01 (Greycoat offense 122 to 112, Suppressor 372 to 400), and at 60
+slots a side over 64 seeds a matchup they held 2, 10, 13 and 14 of the 22 player sheets, Levy to
+Suppressor, in that order. Since "outnumbered" counts unit slots (2026-10-02) they hold 1, 9, 15 and
+15 of 21, and 5%, 44%, 67% and 69% of the fights by share, which is the order
+`combine-balance.test.ts` now asserts on.
 
 ## After the fight
 
@@ -307,7 +336,7 @@ and are re-statted on top of this, not the other way round.
   unit run pays **half**, floored on the bulk (`infamyForFled`): three one-slot runners are 1.5,
   paid as 1. A death at the ring pays half too (`infamyForRingDead`), on either side, so a runner
   the ring kills paid a half for running and a half for dying. Battle jobs pay the same halves off
-  their own rate (`missionInfamyForFled`).
+  their own rate, kills and routs added and rounded up once (`missionInfamyForBattle`).
 - **Going home** (the server's `homeFromTheFight`, maintainer 2026-09-28). Whoever is not staying
   on the ground walks home from it on the ordinary clock, with the machines that survived: nobody
   is back on a roster the second a fight ends. A crew that fought in its own district is already
@@ -321,13 +350,13 @@ and are re-statted on top of this, not the other way round.
 Five sources, all folded onto one set of fields before the engine sees them, so the engine reads one
 number per channel and the report can explain itself:
 
-| Source                   | Reaches the fight as                                                       |
-| ------------------------ | -------------------------------------------------------------------------- |
-| Ground the crew holds    | `TerritoryEffects`: offense, vitality, armour, morale, intimidation, speed |
-| A bought or looted boost | the same three of those fields (`boostBundle`)                             |
-| The officer leading      | a one-unit stack with its own sheet, plus perks (`crew/effects.ts`)        |
-| The battlefield's labels | per-unit modifiers via `contexts` (`effects.ts`)                           |
-| The crew's co-ordination | `cohesionPercent`, widening the fighting front                             |
+| Source                   | Reaches the fight as                                                                                                                |
+| ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------- |
+| Ground the crew holds    | `TerritoryEffects`: offense, vitality, armour, morale, intimidation, speed                                                          |
+| A bought or looted boost | whole-force: the side's offense, vitality and morale; a tier or unit name: the named units' own offense or vitality (`boostBundle`) |
+| The officer leading      | a one-unit stack with its own sheet, plus perks (`crew/effects.ts`)                                                                 |
+| The battlefield's labels | per-unit modifiers via `contexts` (`effects.ts`)                                                                                    |
+| The crew's co-ordination | `cohesionPercent`, widening the fighting front                                                                                      |
 
 `bonuses.test.ts` checks each of these arrives, and each of its assertions fails when that channel
 alone is disconnected.
@@ -335,13 +364,15 @@ alone is disconnected.
 Two of them behave in ways worth knowing:
 
 - **Speed is a difference, not a level.** It reaches the round loop only through `engagementEdge`
-  (`reach = range - their speed`, `closing = speed - their speed` weighted by their range), so a
+  (`reach = range - max(their speed, their range)`, `closing = speed - their speed` weighted by their range), so a
   rebalance that moves every sheet by the same amount moves almost nothing, and a bonus on one side
   moves a lot. `+20% unitSpeedPercent` on 20 Razors against 20 Snipers takes their survivors from
   10.8% to 13.6% over 1500 runs; on the Razors mirror it takes the attacker from 44.4% to 46.9%. It
   is spent again after the fight, on `pursuitSpeed` and `fleeChance`.
-- **Cohesion is capped** at `MAX_COHESION_WIDTH`, so 50% and 100% buy the same ground, and on open
-  ground (frontage 48) a force of 40 already fits and it buys nothing at all.
+- **Cohesion tapers.** It counts in full up to `COHESION_KNEE` (45%) and then closes on
+  `COHESION_CEILING` (65%) without reaching it, so +100% buys about 63.7% of extra ground rather
+  than the same as +50%. On open ground (frontage 48) a force of 40 already fits and it buys nothing
+  at all.
 
 ## What the numbers actually do
 
@@ -395,7 +426,10 @@ bigger force.** Two hundred attackers lost 2.8 men taking a corridor (frontage 1
 defenders, and 20.1 men taking open ground off the same forty. A choke point was doing the attacker
 a favour, because the cap silenced both sides equally while only one of them had a deep pool.
 
-`overstackPenalty` is the price, and two decisions in it are worth keeping:
+**Reverted 2026-09-18.** `overstackPenalty` was the price for a while, and the rest of this section
+describes it as it was; the function no longer exists (see the note in `engine.ts` after `effectiveFrontage`). Measured after the revert, 40 attackers against 40 defenders in a corridor
+win 45.8%, where the penalty held them to 0/60. Two decisions in it are worth keeping if it ever
+returns:
 
 - **It falls on the attacker alone.** The symmetric version was measured first and made narrow
   fights bloodless: both sides are over the width in a corridor, both lose the same share of their

@@ -22,6 +22,7 @@ import { moveMinutes, sendMove, settleMoves } from '../moves/moves.js';
 import { chooseOverseer } from '../testing/overseer.js';
 import { settleMovements } from './movement.js';
 import { cardOn } from '../testing/card.js';
+import { armTheAttack } from '../testing/attack.js';
 
 /**
  * The last hour before a fight, over everything leaving the place of it, and nothing that moves
@@ -108,6 +109,8 @@ function fightOn(
     holdAfterCapture: true,
     wokeSleepers: false,
   });
+  // The attack's least commitment, or the lock calls it off (maintainer, 2026-10-05).
+  armTheAttack(app.repos, id, attacker.baseId);
   return id;
 }
 
@@ -236,11 +239,16 @@ describe('the gate and the district are held by their own fights', () => {
     const refused = await launch();
     expect(refused.statusCode).toBe(409);
     expect(refused.body).toContain('within the hour');
+    // The board says so before anyone presses Send.
+    const board = () =>
+      app.inject({ method: 'GET', url: '/api/missions', headers: auth(home.token) });
+    expect((await board()).json<{ homeLocked?: boolean }>().homeLocked).toBe(true);
 
     // The control: the same party goes once the raid is further off.
     app.db
       .prepare('UPDATE scheduled_battles SET scheduled_for = ? WHERE id = ?')
       .run(new Date(Date.now() + 5 * 3_600_000).toISOString(), raid);
+    expect((await board()).json<{ homeLocked?: boolean }>().homeLocked).toBe(false);
     const sent = await launch();
     expect(sent.statusCode, sent.body.slice(0, 300)).toBe(200);
   });
@@ -249,9 +257,10 @@ describe('the gate and the district are held by their own fights', () => {
 describe('a deployment in the last hour', () => {
   it('lets nobody be pulled back out of the fight, and still takes arrivals', async () => {
     const { app, db } = await makeWorld();
-    const caller = await register(app, 'caller', { razors: 10 });
+    const caller = await register(app, 'caller', { razors: 30 });
     const battleId = await declare(app, caller);
-    expect((await deploy(app, caller, battleId, { razors: 4 })).statusCode).toBe(200);
+    // Twenty-four, so the attack clears the least commitment the lock asks for (2026-10-05).
+    expect((await deploy(app, caller, battleId, { razors: 24 })).statusCode).toBe(200);
     db.prepare('UPDATE troop_movements SET arrives_at = ? WHERE battle_id = ?').run(
       new Date(Date.now() - 1_000).toISOString(),
       battleId,
@@ -270,7 +279,7 @@ describe('a deployment in the last hour', () => {
     expect(refused.statusCode).toBe(409);
     expect(refused.body).toContain('within the hour');
     expect(app.repos.sieges.deployment(battleId, 'attacker', caller.baseId)?.army).toEqual({
-      razors: 3,
+      razors: 23,
     });
     expect((await deploy(app, caller, battleId, { razors: 2 })).statusCode).toBe(200);
   });
@@ -409,6 +418,8 @@ describe('the deploy quote says whether a column makes the mark', () => {
       Math.abs(Date.parse(early.arrivesAt) - (Date.now() + early.minutes * 60_000)),
     ).toBeLessThan(5_000);
 
+    // Committed, so the lock does not call it off before the quote is read (2026-10-05).
+    armTheAttack(app.repos, battleId, caller.baseId);
     db.prepare('UPDATE scheduled_battles SET scheduled_for = ? WHERE id = ?').run(
       new Date(Date.now() + 60_000).toISOString(),
       battleId,

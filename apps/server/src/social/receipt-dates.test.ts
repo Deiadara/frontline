@@ -106,7 +106,7 @@ describe('a receipt settled hours late', () => {
       },
     ]);
     const done = new Date(START.getTime() + durationSeconds * 1000);
-    const row = settleLateAndRead(app, userId, base.id, 'unit_trained', done);
+    const row = settleLateAndRead(app, userId, base.id, 'unit_mustered', done);
     expect(row.createdAt).toBe(done.toISOString());
   });
 

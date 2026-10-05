@@ -102,10 +102,10 @@ export function LeaderboardPage() {
   const rows = filterPlayers(sortPlayers(players, sort), search);
   const youUserId = me.data?.user.id ?? '';
   /*
-   * The podium summarises the board **as ranked**, so it is drawn off the rows in the order the
-   * server sent them rather than off whatever the menu and the search field have left on screen.
-   * A "top three" that reshuffled when somebody typed three letters would be answering a different
-   * question from the one it is labelled with.
+   * The podium summarises the board **as ranked**, so it is drawn off the rows the server sent
+   * rather than off whatever the search field has left on screen: a "top three" that reshuffled
+   * when somebody typed three letters would be answering a different question. Under "Total
+   * infamy" it ranks by total, the figure it prints (maintainer, 2026-10-02); see `playerLeaders`.
    */
   const leaders =
     data?.board === 'players'

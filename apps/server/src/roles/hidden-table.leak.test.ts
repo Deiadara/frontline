@@ -16,7 +16,7 @@ import {
 import { describe, expect, it } from 'vitest';
 import { projectOfficer, projectRecruit } from '../bar/project.js';
 import { barDay, barRoster } from '../bar/roster.js';
-import { ROLE_REQUIREMENTS, roleFit } from './requirements.js';
+import { ROLE_REQUIREMENTS, templateFit } from './requirements.js';
 
 /**
  * B8/B8a: the role requirement table is server-side only.
@@ -61,6 +61,7 @@ const FORBIDDEN_TOKENS = [
   'ROLE_REQUIREMENTS',
   'RoleRequirement',
   'roleFit',
+  'templateFit',
   'weightedAttributesOf',
   'attributeWeightsOf',
   'rollRecruit',
@@ -155,8 +156,8 @@ function roleKeyedLeaksIn(root: unknown): string[] {
     .filter(([trail, value]) => {
       if (PUBLISHED_ROLE_TABLES.has(trail)) return false;
       const keys = Object.keys(value);
-      // Two role ids already make a table. Requiring all 19 (`keys.length >= roleIds.size`) let
-      // any partial copy, 18 roles, or one nested a level down, through untouched.
+      // Two role ids already make a table. Requiring all 13 (`keys.length >= roleIds.size`) let
+      // any partial copy, 12 roles, or one nested a level down, through untouched.
       if (keys.length < 2 || !keys.every((key) => roleIds.has(key))) return false;
       // Public role metadata (display names) is fine; anything structured is a fit hint.
       return Object.values(value).some((entry) => typeof entry !== 'string');
@@ -261,14 +262,14 @@ describe('the Bar roster response (INTERFACES R4)', () => {
     buildings: [],
     buildQueue: [],
     army: {},
-    trainingQueue: [],
+    musterQueue: [],
     training: startingTraining('2026-08-16T00:00:00.000Z'),
     inventory: {},
     fittedUpgrades: [],
     unitLoadouts: {},
     fleet: {},
     commanders: [
-      createCommander('held-1', 'Held Officer', 'chief_medic', { medicine: 34, composure: 30 }, []),
+      createCommander('held-1', 'Held Officer', 'veteran', { medicine: 34, composure: 30 }, []),
     ],
     createdAt: NOW.toISOString(),
   };
@@ -330,12 +331,12 @@ describe('the Bar roster response (INTERFACES R4)', () => {
 
   it('would fire on a leak: the permutation check is not vacuous', () => {
     /*
-     * A positive control for the assertion above: `roleFit` is exactly the shape of hint R4 bans,
+     * A positive control for the assertion above: `templateFit` is exactly the shape of hint R4 bans,
      * and rotating the sheet has to move it. Without this, a projection that dropped every derived
      * number would pass the permutation test by having nothing left to compare.
      *
      * Asked of the **room** rather than of one chair, and that is the fix rather than a loosening.
-     * `roleFit` is a weighted sum over five attributes and a recruit's thirty-five attributes only
+     * `templateFit` is a weighted sum over five attributes and a recruit's thirty-five attributes only
      * carry thirteen to sixteen distinct values, so a rotation lands on an equal sum often enough
      * to matter: measured over a year of rooms, seat zero has at least one tied role on **70 of
      * 365 days**, and the old "all nineteen must move for seat zero" passed on the other 295 by
@@ -347,7 +348,8 @@ describe('the Bar roster response (INTERFACES R4)', () => {
     expect(roster.length).toBeGreaterThan(0);
     const immune = OFFICER_ROLES.filter((role) =>
       roster.every(
-        (one) => roleFit(rotateSheet(one.attributes), role) === roleFit(one.attributes, role),
+        (one) =>
+          templateFit(rotateSheet(one.attributes), role) === templateFit(one.attributes, role),
       ),
     );
     expect(immune, 'a role no rotation in the whole room moves: the check proves nothing').toEqual(
@@ -359,7 +361,8 @@ describe('the Bar roster response (INTERFACES R4)', () => {
     if (!recruit) throw new Error('empty roster');
     const moved = OFFICER_ROLES.filter(
       (role) =>
-        roleFit(rotateSheet(recruit.attributes), role) !== roleFit(recruit.attributes, role),
+        templateFit(rotateSheet(recruit.attributes), role) !==
+        templateFit(recruit.attributes, role),
     );
     expect(
       moved.length,

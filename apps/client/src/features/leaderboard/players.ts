@@ -88,9 +88,21 @@ export function matchScore(username: string, query: string): number | null {
   return null;
 }
 
+/**
+ * How well a row answers to what was typed, on either of its names: the login and the name they go
+ * by, which is the one the board prints (bug pass, 2026-10-02).
+ */
+function entryScore(entry: PlayerStanding, query: string): number | null {
+  const scores = [entry.username, entry.displayName]
+    .filter((name): name is string => name !== undefined)
+    .map((name) => matchScore(name, query))
+    .filter((score): score is number => score !== null);
+  return scores.length === 0 ? null : Math.min(...scores);
+}
+
 /** The rows that answer to what was typed, in the order they were handed over. */
 export function filterPlayers(entries: readonly PlayerStanding[], query: string): PlayerStanding[] {
-  return entries.filter((entry) => matchScore(entry.username, query) !== null);
+  return entries.filter((entry) => entryScore(entry, query) !== null);
 }
 
 /**
@@ -110,7 +122,7 @@ export function suggestPlayers(
 ): PlayerStanding[] {
   if (query.trim() === '') return [];
   return entries
-    .map((entry) => ({ entry, score: matchScore(entry.username, query) }))
+    .map((entry) => ({ entry, score: entryScore(entry, query) }))
     .filter((hit): hit is { entry: PlayerStanding; score: number } => hit.score !== null)
     .sort((a, b) => a.score - b.score || a.entry.rank - b.entry.rank)
     .slice(0, limit)

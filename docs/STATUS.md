@@ -31,7 +31,7 @@ implemented mechanic (the `role` field on `BuildingSpec` is the contract that ke
 ✅ Nexus gating: it caps every other structure at its own level, unlocks the rest as it grows
 (ladder from level 1 to 12), and discounts everyone else's materials and clock.
 
-✅ **Build queue**, four slots and six once the Fabricator's third rung (`Batch Runs`) is
+✅ **Build queue**, four slots and six once the Engineer's third rung (`Batch Runs`) is
 researched, worked sequentially. Materials taken at order time; price and duration frozen onto the
 entry. Settled lazily on read: no scheduler.
 
@@ -50,7 +50,7 @@ metal, and no ceiling at all on caps.
 enforced on both hiring and placement.
 
 ✅ **Modifications**: 89 of them, at least seven per structure, slots opening at levels 5/10/20.
-Researched rather than bought; needs a Lead Engineer. Twelve effect kinds, every one wired to a real
+Researched rather than bought; needs a Engineer. Twelve effect kinds, every one wired to a real
 mechanic. Six families, with a pair synergy and a set bonus for filling all three slots from one.
 
 ✅ **Faction naming**, shown in the HUD and on the district page.
@@ -146,7 +146,7 @@ at a level, a specific modification fitted, or a place of a given kind held. Mos
 needs two or more, and every legendary needs three: a roster reads as a campaign. Razors are the
 one unit with no requirement at all, so a crew on day one has a move.
 
-✅ **Training**: cost and time, a five-slot queue settled lazily, a standing-army cap set by the
+✅ **Mustering**: cost and time, a five-slot queue settled lazily, a standing-army cap set by the
 Gauntlet, and legendary units capped at one.
 
 ### The battle engine (GDD §A5) (`packages/shared/src/battle/`)
@@ -333,24 +333,19 @@ There are five, and each names what would close it:
 ladder on the Right Hand's track, the Monitor's third page, and the whole mission board locked while
 any order is on. The chair also lifts every other officer and the Overseer. `docs/SPEC-server.md`.
 
-## Chairs whose sheet buys nothing (maintainer, 2026-09-22)
+## Chairs whose sheet buys nothing (maintainer, 2026-09-22; closed 2026-10-04)
 
-An audit of all 18 officer roles asked a single question: does the seated officer's sheet change
-any outcome **outside their own research track**? Fourteen do. The Fabricator did not and now cuts
-the yard's bill (`yardCostCutPercent`). Two are deliberately left open, at the maintainer's call,
-to be designed later:
-
-| Chair                     | State                                                                                                                                                                                                                |
-| ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `professor`               | **TODO.** Gates no Scrapyard card and moves no outcome. Duties are intuition, diplomacy, improvisation, cryptography. The Reimagining bench is the obvious home: its odds are fixed today and no sheet touches them. |
-| `instructor_of_the_young` | **TODO.** Gates three cards, but officer drilling pays a flat `TRAINING_GAIN` of 2 regardless of who teaches, so the chair is disconnected from the mechanic it is named after.                                      |
+Closed by the chair rework. Every chair buys something now: one passive each, sized by the seat's
+points (`crew/passives.ts`; GDD §C2d), with the Professor's paying mission experience. The Master
+of Whispers and the Right Hand keep the chair work they already had. The Instructor of the Young
+and the Fabricator are gone.
 
 Two mapping rows are dead and worth knowing before anybody trusts them:
 
-- `OFFICER_FOR_EFFECT.faction_xp_percent` names the `consigliere`, but all four `faction_xp_percent`
+- `OFFICER_FOR_EFFECT.faction_xp_percent` names the `right_hand`, but all four `faction_xp_percent`
   cards are `basic` and a basic card's band sets `mark: null`, so no officer is ever asked for.
-- `OFFICER_FOR_UNIT_FALLBACK` names the `fabricator`, and every one of the 31 unit cards already
-  has a louder stat that `OFFICER_FOR_UNIT_STAT` names, so the fallback never fires.
+- `OFFICER_FOR_UNIT_FALLBACK` names the `salvager`, and every unit card already has a louder stat
+  that `OFFICER_FOR_UNIT_STAT` names, so the fallback never fires.
 
 ---
 

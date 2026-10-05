@@ -65,6 +65,11 @@ export const UNIT_RULES = {
     label: 'Holds the Line',
     description: 'Never breaks while more than half of them are still standing.',
   },
+  steadies: {
+    label: 'Steadying Presence',
+    description:
+      'While it stands and has not broken, nobody else on its side drops below wavering: nobody beside it runs.',
+  },
   wall_breaker: {
     label: 'Wall Breaker',
     description:
@@ -77,7 +82,7 @@ export const UNIT_RULES = {
   jammer: {
     label: 'Jamming',
     description:
-      "Weakens every figure the enemy's modifications add by the jam percent. Against Wonders of Engineering, each Netrunner covers three unit slots of machine: a covered machine loses 55% of its damage and armour, and every extra Netrunner on it cuts deeper, towards 75%. Nothing else.",
+      "Weakens every figure the enemy's modifications add by the jam percent. Against Wonders of Engineering, each unit slot of jammers covers three unit slots of machine, so one Netrunner covers nine: a covered machine loses 55% of its damage and armour, and every extra Netrunner on it cuts deeper, towards 75%. Nothing else.",
   },
   loud: {
     label: 'Loud',
@@ -100,9 +105,10 @@ export type UnitRuleId = keyof typeof UNIT_RULES;
 /**
  * The rules a location, a perk or a research rung may hand to a unit that does not carry it.
  *
- * Every rule but the Wall Breaker, which belongs to the Colossus alone (maintainer, 2026-09-26):
+ * Every rule but the Wall Breaker, which belongs to the Colossus alone (maintainer, 2026-09-26),
+ * and the Saint's Steadying Presence (2026-10-05), which is what makes the one legendary worth it:
  * nullifying every gate and trap in a fight is the one-of-a-kind machine's whole point, and a type
  * rather than a convention is what stops a perk written next month from handing it to a Razor.
  */
-export type GrantableUnitMark = Exclude<UnitRuleId, 'wall_breaker'>;
+export type GrantableUnitMark = Exclude<UnitRuleId, 'wall_breaker' | 'steadies'>;
 export const UNIT_RULE_IDS = Object.keys(UNIT_RULES) as UnitRuleId[];

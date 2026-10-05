@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import * as F from '../../../e2e/fixtures';
 import { unitSlotsUsed, type ActionsResponse } from '@frontline/shared';
-import { fightPhase, onTheRoad, roadCounts, roadIsEmpty } from './road';
+import { fightPhase, onTheRoad, roadCounts, roadIsEmpty, roadRows } from './road';
 
 /**
  * The road is everybody who is not home, from four reads, and the header adds them up.
@@ -123,5 +123,64 @@ describe('who is on the road', () => {
     if (!press) throw new Error('fixture: no press fight');
     expect(fightPhase(press, new Date(Date.parse(press.battle.scheduledFor) - 1))).toBe('waiting');
     expect(fightPhase(press, new Date(press.battle.scheduledFor))).toBe('fighting');
+  });
+});
+
+// Bug pass, 2026-10-02: the tab's badge left out the spy runs and the moves the page lists.
+describe('the number on the road tab', () => {
+  it('counts every row the page draws, the spy runs and the moves included', () => {
+    const road = onTheRoad(F.actionsResponse, F.missionsResponse(new Date(F.BOARD_NOW)), F.battles);
+    const counts = roadCounts(road);
+    expect(
+      road.spies.length + road.moves.length,
+      'fixture: needs a spy run or a move',
+    ).toBeGreaterThan(0);
+    expect(roadRows(road)).toBe(
+      counts.columns +
+        counts.jobs +
+        counts.fights +
+        counts.cells +
+        counts.stationed +
+        road.spies.length +
+        road.moves.length,
+    );
+  });
+});
+
+// Bug pass, 2026-10-02: `muster` is the whole side, and the road counted an ally's reinforcement
+// as the reader's own units.
+describe('a fight an ally reinforced', () => {
+  const press = F.battles.coming.find((view) => view.battle.id === 'press')!;
+  const ally = { army: { razors: 20 }, perimeter: {}, size: 20 };
+  const board = (
+    own: { army: Record<string, number>; perimeter: Record<string, number>; size: number } | null,
+  ) => ({
+    ...F.battles,
+    coming: [{ ...press, muster: { ...press.muster!, ...ally }, own }],
+  });
+
+  it('is not on the road of a crew that sent nobody', () => {
+    const road = onTheRoad(
+      F.actionsResponse,
+      F.missionsResponse(new Date(F.BOARD_NOW)),
+      board(null),
+    );
+    expect(road.fights).toEqual([]);
+  });
+
+  it('counts only what the reader sent', () => {
+    const mine = { army: { razors: 5 }, perimeter: {}, size: 5 };
+    const road = onTheRoad(
+      F.actionsResponse,
+      F.missionsResponse(new Date(F.BOARD_NOW)),
+      board(mine),
+    );
+    const alone = onTheRoad(F.actionsResponse, F.missionsResponse(new Date(F.BOARD_NOW)), {
+      ...F.battles,
+      coming: [],
+    });
+    expect(roadCounts(road).unitSlots - roadCounts(alone).unitSlots).toBe(
+      unitSlotsUsed({ razors: 5 }),
+    );
   });
 });

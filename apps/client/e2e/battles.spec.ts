@@ -110,7 +110,7 @@ test('the list scans, and opening a fight says what is on the ground', async ({ 
   const effective = effectiveStats(
     spec,
     mine.battlefield,
-    { defending: mine.side === 'defender', outnumbered: false },
+    { defending: mine.side === 'defender', outnumbered: 0 },
     noTerritoryEffects(),
   );
   const key: StatKey = 'offense';
@@ -275,6 +275,11 @@ test('the tabs move between what is coming, what came back and what you hold', a
 
   await page.getByTestId('battles-tab-ground').click();
   await expect(page.getByTestId('structures')).toBeVisible();
+  // The gate's level and its worth in a fight, and nothing against spies (maintainer, 2026-10-01).
+  const gate = page.getByTestId('gate-defence');
+  await expect(gate).toContainText('Toughness');
+  await expect(gate).not.toContainText(/spies|points/i);
+  await page.screenshot({ path: 'e2e-out/battles-gate-block.png' });
 
   await page.getByTestId('battles-tab-coming').click();
   await expect(page.getByTestId('coming-battles')).toBeVisible();
@@ -389,10 +394,13 @@ test('a report reads as a document, and a silent one says so instead of showing 
   expect(mine, 'the intimidated are still invisible').toContain('Too intimidated to fire');
   // A ring is a fight now, so what it paid is a number the report has to carry.
   expect(mine).toContain('Lost holding the ring');
+  // Less the infamy row: the other side here is the looters, and infamy is a crew's name
+  // (maintainer, 2026-09-30). It is the last row, so every row above it still lines up.
+  expect(mine.at(-1)).toBe('Infamy earned');
   expect(
     (await labelsOf('theirs')).map((label) => label.trim()),
     'the two ledgers do not line up',
-  ).toEqual(mine);
+  ).toEqual(mine.slice(0, -1));
 
   /*
    * Each side is headed by the crew it is about, in full.
@@ -483,6 +491,49 @@ test('a fight under Directive Xero says how many he turned, and that Died counts
     await expectNothingClippedVertically(page, '[role="dialog"]');
     await page.screenshot({ path: `e2e-out/battles-report-xero-${width}.png`, fullPage: true });
   }
+});
+
+/**
+ * "The Combine's infamy is irrelevant. Don't show it anywhere." (maintainer, 2026-09-30). A fight
+ * on the Combine's ground where the engine credited both sides: the reader's infamy is on their
+ * tile and their ledger, and the Combine's column carries no infamy row at all.
+ */
+test('a report on the Combine’s ground prints no infamy for the Combine', async ({ page }) => {
+  const [first, ...rest] = battles.reports;
+  const analysis = first!.analysis!;
+  const againstTheCombine = {
+    ...analysis,
+    attacker: { ...analysis.attacker, infamy: 64 },
+    defender: { ...analysis.defender, name: 'The Combine', infamy: 212 },
+  };
+  await installApi(page, lateGame);
+  await page.route('**/api/battles', (route) =>
+    route.fulfill({
+      json: {
+        ...battles,
+        reports: [
+          { ...first!, analysis: againstTheCombine, defenderKind: 'government' as const },
+          ...rest,
+        ],
+      },
+    }),
+  );
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.goto('/game/battles');
+  await page.getByTestId('battles-tab-reports').click();
+  await page.getByTestId('read-fight-3').click();
+  const dialog = page.getByRole('dialog');
+  await expect(dialog.getByTestId('report-outcome')).toContainText('+64');
+  await expect(dialog.getByTestId('report-side-mine')).toContainText('Infamy earned');
+  const theirs = dialog.getByTestId('report-side-theirs');
+  await expect(theirs).toContainText('The Combine');
+  await expect(theirs).not.toContainText('Infamy earned');
+  await expect(theirs.getByTestId('report-glyph-infamy')).toHaveCount(0);
+
+  await settleFonts(page);
+  await growPastTheFold(page);
+  await expectNothingClippedVertically(page, '[role="dialog"]');
+  await page.screenshot({ path: 'e2e-out/battles-report-combine-1280.png', fullPage: true });
 });
 
 /**
@@ -650,10 +701,11 @@ test('a quiet day draws no mark', async ({ page }) => {
  * chip on it. The only thing missing was the sum.
  *
  * Asserted as the swing rather than as two pinned percentages, so a retune of her power moves the
- * measurement with it instead of turning this red. The fixture is 50 Razors against a count of 12
- * since the 2026-09-21 ratings retune: 60 against 6 became a walkover with or without her (100%
- * both ways), which is no measurement. Searched on the fixture's own ground (a scrap press, ten
- * wide) with the page's own `forecast`: **73% without her and 20% under her**.
+ * measurement with it instead of turning this red. The fixture is 54 Razors against a count of 12:
+ * 60 against 6 became a walkover with or without her (100% both ways) at the 2026-09-21 ratings
+ * retune, and 50 against 12 fell to about a third without her once morale started reading wounds
+ * (2026-10-05). Searched on the fixture's own ground (a scrap press under rain) with `forecast`
+ * over four seeds: **65 to 77% without her and 3 to 8% under her**.
  */
 test('the forecast counts the Combine legendary standing over the ground', async ({ page }) => {
   const leaderDistrict = 'annexes';
@@ -671,7 +723,7 @@ test('the forecast counts the Combine legendary standing over the ground', async
         },
         role: 'attacker' as const,
         side: 'attacker' as const,
-        muster: { army: { razors: 50 }, perimeter: {}, size: 50 },
+        muster: { army: { razors: 54 }, perimeter: {}, size: 54 },
         enemySize: 12,
       },
       ...battles.coming.slice(1),

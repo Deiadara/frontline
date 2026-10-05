@@ -39,7 +39,7 @@ const base: Base = {
   buildings: [],
   buildQueue: [],
   army: { razors: 8 },
-  trainingQueue: [],
+  musterQueue: [],
   training: startingTraining(NOW),
   inventory: {},
   fittedUpgrades: [],
@@ -134,8 +134,8 @@ const roster: UnitsResponse = {
   fleet: {},
   queue: [],
   resources: STARTING_RESOURCES,
-  trainingCostReduction: 0,
-  trainingSpeedBonus: 0,
+  musterCostReduction: 0,
+  musterSpeedBonus: 0,
   built: [],
 };
 
@@ -250,7 +250,7 @@ beforeEach(() => {
   vi.stubGlobal('fetch', fetchMock);
   fetchMock.mockReset();
   column = nothingWalking;
-  useSession.setState({ token: 'session-token', user: null });
+  useSession.setState({ signedIn: true, user: null });
 });
 
 afterEach(() => {

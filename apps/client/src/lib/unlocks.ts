@@ -25,7 +25,7 @@ export function useUnlockFacts(): UnlockFacts | null {
     level: base.level,
     buildings: base.buildings.map((building) => building.kind),
     // Seated officers only. The bench is the absence of a chair (`CommanderSchema.role`), and a
-    // door gated on a Head of Research wants the person doing the job, not the person on the books.
+    // door gated on a Researcher wants the person doing the job, not the person on the books.
     officers: base.commanders
       .map((officer) => officer.role)
       .filter((role): role is NonNullable<typeof role> => role !== null),

@@ -16,6 +16,8 @@ import {
   type OfficerRole,
   type ResearchResponse,
   type ResearchTrackStatus,
+  canAfford,
+  type Resources,
 } from '@frontline/shared';
 import { NavLink, useLocation, useSearchParams } from 'react-router-dom';
 import { CancelMark } from '../../components/ui/CancelMark';
@@ -36,7 +38,7 @@ import { ErrorNote } from '../../components/ui/ErrorNote';
 /**
  * The research page (GDD §C, §D, §G2, §I1): three tabs and one workspace.
  *
- * **Programmes** is §C, the eighteen officer tracks. **Blueprints** is §D, the documents the crew
+ * **Programmes** is §C, the thirteen officer tracks. **Blueprints** is §D, the documents the crew
  * is assembling out of mission pages. **Reimagining** is §G2, the machine that eats three of those
  * pages and hands back a fourth. They are one screen because they are one question, what the Lab
  * can open next, asked from three directions: time and two chairs, paper, and the bench.
@@ -62,7 +64,7 @@ function ActiveProject({ active, at }: { active: ActiveResearch; at: Date }) {
 
   return (
     <div className="flex flex-col gap-3 p-4">
-      {/* One painted bar, the same one a mission and a training batch draw, so every running clock
+      {/* One painted bar, the same one a mission and a muster batch draw, so every running clock
           in the game reads as the same kind of thing. */}
       <ProgressBar
         progress={researchProgressAt(active, at)}
@@ -85,14 +87,13 @@ function ActiveProject({ active, at }: { active: ActiveResearch; at: Date }) {
 }
 
 /**
- * §C: the eighteen tracks, and what standing on one costs.
+ * §C: the thirteen tracks, and what standing on one costs.
  *
  * A track is an officer's trade. It only moves while that officer is in their chair (§C1b) and
- * while somebody holds the Head of Research post (§C1c), and each rung wants the track's officer at
- * a mark (§C2a). What is not a threshold is a *number*: the Head of Research's own sheet takes a
- * percentage off every clock and the track officer's takes a percentage off every price, and both
- * read the points behind the letter rather than the letter (§C3b), so an afternoon of training
- * moves them.
+ * while somebody holds the Researcher post (§C1c), and each rung wants the track's officer at
+ * a mark (§C2a). What is not a threshold is a *number*: the Researcher's own sheet takes a
+ * percentage off every clock and the track officer's chair pays its one passive, and both read the
+ * points behind the letter rather than the letter (§C3b), so an afternoon of training moves them.
  */
 
 /** One row on the track rail: the sigil, the trade, how far up it the crew is. */
@@ -133,7 +134,7 @@ function TrackRow({
           selected ? 'text-brass-300' : status.mark === null ? 'text-ink-400' : 'text-ink-200',
         )}
       >
-        {/* 7 of the plate's 9, up from 6: the mark is the only thing telling eighteen rows
+        {/* 7 of the plate's 9, up from 6: the mark is the only thing telling thirteen rows
             apart, and it was drawn at two thirds of the space it had. */}
         <TrackSigil role={status.role} className="h-7 w-7" ringed={false} />
       </span>
@@ -142,7 +143,7 @@ function TrackRow({
        *
        * `font-stamp` at 14 with a truncation rather than 13 with `break-words`: the two lists sit
        * one door apart and read as one book, and the wrap was what put a double-barrelled name with
-       * a nickname in it onto two lines and made one row of eighteen taller than the rest.
+       * a nickname in it onto two lines and made one row of thirteen taller than the rest.
        */}
       <span className="min-w-0 flex-1">
         <span className="block truncate font-stamp text-[14px] leading-tight">
@@ -151,7 +152,7 @@ function TrackRow({
         {/*
          * The role truncates, the person does not.
          *
-         * A role is one of eighteen strings this build ships and the rail is sized for the longest
+         * A role is one of thirteen strings this build ships and the rail is sized for the longest
          * of them, so cutting it is impossible. A name is whatever somebody was called: truncating
          * it cut `Wenqing "Compass" Adebayo-Lindqvist` by two pixels, which the sheet's own
          * no-cut-text gate refuses and is right to. It wraps, and the row is a little taller.
@@ -214,18 +215,18 @@ function TrackHeader({
           label={OFFICER_ROLE_LABELS[status.role]}
           who={status.officerName}
           note={
-            status.officerName === null
+            status.officerName === null || status.passive === null
               ? 'Nothing on this track moves until somebody is in the chair.'
-              : `${status.costCutPercent.toFixed(1)}% off every price on this track.`
+              : status.passive
           }
         />
         <ChairNote
-          label={OFFICER_ROLE_LABELS.head_of_research}
+          label={OFFICER_ROLE_LABELS.researcher}
           who={head?.name ?? null}
           note={
             head === null
               ? 'Every track on every trade is shut without one.'
-              : `${head.timeCutPercent.toFixed(1)}% off every research clock.`
+              : `Makes all research ${head.addsPercent.toFixed(1)}% faster.`
           }
         />
       </div>
@@ -264,13 +265,21 @@ function RungCard({
   running,
   pending,
   onStart,
+  shut,
 }: {
   item: LabTech;
   /** True while this very rung is the project on the bench. */
   running: boolean;
   pending: boolean;
   onStart: () => void;
+  /**
+   * Why the server would turn a press away when the rung itself is open: another rung on the
+   * bench, or a price the stockpile cannot cover (bug pass, 2026-10-02). `item.blocker` is the
+   * rung's own gates only, and the button stayed bright over both.
+   */
+  shut: string | null;
 }) {
+  const refusal = item.blocker ?? shut;
   return (
     <li
       data-testid={`tech-${item.id}`}
@@ -353,13 +362,13 @@ function RungCard({
           ) : (
             <button
               type="button"
-              disabled={item.blocker !== null || pending}
+              disabled={refusal !== null || pending}
               data-sound="confirm"
               onClick={onStart}
               className={cn(
                 'group/start relative shrink-0 px-3 py-1.5 font-display text-[11px] font-bold uppercase tracking-[0.14em]',
                 'transition-all duration-150 ease-out',
-                item.blocker === null
+                refusal === null
                   ? 'text-brass-300 hover:-translate-y-px hover:text-brass-100 active:translate-y-px'
                   : 'cursor-not-allowed text-ink-400',
               )}
@@ -367,12 +376,12 @@ function RungCard({
               <DrawnFace
                 face={cn(
                   'transition-all duration-150',
-                  item.blocker === null
+                  refusal === null
                     ? 'fill-brass-500/25 group-hover/start:fill-brass-500/40'
                     : 'fill-surface-950/50',
                 )}
               />
-              <span className="relative">{item.blocker ?? 'Put them on it'}</span>
+              <span className="relative">{refusal ?? 'Put them on it'}</span>
             </button>
           )}
         </div>
@@ -386,33 +395,36 @@ function isOfficerRole(value: string | null): value is OfficerRole {
   return value !== null && (OFFICER_ROLES as readonly string[]).includes(value);
 }
 
-/** The whole §C section: the rail of eighteen trades, and the ten rungs of the one chosen. */
+/** The whole §C section: the rail of thirteen trades, and the ten rungs of the one chosen. */
 function TracksSection({
   data,
   pending,
   onStart,
+  stock,
 }: {
   data: ResearchResponse;
   pending: boolean;
   onStart: (techId: string) => void;
+  /** What the crew holds, or null when every price is waived (the testing build). */
+  stock: Resources | null;
 }) {
   const statuses = data.tracks;
   /*
    * Chairs with somebody in them first, the empty ones gathered below (maintainer, 2026-09-22).
    *
-   * Eighteen trades in catalogue order put the empty chairs wherever the catalogue happened to
+   * Thirteen trades in catalogue order put the empty chairs wherever the catalogue happened to
    * put them, so the one question a player is actually asking of this rail, "who is not covered",
-   * was answered by scanning eighteen rows for a red line. The two groups keep their own internal
+   * was answered by scanning thirteen rows for a red line. The two groups keep their own internal
    * order, so a trade does not move around inside its group as other chairs fill.
    */
   const seated = statuses.filter((entry) => entry.mark !== null);
   const empty = statuses.filter((entry) => entry.mark === null);
   /*
-   * The open trade lives in the URL (`?track=head_of_research`), the way the roster's tabs do.
+   * The open trade lives in the URL (`?track=researcher`), the way the roster's tabs do.
    *
    * It was component state, which made the rail unreachable from anywhere else: the shut
    * Reimagining bench wants to send a player to the one rung that opens it, and a link that can
-   * only say "the Programmes tab" lands them on the Master of Whispers with eighteen rows to read. `replace`,
+   * only say "the Programmes tab" lands them on the Master of Whispers with thirteen rows to read. `replace`,
    * because picking through the trades is browsing rather than navigating.
    */
   const [params, setParams] = useSearchParams();
@@ -518,6 +530,13 @@ function TracksSection({
                 running={running === item.id}
                 pending={pending}
                 onStart={() => onStart(item.id)}
+                shut={
+                  running !== null
+                    ? 'The bench is busy'
+                    : stock !== null && !canAfford(stock, item.cost)
+                      ? 'Short of materials'
+                      : null
+                }
               />
             ))}
         </ul>
@@ -655,8 +674,8 @@ export function ResearchPage() {
       action={
         section === 'reimagining' ? (
           <InfoNote label="How Reimagining Works" drawn ink="iris">
-            Stare at {REIMAGINING_PAGES_SPENT} random pages long enough and new research always
-            turns up.
+            Put in any {REIMAGINING_PAGES_SPENT} pages you hold and the Lab hands back one you have
+            never seen. Once there are none left, it pays experience instead.
           </InfoNote>
         ) : undefined
       }
@@ -729,6 +748,7 @@ export function ResearchPage() {
             <TracksSection
               data={data}
               pending={startTechMutation.isPending}
+              stock={me.data?.admin === true ? null : (me.data?.base?.resources ?? null)}
               onStart={(techId) =>
                 startTechMutation.mutate(
                   { techId },

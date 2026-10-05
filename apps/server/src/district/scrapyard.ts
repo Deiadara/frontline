@@ -16,7 +16,6 @@ import {
   describeAddonEffect,
   describeBlueprintGate,
   findModification,
-  findTech,
   findTrap,
   findUnitModification,
   isAdvancedModification,
@@ -40,13 +39,13 @@ import {
   OFFICER_ROLE_LABELS,
   modificationGateMet,
   modificationPrice,
-  scrapyardDiscountPercent,
+  scrapyardBillCutPercent,
   scrapyardLevelForModification,
   scrapyardLevelForTrap,
   scrapyardLevelForUpgrade,
   scrapyardLevelRefusal,
   scrapyardPrice,
-  yardCostCutPercent,
+  chairPassivePercent,
   discounted,
   spendResources,
   upgradePrice,
@@ -65,13 +64,13 @@ import {
   type TrapSpec,
   type UnitLoadouts,
   type UnitModificationSpec,
+  refitDiscountCut,
 } from '@frontline/shared';
 import { adminCost, adminWaives } from '../admin/mode.js';
 import type { Repositories } from '../db/repos/index.js';
 import { tallyAddonBuilt } from '../feats/tally.js';
 import { officerFitReader } from '../crew/standing.js';
-import { unlockContextFor } from '../units/training.js';
-import { workingOfficer } from '../crew/roster.js';
+import { unlockContextFor } from '../units/muster.js';
 
 /**
  * The Scrapyard's own page (§B9).
@@ -115,23 +114,20 @@ const NO_STANDING: YardStanding = { refitDiscountPercent: 0 };
 const yardLevel = (base: Base): number => buildingLevel(base.buildings, 'scrapyard');
 
 /**
- * What the Fabricator takes off every bill on this bench (maintainer, 2026-09-22).
+ * The Salvager's passive: what they take off the scrap and HQ metal of every bill on this bench
+ * (maintainer, 2026-10-04). It was the Fabricator's cut on every line until that chair left.
  *
- * Their sheet reached nothing outside their own research track: the chair gates no card here
- * (`OFFICER_FOR_UNIT_FALLBACK` never fires, because every unit card has a louder stat already),
- * and nothing else in the game read it. It buys price now, on the same curve and ceiling each
- * research chair already uses on its own track.
- *
- * Read off the **lifted** sheet through `officerFitReader`, so the Overseer's teaching perks, the
- * ground and the Lab all count, exactly as they do for a research chair. Computed once per
- * request at the two entry points and passed down, because the reader walks the whole roster and
- * the answer cannot change between two lines of the same page.
+ * Read off the **lifted** sheet through `officerFitReader`, so the ground, the teaching perks and
+ * the Lab all count. Computed once per request at the two entry points and passed down, because
+ * the reader walks the whole roster and the answer cannot change between two lines of one page.
  */
 function yardCutFor(repos: Repositories, base: Base): number {
-  // Working, not merely seated (maintainer, 2026-09-23): an injured Fabricator cuts nothing.
-  const fabricator = workingOfficer(base.commanders, 'fabricator');
-  if (!fabricator) return 0;
-  return yardCostCutPercent(officerFitReader(repos, base).pointsFor(fabricator, 'fabricator'));
+  // Working, not merely seated (maintainer, 2026-09-23): an injured Salvager cuts nothing. And
+  // settled in (bug pass, 2026-10-05), like every chair's passive.
+  const fit = officerFitReader(repos, base);
+  const salvager = fit.workingIn('salvager');
+  if (!salvager || !fit.chairSettled('salvager')) return 0;
+  return chairPassivePercent('scrapyard_cost', fit.pointsFor(salvager, 'salvager'));
 }
 
 /**
@@ -148,7 +144,8 @@ function upgradeBill(
   cut: number,
 ): PartialResources {
   return scrapyardPrice(
-    discounted(upgradePrice(spec), standing.refitDiscountPercent),
+    // Bent, not stopped (`refitDiscountCut`, maintainer 2026-10-05).
+    discounted(upgradePrice(spec), refitDiscountCut(standing.refitDiscountPercent), 100),
     yardLevel(base),
     cut,
   );
@@ -173,20 +170,15 @@ function documentFor(spec: ModificationSpec | UnitModificationSpec): string | nu
 /**
  * §I4: a trap, and why the yard will not cut one.
  *
- * Two gates, both of them [call, made], in the order the brief words them: the **document** first,
- * because it is the half a player collects page by page and the half they can act on today, then
- * the Lab rung from `TrapSpec.requiresTech`, then the bill. Same order the modifications use, and
- * for the same reason: sending somebody to the Lab for a rung when they are four pages short of
- * the drawings sends them to the wrong building.
+ * The yard's own level, then the **document**, then the bill. The blueprint is the only thing that
+ * opens a trap (maintainer, 2026-10-01: "have the traps just be unlocked by blueprints, and then
+ * made in the scrapyard"); the Lab rung that was a second lock beside it is gone.
  */
 function trapBlockerFor(base: Base, spec: TrapSpec, cut: number, admin = false): string | null {
   const shut = scrapyardLevelRefusal(yardLevel(base), scrapyardLevelForTrap(spec));
   if (shut !== null) return shut;
   if (!blueprintGateMet(base.inventory, 'trap', spec.id)) {
     return describeBlueprintGate('trap', spec.id);
-  }
-  if (!base.research.technologies.includes(spec.requiresTech)) {
-    return `Needs ${findTech(spec.requiresTech)?.name ?? spec.requiresTech} from the Lab`;
   }
   if (adminWaives('cannot_afford', admin)) return null;
   return canAfford(base.resources, trapBill(base, spec, cut)) ? null : 'You cannot cover that';
@@ -267,7 +259,7 @@ function upgradeMessage(
       return `Needs the ${documentFor(spec) ?? 'drawings'}`;
     case 'does_not_fit':
       return 'That does not fit this sheet';
-    case 'cannot_train':
+    case 'cannot_muster':
       return `You cannot field ${findUnit(unitId)?.name ?? 'them'} yet`;
     case 'gauntlet_too_low':
       return describeModificationRequirementRefusal('building_too_low', named);
@@ -342,7 +334,7 @@ function upgradeTargets(
   spec: UnitModificationSpec,
   standingYard: YardStanding,
   markFor: (role: OfficerRole) => OfficerMark | null,
-  trainable: ReadonlySet<string>,
+  musterable: ReadonlySet<string>,
   cut: number,
 ): ScrapyardEntry['targets'] {
   return PLAYER_UNITS.filter((unit) => modificationFitsUnit(spec, unit.id)).map((unit) => {
@@ -350,7 +342,7 @@ function upgradeTargets(
     const refusal = boltOntoUnitRefusal({
       id: spec.id,
       unitId: unit.id,
-      trainable: trainable.has(unit.id),
+      musterable: musterable.has(unit.id),
       fitsUnit: modificationFitsUnit,
       slots,
       yardLevel: yardLevel(base),
@@ -391,9 +383,9 @@ export function projectScrapyard(
    * thirty for the units, on a page that is opened constantly.
    */
   const markFor = officerFitReader(repos, base).markFor;
-  // The Fabricator's cut, once for the page, for the same reason: it walks the whole roster.
+  // The Salvager's cut, once for the page, for the same reason: it walks the whole roster.
   const cut = yardCutFor(repos, base);
-  const trainable = new Set(unlockedUnits(unlockContextFor(repos, base)).map((unit) => unit.id));
+  const musterable = new Set(unlockedUnits(unlockContextFor(repos, base)).map((unit) => unit.id));
 
   const modifications: ScrapyardEntry[] = MODIFICATIONS.map((spec) => {
     const targets = modificationTargets(base, spec, markFor, cut);
@@ -430,7 +422,7 @@ export function projectScrapyard(
   // The unit bench: thirty cards in catalogue order, which is rarity order. The page groups them
   // by the `rarity` on each row rather than by anything it knows about the catalogue.
   const upgrades: ScrapyardEntry[] = UNIT_MODIFICATIONS.map((spec) => {
-    const targets = upgradeTargets(base, spec, standing, markFor, trainable, cut);
+    const targets = upgradeTargets(base, spec, standing, markFor, musterable, cut);
     const requirement = unitModificationRequirement(spec);
     return {
       id: spec.id,
@@ -489,7 +481,9 @@ export function projectScrapyard(
 
   return {
     scrapyardLevel: yardLevel(base),
-    discountPercent: scrapyardDiscountPercent(yardLevel(base)),
+    // The yard's level on every line, and the Salvager on scrap and HQ metal (2026-10-04).
+    discountPercent: scrapyardBillCutPercent(yardLevel(base)),
+    salvagerCutPercent: Math.round(cut * 10) / 10,
     resources: base.resources,
     entries: [...modifications, ...upgrades, ...traps],
   };
@@ -518,7 +512,7 @@ export function buildAddon(
   admin = false,
 ): AddonBuildResult {
   /*
-   * The Fabricator's cut, taken here as well as on the read.
+   * The Salvager's cut, taken here as well as on the read.
    *
    * The two have to agree to the coin: a page that quotes a discounted bill and a write that
    * charges the list price is how a player gets refused for money the screen says they have.
@@ -612,7 +606,7 @@ export function buildAddon(
   const refusal = boltOntoUnitRefusal({
     id: spec.id,
     unitId: target,
-    trainable: unlockedUnits(unlockContextFor(repos, base)).some((unit) => unit.id === target),
+    musterable: unlockedUnits(unlockContextFor(repos, base)).some((unit) => unit.id === target),
     fitsUnit: modificationFitsUnit,
     slots,
     yardLevel: yardLevel(base),

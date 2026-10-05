@@ -15,15 +15,23 @@ from `@frontline/shared`.
   `FORBIDDEN`, `NOT_FOUND`, `USERNAME_TAKEN`, `INVALID_CREDENTIALS`, `OVERSEER_ALREADY_CHOSEN`,
   `UNKNOWN_PRESET`, `NO_BASE`, `INVALID_TARGET`, `WOULD_WASTE`, `INTERNAL`. A `WOULD_WASTE`
   refusal also carries `waste`, the amounts the request would have thrown away.
-- **Auth**: `Authorization: Bearer <jwt>` on everything except `register`, `login`, `/health`.
+- **Auth**: a session on everything except `register`, `login`, `logout`, `/health`. The browser
+  carries it in the `frontline_session` cookie (`HttpOnly`, `SameSite=Strict`, `Path=/api`,
+  `Secure` in production), set by `register` and `login`; a scripted caller may send the same
+  token as `Authorization: Bearer <jwt>`, which wins when both are present (`src/auth/session.ts`).
   JWT payload is `{ sub: userId, ver }` (`JwtPayload` in `src/types.ts`), signed with `JWT_SECRET`
-  via `@fastify/jwt` and good for thirty days (`src/auth/session.ts`). `ver` is the account's
-  `users.session_version`; a token whose version no longer matches, or with no expiry or version
-  (signed before migration 0121), is `401 UNAUTHORIZED`, as is a missing, invalid or expired one.
-  Any authenticated answer to a token more than a day old carries a fresh one in the
-  `x-session-token` response header, and the client swaps it in, so an active player stays signed
-  in indefinitely. `POST /api/auth/logout-all` and `POST /api/settings/password` bump the version,
-  ending every other session, and hand the caller its new token in the same header.
+  via `@fastify/jwt` and good for thirty days. `ver` is the account's `users.session_version`; a
+  token whose version no longer matches, or with no expiry or version (signed before migration
+  0121), is `401 UNAUTHORIZED`, as is a missing, invalid or expired one. Any authenticated answer
+  to a token more than a day old carries a fresh one, as a new cookie to a cookie caller and in
+  the `x-session-token` response header to a Bearer caller, so an active player stays signed in
+  indefinitely. `POST /api/auth/logout-all` and `POST /api/settings/password` bump the version,
+  ending every other session, and hand the caller its new token the same way.
+- **CSRF**: every write (any method but `GET`, `HEAD`, `OPTIONS`) that rides the session cookie,
+  except `register` and `login`, which never act on it, and `POST /api/auth/logout` from any
+  caller not using Bearer, must carry `X-Requested-With: frontline` (`CSRF_HEADER` in
+  `@frontline/shared`), or it is `403 FORBIDDEN` before the body is read (`src/auth/csrf.ts`).
+  A Bearer write needs none: no other site can make a browser attach that header.
 - **Limits**: bodies over 64 KB are refused before parsing, path parameters over 200 characters
   are refused, every id is at most `ID_MAX` (128) characters, and every client-named amount at
   most `REQUEST_AMOUNT_MAX`. Rate limits per account and per address are in
@@ -67,20 +75,29 @@ Body: `RegisterRequestSchema` `{username, password}`.
 - A reserved name (`isReservedName`: the Combine and its leaders, staff words, the seeded bots;
   case, spaces, `_`, `-` and `.` ignored) is refused by the schema → `400 VALIDATION_ERROR`.
 - Create user: `overseer_id = NULL`, bcrypt-hash the password.
-- `201` → `AuthResponseSchema` `{token, user}`.
+- `201` → `AuthResponseSchema` `{token, user}`, and the session cookie.
 
 ### `POST /api/auth/login` (public)
 
 Body: `LoginRequestSchema` `{username, password}`.
 
+- Ten failed attempts against one username (case-insensitive) in fifteen minutes, from any
+  number of addresses, shut it for the rest of the window: `429 RATE_LIMITED` with `Retry-After`,
+  answered before the password is hashed (`LOGIN_FAILURE_LIMIT`, `src/limits/sign-in.ts`). A
+  correct password clears the count. This is on top of the per-address sign-in limit.
 - Unknown username or bcrypt mismatch → `401 INVALID_CREDENTIALS` (same message for both, and
   the same time: an unknown name is compared against a decoy hash).
-- `200` → `AuthResponseSchema` `{token, user}`.
+- `200` → `AuthResponseSchema` `{token, user}`, and the session cookie.
+
+### `POST /api/auth/logout` (public)
+
+Signs this browser out: `200 {ok: true}` with the session cookie overwritten by an expired one.
+Other sessions carry on. Needs the CSRF header even without a cookie, unless the caller uses Bearer.
 
 ### `POST /api/auth/logout-all` (auth)
 
-Ends every session the account has open. `200 {ok: true}`, with this caller's new token in
-`x-session-token`.
+Ends every session the account has open. `200 {ok: true}`, with this caller's new session as a
+cookie, or in `x-session-token` to a Bearer caller.
 
 ### `GET /api/me` (auth)
 
@@ -152,14 +169,16 @@ Every order is the same mix of materials (`UPGRADE_MIX`): 50% planks, 5% high-qu
 scrap, 20% oil and 10% caps, which is a ratio of 10 : 1 : 3 : 4 : 2 against the planks. A kind's
 own catalogue entry sets one number, the planks its first upgrade asks for, and the rest of the
 bill follows from it. That figure runs from 80 for a Pawn Shop to 460 for a Construction Site, so
-the last level on the ladder costs between about 2,700 and about 15,500 planks. Supplies are not
+the last level on the ladder costs between about 2,970 and about 17,050 planks (the 10% rise of
+2026-10-05, `LOCATION_UPGRADE_PRICE_RISE`, included). Supplies are not
 part of it: working ground up is building work, and a crew eats supplies rather than building
 with them.
 
 Each level
-above the first also adds `POPULATION_PER_LOCATION_LEVEL` (3) unit slots on top of the flat
-`POPULATION_PER_LOCATION` (20) every held location pays, and takes 2% off the price and 3% off the
-clock of any unit that location unlocks (`homeTrainingBonus`).
+above the first also adds `UNIT_SLOTS_PER_LOCATION_LEVEL` (3) unit slots on top of the flat
+`UNIT_SLOTS_PER_LOCATION` (20) every held location pays, and takes
+`MUSTER_COST_PER_LOCATION_LEVEL` (1%) off the price and `MUSTER_SPEED_PER_LOCATION_LEVEL` (3%) off
+the clock of any unit that location unlocks (`homeMusterBonus`).
 
 **A capture keeps the level** and only cancels work in progress: `battle/resolve.ts`, not this
 route. The district gate is a separate rule and still resets (`resetGateOnDistrictLost`).
@@ -201,6 +220,40 @@ Materials are taken at order time. Price and duration are read off the district 
 and frozen onto the entry; only the _level_ comes from the queue's projection, so a player may
 queue the Nexus and the structure it unlocks together.
 
+**One sum per channel** (maintainer, 2026-10-01: "make them add"). A structure's own percentage
+and the crew's are added, then bounded once, on five channels:
+
+- **Price:** build-cost cards plus the crew's `buildCostPercent` and any perk naming the structure,
+  through `buildCostCut` (in full to 20, tapering toward 46, since 2026-10-05), every line
+  floored at 1, then the Engineer's passive on what is left. The catalogue sits 10% above its
+  figures (`BUILDING_PRICE_RISE`, and `LOCATION_UPGRADE_PRICE_RISE` on location upgrades). The
+  `building_credit` levels still move the level the bill is written at first.
+- **Captured gate** (`POST /api/city/gate`, `capturedGateCost`; maintainer, 2026-10-05): the
+  Gate's own curve through the same price line, then `CAPTURED_GATE_PRICE_RISE` (1.1). It used to
+  take no discount at all. `gatePricingFor` reads the home district's build-cost cards, the crew's
+  `buildCostPercent` plus its Gate-only `buildingCostPercent`, and the Engineer's passive. What
+  was charged is stored on the row (`upgradePaid`, migration 0146 `captured_gates.upgrade_paid_json`)
+  and `/city/gate/cancel` refunds from that, so an Engineer unseated between the order and the
+  cancel cannot refund more than was paid.
+- **Clock:** the Generator's 2.5 a level, build-time cards and the crew's `buildSpeedPercent`, as
+  points off the clock, through `buildTimeCut` (in full to 35, toward 85). The Generator's
+  two-hour burn is bought with oil and comes off after.
+- **Research clock** (`research/tracks.ts` `minutesWith`): research cards, the crew's
+  `researchSpeedPercent` and the Researcher's cut, through `researchTimeCut` (in full to 30,
+  toward 92). The Lab's own level is not on the clock since 2026-10-02 (maintainer ruling P7-C).
+- **Research price** (`researchItemPrice`): the track officer's cut, then the Lab's 1.5% a level
+  (`labResearchCostCut`), the two multiplied. A programme tier opens every two Lab levels
+  (`labLevelForStep`: the tenth rung of a track needs a Lab at 20), refused as `lab_too_low`.
+- **Every list price fits the store its Nexus allows** (`fittedToTheStore`, P4-A): a bill line, and
+  the Generator's burn, is the catalogue's figure below 80% of what the biggest Apothecary the
+  required Nexus permits holds of it, and bends towards that store above it without reaching it.
+- **Production** (`productionRates`): each producing structure's cards and any complete Plumbing
+  set, plus the crew's production and the resource's yield, on one percentage. No bound.
+- **Storage** (`storageCapacity`): storage cards plus the crew's storage, floored at the cards
+  alone. No bound.
+
+The muster clock and the supplies line keep their own ceilings.
+
 Unlocking is a **clause list** per structure (§A1, §I3), and all of them must hold: `building`
 clauses name another structure at a level (the Nexus rung is the most important instance, not a
 separate rule) and `player_level` clauses name the crew's own level. Several structures carry one
@@ -240,14 +293,22 @@ for (`bar_rooms`, below).
   by the increment, or match the reserve on an untouched table.
 - `POST /api/bar/seal`: `{recruitId, amount}`. The one secret final value, in the last thirty
   minutes. A crew with no open bid may still lock one, and it counts against the table cap.
+- Bids cannot be taken back (maintainer, 2026-10-04). Every bid a crew made today holds its wage
+  against the payroll book until the close, won or lost: one table counts once, at the crew's
+  highest bid there (`max(open, sealed)`, talked down by its negotiators). A new bid or seal must
+  fit the book with every other table's hold on it, and `bidCeiling` is the same figure. The hold
+  is read from today's `bar_bids` only, so what the crew did not win is free again the next day.
 - `POST /api/bar/release`: `{officerId}`. Frees their slice of the payroll book and charges
   `DISMISSAL_WEEKS` of it in caps on the spot. `404 NOT_FOUND` for a stranger, `409
 INSUFFICIENT_CAPS` when the crew cannot cover it.
-- `POST /api/bar/payroll`: `{fromSteps?}`. Buys one step of standing payroll at a server-quoted
-  price. `fromSteps` names the step count the screen showed; a stale one is `409 STALE_STATE`. The
-  ladder has `PAYROLL_STEPS_MAX` rungs: a crew standing on the last one is `409 PAYROLL_AT_MAX`,
-  checked before the stockpile so a crew with the caps is told the real reason, and the ledger's
-  `nextStepCost` is `null` from there on.
+- `POST /api/bar/payroll`: `{fromSteps?}`. Buys one expansion of standing payroll
+  (`PAYROLL_STEP`, a flat 30 caps of capacity, added after the payroll cards rather than multiplied
+  by them) at a server-quoted caps price. `fromSteps` names the count the screen showed; a stale one
+  is `409 STALE_STATE`. There is always another expansion (maintainer, 2026-10-01): 300 caps for
+  the first, then `PAYROLL_STEP_COST_RISE` (60) more for each one already bought, with no ceiling,
+  so `n` cost `300n + 30n(n - 1)`. `payrollStepDiscountPercent` still comes off the price. A crew
+  short of the caps is `409 INSUFFICIENT_RESOURCES`; admin mode waives the charge. Sold from one
+  window that the Bar's and the Nexus's `Increase Payroll` both open.
 
 **Every** route here settles last night's tables before it reads anything (see below), not only the
 read. All five touch state the close moves: the chair it filled, the wage it committed, the tables a
@@ -332,13 +393,49 @@ the world clock closes tables at midnight whether or not anybody is looking) and
 route (so the first player through the door after midnight sees the result on that request,
 whichever request it was).
 
+### The Stackhouse (maintainer, 2026-10-05)
+
+`GET /api/black-market/stackhouse` and `POST /api/black-market/stackhouse/bet`
+(`routes/blackmarket.ts`, `blackmarket/stackhouse.ts`). The book lists every unresolved fight in
+`scheduled_battles` that this crew or a faction member is in (the attacker, the defending base, or
+a deployment row) and that is still more than `STACKHOUSE_CLOSES_MINUTES` (60) from its mark,
+except a fight this crew called itself (`openFights` leaves those out; maintainer, 2026-10-05). A
+crew that could call a fight on Combine or looter ground and bet on the defender was paid to lose
+it. Fights a faction mate called stay on the book. A bet
+(`PlaceStackhouseBetRequestSchema`: battle, side, stake 1 to `STACKHOUSE_MAX_STAKE`) is refused when
+the rung `STACKHOUSE_RESEARCH_ID` is not done, a bet is already riding, the fight is not the crew's
+or its faction's, the crew called it (`own_call`, on either side), betting has closed, or the caps
+are short; the write route also asks for the
+`market` and `black_market` doors. The stake leaves the caps at once (`adminCaps` in admin mode).
+Bets live in `stackhouse_bets` (migration 0145), with a partial unique index that holds one
+unsettled bet per crew.
+
+`settleStackhouse` closes a bet whose fight has landed: `sieges.outcomeOf` reads the stored report's
+`winner`; a match pays `stackhousePayout` (twice the stake), a miss pays nothing, and a fight that
+was abandoned (an under-strength call-off is one, see "Declared battles"), is gone, or whose
+report cannot be read hands the stake back. It runs on the world
+tick right after the battles stage and on both routes before they answer, writes a
+`stackhouse_settled` notification, and tallies `stackhouse_bets` and `stackhouse_wins` for the
+two feat chains.
+
 ### The market and the Runner's lots (market extension)
 
 The Broker (`POST /api/market/barter`) converts by value: what is handed over is priced at
 `RESOURCE_CAP_VALUE`, the cut (`barterRateFor`) is taken, and what comes back is priced the same way
-(`barterQuote`). What it hands over goes into the stores up to their ceiling, and a trade that would
-waste some is answered `409 WOULD_WASTE` until the request carries `acceptWaste: true` (see "The
-stores are a hard ceiling" below). The supply run, taking a listing, withdrawing one and paying in
+(`barterQuote`). He deals in every resource, caps included (maintainer, 2026-10-01; caps are worth
+one), with no daily ration. A trade into caps pays at `brokerPayoutRate`: his rate, but never more
+than the supply run charges this crew for the goods, so buying off the run and selling to him never
+comes back ahead however deep the discount. The caps he pays out are not tallied as
+`resources_earned` (a full warehouse sold in one press would otherwise be most of "A Quarter
+Million"); what he hands over in materials still is. What it hands over goes into the stores up to
+their ceiling, and a trade that would waste some is answered `409 WOULD_WASTE` until the request
+carries `acceptWaste: true` (see "The stores are a hard ceiling" below).
+
+The market discount (`market/discount.ts`) is the crew's `marketDiscountPercent` sources summed and
+put through `60 x s / (s + 60)` (maintainer, 2026-10-01; it was the sum clamped at 45): 20 raw is 15
+off, 45 is 26, 100 is 37.5, and it never reaches 60. `discountedCaps`, `supplyUnitPrice` and
+`brokerRate` all take the raw sum and curve it themselves, so `GET /market` sends the raw sum in
+`marketDiscountPercent` and the client passes it straight back into the same functions. The supply run, taking a listing, withdrawing one and paying in
 a claim all work the same way. Posting one no longer asks, since what a listing brings back waits
 as a claim for 24 hours and the poster is asked when they claim it.
 
@@ -382,7 +479,7 @@ so the inventory updates from the response instead of racing a refetch.
   names the three (maintainer, 2026-09-10); the Lab used to pick the most duplicated itself. The tuple is
   parsed against the page catalogue, so anything but exactly three real page ids is a
   `400 VALIDATION_ERROR` at the door. Then `reimaginingRefusal` re-checks against the _base record_:
-  `not_available` (no Head of Research seated, or the rung not banked), `wrong_page_count`, and
+  `not_available` (no Researcher seated, or the rung not banked), `wrong_page_count`, and
   `pages_not_held` when a named page is not held, or is named more times than it is held. Every one
   is a `409 REIMAGINING_REFUSED` carrying the machine name, and `REIMAGINING_REFUSAL_MESSAGES` in
   shared is the sentence each one prints. A crew that holds or has bound every page in the game is
@@ -486,7 +583,11 @@ stands, and refuses with `409 FACTION_REFUSED` whose message is a `FactionRefusa
   in any rolling week, counted from the sender or from their faction (`invited_too_often_today`,
   `invited_too_often_this_week`; `social/limits.ts`, table `invitation_letters`).
 - `POST /api/factions/answer` `{inviteId, accept}`: accepting needs the Faction door open.
-- `POST /api/factions/leave`: a leader leaving disbands the faction.
+- `POST /api/factions/leave`: `{successorId?}`. A leader leaving disbands the faction, unless they
+  name a member to lead after them (`canNameSuccessor`): that member leads, and the leader leaves as
+  a chief would. `409 FACTION_REFUSED` `not_allowed` for a successor named by anybody but a leader
+  with members, `not_a_member` for one not at the table. Clean slate (`POST /api/admin/reset`)
+  takes the same `{successorId?}` for the faction it walks out of.
 - `POST /api/factions/disband`: the leader only.
 - `POST /api/factions/member` `{userId, action}`: `kick`, `promote`, `demote` or `hand_over`.
   A member who is removed, leaves or is demoted below a rank that may invite loses every
@@ -519,7 +620,8 @@ coin that used to deal two fights on half the boards is gone.
 officers' twenty one marks, F- to S+, and the grade is a fact about the card, the same for anybody
 who reads it: it sets the odds against the leader, what a fight fields (`GRADE_ENEMY_STRENGTH`),
 how much longer than its authored time the job runs (`gradedDurationMinutes`, 8% a mark above the
-job's lowest) and what it pays (`gradePay`, and `fightLift` on a fight). Each template carries the
+job's lowest) and what it pays (`gradePay`, and on a fight `fightPayFactor`: +10% at F- climbing
+geometrically to +200% at S and +250% at S+, maintainer 2026-09-30). Each template carries the
 range it can be dealt at (`grades: [from, to]`); there are three hundred of them
 (`packages/shared/src/mission-catalog/`), and every grade has at least eight of each kind.
 
@@ -533,14 +635,65 @@ The pace is three quarters (2026-09-28, with the level curve and the rank ladder
 late game arrives about two and a half months in): `apps/server/scripts/progression-sim.ts` holds
 the best leader within about a mark of the deal at it, now that the Bar seats officers pitched at
 the city's level and a crew trades its weakest officer up. The level curve is
-`PLAYER_XP_LEVEL_STEP * level ^ PLAYER_XP_LEVEL_POWER` (52 and 1.6): level ninety around day
-seventy nine in the simulation, which leaves out XP from buildings, research, drills and hires. The
-rank ladder costs 60 infamy for the first rung and grows by 1.625 (`notorietyUpgradeCost`), so a
-crew that fights daily buys the tenth rung around day seventy five. Boards are a crew's own: `missionOffers(area,
+`PLAYER_XP_LEVEL_STEP * level ^ PLAYER_XP_LEVEL_POWER` (52 and 1.41, the power down from 1.6 on
+2026-10-01 when the fight premium came down): level ten on day five, forty on day thirty, sixty on
+day forty nine and ninety on day seventy six in the simulation, which leaves out XP from buildings,
+research, drills, hires, declared fights and feats. The rank ladder costs 60 infamy for the first
+rung and grows by 1.625 (`notorietyUpgradeCost`), so a crew that fights daily buys the fourth rung
+around day ten, the seventh around day twenty nine and the tenth around day seventy four. Boards are a crew's own: `missionOffers(area,
 key, level)` is deterministic for one crew on one key, and two crews at different levels see
 different work. A fight's category is its letter: Skirmish (F, E), Battle (D, C), Siege (B, A),
 Mayhem (S). The grade is frozen on the row (`Mission.grade`, migration 0123, which backfilled the
 old `battle_tier` and dropped it).
+
+### What each chair gives (maintainer, 2026-10-04)
+
+There is no best-of sheet. `crewEffects` folds every perk in the room and records the seat points of
+whoever is working each chair (`CrewEffects.chairPoints`); each consumer turns its chair's points
+into the passive where the passive is spent (`chairPassiveOf`, `crew/passives.ts`). The lines a
+player reads are `describeChairPassive` and `describeOverseerPassive`, one decimal, the research
+payload's grain.
+
+| Chair           | Passive                                             | Where it is spent                                    |
+| --------------- | --------------------------------------------------- | ---------------------------------------------------- |
+| Researcher      | research up to 50% faster                           | `research/tracks.ts`, `researchClockFor`             |
+| Fixer           | payroll +50% (the whole book)                       | `bar/hire.ts`, `ledgerFor`                           |
+| Steward         | base unit slots +50% (beds and ground only)         | `districtUnitSlotCapacity`, `district/unit-slots.ts` |
+| Field Commander | infamy +100%, fights against a crew                 | `battle/resolve.ts`, `bankOutcome`                   |
+| Raid Boss       | own damage and vitality x5                          | `crew/leading.ts`, `officerSheetBonusFor`            |
+| Salvager        | Scrapyard scrap and HQ metal half off               | `district/scrapyard.ts`, `yardCutFor`                |
+| Cartographer    | road base half off, before speed (not the gate leg) | `roadMinutes`'s `baseCutPercent`                     |
+| Trader          | market rates even at C+, +25% at S+                 | `brokerRate`, `supplyMarkup`                         |
+| Veteran         | muster cost half off                                | `musterCost`'s `veteranPercent`                      |
+| Engineer        | building and location cost half off                 | `buildingCost`, `upgradeCost`                        |
+| Professor       | mission XP +50%                                     | `progression/award.ts`                               |
+
+The Steward's base (maintainer, 2026-10-05) is the Quarters' beds plus the ground's flat unit
+slots from held locations (`districtUnitSlotCapacity`'s `groundSlots`); flat slots from research
+and perks add on top, unmultiplied. The Cartographer shortens roads only: the gate leg of a move
+(`MOVE_GATE_MINUTES`) takes the column's pace and the crew's travel speed but no Cartographer.
+
+The Overseer's grade (`ROLE_IMPORTANCE.overseer`) lifts every seated officer's irreplaceable and
+essential skills, the first lift source on their sheet (`liftedOfficerSheet`). `GET
+/api/overseer/me` ships `chairs` and `overseerGrade` where it shipped `crewSheet`; `GET /api/crew`
+ships `overseer` and a `passive` per officer; a research track ships `passive` where it shipped
+`costCutPercent`. Migration 0142 renames the five chairs, benches anybody in a removed one and drops
+the forty rungs the catalogue no longer has.
+
+The ground's group lift (the Chapel's mental and the Broadcast Station's social `officer_group`)
+sits outside the officers' lift cap (`MAX_OFFICER_LIFT`, 10) beside the grade since 2026-10-05
+(maintainer): `liftedOfficerSheet` passes it `uncapped`. A Chapel at 3 used to fill the cap on its
+own, so its last seven levels and every teaching perk and rung behind it bought nothing. Paid at
+half (`GROUND_OFFICER_LIFT_SHARE`, 0.5, floored, at least one): +2 at level 1, +6 at level 4 and
++14 at level 10.
+
+**Settling in (2026-10-05).** `POST /api/crew/reassign` stamps `Commander.seatedAt` (in the
+`commanders_json` blob, so no migration; absent reads as settled). For `CHAIR_SETTLE_HOURS` (6)
+after it the chair gives nothing: `crewRoomFor` marks the member `settling` and `crewEffects`
+leaves its seat out of `chairPoints`, `officerLiftRoom` takes no Right Hand who has not settled, and
+`whispersChairPoints` reads null on both sides of a spy contest. Perks, leading and every gate
+that asks for a chair's mark are untouched. `chairFrom` on a crew officer and on a chair line says
+when the chair starts giving.
 
 ### Standing orders: the Right Hand's automations (§C2b)
 
@@ -582,9 +735,11 @@ told to do is a new runner and nothing else. `missions` is the one kind today.
   send the same officer or work the same area.
 - **Never a fight on a location.** A battle here is a battle-kind job off the board. The kind list
   has no entry for attacking ground and the runner table nowhere to put one.
-- **Which job:** at random across every open board, or the best rate when a resource is chosen.
-  Either way only among jobs the slot can actually fill and lead, so it never picks one it cannot
-  send while another is on offer. Stalls (nothing on offer, the named party or officer not free)
+- **Which job:** two modes, by research (maintainer, 2026-10-02). Until Field Promotions, any job
+  it can fill at random across every open board, and the screen says "at random". From that rung,
+  the best: the best job overall by worth per minute (each resource at `RESOURCE_CAP_VALUE`), or
+  the best rate in the resource it was told to chase. Either way only among jobs the slot can
+  actually fill and lead, so it never picks one it cannot send while another is on offer. Stalls (nothing on offer, the named party or officer not free)
   are written to `stalled` and shown; they are not errors. A stalled slot is asked again after
   `STALL_RETRY_MS` (thirty seconds) rather than on every one-second tick, or at once when its
   order is edited.
@@ -622,9 +777,12 @@ A job is a party of runners with a target and a price, sent from the Master of W
   Informants (rung 2), Network Compromise needs Sleeper Lists (rung 7), Total Intelligence needs
   The Whole Wire (rung 10). One job out at a time, two with Two Sets of Eyes (rung 5,
   `CrewEffects.spyPartiesFlat`). The clock is the road twice plus the looking (`spyJobMinutes`: 40
-  to 240 minutes off the Whispers' whole sheet), the same at every tier. Refusals: `409 NO_FORCE`
-  with nobody in the chair, `400 VALIDATION_ERROR` on your own ground, with no road, on a tier the
-  track has not opened (`tier_locked`), or with every party out (`already_out`);
+  to 240 minutes off the Whispers' whole lifted sheet, the one the crew screen draws; the walk is
+  paced off that sheet's speed too), the same at every tier. Refusals: `409 NO_FORCE`
+  with nobody working the chair (empty, benched or hurt), `400 VALIDATION_ERROR` on your own ground, with no road, on a tier the
+  track has not opened (`tier_locked`), with a party of this crew already out on the same place
+  (`watching_here`, `sameSpyTarget`; maintainer, 2026-10-05: call it back or wait, checked before
+  the party count), or with every party out (`already_out`);
   `400 INVALID_TARGET` on empty ground, on a location inside a shut district ("the gate is the
   only thing to read"), or on anything in a city that is not open (`city_closed`); `409 INSUFFICIENT_RESOURCES` without the caps. Answers with the district.
 - `POST /api/city/spy/recall`: `{runId?}`. The named job, or the first one still open to a recall.
@@ -633,18 +791,45 @@ A job is a party of runners with a target and a price, sent from the Master of W
 - The district read carries `spyRuns` (every job out, wherever it is), `spyParties` (how many may
   be out), `spyTiersOpen`, `spyQuote` (`{minutes}`, quoted on any district but home and an
   unclaimed plot) and `spyBlocker` (`no_whispers` | null). Each location carries `latestSpyReport`.
+  `holderFaction` (`{name, badge}` | null) is the table of the crew holding every location, for the
+  painting's "Held by" plaque; null for ground held in pieces, the Combine, the looters, and a crew
+  at no table.
   `GET /api/actions` carries `spyRuns` for the Monitor; `GET /api/battles` carries every report the
   crew ever wrote as `spyReports`.
 
 The contest (`spyScore` against `counterScore`): the spying side is the chair's fit points plus
-`intelYieldPercent` (people and ground; no Whispers rung pays intel since 2026-09-28, so a better
-chair is how a crew spies better), raised by the tier's share (0, 40%, 120%, 160%, 390%).
-The other side is a crew's Consigliere fit points plus `intelResistancePercent` (people only) plus
-ten points per gate level (the home Gate on a player's district, the captured gate on one held
-whole); looter and Combine ground carry flat points off the district's difficulty and the
-location's defence instead. The difference is a budget spent on bodies cheapest first, each body
-costing `1 + stealth / 36` at the stealth the holder actually fields. Accuracy is exposed bodies
-over countable bodies; under 25% the report fails and lists nothing. A report never names a unit
+`intelYieldPercent` (perks and held ground only: the chair's grade is the whole officer side, so no
+other officer's ratings and no rung pay intel, maintainer 2026-10-01; a better chair is how a crew
+spies better), raised by the tier's share (0, 80%, 170%, 210%, 440%; the middle three were 40%, 120% and 160%
+until the cheap tiers were retuned to read an equal mid-game crew at about 40% and 90% once the
+spy bonuses were gone, and Network Compromise was then widened to 2.1 so it is worth its caps;
+Total Intelligence scores 1.5 times what it did at 260%, maintainer 2026-10-01). The spying side is frozen onto the run at the send
+(`spy_runs.chair_points`, `intel_percent`, migration 0135): benching or swapping the Master of
+Whispers mid-job changes nothing, and a run sent before the freeze is read at the settle.
+The other side is the holder's own Master of Whispers' fit points, read exactly as their own jobs
+read them, so two equal chairs cancel and the tier, bonuses and gate decide (maintainer,
+2026-10-01), plus `intelResistancePercent` (perks only, by the same ruling: no rating and no rung)
+plus the district's
+counter-intelligence cards (`counter_intel_points`: Encrypted Core, 14) plus ten points per gate
+level (the home Gate on a player's district, the captured gate on one held whole; none while that
+gate is broken), and that sum is then moved by the holder's other officers
+(`officersSpyDefencePercent`, maintainer 2026-10-01): the mean of Signals and Cryptography over
+every officer seated and working but the Master of Whispers, on their lifted sheets, gives
+`spyDefencePercent`, linear from -10% at 1 to nothing at 30, then `softCap` toward +25% (about +20%
+at 70); a room with nobody but the Master of Whispers reads 0. No route carries the figure: spy
+strength is not public. Nor does any route carry a spy total: `GET /api/overseer/me` leaves
+`PRIVATE_CHANNELS` (`intelYieldPercent`, `intelResistancePercent`) out of its `effects`, and neither
+a captured gate (`CapturedGateView`) nor a Gate's row on the battles board (`StructureDefence`)
+carries its points against spies (maintainer, 2026-10-01). `routes/no-spy-figures.test.ts` sweeps
+every read a player can make for either key and walks every shared response schema for them. Looter and Combine ground carry flat points off the district's
+difficulty and the location's defence instead. The difference is a budget spent on bodies cheapest first, each body
+costing `1 + stealth / 36` at the stealth its owner fields: the holder's garrison at the
+holder's, each posting and Sleeper cell at its own crew's (maintainer, 2026-10-01). Accuracy is
+exposed bodies over countable bodies; under 25% the report fails and lists nothing. Both printed
+figures are rounded before the report is stored (maintainer, 2026-10-01), since exact they gave
+back the whole count: accuracy to the nearest tenth and never 100% unless nothing was missed
+(`roughAccuracy`), and the unseen estimate to 5, 10, the nearest ten, or past a hundred the
+nearest fifty (`roughUnseen`). A report never names a unit
 that is not there, never a Specter (`UnitSpec.unspyable`), and never a Sleeper without Sleeper
 Lists.
 
@@ -654,7 +839,8 @@ slots of what was seen) is the whole report; the accuracy with Second Source (ru
 "unseen" estimate with Counting the Empty Beds (rung 6), dropped again at The Whole Wire, which
 prints `totalSlots`, the exact unit slots of every countable unit standing there, on every report
 including a failed one. The battle board's `enemySize` is null on a slots-only report, and its
-`enemyIntel` line says the slots in words.
+`enemyIntel` line says the slots in words; wherever a report carries The Whole Wire's figure, a
+failed one included, the line says that too (bug pass, 2026-10-01).
 
 Being seen: every job on a crew's ground is found out until Traffic Analysis (rung 3). After it the
 chance to go unnoticed is the Whispers' mark index over 20, from 0 at `F-` to 1 at `S+`
@@ -664,16 +850,17 @@ The world clock writes the report (`settleSpying`, with the other receipts) on t
 stands when the runners arrive, files it for ever, rings `spy_report` with a link to
 `/game/battles?spy=<id>`, bumps `spy_jobs_returned` for every report written, `spy_reports` on a
 report that stood and counted anybody, and `spy_jobs_unnoticed` on a job on a crew's ground that
-was not found out. The holder is told once (`spied_on`): a job found out names the player and the
-crew; a job nobody saw is heard of only with the Consigliere's third rung (which place), and the
-fifth adds who and how many unit slots they counted, found out or not.
+was not found out. The holder is told once (`spied_on`) when a job is found out, with the player
+and the crew; a job nobody saw is never heard of.
 
 Turned Runners (rung 9, `spying/courier.ts`): a world-tick stage after spying files one report a
 day per crew holding the rung, on the first tick of each Athens day. The place is drawn off the
 crew and the day (`courierPick`) from every location and home gate a job could read that is held
 by a crew outside the reader's faction; home districts, looter and Combine ground never count. It
 reads every countable unit, cannot fail, has `tier: null` and `capsPaid: 0`, is never seen, and
-its id is `courier:<baseId>:<day>`, so a restart files it once. It rings `spy_report` and bumps
+its id is `courier:<baseId>:<day>`, so a restart files it once. He comes only while somebody is
+working the Master of Whispers' chair (bug pass, 2026-10-01): a day with the chair empty, benched
+or in bed all day brings nothing, and a chair back at work later that day still gets that day's. It rings `spy_report` and bumps
 `courier_reports` (and `spy_reports` when it counted anybody).
 
 Shared Knowledge (rung 8, `chair_teaches`): while a Master of Whispers is seated and working,
@@ -681,7 +868,8 @@ every other officer seated and working gets +5 stealth, +3 deception and +3 cryp
 lift (`liftedOfficerSheet`, named for the teacher on the receipt). The bench gets nothing.
 
 Migration 0109 adds `spy_runs` and `spy_reports` and drops the six retired Whispers and
-Consigliere rung ids from saves. Migration 0131 moves `tech_loose_talk` to
+Consigliere rung ids from saves. Migration 0135 removes the Consigliere: seated ones go to the
+bench, the track's ten rung ids and any active project on it are dropped. Migration 0131 moves `tech_loose_talk` to
 `tech_written_reports`, then `tech_turned_runners` (old rung 8) to `tech_shared_knowledge`, then
 `tech_compartmentation` (old rung 9) to `tech_turned_runners`, and rebuilds `spy_reports` with a
 nullable `tier` and `exposed_slots`, `units_shown`, `total_slots` and `found_out`.
@@ -780,11 +968,53 @@ below refuses with `409` once the window has shut (`PLACE_UNAVAILABLE`, `RESEARC
   level's fixed duration, which the district read exposes as `upgradingSince`. Answers like
   `/city/upgrade`.
 - `POST /api/city/gate/cancel`: `{districtId}`. The raise's `upgradingSince` (migration 0089) is
-  the clock's start. Answers with the city.
-- `POST /api/training/cancel`: `{sessionId}`. Drops the drill and hands the day's session back.
-  `POST /api/training` itself takes one person on the floor at a time (`TRAINING_BENCHES`, refusal
-  "The floor is taken"); the Professor's fourth rung, Second Chair, adds a bench
-  (`training_benches`), and the response's `benches` says how many the screen may fill.
+  the clock's start, and the refund is ninety percent of `upgradePaid` (migration 0146), falling
+  back to the list price on a row written before it. Answers with the city.
+- `POST /api/training/cancel`: `{sessionId}`. Drops the drill and hands the day's session back
+  to the day it was queued on (`queuedAt`); the drills behind it close up.
+  `POST /api/training` itself queues (maintainer, 2026-10-04): drills run one after another, each
+  starting as the one ahead ends (`nextDrillStart`), and the queue holds two, the running one
+  included (`TRAINING_QUEUE_SLOTS`, refusal "The queue is full"). One place per person, running
+  ("Already in a session") or waiting ("Already in the queue"). The Professor's fourth rung, Second
+  Chair, adds a third place (`training_queue`), and the response's `queueSlots` says how many.
+  Each session lasts the person's own hour, frozen on it as `durationSeconds` when it starts
+  (maintainer, 2026-10-01): `drillSeconds` of their lifted sheet, which takes
+  `50% x (1 - e^(-w / 174))` off the hour with `w = 2 x Speed + Resolve + Organization`, so 1,981 s
+  with all three at 100, 2,370 s at 50 and 3,075 s at 15. Admin mode stores five seconds as before. `GET /api/training`
+  sends the same figure per subject as `sessionSeconds`; the response's own `sessionSeconds` is the
+  plain hour. The settle, the countdown and the cancel window read `durationSeconds` only.
+- The unit muster bench tapers its speed rather than stopping it (maintainer, 2026-10-01, bugs
+  B3): `musterSpeedAfterTaper` is in full to 55 and closes on 80 (it was a hard 60). The cost cut
+  still stops at 50, a price floor, on every line but supplies.
+- The supplies line of a bill takes the cost cut and the supplies-only points on one taper toward
+  70% off (`suppliesLineCut`, maintainer 2026-10-01): the knee is the cost cut, which pays in full,
+  and the Greenhouse and the cards taper from their first point:
+  `g + (70 - g) x (1 - e^(-s / (70 - g)))`. It used to add the two, up to 50 and 40, so a late crew paid a tenth of its supplies
+  or less. The supplies-only sources were nerfed with it: the Greenhouse is half a point a level
+  with no ceiling of its own (it was 2 a level stopped at 30), and the seven supplies cards are
+  halved (Mess Rota 4, Sealed Growrooms 7, Dispensary Apprenticeships 7, Instructor Cadre 8, Kit
+  Store 5, Grey Water Loop 3, Parts Carousel 3). All seven are BASIC now; the four that were
+  ADVANCED or INTRICATE keep their old gates, reach and Scrapyard band through `requires`, `fits`
+  and `yardLevel` (`scrapyardLevelForModification` reads the override before the grade's band): 9
+  and 4 since the yard's levels were spread over twenty on 2026-10-02, the first level of the band
+  they came from.
+- The general muster cut was cut with it (maintainer, 2026-10-01: a strong mid-game crew built
+  for cheap supplies at about 30%). The Armory pays 1 on `LEVEL_SCALE` (1 at level 1, 6 at 10; it
+  was 12 to 66); the two Lab rungs pay 3 and 5 (Unit Costing, Standard Syllabus; they paid 8 and
+  12); the four perks pay 1, 2, 2 and 6 (Range
+  Master, Surplus Dealer, Bar Regular, Headhunter; 5, 8, 8 and 28); Run of the Belt pays 2 (10);
+  a unit's own ground 1 a level (2). Jigs and Fixtures and the Chemistry share went with the chair
+  rework (2026-10-04), and Batch Runs moved to the Engineer's track, where it pays build speed and
+  no muster cut; the Veteran's passive takes up to half off every line of
+  a muster bill on top, outside the floor price (`musterCost`'s `veteranPercent`, shipped as
+  `musterVeteranReduction`). A typical mid-game crew (a Greenhouse 10, Mess Rota and an E
+  Veteran) is about 20% off the supplies line, a strong one about 31%.
+- `GET /api/units` ships `musterSpeedBonus`, `musterSuppliesReduction` and `homeSpeedBonus` as
+  raw sums, which `musterSecondsFor` and `musterCost` taper. Each breakdown list ends on a
+  `Tapering` line: the speed list adds up to the tapered speed, and the supplies list to
+  `suppliesOnlyCut`, what the supplies-only points add over the cost cut, so the cost and supplies
+  pages add up to the line. A unit whose own ground raises its cost cut carries
+  `homeBonus.supplies`, the share of that its supplies-only points lose.
 - `POST /api/units/cancel` and `POST /api/actions/recall` already existed; the unit refund moved
   from ninety-five to ninety percent. `POST /api/missions/recall` now refuses outside the first
   tenth of the outbound leg (it was open until the crew was home).
@@ -792,14 +1022,38 @@ below refuses with `409` once the window has shut (`PLACE_UNAVAILABLE`, `RESEARC
 Every refund above goes into the stores like any other credit: a refund that would not fit is
 answered `409 WOULD_WASTE` until the request carries `acceptWaste: true`.
 
+### Five more channels on tapers (maintainer, 2026-10-05)
+
+Vehicle parts, refits, the black market's infamy discount, travel speed and mission speed each
+stopped dead at a `min` (60, 60, 50, 60 and 50), so a level 5 Rail Yard filled the vehicle cap
+alone and every level, rung and perk past it bought nothing. Each now goes through
+`softCap(points, knee, ceiling)` in `economy/soft-bounds.ts`: face value to the knee, then less for
+every point, never reaching the ceiling. `MAX_MISSION_SPEED_BONUS`, `MAX_TRAVEL_SPEED_BONUS` and
+`MAX_BLACK_MARKET_DISCOUNT` are gone. Sized so a realistic mid and late crew lands near the old
+bound for its phase and a crew that stacks one channel runs ahead of it at falling returns:
+
+| channel                      | function                 | knee / ceiling | old cap |
+| ---------------------------- | ------------------------ | -------------- | ------- |
+| vehicle parts                | `vehiclePartsCut`        | 30 / 70        | 60      |
+| refits                       | `refitDiscountCut`       | 30 / 70        | 60      |
+| black market infamy discount | `blackMarketDiscountCut` | 25 / 65        | 50      |
+| travel speed                 | `travelSpeedCut`         | 30 / 75        | 60      |
+| mission speed                | `missionSpeedCut`        | 25 / 60        | 50      |
+
+Salvage went the same way: the Bone Market, the Rendering Shed, the two salvage rungs and the
+perks add on `salvageRefundPercent`, and the sum reached 155% of what the dead cost.
+`salvageRefundCut` (`battle/salvage.ts`) pays it in full to `SALVAGE_REFUND_KNEE` (50) and closes
+on `SALVAGE_REFUND_CEILING` (100), so 155 points refund about 93.9% and a refund never returns
+what was spent. Every location card on these channels says "(tapers, no hard stop)" (`TAPERS`).
+
 ### The stores are a hard ceiling (maintainer, 2026-09-28)
 
 "You're never past your storage, it will go to waste, the excess, but whenever you do something that
 would push you to waste it has a warning first."
 
 Every credit to a stockpile goes through `district/stores.ts` (`creditBase`, over the shared
-`creditStores`): it lands up to each store's ceiling (`storeCeilings`, the crew's Logistics
-included; caps have none) and the rest is thrown away. A store already standing above its ceiling
+`creditStores`): it lands up to each store's ceiling (`storeCeilings`, the crew's storage
+bonus included; caps have none) and the rest is thrown away. A store already standing above its ceiling
 keeps what it has and takes nothing more. That covers production, mission pay and salvage refunds,
 raid loot and the Bone Market's caps, every market trade and escrow coming home, feat rewards,
 cancel refunds and the Console's resource knob. `district/stores.test.ts` fails on a server source
@@ -837,7 +1091,7 @@ with the counter it answered.
 
 ### Lazy settlement
 
-Every read path that touches a base calls `settleBase`, which runs **the district first, training
+Every read path that touches a base calls `settleBase`, which runs **the district first, mustering
 second and the Lab third**: a batch landing does not feed anything else in the settle, and nothing
 above the Lab reads a technology. There used to be a weekly upkeep pass between the first two,
 taking supplies out of the store for every officer on the books. No recurring charge is left in the
@@ -850,10 +1104,10 @@ Bar, every percentage in the standing fold) stayed shut, and its receipt did not
 player opened the page it points at. `settleResearchFor` folds it into `settleBase` behind its own
 due check, so a read that finished nothing still costs one comparison.
 
-Officer drilling (`settleTrainingFor`) is still the one settle that runs only on its own screen. It
-writes two tables, the base's training book and the Overseer's attributes, and its own contract
-requires both inside one transaction at the call site, which `settleBase` does not provide. Moving
-it is a separate change and `training_done` has no emitter until it happens.
+Officer drilling lands inside `settleBase` as well: the district walk cuts its window at every
+drill that ends (`crewChangesDue`), banks it there (`bankTrainingFor`), and `announceDrills`
+(`crew/training.ts`) sends one `training_done` for every hour that settle banked. The training
+routes call `settleTrainingFor`, which banks and announces the same way.
 
 The district settle walks the window rather than multiplying it. It is cut at each completed
 build so a structure that finished an hour ago is not paid for the three days the district went
@@ -901,8 +1155,25 @@ at for three days resolves to the same result whenever it is next opened.
     another fight, a Sleeper cell, a mission party (`409 MISSION_REFUSED`) and a standing order,
     which stalls. Turning the home army out onto the raid's own ring is not leaving it. Arrivals
     are accepted to the last second and fight.
-  - An unoccupied plot with a fight called on it cannot be claimed: a move there is refused
-    (`under_fire`), and a column already walking there turns home on arrival.
+  - No fight is called on an unoccupied plot (maintainer, 2026-10-04): the call is refused as
+    `empty_ground`, and the plot is taken by walking onto it. A call made on one before that rule,
+    or on ground that emptied after the call, still keeps it shut until it resolves: a move there
+    is refused (`under_fire`), and a column already walking there turns home on arrival.
+  - One fight per place: a second call on a target with a call still unresolved is refused
+    (`already_declared`), whoever makes it and whatever mark it names.
+  - **A losing caller waits a day** (maintainer, 2026-10-05; `lostHereRecently` in
+    `battle/declare.ts`): a crew that called a fight and lost it (the defender won) is refused
+    another call on the same target (`lost_here`) until `LOST_CALL_COOLDOWN_HOURS` (24) after that
+    fight's mark. Only the caller that lost waits; anybody else may call the place at once, and a
+    fight called off with no winner is not a loss.
+  - **An attack needs twenty unit slots at the lock** (maintainer, 2026-10-05;
+    `battle/understrength.ts`). When a pending fight enters its last hour (`insideLock`), the world
+    tick's `under-strength calls` stage, run before the battles stage, counts the attacking side:
+    the caller and every ally, deployment rows standing on it and columns still on the road, line
+    and ring (`attackingSlots`). Under `MIN_ATTACK_UNIT_SLOTS` (20) the fight is called off
+    (`callOff`): every column and row walks home whole, the fight closes with no winner so every
+    Stackhouse bet on it is handed back, and the infamy paid to call it stays spent. The attacker
+    and every crew deployed on it get a `battle_report` notification, "A fight was called off".
   - A fight through a breach (a raid, or a location in a shut district) must be called for before
     the gate comes back up (`breach_closes`, a mark at or after `brokenUntil` is refused). The
     declaration is the only thing that sets a mark, so the settle's call-off of a raid whose gate is
@@ -929,8 +1200,8 @@ at for three days resolves to the same result whenever it is next opened.
   (`409 BATTLE_REFUSED`) for a mark off the half hour, inside eight hours or past twenty-four; for a
   location in a shut district (attack the gate); for a gate on a district that is neither held
   outright nor lived on; for a raid behind a gate that is still standing, or on a plot nobody lives
-  on; for a place the map does not have, ground already called, a fourth simultaneous call, or your
-  own. A call on ground another player's crew holds costs `DECLARE_INFAMY_COST` (100 infamy), taken
+  on; for a place the map does not have, ground already called, ground this crew called and lost
+  in the last day (`lost_here`), a fourth simultaneous call, or your own. A call on ground another player's crew holds costs `DECLARE_INFAMY_COST` (100 infamy), taken
   when the row is written and never handed back; Combine ground, looters and empty ground cost nothing
   (`declareInfamyCost`). A crew that cannot cover it is refused last, after every refusal it could
   answer by picking a different target or mark. Admin mode waives the price with the rest of them.
@@ -1029,7 +1300,7 @@ what a won raid costs):
   `RAID_DISRUPTION_HOURS` (6) the district's **structures** make `raidDisruptionPercent(blow)` less.
   The settle walk hands it to `productionRates` as `raidCutPercent`, which scales the structures'
   own output before the held ground's is added, so the ground runs whole. Nothing else is cut: the
-  crew's bonuses, the chair rungs, the Lab and the training breakdown run at full strength.
+  crew's bonuses, the chair rungs, the Lab and the muster breakdown run at full strength.
 
   The curve is `RAID_CUT_ASYMPTOTE x blow / (blow + RAID_CUT_HALF_BLOW)` (60 and 1), the hyperbola
   the Collective rule uses: no clamp, every bit of blow costs something, each costs less. A light
@@ -1069,13 +1340,14 @@ district, resolved history included, so the repo carries no legacy branch.
   directions: a leader in a fight cannot lead a run, and a leader on a run cannot be named to a
   fight. A spy job holds nobody: the runners are the Master of Whispers' people, sent from the
   chair.
-- `POST /api/battles/trap`: `{locationId, trapId}`. One armed trap per location, gated on the Lab.
+- `POST /api/battles/trap`: `{locationId, trapId}`. One armed trap per location. A trap is cut at the Scrapyard off its
+  blueprint alone; no Lab rung gates it (maintainer, 2026-10-01).
 - `POST /api/battles/boost`: `{battleId, boostId}`. Burns a name on one fight, and only the crew
   whose fight it is may do it, so an ally cannot spend the slot the principal was going to use.
   **A name is final** (maintainer, 2026-09-12): it cannot be swapped, cleared or refunded, taking the
   same name twice is `409 BOOST_REFUSED`, and a crew already at its cap is refused the same way.
   The cap is `BattleView.boostSlots`: one, plus `CrewEffects.battleBoostsFlat`, which the Field
-  Commander's last research rung raises by one. `BattleView.boostIds` is what has been burned, in
+  Commander's eighth research rung, Two Names, raises by one. `BattleView.boostIds` is what has been burned, in
   order. Two names stack by adding their percentages (`battle/resolve.ts`). A crate of contraband
   can be named on several coming fights and the first to land spends it; when that was the last of
   it in the bag, its id comes off every other fight it was named on and frees that slot
@@ -1264,7 +1536,8 @@ and the wreck share on the settle all read it.
 that turns those two numbers into minutes, and every road in the game goes through it: the march to
 a fight, a mission's travel leg, a spy job at the Master of Whispers' own speed, and the city view's
 estimates at speed 0. The **speed divides** (`base / (1 + speed/100)`) and the crew's
-**travel reduction multiplies what is left**, capped at `MAX_TRAVEL_SPEED_BONUS`. The effective
+**travel reduction multiplies what is left**, bent by `travelSpeedCut` (in full to 30, closing
+on 75; it was a hard `MAX_TRAVEL_SPEED_BONUS` of 60 until 2026-10-05). The effective
 speed a road reads is the sheet after the Scrapyard's fitted upgrades and the crew's
 `unitSpeedPercent` channel, which is the same figure `battle/effects.ts` hands the engine.
 

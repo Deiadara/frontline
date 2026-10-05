@@ -58,7 +58,7 @@ and the parts worth copying are these.
 | `click`   | any ordinary button, and every ghost (secondary) button                    | soft mechanical click, 91ms |
 | `confirm` | primary and danger buttons: the presses that spend, commit or destroy      | low two-tone confirm, 290ms |
 | `page`    | any `a[href]`, which in this app is always a router link to another screen | rising swish, 145ms         |
-| `done`    | a mission home, a build, research or training finishing                    | bright chime, 490ms         |
+| `done`    | a mission home, a build, research, a muster or training finishing          | bright chime, 490ms         |
 | `call`    | calling a fight, and a fight resolving or being declared against you       | low struck gong, 120ms      |
 | `refuse`  | the server, or the screen, refusing something                              | short low thud, 100ms       |
 

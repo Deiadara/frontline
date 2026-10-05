@@ -22,6 +22,9 @@ import {
   gainInfamy,
   homeBattlefield,
   infamyPointsForFled,
+  chairPassiveOf,
+  musterCost,
+  salvageRefundCut,
   infamyForKills,
   infamyPointsForRingDead,
   infamyForRaidWon,
@@ -52,12 +55,14 @@ import {
   boostBundle,
   blackMarketBoost,
   findBattleBoost,
+  mergeAimed,
+  NO_AIM,
   findBlackMarketGood,
   stashCount,
   takeFromStash,
   emptyDeployment,
   type BattleDeployment,
-  type BattleBoost,
+  type BoostBundle,
   type CrewEffects,
   findUnit,
   districtDisplayName,
@@ -90,6 +95,7 @@ import {
   describeWaste,
 } from '@frontline/shared';
 import { creditBase } from '../district/stores.js';
+import { musterRatesFor, ratesForUnit, type MusterRates } from '../units/muster.js';
 import { settleBasesById } from '../district/settle.js';
 import { putControl } from '../city/actions.js';
 import { liftedOfficerSheet, officerLiftRoom, standingEffectsFor } from '../crew/standing.js';
@@ -114,7 +120,8 @@ import {
   tallyRunnersCaught,
   tallyUnitsRouted,
   tallyGateLevelsBroken,
-  tallyTrapKills,
+  tallyTrapSprung,
+  tallyCasualtiesRecovered,
 } from '../feats/tally.js';
 import { controlsIn, crewsInFight, defendingBaseOf, residentOf, targetName } from './ground.js';
 import { awardPlayerXp } from '../progression/award.js';
@@ -523,20 +530,66 @@ function springAnyTrap(repos: Repositories, battle: ScheduledBattle, attacking: 
 /**
  * What a dead force is worth back in caps, at a given refund percentage (§A4).
  *
- * Priced off the units' own catalogue cost rather than a flat per-unit figure, so losing a
- * Colossus refunds a Colossus. Empty when the crew holds nothing that pays a refund, which is the
- * common case and costs nothing to compute.
+ * Priced off what the units cost **this crew** to muster, not off the catalogue (bug pass,
+ * 2026-10-05): with a Veteran taking half off and the salvage sources stacking to 89%, a dead
+ * unit refunded more caps than it was bought for, and a repeatable battle job turned losses into
+ * profit. Per unit, so losing a Colossus still refunds a Colossus. Empty when the crew holds
+ * nothing that pays a refund, which is the common case and costs nothing to compute.
  */
-export function refundFor(dead: Army, percent: number): PartialResources {
+export function refundFor(dead: Army, percent: number, rates: MusterRates): PartialResources {
   if (percent <= 0) return {};
   let caps = 0;
   for (const [unitId, count] of Object.entries(dead)) {
     const unit = findUnit(unitId);
-    if (!unit) continue;
-    caps += (unit.cost.caps ?? 0) * count * (percent / 100);
+    if (!unit || count <= 0) continue;
+    // Through `ratesForUnit`, as the muster bill is: a unit's home location takes its own cut too.
+    const own = ratesForUnit(rates, unit);
+    const paid = musterCost(unit, count, own.costPercent, 0, own.veteranPercent).caps ?? 0;
+    // Bent towards 100% and never reaching it (maintainer, 2026-10-05), whatever the sources sum to.
+    caps += paid * (salvageRefundCut(percent) / 100);
   }
   const whole = Math.floor(caps);
   return whole > 0 ? { caps: whole } : {};
+}
+
+/**
+ * A side's dead, refunded crew by crew (bug pass, 2026-10-05): each contributor's share of the dead
+ * at its own salvage percent and its own muster prices. The whole side's dead used to go on the
+ * principal's refund, so a caller holding a Bone Market was paid for an ally's twenty Razors and
+ * the ally got nothing for their own. Shares split as the survivors are (`splitSurvivors`). Allies
+ * are credited here; the principal's share is returned for the caller's own ledger.
+ */
+function refundEachCrew(
+  repos: Repositories,
+  /** What each crew put into the side's line (`lineByCrew`): the weights the dead are split by. */
+  lines: ReadonlyMap<string | null, Army>,
+  lost: Army,
+  principalId: string | null,
+  now: Date,
+): PartialResources {
+  let principal: PartialResources = {};
+  const rows = [...lines].map(([baseId, army]) => ({ baseId, army }));
+  const shares = splitSurvivors(rows, lost, (row) => row.army);
+  // Whatever no line accounts for is the principal's, as `lineByCrew` credits it with everything
+  // no ally sent: a split skips a unit id nobody committed rather than dropping it on the floor.
+  const placed = [...shares.values()].reduce<Army>((all, army) => mergeArmies(all, army), {});
+  shares.set(principalId, mergeArmies(shares.get(principalId) ?? {}, removeForce(lost, placed)));
+  for (const [baseId, dead] of shares) {
+    if (baseId === null) continue;
+    const crew = repos.bases.findById(baseId);
+    if (!crew) continue;
+    const salvage = standingEffectsFor(repos, crew, now).salvageRefundPercent;
+    const refund = refundFor(dead, salvage, musterRatesFor(repos, crew, now));
+    if (baseId === principalId) {
+      principal = refund;
+      continue;
+    }
+    if (Object.keys(refund).length === 0) continue;
+    const credit = creditBase(repos, crew, refund, now);
+    repos.bases.updateResources(baseId, credit.resources);
+    tallyResourcesEarned(repos, baseId, credit.landed);
+  }
+  return principal;
 }
 
 /**
@@ -551,17 +604,20 @@ function payTrapSetter(
   const setter = repos.bases.findById(trap.setterId);
   const earned = infamyForKills(trap.killed);
   if (!setter || earned <= 0) return;
+  const standing = standingEffectsFor(repos, setter, trap.now);
   const banked = bankOutcome(
     setter.economy,
     trap.district,
     false,
     earned,
     trap.now,
-    standingEffectsFor(repos, setter, trap.now).infamyGainPercent,
+    // The setter's Field Commander too: the side it sprang on is always a crew (2026-10-04).
+    standing.infamyGainPercent + chairPassiveOf(standing, 'field_commander', 'battle_infamy'),
   );
   creditFaction(repos, setter, setter.economy, banked);
   repos.bases.updateEconomy(setter.id, banked);
-  tallyInfamyEarned(repos, setter.id, earned);
+  // What was banked, the ground's gain on it, as the feat's own line says ("gross").
+  tallyInfamyEarned(repos, setter.id, banked.infamy - setter.economy.infamy);
 }
 
 /** §D7 and §D8 in one write, from one reading of the district. */
@@ -573,15 +629,20 @@ function bankOutcome(
   now: Date,
   /** §A4: what the ground adds to a name (the Graveyard, the Spire). Percent, never negative. */
   infamyGainPercent = 0,
+  /**
+   * Who held the ground until the win (bug pass, 2026-10-05). The premium is for taking it off the
+   * Combine, and it read the district's allegiance alone, so a plot one player took off another in
+   * the CCS paid the state's 40 and the seat's 75: two accounts trading it back and forth netted 41
+   * infamy a call each.
+   */
+  heldBy: ScheduledBattle['defender']['kind'] = 'government',
 ): EconomyState {
   const target = raidTargetOf(district);
+  const fromTheState = heldBy === 'government' && target.allegiance === 'government';
   const earned =
     killedInfamy +
     (won
-      ? infamyForRaidWon({
-          fromTheState: target.allegiance === 'government',
-          seatOfPower: target.isSeatOfPower,
-        })
+      ? infamyForRaidWon({ fromTheState, seatOfPower: fromTheState && target.isSeatOfPower })
       : 0);
   return {
     ...economy,
@@ -845,6 +906,9 @@ export function callOff(repos: Repositories, battle: ScheduledBattle, now: Date)
  * one has to find the bag empty rather than spending a syringe twice; `stashCount` is what makes
  * that a miss instead of a duplicate.
  */
+/** No name and no crate: nothing on any channel. */
+const NO_BUNDLE: BoostBundle = { ...NO_BOOST, aimed: NO_AIM };
+
 function appliedBoost(
   repos: Repositories,
   baseId: string,
@@ -852,9 +916,9 @@ function appliedBoost(
   force: Army,
   /** This side's own line rules, threaded to `oneBoost`. See the note there. */
   rules: LineRules,
-): BattleBoost {
+): BoostBundle {
   const ids = deployment?.boostIds ?? [];
-  if (!deployment || ids.length === 0) return NO_BOOST;
+  if (!deployment || ids.length === 0) return NO_BUNDLE;
 
   /*
    * Two names stack (maintainer request, 2026-09-12), and they stack by adding their percentages.
@@ -863,14 +927,15 @@ function appliedBoost(
    * Commander's track: two forty-percent names compound to +96% and add to +80%, and the second
    * name is meant to be worth the first one again rather than worth more than it.
    */
-  return ids.reduce<BattleBoost>((total, id) => {
+  return ids.reduce<BoostBundle>((total, id) => {
     const one = oneBoost(repos, baseId, deployment.battleId, id, force, rules);
     return {
       offensePercent: total.offensePercent + one.offensePercent,
       defensePercent: total.defensePercent + one.defensePercent,
       moralePercent: total.moralePercent + one.moralePercent,
+      aimed: mergeAimed(total.aimed, one.aimed),
     };
-  }, NO_BOOST);
+  }, NO_BUNDLE);
 }
 
 /** One name or one crate, priced against the force it reaches. A crate is spent by reading it. */
@@ -883,7 +948,8 @@ function oneBoost(
   /**
    * What this side counts as a fighting sheet (bug pass, 2026-09-23).
    *
-   * `boostBundle` prices a narrow boost by the share of **the line** it reaches, and it defaulted
+   * `boostBundle` folded a narrow boost by the share of **the line** it reaches (it still does for
+   * morale; attack and defence are aimed at the units named since 2026-10-02), and it defaulted
    * to `bareLineRules()` here, which leaves the porters out. The engine under `carriers_fight`
    * puts those same porters *in* the line, so the denominator and the fight disagreed: a crew
    * holding that channel stuffed the deployment with carriers, bought the narrowest name it
@@ -892,19 +958,20 @@ function oneBoost(
    * broke: "a crew whose porters do fight passes it in, so the two answers cannot drift apart".
    */
   rules: LineRules,
-): BattleBoost {
+): BoostBundle {
   const name = findBattleBoost(id);
   if (name) return boostBundle(name.effect, force, rules);
 
   const crate = findBlackMarketGood(id);
   const stash = repos.blackMarket.stashFor(baseId);
-  if (!crate || stashCount(stash, id) <= 0) return NO_BOOST;
+  if (!crate || stashCount(stash, id) <= 0) return NO_BUNDLE;
   // Spent, whatever happens next. A crate is applied to *a* battle, not to a won one, and leaving
   // it in the bag on a loss would make contraband a free retry.
   const left = takeFromStash(stash, id);
   repos.blackMarket.writeStash(baseId, left);
   if (stashCount(left, id) <= 0) freeSpentCrate(repos, baseId, battleId, id);
-  return blackMarketBoost(crate) ?? NO_BOOST;
+  // Contraband reaches the whole force: there is no weight class on a syringe.
+  return { ...(blackMarketBoost(crate) ?? NO_BOOST), aimed: NO_AIM };
 }
 
 /**
@@ -930,13 +997,21 @@ function freeSpentCrate(repos: Repositories, baseId: string, spentOn: string, id
  * Additive, like every other source in this struct: two syringes and a held Fight Pit are simply
  * added, because multiplicative stacking is where a strategy game's numbers stop being explainable.
  */
-function boosted(effects: CrewEffects, boost: BattleBoost): CrewEffects {
+function boosted(effects: CrewEffects, boost: BoostBundle): CrewEffects {
   // §A4: the Black Clinic's syringes (`stimmed`), on the same channels a bought boost lands on
   // rather than on a parallel one, so the engine reads one number per channel.
   const armed = stimmed(effects);
-  if (boost === NO_BOOST) return armed;
+  if (boost === NO_BUNDLE) return armed;
+  // A name aimed at a tier or a unit lands on those units only (P10-C), on the same per-tier and
+  // per-unit channels a perk or a held location uses.
+  const aimed = mergeAimed(
+    { unitTierPercent: armed.unitTierPercent, unitKindPercent: armed.unitKindPercent },
+    boost.aimed,
+  );
   return {
     ...armed,
+    unitTierPercent: aimed.unitTierPercent,
+    unitKindPercent: aimed.unitKindPercent,
     unitOffensePercent: armed.unitOffensePercent + boost.offensePercent,
     /*
      * A bought defence lands on the unit, not on the ground.
@@ -951,7 +1026,7 @@ function boosted(effects: CrewEffects, boost: BattleBoost): CrewEffects {
      *
      * `unitVitalityPercent` is the same quantity spent the same way, minus the defender-only
      * clause: `defensePercent` is itself folded into `vitalityBonus`. It also sits outside
-     * `MAX_HELD_DEFENSE`, which is correct rather than incidental, since that ceiling is on what
+     * `heldDefense`, which is correct rather than incidental, since that curve is on what
      * *holding built ground* is worth and a syringe is not built ground.
      */
     unitVitalityPercent: armed.unitVitalityPercent + boost.defensePercent,
@@ -1196,8 +1271,8 @@ function resolveOne(
    * A fight reads other people's crews, and those rows are only as current as their owners' last
    * read. The home defence was the roster as it stood then, so units finished on the bench since
    * were not at home; the break-in plundered a stockpile missing every hour of production since;
-   * a building finished in between did not stand. The survivors were then written back with the
-   * stale training queue. Settled here, inside the fight's own transaction, and every read below
+   * a building finished in between did not stand. The survivors were then written back with a
+   * stale `musterQueue`, the units still being recruited. Settled here, inside the fight's own transaction, and every read below
    * is a fresh one.
    */
   settleBasesById(
@@ -1262,9 +1337,8 @@ function resolveOne(
    */
   const attackerStanding = standingEffectsFor(repos, attacker, now);
   const defenderStanding = defenderBase ? standingEffectsFor(repos, defenderBase, now) : undefined;
-  // §D7: what a name bought for *this* fight, folded down against the force it actually reaches.
-  // See `battle/boosts.ts`: a boost on one weight class is worth its own percentage times that
-  // class's share of the unit slots standing on the ground. Contraband reaches the whole force.
+  // §D7: what a name bought for *this* fight. A name aimed at a weight class or one unit lands on
+  // those units at its full percentage (`boostBundle`); contraband reaches the whole force.
   const attackerBoost = appliedBoost(
     repos,
     attacker.id,
@@ -1280,7 +1354,7 @@ function resolveOne(
         assembled.defending,
         defenderStanding ?? bareLineRules(),
       )
-    : NO_BOOST;
+    : NO_BUNDLE;
 
   /*
    * §B7's two situational perks, applied where the situation is actually known.
@@ -1612,7 +1686,7 @@ function resolveOne(
   tallyBattleSide(repos, {
     attacked: false,
     won: !attackerWon,
-    // Less the trap's, which `tallyTrapKills` pays to whoever set it rather than by the line.
+    // Less the trap's, which `tallyTrapSprung` pays to whoever set it rather than by the line.
     kills: settlement.defenderKills - forceSize(trap.killed),
     districtId: battle.target.districtId,
     principal: defendingCrew,
@@ -1737,7 +1811,7 @@ function resolveOne(
   }
 
   // The trap goes to whoever buried it, which may be an ally rather than the crew being attacked.
-  if (trap.ownerBaseId) tallyTrapKills(repos, trap.ownerBaseId, forceSize(trap.killed));
+  if (trap.ownerBaseId) tallyTrapSprung(repos, trap.ownerBaseId, forceSize(trap.killed));
   tallyGateLevelsBroken(
     repos,
     attacker.id,
@@ -1780,6 +1854,11 @@ interface SettleInput {
 }
 
 interface Settlement {
+  /**
+   * The infamy each principal **banked** (bug pass, 2026-10-02): the kill ledger, the raid premium
+   * on a win, and the ground's gain on top. The report and the `infamy_earned` feat used to read
+   * the bare kill ledger, so taking a Combine location with nobody killed reported 0 and paid 65.
+   */
   attackerInfamy: number;
   defenderInfamy: number;
   haul: PartialResources;
@@ -1831,11 +1910,11 @@ function applyOutcome(repos: Repositories, input: SettleInput): Settlement {
    * one that was already true here: a routed force leaves its wounded on the field, which is what
    * routing means.
    *
-   * Two sources, added. `casualtyRecoveryPercent` is the crew's own medicine and whatever ground
-   * they hold; `infirmaryRecoveryPercent` is the structure, and it was authored, drawn on the base
+   * Two sources, added. `casualtyRecoveryPercent` is the crew's own medic points (perks and the
+   * Joker's seat) and whatever ground they hold; `infirmaryRecoveryPercent` is the structure, and it was authored, drawn on the base
    * screen and read by nothing at all until this line. `recoverCasualties` puts the total through
    * a diminishing curve that never reaches half (`casualtyRecoveryShare`), so a crew with a deep
-   * Infirmary and a chief medic does not walk everybody home.
+   * Infirmary and every recovery perk does not walk everybody home.
    */
   const winnerBase = attackerWon ? attacker : defenderBase;
   const winnerRecovery =
@@ -1868,8 +1947,8 @@ function applyOutcome(repos: Repositories, input: SettleInput): Settlement {
     ? removeForce(outcome.winnerLosses, executed)
     : outcome.winnerLosses;
   const winnerDead = attackerWon
-    ? mergeArmies(recoverCasualties(recoverable, winnerRecovery), executed)
-    : recoverCasualties(recoverable, winnerRecovery);
+    ? mergeArmies(recoverCasualties(recoverable, winnerRecovery, slotsOf), executed)
+    : recoverCasualties(recoverable, winnerRecovery, slotsOf);
   /*
    * ...and who they were, which the report needs as much as the roster does.
    *
@@ -1880,6 +1959,8 @@ function applyOutcome(repos: Repositories, input: SettleInput): Settlement {
    * casualties: two numbers for one fight, and the one on the screen was the wrong one.
    */
   const recovered = removeForce(outcome.winnerLosses, winnerDead);
+  // Counted for the crew whose medics did it: the winner's principal, whose Infirmary this was.
+  if (winnerBase) tallyCasualtiesRecovered(repos, winnerBase.id, forceSize(recovered));
   const attackerDead = attackerWon ? winnerDead : outcome.killed;
   const defenderDead = attackerWon ? outcome.killed : winnerDead;
 
@@ -2183,7 +2264,18 @@ function applyOutcome(repos: Repositories, input: SettleInput): Settlement {
    * branch, so on every other path the refund was computed, reported on the battle card, and never
    * banked. A mechanic that is visible and inert is worse than one that is absent.
    */
-  let haul: PartialResources = refundFor(attackerLost, attackerGround.salvageRefundPercent);
+  let haul: PartialResources = refundEachCrew(
+    repos,
+    // The line as it walked in: what the trap left standing plus what it took.
+    lineByCrew({
+      principal: attacker.id,
+      whole: mergeArmies(input.committed, input.trapKilled),
+      allies: attackerRows,
+    }),
+    attackerLost,
+    attacker.id,
+    now,
+  );
   /**
    * §A4: whether the raiders actually got into a structure, which is what leaves the place limping.
    *
@@ -2207,7 +2299,10 @@ function applyOutcome(repos: Repositories, input: SettleInput): Settlement {
     attackerWon,
     attackerInfamy,
     now,
-    attackerGround.infamyGainPercent,
+    attackerGround.infamyGainPercent +
+      // The Field Commander's passive pays on fights against another crew only (2026-10-04).
+      (defenderBase ? chairPassiveOf(attackerGround, 'field_commander', 'battle_infamy') : 0),
+    battle.defender.kind,
   );
   creditFaction(repos, attacker, attacker.economy, attackerBanked);
   // The declarer's own survivors walk home below (`homeFromTheFight`); the roster is what stayed.
@@ -2281,7 +2376,10 @@ function applyOutcome(repos: Repositories, input: SettleInput): Settlement {
           districtId: battle.target.districtId,
           holderBaseId: loserBaseId,
           heldWholeBefore: loserHeldWhole,
-          now,
+          // At the fight's mark, not the settle's clock (bug pass, 2026-10-05): a fight settled
+          // after its breach had closed kept a level 7 gate on a district it no longer held whole,
+          // so the same fight came out two ways depending on when the server was up.
+          now: new Date(battle.scheduledFor),
         });
       }
       // ...and a district taken end to end sends every Sleeper cell in it home (2026-09-29).
@@ -2325,6 +2423,7 @@ function applyOutcome(repos: Repositories, input: SettleInput): Settlement {
   }
 
   // --- the defender's own books ---
+  let defenderInfamyBanked = 0;
   if (defenderBase) {
     /*
      * A home defence's survivors *are* the roster. They were taken out of it to fight.
@@ -2356,7 +2455,7 @@ function applyOutcome(repos: Repositories, input: SettleInput): Settlement {
       repos.bases.updateArmy(
         defenderBase.id,
         mergeArmies(principalLine, principalRing),
-        defenderBase.trainingQueue,
+        defenderBase.musterQueue,
       );
       homeFromTheFight(repos, battle, defenderBase.id, {}, principalMachines, now);
     } else {
@@ -2371,7 +2470,23 @@ function applyOutcome(repos: Repositories, input: SettleInput): Settlement {
     }
     // Their Bone Market too. Holding one is worth the same whichever end of the fight you are on,
     // which is the whole reason it pays on a loss as well as a win.
-    const theirRefund = refundFor(defenderFallen, defenderGround?.salvageRefundPercent ?? 0);
+    const theirRefund = refundEachCrew(
+      repos,
+      lineByCrew({
+        principal: defenderBase.id,
+        whole: mergeArmies(assembled.defending, assembled.defenderRing),
+        allies: [
+          ...repos.sieges.side(battle.id, 'defender').map((row) => ({
+            baseId: row.baseId,
+            army: mergeArmies(row.army, row.perimeter),
+          })),
+          ...assembled.posted,
+        ],
+      }),
+      defenderFallen,
+      defenderBase.id,
+      now,
+    );
     if (Object.keys(theirRefund).length > 0) {
       /*
        * Added to the stockpile as it stands *now*, not as it stood when this settle began.
@@ -2407,10 +2522,15 @@ function applyOutcome(repos: Repositories, input: SettleInput): Settlement {
       false,
       defenderInfamy,
       now,
-      defenderGround?.infamyGainPercent ?? 0,
+      // Every attacker is a crew, so the defender's Field Commander always pays here (2026-10-04).
+      defenderGround
+        ? defenderGround.infamyGainPercent +
+            chairPassiveOf(defenderGround, 'field_commander', 'battle_infamy')
+        : 0,
     );
     creditFaction(repos, defenderBase, defenderBase.economy, defenderBanked);
     repos.bases.updateEconomy(defenderBase.id, defenderBanked);
+    defenderInfamyBanked = defenderBanked.infamy - defenderBase.economy.infamy;
   }
   if (allyTrapSetter !== null) {
     payTrapSetter(repos, { setterId: allyTrapSetter, district, killed: input.trapKilled, now });
@@ -2421,7 +2541,7 @@ function applyOutcome(repos: Repositories, input: SettleInput): Settlement {
    *
    * Written before the declarer's own line below only so the two reads cannot interleave: each
    * ally's base is re-read here rather than carried, because nothing else in this settle has
-   * touched them and a stale copy would drop whatever they trained while the column was away.
+   * touched them and a stale copy would drop whatever they mustered while the column was away.
    */
   for (const [allyId, share] of attackerShares) {
     if (allyId === null || allyId === attacker.id) continue;
@@ -2513,6 +2633,19 @@ function applyOutcome(repos: Repositories, input: SettleInput): Settlement {
       emptyDeployment(battle.id, defenderBase.id, 'defender', now.toISOString()),
     );
   }
+  /*
+   * ...and every ally whose posting stood on the ground (bug pass, 2026-10-05). A posting has no
+   * row of its own, so an ally who lost three of four posted Razors was never told and never saw
+   * the report. The same empty row: it carries no units, and the splits above are already done.
+   */
+  for (const posted of assembled.posted) {
+    if (posted.baseId === null || posted.baseId === defenderBase?.id) continue;
+    if (repos.sieges.side(battle.id, 'defender').some((row) => row.baseId === posted.baseId))
+      continue;
+    repos.sieges.putDeployment(
+      emptyDeployment(battle.id, posted.baseId, 'defender', now.toISOString()),
+    );
+  }
   // What the raid leaves broken, worked out before the receipts so the resident's can say it, and
   // written last (below).
   const disruption = raided && input.resident ? disruptionAfter(repos, input) : null;
@@ -2560,7 +2693,7 @@ function applyOutcome(repos: Repositories, input: SettleInput): Settlement {
     }
   }
 
-  repos.bases.updateArmy(attackerNext.id, attackerNext.army, attackerNext.trainingQueue);
+  repos.bases.updateArmy(attackerNext.id, attackerNext.army, attackerNext.musterQueue);
   repos.bases.updateEconomy(attackerNext.id, attackerNext.economy);
   homeFromTheFight(
     repos,
@@ -2616,8 +2749,8 @@ function applyOutcome(repos: Repositories, input: SettleInput): Settlement {
   }
 
   return {
-    attackerInfamy,
-    defenderInfamy,
+    attackerInfamy: attackerBanked.infamy - attacker.economy.infamy,
+    defenderInfamy: defenderInfamyBanked,
     haul,
     lootWasted,
     attackerKills: forceSize(defenderFallen),
@@ -2706,7 +2839,9 @@ function breakIn(
      * that day is the district, and losing it takes the district's gate down to level 1: see
      * `city/gates.ts`.
      */
-    repos.sieges.breakGate(battle.target.districtId, breachExpiry(now));
+    // From the mark, like everything else about the fight: a tick that got round to it three hours
+    // late (a restart settles last night's battles) used to leave the door off for 27.
+    repos.sieges.breakGate(battle.target.districtId, breachExpiry(new Date(battle.scheduledFor)));
     return { haul: {}, raided: false };
   }
   if (battle.target.kind !== 'district' || !resident) return { haul: {}, raided: false };
@@ -2857,4 +2992,9 @@ function withoutWaste(
     if (kept > 0) landed[key] = kept;
   }
   return landed;
+}
+
+/** A unit's size in slots, for who the medics bring back first: the biggest. */
+function slotsOf(unitId: string): number {
+  return findUnit(unitId)?.unitSlots ?? 1;
 }

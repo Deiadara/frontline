@@ -1,10 +1,10 @@
 import {
+  DEFAULT_CITY_ID,
   MAX_WAGE_DISCOUNT,
   committedWage,
   DISMISSAL_WEEKS,
   MAX_OPEN_AUCTIONS,
   PAYROLL_BASE,
-  PAYROLL_STEPS_MAX,
   districtUnitSlotCapacity,
   noTerritoryEffects,
   ATTRIBUTE_NAMES,
@@ -41,6 +41,7 @@ import {
   OFFICER_ROLES,
   flatRoom,
   NO_FREE_BED_TEXT,
+  nextMinimumBid,
 } from '@frontline/shared';
 import { fileURLToPath } from 'node:url';
 import type { FastifyInstance } from 'fastify';
@@ -61,6 +62,7 @@ import {
   type HireRefusal,
 } from './hire.js';
 import { reserveFor, settleBarAuctions } from './auction.js';
+import { barRoomOf } from './room.js';
 import { MAX_CALIBRE, recruitmentCeiling } from '../characters/generate.js';
 import {
   BAR_OPEN_DOOR_FLOOR,
@@ -128,7 +130,7 @@ async function makeApp({ admin = false } = {}): Promise<{ app: FastifyInstance; 
 function fillEveryChair(app: FastifyInstance, baseId: string, prefix: string): void {
   const base = app.repos.bases.findById(baseId);
   if (!base) throw new Error('no base');
-  const chairs = recruitSlotsFor(app.repos, base);
+  const chairs = recruitSlotsFor(base);
   app.repos.bases.updateCommanders(
     base.id,
     OFFICER_ROLES.slice(0, chairs).map((role, index) =>
@@ -145,7 +147,7 @@ function fillEveryBed(app: FastifyInstance, baseId: string): void {
   app.repos.bases.updateArmy(
     base.id,
     { ...base.army, razors: (base.army.razors ?? 0) + spare },
-    base.trainingQueue,
+    base.musterQueue,
   );
 }
 
@@ -187,6 +189,16 @@ async function makePlayer(
     baseId: overseer.json<{ base: { id: string } }>().base.id,
     username,
   };
+}
+
+/**
+ * Lifts a crew to `level`. A player opens the Bar at its door level, which is one officer slot
+ * (maintainer, 2026-09-30), so a test that seats somebody before bidding needs the second.
+ */
+function raiseTo(app: FastifyInstance, player: Player, level: number): void {
+  const base = app.repos.bases.findById(player.baseId);
+  if (!base) throw new Error('no base');
+  app.repos.bases.updateProgression(base.id, level, base.progression);
 }
 
 async function readBar(app: FastifyInstance, player: Player): Promise<BarResponse> {
@@ -236,13 +248,16 @@ function seal(app: FastifyInstance, player: Player, recruitId: string, amount: n
 const errorOf = (body: string): { code: string; message: string } =>
   (JSON.parse(body) as { error: { code: string; message: string } }).error;
 
+/** Level 7: the Bar is open and the slot ladder has reached two, so two officers fill the books. */
+const TWO_SLOT_LEVEL = 7;
+
 function makeBase(overrides: Partial<Base> = {}): Base {
   return {
     id: 'base-1',
     ownerId: 'user-1',
     name: 'Test Hold',
     districtId: 'neon-docks',
-    level: 1,
+    level: TWO_SLOT_LEVEL,
     isBot: false,
     resources: {
       caps: 5000,
@@ -258,7 +273,7 @@ function makeBase(overrides: Partial<Base> = {}): Base {
     buildings: [],
     buildQueue: [],
     army: {},
-    trainingQueue: [],
+    musterQueue: [],
     training: startingTraining('2026-08-16T00:00:00.000Z'),
     inventory: {},
     fittedUpgrades: [],
@@ -719,9 +734,18 @@ describe('§H7/§H8: putting a won recruit on the books', () => {
     expect(written.commanders).toBeUndefined();
   });
 
-  it('holds §H8: 2 slots at level 1, +1 per level', () => {
-    expect(playerLevelGrants(1).recruitSlots).toBe(2);
-    expect(playerLevelGrants(2).recruitSlots).toBe(3);
+  it('holds §H8: one slot with the Bar, another every two levels', () => {
+    expect(playerLevelGrants(4).recruitSlots).toBe(0);
+    expect(playerLevelGrants(5).recruitSlots).toBe(1);
+    expect(playerLevelGrants(TWO_SLOT_LEVEL).recruitSlots).toBe(2);
+    expect(playerLevelGrants(8).recruitSlots).toBe(2);
+    expect(playerLevelGrants(9).recruitSlots).toBe(3);
+
+    // Below the Bar's level the books hold nobody at all.
+    expect(sign(fakeRepos().repos, makeBase({ level: 4 }), reserveFor(recruit()))).toEqual({
+      kind: 'refused',
+      reason: 'no_slots',
+    });
 
     const full = makeBase({
       commanders: [
@@ -734,10 +758,59 @@ describe('§H7/§H8: putting a won recruit on the books', () => {
       reason: 'no_slots',
     });
 
-    // The same crew one level up has room, because §H8 is read off W6's grant table.
-    expect(sign(fakeRepos().repos, { ...full, level: 2 }, reserveFor(recruit())).kind).toBe(
+    // One level up is still two slots; the next arrives two levels on, because §H8 is read off
+    // W6's grant table.
+    expect(sign(fakeRepos().repos, { ...full, level: 8 }, reserveFor(recruit()))).toEqual({
+      kind: 'refused',
+      reason: 'no_slots',
+    });
+    expect(sign(fakeRepos().repos, { ...full, level: 9 }, reserveFor(recruit())).kind).toBe(
       'signed',
     );
+  });
+
+  /*
+   * Maintainer, 2026-09-30: a crew holding more officers than its level now allows (a save from
+   * before the slot ladder) keeps every one of them, and signs nobody until it is back under.
+   */
+  it('keeps a crew over its slots whole, and signs nobody new until it is back under', () => {
+    const roles = ['cartographer', 'trader', 'salvager', 'salvager'] as const;
+    const over = makeBase({
+      commanders: roles.map((role, index) => createCommander(`o${String(index)}`, 'O', role, {})),
+    });
+    const { repos, written } = fakeRepos();
+    expect(sign(repos, over, reserveFor(recruit()))).toEqual({
+      kind: 'refused',
+      reason: 'no_slots',
+    });
+    expect(written.commanders, 'a refusal rewrites nobody off the books').toBeUndefined();
+
+    // Three officers at two slots is still over; two of them gone is under, and the Bar opens.
+    const stillOver = { ...over, commanders: over.commanders.slice(0, 3) };
+    expect(sign(fakeRepos().repos, stillOver, reserveFor(recruit())).kind).toBe('refused');
+    const under = { ...over, commanders: over.commanders.slice(0, 1) };
+    expect(sign(fakeRepos().repos, under, reserveFor(recruit())).kind).toBe('signed');
+  });
+
+  it('never puts more officers on the books than there are chairs', () => {
+    const ceiling = OFFICER_ROLES.length;
+    expect(recruitSlotsFor(makeBase({ level: 500 }))).toBe(ceiling);
+    // Thirteen chairs since 2026-10-04: the last slot opens at 29, so 27 is one short.
+    expect(recruitSlotsFor(makeBase({ level: 27 }))).toBe(ceiling - 1);
+  });
+
+  // The level is the only source (maintainer, 2026-10-01: "Remove the +1 at the bar mechanic"):
+  // the two rungs that used to add a slot pay a universal bonus now and nothing at the Bar.
+  it('counts the level alone, whatever the Lab has finished', () => {
+    const research = {
+      active: null,
+      technologies: ['tech_the_growth_curve', 'tech_succession_planning'],
+    };
+    for (const level of [9, 20, 35]) {
+      expect(recruitSlotsFor(makeBase({ level, research })), `level ${level}`).toBe(
+        playerLevelGrants(level).recruitSlots,
+      );
+    }
   });
 
   it('will not sign the same person twice', () => {
@@ -843,9 +916,9 @@ describe('§H7/§H8: putting a won recruit on the books', () => {
    * Somebody let go mid-drill takes their hour with them (2026-09-21).
    *
    * A training session is keyed by subject id and nothing but this path can orphan one. It was
-   * harmless while a stranded session only blocked its own subject; with one bench on the floor
-   * (`TRAINING_BENCHES`) it blocks every drill the crew can start, for the rest of the hour, on a
-   * screen that reads "0 of 1 bench in use" and offers no way to clear it.
+   * harmless while a stranded session only blocked its own subject; with a queue of fixed length
+   * (`TRAINING_QUEUE_SLOTS`) it holds a place nobody can see, on a screen that offers no way to
+   * clear it.
    *
    * Both halves are pinned: the session goes, and the day's allowance comes back, because nothing
    * was learned in an hour that was cut short.
@@ -1096,7 +1169,8 @@ describe('§H7a: bidding at the Bar', () => {
     // A book wide enough that the level-40 room's prices cannot be what refuses the third bid.
     app.repos.bases.updateEconomy(base.id, {
       ...base.economy,
-      payroll: { ...base.economy.payroll, purchasedSteps: 40 },
+      // 400 flat expansions of 30: 12,000 of room.
+      payroll: { ...base.economy.payroll, purchasedSteps: 400 },
     });
 
     const grown = await readBar(app, player);
@@ -1109,6 +1183,106 @@ describe('§H7a: bidding at the Bar', () => {
     if (!spare) throw new Error('fixture: no fourth table');
     const allowed = await bid(app, player, spare.recruitId, spare.nextBid);
     expect(allowed.statusCode, allowed.body.slice(0, 300)).toBe(200);
+  });
+
+  /**
+   * Every bid holds its wage against the payroll book until the close, won or lost (maintainer,
+   * 2026-10-04; P1-A, 2026-10-02). A crew with room for one wage leading two tables signed whoever
+   * sat in the lowest seat at midnight and lost the other for want of payroll.
+   */
+  it('holds a bid against the book even once a rival is in front', async () => {
+    const { app } = await makeApp();
+    const player = await makePlayer(app, 'reserved_book');
+    const rival = await makePlayer(app, 'reserved_rival');
+    const bar = await readBar(app, player);
+    const [first, second] = openTables(bar);
+    if (!first || !second) throw new Error('fixture: two tables needed');
+    // In wages, the talked-down figure the book is charged (`committedWage`).
+    const wage = (amount: number) => committedWage(amount, bar.wageDiscountPercent);
+    const outbid = nextMinimumBid(first.reserve, first.nextBid);
+    // Room for either wage on its own and not for both.
+    const room = wage(first.nextBid) + wage(second.nextBid) - 1;
+    const base = app.repos.bases.findById(player.baseId)!;
+    app.repos.bases.updateEconomy(base.id, {
+      ...base.economy,
+      payroll: {
+        ...base.economy.payroll,
+        commitments: { 'someone-else': bar.payroll.capacity - room },
+      },
+    });
+
+    expect((await bid(app, player, first.recruitId, first.nextBid)).statusCode).toBe(200);
+    expect((await bid(app, rival, first.recruitId, outbid)).statusCode).toBe(200);
+    // Outbid, and the wage is still held: the screen's "bid up to" says so, and so does the route.
+    expect((await readBar(app, player)).bidCeiling).toBeLessThan(second.nextBid);
+    const refused = await bid(app, player, second.recruitId, second.nextBid);
+    expect(refused.statusCode).toBe(409);
+    expect(errorOf(refused.body).message).toContain('payroll');
+  });
+
+  /*
+   * An open bid and a higher sealed value on one table hold the higher once (bug pass,
+   * 2026-10-04: the open-phase version could not fail, because a raise overwrites its own row).
+   * Room for the sealed value and a second table's lock exactly: one cap less is refused, which
+   * holds that the sealed value is what counts, and the exact room goes through, which holds that
+   * the open bid under it is not counted on top.
+   */
+  it('holds the higher of an open bid and a sealed value, once', async () => {
+    const { app } = await makeApp();
+    const player = await makePlayer(app, 'raise_once');
+    const bar = await readBar(app, player);
+    const [first, second] = openTables(bar);
+    if (!first || !second) throw new Error('fixture: two tables needed');
+    const wage = (amount: number) => committedWage(amount, bar.wageDiscountPercent);
+    const sealedAtFirst = first.nextBid + 100;
+    const sealedAtSecond = second.reserve;
+    // A book wide enough to hold both locks, so the room left is set by the commitment alone.
+    const wide = app.repos.bases.findById(player.baseId)!;
+    app.repos.bases.updateEconomy(wide.id, {
+      ...wide.economy,
+      payroll: { ...wide.economy.payroll, purchasedSteps: 400 },
+    });
+    const capacity = (await readBar(app, player)).payroll.capacity;
+    const roomOf = (room: number) => {
+      const base = app.repos.bases.findById(player.baseId)!;
+      app.repos.bases.updateEconomy(base.id, {
+        ...base.economy,
+        payroll: {
+          ...base.economy.payroll,
+          commitments: { 'someone-else': capacity - room },
+        },
+      });
+    };
+    roomOf(wage(sealedAtFirst) + wage(sealedAtSecond));
+
+    expect((await bid(app, player, first.recruitId, first.nextBid)).statusCode).toBe(200);
+    vi.setSystemTime(SEALED);
+    const locked = await seal(app, player, first.recruitId, sealedAtFirst);
+    expect(locked.statusCode, locked.body.slice(0, 600)).toBe(200);
+
+    roomOf(wage(sealedAtFirst) + wage(sealedAtSecond) - 1);
+    const short = await seal(app, player, second.recruitId, sealedAtSecond);
+    expect(short.statusCode).toBe(409);
+    expect(errorOf(short.body).message).toContain('payroll');
+
+    roomOf(wage(sealedAtFirst) + wage(sealedAtSecond));
+    const exact = await seal(app, player, second.recruitId, sealedAtSecond);
+    expect(exact.statusCode, exact.body.slice(0, 600)).toBe(200);
+  });
+
+  it('has no way to take a bid back', async () => {
+    const { app } = await makeApp();
+    const player = await makePlayer(app, 'no_withdraw');
+    const { auction } = openTable(await readBar(app, player));
+    expect((await bid(app, player, auction.recruitId, auction.nextBid)).statusCode).toBe(200);
+    const withdrawn = await app.inject({
+      method: 'POST',
+      url: '/api/bar/withdraw',
+      headers: { authorization: `Bearer ${player.token}` },
+      payload: { recruitId: auction.recruitId },
+    });
+    expect(withdrawn.statusCode).toBe(404);
+    expect((await readBar(app, player)).auctionsUsed).toBe(1);
   });
 
   it('takes no open bid once the table seals, and no lock before it does', async () => {
@@ -1237,7 +1411,8 @@ describe('§H7a: bidding at the Bar', () => {
     expect(bar.recruits.some((r) => r.askingWage !== null)).toBe(true);
   });
 
-  it('seats one more once Succession Planning is finished', async () => {
+  // Research stopped paying officer slots (maintainer, 2026-10-01): the Bar's total is the level's.
+  it('seats no more once Succession Planning is finished', async () => {
     const { app } = await makeApp();
     const player = await makePlayer(app, 'planning_operator');
     const base = app.repos.bases.findById(player.baseId);
@@ -1245,12 +1420,44 @@ describe('§H7a: bidding at the Bar', () => {
     const before = (await readBar(app, player)).slotsTotal;
     expect(before).toBe(playerLevelGrants(base.level).recruitSlots);
 
-    // The Right Hand's ninth rung: two deep in every chair, including one more chair.
+    // The two rungs that used to add a slot pay a universal bonus now.
     app.repos.bases.updateResearch(base.id, {
       ...base.research,
-      technologies: [...base.research.technologies, 'tech_succession_planning'],
+      technologies: [
+        ...base.research.technologies,
+        'tech_succession_planning',
+        'tech_the_growth_curve',
+      ],
     });
-    expect((await readBar(app, player)).slotsTotal).toBe(before + 1);
+    expect((await readBar(app, player)).slotsTotal).toBe(before);
+  });
+
+  /*
+   * Maintainer, 2026-09-30: a crew over its slots (a save from before the ladder) keeps everyone,
+   * and the table says so rather than only "no room".
+   */
+  it('refuses a crew over its slots a table, keeps its officers, and says why', async () => {
+    const { app } = await makeApp();
+    const player = await makePlayer(app, 'over_the_limit');
+    const base = app.repos.bases.findById(player.baseId);
+    if (!base) throw new Error('no base');
+    const held = [
+      createCommander('held-1', 'One', 'cartographer', {}),
+      createCommander('held-2', 'Two', 'trader', {}),
+      createCommander('held-3', 'Three', null, {}),
+    ];
+    app.repos.bases.updateCommanders(base.id, held);
+
+    const bar = await readBar(app, player);
+    expect(bar.slotsUsed).toBe(3);
+    expect(bar.slotsTotal).toBe(1);
+    const refused = await bid(app, player, openTable(bar).auction.recruitId, bar.bidCeiling);
+    expect(refused.statusCode).toBe(409);
+    expect(errorOf(refused.body).code).toBe('NO_RECRUIT_SLOTS');
+    expect(errorOf(refused.body).message).toContain('The officers you hold stay');
+    expect(app.repos.bases.findById(base.id)?.commanders.map((one) => one.id)).toEqual(
+      held.map((one) => one.id),
+    );
   });
 
   /** §H7a: nobody leaves the room before midnight, whatever anybody has bid. */
@@ -1334,9 +1541,15 @@ describe('§H7a: the close', () => {
 
     // Both of them are told, and told different things.
     const won = bell(app, two).find((entry) => entry.kind === 'officer_hired');
-    expect(won?.title).toBe(`${name} signed with you at ${price} a week`);
+    expect(won?.title).toBe(
+      charged === price
+        ? `${name} signed with you at ${price} caps`
+        : `${name} signed with you: won at ${price.toLocaleString('en')}, on the books at ${charged.toLocaleString('en')} caps`,
+    );
     const outbid = bell(app, one).find((entry) => entry.kind === 'bar_outbid');
-    expect(outbid?.title).toBe(`${name} went to ${two.username} for ${price}`);
+    expect(outbid?.title).toBe(
+      `${name} went to ${two.username} for ${price.toLocaleString('en')} caps`,
+    );
 
     // And the results panel says the same thing from each side.
     expect(loser.results).toEqual([
@@ -1402,7 +1615,7 @@ describe('§H7a: the close', () => {
     );
     expect((await bid(app, one, auction.recruitId, top?.nextBid ?? 0)).statusCode).toBe(200);
 
-    // The highest bidder trains into every bed after bidding. The close has to notice.
+    // The highest bidder musters into every bed after bidding. The close has to notice.
     fillEveryBed(app, one.baseId);
 
     vi.setSystemTime(AFTER);
@@ -1534,7 +1747,8 @@ describe('§H7a: the close', () => {
      * The bell tells them the same (bug pass, 2026-09-29). It read "went to them for 300" beside
      * a bid of 500, which is a broken auction rather than a door the crew had shut.
      */
-    const passedOver = `You could not take ${top?.name} at the close, so ${third.username} did at ${took?.price}`;
+    // With the door that shut, so a crew that out-bid the room knows what to fix (2026-10-02).
+    const passedOver = `You could not take ${top?.name} at the close (every officer slot was taken), so ${third.username} did at ${(took?.price ?? 0).toLocaleString('en')} caps`;
     for (const player of [first, second]) {
       const [told] = bell(app, player).filter((entry) => entry.kind === 'bar_outbid');
       expect(told?.title).toBe(passedOver);
@@ -1568,7 +1782,7 @@ describe('§H7a: the close', () => {
     expect(second.results[0]).toMatchObject({ outcome: 'unsold', price: null, winner: null });
     // ...and the bells say the same two things (bug pass, 2026-09-29).
     expect(bell(app, one)[0]?.title).toBe(
-      `You could not take ${name} at the close, and nobody else could either`,
+      `You could not take ${name} at the close (every officer slot was taken), and nobody else could either`,
     );
     expect(bell(app, two)[0]?.title).toBe(`${name} went unsigned`);
     // The room is whole: nobody was replaced, the day simply ended.
@@ -1652,8 +1866,6 @@ describe('a tie at the close', () => {
     const db = openDatabase(':memory:');
     runMigrations(db);
     const repos = createRepositories(db);
-    const recruit = barRoster(DAY)[0];
-    if (!recruit) throw new Error('empty roster');
 
     for (const userId of ['user_a', 'user_b']) {
       repos.users.insert({
@@ -1664,6 +1876,11 @@ describe('a tie at the close', () => {
       });
       repos.bases.insert(makeBase({ id: `base-${userId}`, ownerId: userId }));
     }
+    // Read off the room the close rebuilds the recruit from. Two crews past the Bar's level move
+    // the city's room off the flat one, and a reserve priced off a different room is a table
+    // nobody's bid clears.
+    const recruit = barRoster(DAY, barRoomOf(repos, DEFAULT_CITY_ID, DAY))[0];
+    if (!recruit) throw new Error('empty roster');
     for (const userId of order) {
       repos.bar.placeOpenBid({
         day: DAY,
@@ -1871,7 +2088,8 @@ describe('§H2a: the Bar gets better as the city does', () => {
     // A level-30 room prices above a starting book, and this test is not about the book.
     app.repos.bases.updateEconomy(base.id, {
       ...base.economy,
-      payroll: { ...base.economy.payroll, purchasedSteps: 40 },
+      // 400 flat expansions of 30: 12,000 of room.
+      payroll: { ...base.economy.payroll, purchasedSteps: 400 },
     });
 
     const bar = await readBar(app, player);
@@ -1911,7 +2129,7 @@ describe('what a table opens at (§H7)', () => {
       createdAt: '2026-09-01T00:00:00.000Z',
     });
     const base = makeBase({
-      commanders: [createCommander('neg-1', 'Ada Vance', 'consigliere', {}, perks)],
+      commanders: [createCommander('neg-1', 'Ada Vance', 'professor', {}, perks)],
     });
     repos.bases.insert(base);
     return { repos, base };
@@ -1937,17 +2155,18 @@ describe('what a table opens at (§H7)', () => {
     const { app } = await makeApp();
     const plain = await makePlayer(app, 'no_negotiator');
     const haggler = await makePlayer(app, 'union_shop');
+    raiseTo(app, haggler, TWO_SLOT_LEVEL);
 
     // A negotiator already on the books. Their own wage is zero, so the book shows the new
     // contract and nothing else.
     const base = app.repos.bases.findById(haggler.baseId);
     if (!base) throw new Error('no base');
     app.repos.bases.updateCommanders(base.id, [
-      createCommander('neg-1', 'Ada Vance', null, {}, ['union_rep'], 0),
+      createCommander('neg-1', 'Ada Vance', 'trader', {}, ['union_rep'], 0),
     ]);
     const discount = crewEffectsFor(app.repos, {
       ...base,
-      commanders: [createCommander('neg-1', 'Ada Vance', null, {}, ['union_rep'], 0)],
+      commanders: [createCommander('neg-1', 'Ada Vance', 'trader', {}, ['union_rep'], 0)],
     }).wageDiscountPercent;
     expect(discount, 'the perk has to be worth something or this proves nothing').toBeGreaterThan(
       0,
@@ -1981,11 +2200,15 @@ describe('what a table opens at (§H7)', () => {
       app.repos.social
         .notifications(haggler.userId, 50)
         .find((entry) => entry.kind === 'officer_hired')?.title,
-    ).toBe(`${name} signed with you at ${price} a week`);
+      // The winner's own bell adds what their book was charged (bug pass, 2026-10-02): the Crew
+      // page and the dismissal fee read that figure, and the bid alone read as the wage.
+    ).toBe(
+      `${name} signed with you: won at ${price.toLocaleString('en')}, on the books at ${charged.toLocaleString('en')} caps`,
+    );
     expect(
       app.repos.social.notifications(plain.userId, 50).find((entry) => entry.kind === 'bar_outbid')
         ?.title,
-    ).toBe(`${name} went to ${haggler.username} for ${price}`);
+    ).toBe(`${name} went to ${haggler.username} for ${price.toLocaleString('en')} caps`);
   });
 
   /**
@@ -1996,10 +2219,11 @@ describe('what a table opens at (§H7)', () => {
   it('quotes a bid ceiling the book holds after the talk-down, and refuses one cap over it', async () => {
     const { app } = await makeApp();
     const haggler = await makePlayer(app, 'ceiling_shop');
+    raiseTo(app, haggler, TWO_SLOT_LEVEL);
     const base = app.repos.bases.findById(haggler.baseId);
     if (!base) throw new Error('no base');
     app.repos.bases.updateCommanders(base.id, [
-      createCommander('neg-1', 'Ada Vance', null, {}, ['union_rep'], 0),
+      createCommander('neg-1', 'Ada Vance', 'trader', {}, ['union_rep'], 0),
     ]);
 
     const bar = await readBar(app, haggler);
@@ -2063,11 +2287,11 @@ describe('what a table opens at (§H7)', () => {
 });
 
 /**
- * §H7: the payroll ladder has a last rung, and the route is what enforces it.
+ * §H7: the book always has another expansion for sale, priced in caps (maintainer, 2026-10-01: 300
+ * for the first 30, then 360, 420 and on).
  *
- * The screens read `nextStepCost` and can be made to hide a button, but a client is not a rule.
- * This is the rule: a crew standing on the last rung with the caps to spare is refused, and the
- * refusal has its own code so the Bar can tell it apart from being short.
+ * The screens read `nextStepCost`, but a client is not a rule: the route is what charges the caps,
+ * refuses a crew that is short, and keeps selling however much has been bought.
  */
 describe('widening the book (§H7)', () => {
   const raise = (app: FastifyInstance, player: Player, fromSteps?: number) =>
@@ -2078,60 +2302,78 @@ describe('widening the book (§H7)', () => {
       payload: fromSteps === undefined ? {} : { fromSteps },
     });
 
-  /** A crew with caps to burn and `steps` rungs already bought. */
-  function setBook(app: FastifyInstance, player: Player, steps: number): void {
+  /** A crew holding `caps` and `steps` expansions already bought. */
+  function setBook(app: FastifyInstance, player: Player, steps: number, caps = 500_000): void {
     const base = app.repos.bases.findById(player.baseId);
     if (!base) throw new Error('no base');
-    app.repos.bases.updateResources(base.id, { ...base.resources, caps: 500_000 });
+    app.repos.bases.updateResources(base.id, { ...base.resources, caps });
     app.repos.bases.updateEconomy(base.id, {
       ...base.economy,
       payroll: { ...base.economy.payroll, purchasedSteps: steps },
     });
   }
 
-  it('sells the first rung at the price the ladder quotes', async () => {
+  it('sells the first expansion for 300 caps, leaves the scrap alone, and widens the book by 30', async () => {
     const { app } = await makeApp();
     const player = await makePlayer(app, 'book_opener');
     setBook(app, player, 0);
+    const before = app.repos.bases.findById(player.baseId)!.resources;
+    const capacity = (await readBar(app, player)).payroll.capacity;
 
     const bought = await raise(app, player, 0);
     expect(bought.statusCode, bought.body.slice(0, 300)).toBe(200);
-    const body = bought.json<{ spent: number; payroll: { purchasedSteps: number } }>();
-    expect(body.spent).toBe(payrollStepCost(0));
+    const body = bought.json<{
+      spent: number;
+      resources: { scrap: number; caps: number };
+      payroll: { purchasedSteps: number; nextStepCost: number; capacity: number };
+    }>();
+    expect(body.spent).toBe(300);
     expect(body.payroll.purchasedSteps).toBe(1);
+    expect(body.payroll.nextStepCost).toBe(360);
+    expect(body.payroll.capacity).toBe(capacity + 30);
+    expect(body.resources.scrap).toBe(before.scrap);
+    const after = app.repos.bases.findById(player.baseId)!.resources;
+    // Caps have no ceiling and production makes none, so the whole difference is the price.
+    expect(after.caps).toBe(before.caps - 300);
   });
 
-  it('sells the last rung and then has nothing left to sell', async () => {
+  it('keeps selling, sixty dearer each time, however many have been bought', async () => {
     const { app } = await makeApp();
-    const player = await makePlayer(app, 'book_finisher');
-    setBook(app, player, PAYROLL_STEPS_MAX - 1);
+    const player = await makePlayer(app, 'book_wide');
+    setBook(app, player, 300);
 
-    const last = await raise(app, player, PAYROLL_STEPS_MAX - 1);
-    expect(last.statusCode, last.body.slice(0, 300)).toBe(200);
-    expect(last.json<{ spent: number }>().spent).toBe(payrollStepCost(PAYROLL_STEPS_MAX - 1));
+    const bought = await raise(app, player, 300);
+    expect(bought.statusCode, bought.body.slice(0, 300)).toBe(200);
+    expect(bought.json<{ spent: number }>().spent).toBe(payrollStepCost(300));
+    expect(payrollStepCost(300)).toBe(18_300);
     expect(
-      last.json<{ payroll: { nextStepCost: number | null } }>().payroll.nextStepCost,
-    ).toBeNull();
-
-    const past = await raise(app, player, PAYROLL_STEPS_MAX);
-    expect(past.statusCode).toBe(409);
-    expect(errorOf(past.body).code).toBe('PAYROLL_AT_MAX');
-    expect(errorOf(past.body).message).toContain('as wide as it goes');
+      bought.json<{ payroll: { purchasedSteps: number; nextStepCost: number } }>().payroll,
+    ).toMatchObject({ purchasedSteps: 301, nextStepCost: 18_360 });
   });
 
-  /**
-   * Caps are not the reason, and the refusal has to say so.
-   *
-   * A maxed book on a crew that could pay ten times over is the case that would come back as
-   * `INSUFFICIENT_CAPS` if the ceiling were bolted on after the affordability check.
-   */
-  it('refuses a bought-out book before it looks at the stockpile', async () => {
+  it('refuses a crew short of the caps and changes nothing', async () => {
     const { app } = await makeApp();
-    const player = await makePlayer(app, 'book_maxed');
-    setBook(app, player, PAYROLL_STEPS_MAX + 5);
+    const player = await makePlayer(app, 'book_short');
+    setBook(app, player, 0, payrollStepCost(0) - 1);
 
-    const refused = await raise(app, player);
+    const refused = await raise(app, player, 0);
     expect(refused.statusCode).toBe(409);
-    expect(errorOf(refused.body).code).toBe('PAYROLL_AT_MAX');
+    expect(errorOf(refused.body).code).toBe('INSUFFICIENT_RESOURCES');
+    expect(errorOf(refused.body).message).toBe('You need 300 caps to widen the book');
+    const after = app.repos.bases.findById(player.baseId)!;
+    expect(after.economy.payroll.purchasedSteps).toBe(0);
+    expect(after.resources.caps).toBe(299);
+  });
+
+  it('refuses a second press for the expansion the first one already bought', async () => {
+    const { app } = await makeApp();
+    const player = await makePlayer(app, 'book_twice');
+    setBook(app, player, 0);
+
+    expect((await raise(app, player, 0)).statusCode).toBe(200);
+    const stale = await raise(app, player, 0);
+    expect(stale.statusCode).toBe(409);
+    expect(errorOf(stale.body).code).toBe('STALE_STATE');
+    expect(app.repos.bases.findById(player.baseId)!.economy.payroll.purchasedSteps).toBe(1);
   });
 });

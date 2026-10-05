@@ -31,7 +31,7 @@ import { useSession } from '../../store/session';
  */
 
 const NOW = '2026-09-10T12:00:00.000Z';
-const LAB_OPEN = { hasHeadOfResearch: true, hasReimaginingResearch: true };
+const LAB_OPEN = { hasResearcher: true, hasReimaginingResearch: true };
 
 const resources = Object.fromEntries(
   RESOURCE_KEYS.map((key) => [key, key === 'caps' ? 10_000 : 1_000]),
@@ -160,8 +160,12 @@ function stubMotion(reduce: boolean): void {
 const RANGE_CARDS = 'pg_snipers_range_cards';
 const BARREL_LINERS = 'pg_snipers_barrel_liners';
 
-/** Three copies of one page and one of another: enough to pay, and a stack to draw down. */
-const INVENTORY: Inventory = { [RANGE_CARDS]: 3, [BARREL_LINERS]: 1 };
+/**
+ * Three spare copies of one page and one of another: enough to pay, and a stack to draw down. A
+ * copy more of each than that, because only spares go on the tray (P7-B, 2026-10-02) and the
+ * Snipers' document is still being collected.
+ */
+const INVENTORY: Inventory = { [RANGE_CARDS]: 4, [BARREL_LINERS]: 2 };
 
 const nameOf = (pageId: string) => findBlueprintPage(pageId)?.name ?? pageId;
 const slot = (index: number) => screen.getByTestId(`reimagine-slot-${index}`);
@@ -172,7 +176,7 @@ beforeEach(() => {
   vi.stubGlobal('fetch', fetchMock);
   fetchMock.mockReset();
   stubMotion(true);
-  useSession.setState({ token: 'session-token', user: null });
+  useSession.setState({ signedIn: true, user: null });
 });
 
 afterEach(() => {
@@ -181,11 +185,11 @@ afterEach(() => {
 
 describe('the bench, shut (§G4)', () => {
   it('says which half is missing and puts nothing else on the sheet', async () => {
-    stub(INVENTORY, { hasHeadOfResearch: false, hasReimaginingResearch: true });
+    stub(INVENTORY, { hasResearcher: false, hasReimaginingResearch: true });
     renderBench();
 
     const locked = await screen.findByTestId('reimagining-locked');
-    expect(locked).toHaveTextContent('Nobody is sitting in the Head of Research chair');
+    expect(locked).toHaveTextContent('Nobody is sitting in the Researcher chair');
     expect(within(locked).getByLabelText('Locked')).toBeVisible();
     // No machine, no tray, no lever: a shut bench is a lock, a sentence and the way out of it.
     expect(screen.queryByTestId('reimagine-machine')).toBeNull();
@@ -194,19 +198,34 @@ describe('the bench, shut (§G4)', () => {
   });
 
   it('names the research when that is what is missing', async () => {
-    stub(INVENTORY, { hasHeadOfResearch: true, hasReimaginingResearch: false });
+    stub(INVENTORY, { hasResearcher: true, hasReimaginingResearch: false });
     renderBench();
     expect(await screen.findByTestId('reimagining-locked')).toHaveTextContent(
       'The Lab has not worked Reimagining out yet.',
     );
   });
 
+  // An injured Researcher is still in the chair: say when they are back, and do not send the
+  // player to the Bar to hire a second one (bug pass, 2026-10-02).
+  it('says the Researcher is laid up, with no door to the Bar', async () => {
+    stub(INVENTORY, {
+      hasResearcher: false,
+      hasReimaginingResearch: true,
+      researcherBackInSeconds: 3 * 3600 + 12 * 60,
+    });
+    renderBench();
+    const locked = await screen.findByTestId('reimagining-locked');
+    expect(locked).toHaveTextContent('laid up, back in 3h 12m');
+    expect(locked).not.toHaveTextContent('Nobody is sitting');
+    expect(screen.queryByTestId('reimagining-door')).toBeNull();
+  });
+
   it('names both when the crew has neither', async () => {
-    stub(INVENTORY, { hasHeadOfResearch: false, hasReimaginingResearch: false });
+    stub(INVENTORY, { hasResearcher: false, hasReimaginingResearch: false });
     renderBench();
     const locked = await screen.findByTestId('reimagining-locked');
     expect(locked).toHaveTextContent('has not worked Reimagining out yet');
-    expect(locked).toHaveTextContent('nobody in the Head of Research chair');
+    expect(locked).toHaveTextContent('nobody in the Researcher chair');
   });
 });
 
@@ -215,44 +234,44 @@ describe('the bench, shut (§G4)', () => {
  *
  * A sentence saying nobody is in the chair leaves a player to work out for themselves that chairs
  * are filled at the Bar; a sentence saying the Lab has not worked Reimagining out leaves them to
- * find which of nineteen trades the rung is on. Which door is drawn is the *chair* rather than the
- * research, because an empty Head of Research chair shuts every rung on every trade (§C1c): a crew
+ * find which of thirteen trades the rung is on. Which door is drawn is the *chair* rather than the
+ * research, because an empty Researcher chair shuts every rung on every trade (§C1c): a crew
  * missing both cannot start the research either, so hiring is always the next thing.
  *
  * The destination is asserted rather than the words, because the words are the cheap half. A link
- * reading "Research it on the Fabricator's track" that points at a bare `/game/research` lands a
+ * reading "Research it on the Salvager's track" that points at a bare `/game/research` lands a
  * player on the Master of Whispers, and every assertion on its label would still pass.
  */
 describe('the door out of a shut bench', () => {
-  it('sends a crew with no Head of Research to the Bar', async () => {
-    stub(INVENTORY, { hasHeadOfResearch: false, hasReimaginingResearch: true });
+  it('sends a crew with no Researcher to the Bar', async () => {
+    stub(INVENTORY, { hasResearcher: false, hasReimaginingResearch: true });
     renderBench();
     const door = await screen.findByTestId('reimagining-door');
-    expect(door).toHaveTextContent('Hire a Head of Research at the Bar');
+    expect(door).toHaveTextContent('Hire a Researcher at the Bar');
     expect(door).toHaveAttribute('href', '/game/bar');
   });
 
   it('sends a crew that has the chair but not the rung to the track the rung is on', async () => {
-    stub(INVENTORY, { hasHeadOfResearch: true, hasReimaginingResearch: false });
+    stub(INVENTORY, { hasResearcher: true, hasReimaginingResearch: false });
     renderBench();
     const door = await screen.findByTestId('reimagining-door');
     /*
-     * The Fabricator, not the Head of Research.
+     * The Salvager, not the Researcher.
      *
-     * Reimagining is the sixth rung of the Fabricator's track (`tracks.ts`), which is not where
-     * anybody guesses it is: the maintainer's note for this door said the Head of Research's, and the
-     * Head of Research post is what *gates* the research rather than what carries it. Both halves
+     * Reimagining is the sixth rung of the Salvager's track (`tracks.ts`), which is not where
+     * anybody guesses it is: the maintainer's note for this door said the Researcher's, and the
+     * Researcher post is what *gates* the research rather than what carries it. Both halves
      * are read off the catalogue here so a door pointing at a rail with no such rung on it fails
      * rather than quietly wasting a player's click.
      */
     const track = findResearchItem(REIMAGINING_RESEARCH_ID)?.track;
-    expect(track).toBe('fabricator');
-    expect(door).toHaveTextContent("Research it on the Fabricator's track");
+    expect(track).toBe('salvager');
+    expect(door).toHaveTextContent("Research it on the Salvager's track");
     expect(door).toHaveAttribute('href', `/game/research?track=${track ?? ''}`);
   });
 
   it('asks for the chair first when the crew has neither', async () => {
-    stub(INVENTORY, { hasHeadOfResearch: false, hasReimaginingResearch: false });
+    stub(INVENTORY, { hasResearcher: false, hasReimaginingResearch: false });
     renderBench();
     expect(await screen.findByTestId('reimagining-door')).toHaveAttribute('href', '/game/bar');
   });
@@ -274,6 +293,18 @@ describe('filling the sockets (§G2)', () => {
     for (const index of [0, 1, 2]) expect(slot(index)).toHaveAttribute('data-filled', 'no');
     expect(screen.getByTestId('reimagine-result')).toHaveAttribute('data-filled', 'no');
     expect(button()).toBeDisabled();
+  });
+
+  // P7-B (2026-10-02): the one copy a document still needs never goes on the tray.
+  it('offers only spares, and says so when there are none', async () => {
+    stub({ [RANGE_CARDS]: 1, [BARREL_LINERS]: 1 });
+    renderBench();
+
+    expect(await screen.findByTestId('reimagine-no-spares')).toHaveTextContent(
+      'Only spare pages go in',
+    );
+    expect(screen.queryByTestId(`tray-${RANGE_CARDS}`)).toBeNull();
+    expect(screen.queryByTestId(`tray-${BARREL_LINERS}`)).toBeNull();
   });
 
   it('puts a page in the first empty socket and takes it off the tray count', async () => {
@@ -397,8 +428,10 @@ describe('pressing it (§G2, §G3)', () => {
     // Two Range Cards and the one Barrel Liner went in; the new page arrived. Read off the tray
     // rather than off the response, because the tray is what a player looks at next.
     expect(screen.getByTestId(`tray-${RANGE_CARDS}`)).toHaveAttribute('data-left', '1');
+    // The last Barrel Liner and the new page are the only copies their documents have, so neither
+    // is a spare and neither goes on the tray.
     expect(screen.queryByTestId(`tray-${BARREL_LINERS}`)).toBeNull();
-    expect(screen.getByTestId(`tray-${GAINED}`)).toHaveAttribute('data-left', '1');
+    expect(screen.queryByTestId(`tray-${GAINED}`)).toBeNull();
   });
 
   /** With the travel on, the answer still lands: the animation delays it, it does not lose it. */

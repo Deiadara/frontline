@@ -24,6 +24,7 @@ import {
   DECLARE_INFAMY_COST,
   GATE_DEFENSE_PERCENT_PER_LEVEL,
   declarationWindow,
+  findModification,
   gateDefensePercent,
   skirmishOutcome,
   type BattleTarget,
@@ -168,6 +169,8 @@ async function defenceWithGateAt(level: number): Promise<number> {
 }
 
 const GATE_LEVEL = 4;
+/** An armour card that fits anywhere a wall does. */
+const CARD = 'gate_interlocking_bulwarks';
 
 describe('a Gate a crew is defending behind', () => {
   it('lands on the engine once, at the rate the battle page quotes', async () => {
@@ -180,5 +183,33 @@ describe('a Gate a crew is defending behind', () => {
     ]);
     expect(quoted).toBeCloseTo(GATE_LEVEL * GATE_DEFENSE_PERCENT_PER_LEVEL, 6);
     expect(walled - bare).toBeCloseTo(quoted, 6);
+  });
+
+  /*
+   * What an armour card's "+N% Gate defense" means (wiring audit, 2026-10-01): bolted into any
+   * structure, it reaches a fight at the crew's gate on the Gate's own term, once, at its printed
+   * number, and leaves the "holding your ground" channel alone.
+   */
+  it('carries an armour card bolted in another structure on the Gate term, once', async () => {
+    const plain = await makeWorld();
+    raiseGate(plain, GATE_LEVEL);
+    await fightAtTheGate(plain);
+    const without = plain.seen[0]?.defenderTerritory;
+
+    const carded = await makeWorld();
+    const buildings = [
+      ...raiseGate(carded, GATE_LEVEL).filter((building) => building.kind !== 'quarters'),
+      { id: 'quarters-under-test', kind: 'quarters', level: 10, modifications: [CARD] },
+    ] satisfies Building[];
+    carded.app.repos.bases.updateBuildings(carded.victimBaseId, buildings);
+    await fightAtTheGate(carded);
+    const withCard = carded.seen[0]?.defenderTerritory;
+
+    expect(without && withCard, 'both fights must reach the engine').toBeTruthy();
+    expect(withCard!.gatePercent - without!.gatePercent).toBeCloseTo(
+      findModification(CARD)!.magnitude,
+      6,
+    );
+    expect(withCard!.defensePercent).toBeCloseTo(without!.defensePercent, 6);
   });
 });

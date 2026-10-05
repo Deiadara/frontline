@@ -6,7 +6,11 @@ import {
   blueprintOfPage,
   RESOURCE_LABELS,
   barterQuote,
+  brokerPayoutRate,
+  effectiveMarketDiscount,
   supplyPrice,
+  supplyUnitPrice,
+  supplyRationUnits,
   marketDay,
   gameHourInZone,
   type ItemId,
@@ -159,10 +163,21 @@ function RunnerHours({ market, now, zone }: { market: MarketResponse; now: Date;
   const hours = vendor.sessions
     .map((session) => gameHourInZone(marketDay(now), session.startHour, zone))
     .join(' and ');
+  const raw = market.marketDiscountPercent;
   return (
     <InfoNote label={label} size="sm">
       In today at {hours}, two hours each. Every line is a lot: the highest bid when he packs up
-      takes it. The Broker never leaves, and pays half the worth of what you hand over.
+      takes it. The Broker never leaves, and pays back part of the worth of what you hand over: the
+      rate is on his counter.
+      {/* The figure the till applies, not the sum of the cards (maintainer, 2026-10-01): the
+          sources go through a curve, so each one counts for a little less than the last. */}
+      {raw > 0 && (
+        <span className="mt-2 block" data-testid="market-discount">
+          Your market discount is {Math.round(effectiveMarketDiscount(raw))}%, off a lot you win,
+          the supply run and the Broker&rsquo;s cut. Your sources add up to {raw}%, and each one
+          counts for less the more you stack.
+        </span>
+      )}
     </InfoNote>
   );
 }
@@ -453,7 +468,15 @@ function BrokerPanel({ market }: { market: MarketResponse }) {
   const held = market.resources[give];
   // §I3: the rate is quoted by the server so the screen and the settlement cannot disagree about
   // which one applied. A client that recomputed the milestone would be a second opinion about it.
-  const quote = barterQuote(give, want, amount, market.barterRate);
+  // A trade into caps is held under the supply run's price, by the same function the till uses.
+  const rate = brokerPayoutRate(
+    want,
+    market.barterRate,
+    market.marketDiscountPercent,
+    market.traderPoints ?? null,
+    give,
+  );
+  const quote = barterQuote(give, want, amount, rate);
   // The shelf the server measures the trade against, which the supply board already carries per
   // material. Past it is a warning now rather than a wall (maintainer ruling, 2026-09-28): the line
   // under the button says so before the press, and the till asks again with its own figure.
@@ -553,7 +576,7 @@ function BrokerPanel({ market }: { market: MarketResponse }) {
           <span className="flex items-center gap-2">
             <TradeArrow className="h-7 w-7 rotate-90" />
             <span className="neon font-display text-[13px] font-bold uppercase tracking-[0.16em]">
-              {Math.round(market.barterRate * 100)}% back
+              {Math.round(rate * 100)}% back
             </span>
             <TradeArrow className="h-7 w-7 rotate-90" />
           </span>
@@ -667,6 +690,10 @@ function supplyStall(
   resetsAt: string,
 ): string {
   if (left === 0) return `Today's ration is spent, back at ${resetsAt}`;
+  // Worth left, but not a whole unit of this one: a metal spends twelve of it.
+  if (line !== undefined && supplyRationUnits(line.key, left) === 0) {
+    return `Today's ration will not stretch to one more of these, back at ${resetsAt}`;
+  }
   // This resource's own shelf, off the line, and not `supply.storageCapacity`, which is the bulk
   // one. Oil and supplies get two thirds of bulk and HQ metal a third (`STORAGE_SHARES`), so the
   // bulk comparison could never be true for four of the five materials on offer: a crew with a full
@@ -687,6 +714,9 @@ function supplyStall(
  */
 /** The refusal as a button's word. The sentence itself is on the button's hover. */
 function shortStall(reason: string): string {
+  // Checked before "Today's ration is spent": some ration is left, just not a whole unit of this
+  // one, and another material may still fit (bug pass, 2026-10-02).
+  if (reason.startsWith("Today's ration will not stretch")) return 'Too dear today';
   if (reason.startsWith('Today')) return 'Ration spent';
   if (reason.startsWith('Your store')) return 'Store full';
   if (reason.startsWith('Say')) return 'Say how much';
@@ -701,13 +731,18 @@ function SupplyPanel({ market, resetsAt }: { market: MarketResponse; resetsAt: s
 
   const line = supply.lines.find((entry) => entry.key === key);
   const left = Math.max(0, supply.allowance - supply.used);
+  // The ration is caps' worth; the header says it in units of whatever the picker is on, the unit
+  // the field beside it counts in (bug pass, 2026-10-01).
+  const leftUnits = supplyRationUnits(key, left);
+  const noun =
+    key === 'highQualityMetal' ? RESOURCE_LABELS[key] : RESOURCE_LABELS[key].toLowerCase();
   const most = line?.most ?? 0;
   // The order is held at what the crew could actually take, rather than at whatever was last typed:
   // 100 is over the ration on a full warehouse, and a counter that opens refusing to serve you is
   // a bad first impression.
   const units = Math.min(wanted, most);
   // After the crew's market discount, the figure the till charges (maintainer, 2026-09-29).
-  const price = supplyPrice(key, units, market.marketDiscountPercent);
+  const price = supplyPrice(key, units, market.marketDiscountPercent, market.traderPoints ?? null);
   const blocked =
     most === 0 ? supplyStall(line, market, left, resetsAt) : units <= 0 ? 'Say how much' : null;
 
@@ -729,10 +764,11 @@ function SupplyPanel({ market, resetsAt }: { market: MarketResponse; resetsAt: s
           <span
             className={cn(
               'shrink-0 font-display text-[11px] font-bold tabular-nums',
-              left === 0 ? 'text-oxblood-300' : 'text-verdigris-100',
+              leftUnits === 0 ? 'text-oxblood-300' : 'text-verdigris-100',
             )}
+            data-testid="supply-left"
           >
-            {left.toLocaleString()} left
+            {leftUnits.toLocaleString()} {noun} left
           </span>
           <span className="shrink-0 font-display text-[10px] uppercase tracking-[0.14em] text-ink-300">
             {supply.percent}% of a store · resets at {resetsAt}
@@ -762,7 +798,15 @@ function SupplyPanel({ market, resetsAt }: { market: MarketResponse; resetsAt: s
           caption={(each) => (
             <>
               <ResourceIcon kind="caps" className="h-3.5 w-3.5" />
-              {supplyPrice(each, 1, market.marketDiscountPercent).toLocaleString()}
+              {/* The unit price itself, not one unit's till price: that rounds up, so a 2.25 read
+                  as 3 beside a quote charging 225 for a hundred. */}
+              {supplyUnitPrice(
+                each,
+                market.marketDiscountPercent,
+                market.traderPoints ?? null,
+              ).toLocaleString(undefined, {
+                maximumFractionDigits: 2,
+              })}
             </>
           )}
           data-testid="supply-resource"

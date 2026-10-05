@@ -30,7 +30,7 @@ beforeEach(() => {
       json: () => Promise.resolve(F.messagesScreen),
     } as Response),
   );
-  useSession.setState({ token: 'session-token', user: null });
+  useSession.setState({ signedIn: true, user: null });
 });
 
 function open(entry: string) {

@@ -309,7 +309,7 @@ describe('the bench', () => {
     const { app } = await makeApp(true);
     const { token } = await crew(app);
     const held = app.repos.bases.findByOwnerId((await me(app, token)).ownerId)!;
-    // The ceiling the stockpile panel draws, the crew's own Logistics folded in.
+    // The ceiling the stockpile panel draws, the crew's own storage bonus folded in.
     const ceiling = storeCeilingsOf(app.repos, held, new Date()).scrap;
     expect(ceiling).toBeLessThan(12_345);
 
@@ -344,7 +344,7 @@ describe('the bench', () => {
     });
     const base = await me(app, token);
     expect(base.buildQueue).toEqual([]);
-    expect(base.trainingQueue).toEqual([]);
+    expect(base.musterQueue).toEqual([]);
     expect(base.research.active).toBeNull();
   });
 

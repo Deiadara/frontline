@@ -326,6 +326,18 @@ export function missionWalkMinutes(homeDistrictId: string, areaId: string): numb
   return Math.round(rawMinutesBetween(home, job));
 }
 
+/**
+ * A job's pay with the crew's `missionCapsPercent` on its caps (Cap Counter, 2026-10-01).
+ *
+ * After `scaledSpoils`, and on the caps alone: the perk is about counting the money, and a crew that
+ * holds it is paid more caps without its salvage changing.
+ */
+export function withMissionCaps(spoils: PartialResources, capsPercent: number): PartialResources {
+  const caps = spoils.caps;
+  if (caps === undefined || capsPercent <= 0) return spoils;
+  return { ...spoils, caps: Math.round(caps * (1 + capsPercent / 100)) };
+}
+
 /** A reward bundle with the area's premium on it. Whole units; a line that rounds away is dropped. */
 export function scaledSpoils(spoils: PartialResources, payPercent: number): PartialResources {
   const factor = 1 + Math.max(0, payPercent) / 100;
@@ -434,12 +446,22 @@ export function openAreas(
 export const MISSION_FORCE_REFUSALS = ['no_force', 'not_enough_units', 'needs_fighters'] as const;
 export type MissionForceRefusal = (typeof MISSION_FORCE_REFUSALS)[number];
 
+/** Why a party cannot go, in the player's words: the launch's refusal and a standing order's stall. */
+export const MISSION_FORCE_REFUSAL_TEXT: Record<MissionForceRefusal, string> = {
+  no_force: 'Send somebody, or do not send anybody',
+  not_enough_units: 'You do not have those units at home',
+  needs_fighters: 'Somebody there has to be able to fight. Porters do not go in alone',
+};
+
+/** §D7: a unit above the crew's rank refuses the contract, on every door onto a field. */
+export const NAME_TOO_SMALL_TEXT = 'They will not take a contract from a name that small';
+
 /**
  * Loot slots this crew can carry home.
  *
  * The same figure the raid path uses, and deliberately: a Scavenger's ten slots mean the same
  * thing whether they are emptying a stockpile or a collapsed overpass. It is what makes the
- * support tier worth training, because a job that pays more than the crew can lift pays only what
+ * support tier worth mustering, because a job that pays more than the crew can lift pays only what
  * the crew can lift.
  *
  * Read off the **fitted** sheet, not the printed one. Three cards in `units/modifications.ts`

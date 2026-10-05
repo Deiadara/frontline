@@ -490,6 +490,18 @@ function SlotSheet({
         )}
       </Field>
 
+      {/* Two modes (P5-A, 2026-10-02): at random until Field Promotions, the best after it. */}
+      {!powers.optimise && (
+        <Field label="Chase">
+          <p
+            className="font-body text-[12px] leading-snug text-ink-300"
+            data-testid={`automation-${slot}-chase-random`}
+          >
+            Any job it can fill, at random. It picks the best job once{' '}
+            {rungName(AUTOMATION_RUNGS.optimise)} is researched.
+          </p>
+        </Field>
+      )}
       {powers.optimise && (
         <Field label="Chase">
           <Dropdown

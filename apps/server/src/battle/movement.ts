@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import {
+  chairPassiveOf,
   columnSpeed,
   emptyDeployment,
   fittedFor,
@@ -25,7 +26,7 @@ import {
   type ScheduledBattle,
 } from '@frontline/shared';
 import type { Repositories } from '../db/repos/index.js';
-import { standingEffectsFor } from '../crew/standing.js';
+import { liftedOfficerSheet, standingEffectsFor, type LiftRoom } from '../crew/standing.js';
 import { railRideBetween } from '../city/railway.js';
 import { tallyDeployed, tallyRailJourney } from '../feats/tally.js';
 import { forceSize, mergeArmies } from './forces.js';
@@ -177,6 +178,7 @@ export function railColumnOffer(
     {
       speed,
       reductionPercent: effects.travelSpeedPercent,
+      baseCutPercent: chairPassiveOf(effects, 'cartographer', 'travel_time'),
       flatMinutesOff: effects.roadMinutesOff,
     },
     road,
@@ -236,6 +238,7 @@ function roadMs(
     travelMinutesBetween(from, to, {
       speed,
       reductionPercent: effects.travelSpeedPercent,
+      baseCutPercent: chairPassiveOf(effects, 'cartographer', 'travel_time'),
       flatMinutesOff: effects.roadMinutesOff,
     }) * MINUTE_MS
   );
@@ -245,11 +248,12 @@ function roadMs(
  * §D1: how long the officer named to lead takes to reach the fight, in whole minutes.
  *
  * A column of one, through the same two functions a column goes through. The pace is the officer's
- * own `speed` off their sheet, which is the figure a spy job's walk is clocked with
- * (`spying/spying.ts`): sending the Head of Finance across the city is a slow night and sending
- * somebody quick is not. `columnSpeed` then offers them a seat in whatever this crew has committed
- * to this fight, so they ride when a machine is quicker than their legs and walk when it is not,
- * which is the rule the rest of the yard follows.
+ * own `speed` off their **lifted** sheet (maintainer, 2026-09-30), the one they fight and are
+ * graded on, and the one a spy job's walk is clocked with (`spying/spying.ts`). A lesson in
+ * Stamina that shows on the crew screen shortens the road too. Sending the Fixer across
+ * the city is a slow night and sending somebody quick is not. `columnSpeed` then offers them a seat
+ * in whatever this crew has committed to this fight, so they ride when a machine is quicker than
+ * their legs and walk when it is not, which is the rule the rest of the yard follows.
  *
  * They do not take a seat off the column. One officer at one unit slot against a machine that
  * carries two to thirty is not a loading decision, and charging it would make naming a leader
@@ -261,9 +265,10 @@ export function officerTravelMinutesTo(
   districtId: string,
   officer: Commander,
   vehicles: Fleet,
+  room: LiftRoom,
 ): number | null {
   const effects = standingEffectsFor(repos, base);
-  const onFoot = officerBattleStats(officer.attributes).speed;
+  const onFoot = officerBattleStats(liftedOfficerSheet(officer, room).attributes).speed;
   const speed = columnSpeed(vehicles, { officer: 1 }, () => ({
     speed: onFoot,
     rides: true,
@@ -503,7 +508,10 @@ export function settleMovements(repos: Repositories, now: Date): number {
         updatedAt: movement.arrivesAt,
       });
       repos.movements.remove(movement.id);
-      tallyColumnLanded(repos, movement);
+      tallyColumnLanded(repos, movement, {
+        army: mergeArmies(existing.army, movement.army),
+        perimeter: mergeArmies(existing.perimeter, movement.perimeter),
+      });
     },
   );
 }
@@ -518,12 +526,31 @@ export function settleMovements(repos: Repositories, now: Date): number {
  * mark, or whose fight is called off, never stood in the fight and adds nothing to the deployed
  * ladders; a late one that was on the train still counts its ride when it lands (`carryOn`).
  */
-function tallyColumnLanded(repos: Repositories, movement: Movement): void {
-  const force = movementForce(movement);
-  tallyDeployed(repos, movement.baseId, {
-    units: forceSize(force),
-    unitSlots: unitSlotsUsed(force),
+function tallyColumnLanded(
+  repos: Repositories,
+  movement: Movement,
+  /** This crew's row at the fight once the column is on it. */
+  standing: { army: Army; perimeter: Army },
+): void {
+  /*
+   * Once per fight, at the most the crew ever had there (maintainer, 2026-10-02). Counting each
+   * landing let a crew pull its units back off a raid on its own district (which is instant) and
+   * send the same ones again every two minutes, clearing the top rung in about a day. A column now
+   * counts only for what it adds above the crew's peak at this fight, and the ride with it.
+   */
+  const force = mergeArmies(standing.army, standing.perimeter);
+  const now = { units: forceSize(force), unitSlots: unitSlotsUsed(force) };
+  const peak = repos.sieges.deployedPeak(movement.battleId, movement.baseId);
+  const gained = {
+    units: Math.max(0, now.units - peak.units),
+    unitSlots: Math.max(0, now.unitSlots - peak.unitSlots),
+  };
+  if (gained.units === 0 && gained.unitSlots === 0) return;
+  repos.sieges.setDeployedPeak(movement.battleId, movement.baseId, {
+    units: Math.max(peak.units, now.units),
+    unitSlots: Math.max(peak.unitSlots, now.unitSlots),
   });
+  tallyDeployed(repos, movement.baseId, gained);
   if (movement.byRail) tallyRailJourney(repos, movement.baseId);
 }
 
@@ -543,7 +570,7 @@ export function turnRound(repos: Repositories, movement: Movement, now: Date): v
   const departed = Date.parse(movement.departedAt);
   const walked = Math.max(0, Math.min(Date.parse(movement.arrivesAt), now.getTime()) - departed);
   if (walked === 0) {
-    repos.bases.updateArmy(base.id, mergeArmies(base.army, force), base.trainingQueue);
+    repos.bases.updateArmy(base.id, mergeArmies(base.army, force), base.musterQueue);
     return;
   }
   repos.moves.insert({

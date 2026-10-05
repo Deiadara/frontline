@@ -12,9 +12,9 @@ import { seatedRoles, workingOfficer, workingRoles } from './roster.js';
  * An injured officer is **out**, entirely, for twelve hours (maintainer, 2026-09-23).
  *
  * The sheet fold already dropped them before best-of, so their ratings and their perks were
- * already off. What was still running was everything their *chair* unlocks: a Consigliere in a
- * hospital bed still countered spies, a Master of Whispers still ran the network, a Fabricator
- * still cut cards and a Head of Research still read the market. One function decides it now
+ * already off. What was still running was everything their *chair* unlocks: a Consigliere (a chair
+ * since retired) in a hospital bed still countered spies, a Master of Whispers still ran the network, a Fabricator
+ * still cut cards and a Researcher still read the market. One function decides it now
  * (`workingOfficers`), and this file is what holds the two questions apart: which chairs are
  * **taken**, which the Bar asks so it can refuse to seat two people in one, and which chairs are
  * **working**, which everything else asks.
@@ -48,31 +48,31 @@ describe('how long an injury lasts', () => {
 describe('a chair that is taken and a chair that is working', () => {
   const until = officerRecoveryAt(NOW);
   const bench = [
-    hurt('consigliere', until),
-    createCommander('off-fab', 'Fabricator', 'fabricator', makeAttributes(50), []),
+    hurt('professor', until),
+    createCommander('off-fab', 'Fabricator', 'salvager', makeAttributes(50), []),
   ];
 
   it('still counts an injured officer as filling their seat', () => {
     /*
      * The Bar asks this one, and it has to keep answering yes: a chair does not come free because
-     * the person in it is hurt, and offering to seat a second Consigliere would be offering to do
+     * the person in it is hurt, and offering to seat a second Professor would be offering to do
      * something the crew screen then refuses.
      */
-    expect(seatedRoles(bench)).toContain('consigliere');
-    expect(seatedRoles(bench)).toContain('fabricator');
+    expect(seatedRoles(bench)).toContain('professor');
+    expect(seatedRoles(bench)).toContain('salvager');
   });
 
   it('does not count them as working while they are out', () => {
-    expect(workingRoles(bench, NOW)).not.toContain('consigliere');
-    expect(workingRoles(bench, NOW)).toContain('fabricator');
-    expect(workingOfficer(bench, 'consigliere', NOW)).toBeUndefined();
-    expect(workingOfficer(bench, 'fabricator', NOW)?.role).toBe('fabricator');
+    expect(workingRoles(bench, NOW)).not.toContain('professor');
+    expect(workingRoles(bench, NOW)).toContain('salvager');
+    expect(workingOfficer(bench, 'professor', NOW)).toBeUndefined();
+    expect(workingOfficer(bench, 'salvager', NOW)?.role).toBe('salvager');
   });
 
   it('puts them back to work the moment the twelve hours are up', () => {
     const better = new Date(Date.parse(until) + 1000);
-    expect(workingRoles(bench, better)).toContain('consigliere');
-    expect(workingOfficer(bench, 'consigliere', better)?.role).toBe('consigliere');
+    expect(workingRoles(bench, better)).toContain('professor');
+    expect(workingOfficer(bench, 'professor', better)?.role).toBe('professor');
   });
 
   it('is measured on a bench where the two answers really do differ', () => {

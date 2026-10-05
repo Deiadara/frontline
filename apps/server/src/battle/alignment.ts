@@ -271,7 +271,7 @@ export function musterAtTheMark(
   for (const { base, army, side } of presence.neighbours) {
     if (side === null) continue;
     if (target.kind === 'gate') repos.bases.updateGateArmy(base.id, {});
-    else repos.bases.updateArmy(base.id, {}, base.trainingQueue);
+    else repos.bases.updateArmy(base.id, {}, base.musterQueue);
     joinSide(repos, battle, base.id, side, { army });
   }
   return { declarerCellWoke };

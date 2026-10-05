@@ -1,4 +1,6 @@
 import {
+  AREA_REQUIREMENTS,
+  areaName,
   NOTORIETY_TIERS,
   PLAYER_LEVEL_MIN,
   PLAYER_LEVEL_UNLOCKS,
@@ -168,6 +170,19 @@ describe('the notoriety ladder', () => {
       for (const line of describeNotorietyGrant(at)) {
         expect(within(rung).getByText(line), `${tier}: ${line}`).toBeInTheDocument();
       }
+    });
+  });
+
+  it('names the door a rank opens on that rank, and on no other', () => {
+    mount(<NotorietyLadderPage />);
+    const wanted = AREA_REQUIREMENTS.black_market;
+    if (wanted.kind !== 'notoriety') throw new Error('fixture: the back room is not a rank door');
+    const opens = `Opens ${areaName('black_market')}`;
+
+    NOTORIETY_TIERS.forEach((tier, at) => {
+      const rung = screen.getByTestId(`notoriety-rung-${at}`);
+      const named = within(rung).queryByText(opens) !== null;
+      expect(named, tier).toBe(at === wanted.rank);
     });
   });
 

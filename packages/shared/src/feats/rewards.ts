@@ -2,15 +2,16 @@ import { z } from 'zod';
 import { ITEM_CATALOG, type ItemCost, type ItemId } from '../items/index.js';
 import { RESOURCE_CAP_VALUE } from '../market/offers.js';
 import { PartialResourcesSchema, RESOURCE_KEYS, type PartialResources } from '../resources.js';
-import { ArmySchema, type Army } from '../units/training.js';
+import { ArmySchema, type Army } from '../units/muster.js';
 import { findUnit } from '../units/index.js';
+import { everyPage } from '../blueprints/prize.js';
 
 /**
  * What finishing a feat pays, and how the whole catalogue is held to a budget.
  *
  * ## One currency for the balance check, not for the player
  *
- * A feat can pay five different things and the maintainer asked for all of them. That makes "is this
+ * A feat can pay six different things and the maintainer asked for all of them. That makes "is this
  * reward fair" impossible to answer by eye across five hundred entries, so everything is
  * priced into one number, caps-equivalent, and every feat declares which band it is supposed to
  * land in. `catalog.test.ts` then checks the whole catalogue in one pass, which is the only way a
@@ -63,11 +64,13 @@ export const FeatRewardSchema = z
     resources: PartialResourcesSchema.optional(),
     /** Blueprint pages, parts and relics, by catalogue id. */
     items: z.record(z.string(), z.number().int().positive()).optional(),
-    /** Units, delivered straight onto the roster at home rather than into the training queue. */
+    /** Units, delivered straight onto the roster at home rather than into the muster queue. */
     units: ArmySchema.optional(),
     xp: z.number().int().positive().optional(),
     /** One-time battle boosts, into the stash the back room fills. By black-market good id. */
     boosts: z.array(z.string().min(1)).nonempty().optional(),
+    /** Blueprint pages drawn at random on the claim, off the whole pool (`drawFeatPages`). */
+    pages: z.number().int().positive().optional(),
   })
   .refine(
     (reward) => Object.values(reward).some((value) => value !== undefined),
@@ -102,6 +105,22 @@ function unitsValue(units: Army | undefined): number {
   }, 0);
 }
 
+/**
+ * What one page drawn at random is worth: the pages' own values, weighted the way the draw is.
+ * Read once, because the pool is the catalogue's and does not move while the server runs.
+ */
+export const CAPS_PER_RANDOM_PAGE = ((): number => {
+  const pool = everyPage();
+  const weight = pool.reduce((total, page) => total + page.weight, 0);
+  const worth = pool.reduce(
+    (total, page) =>
+      total +
+      page.weight * ((ITEM_CATALOG[page.id as ItemId] as { capsValue: number }).capsValue ?? 0),
+    0,
+  );
+  return weight > 0 ? Math.round(worth / weight) : 0;
+})();
+
 /** Everything a feat pays, in caps-equivalent. See the note at the top: this is for the gate. */
 export function featRewardValue(reward: FeatReward): number {
   return (
@@ -109,7 +128,8 @@ export function featRewardValue(reward: FeatReward): number {
     itemsValue(reward.items) +
     unitsValue(reward.units) +
     (reward.xp ?? 0) * CAPS_PER_XP +
-    (reward.boosts?.length ?? 0) * CAPS_PER_BOOST
+    (reward.boosts?.length ?? 0) * CAPS_PER_BOOST +
+    (reward.pages ?? 0) * CAPS_PER_RANDOM_PAGE
   );
 }
 

@@ -42,7 +42,7 @@ function makeBase(over: Partial<Base> = {}): Base {
     buildings: [{ id: 'b-nexus', kind: 'nexus', level: 3, modifications: [] }],
     buildQueue: [],
     army: {},
-    trainingQueue: [],
+    musterQueue: [],
     training: startingTraining(now),
     inventory: {},
     fittedUpgrades: [],

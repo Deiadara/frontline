@@ -30,10 +30,12 @@ import { tallyMarketDeal, tallyPagesIn } from '../feats/tally.js';
 import { standingEffectsFor } from '../crew/standing.js';
 import { settleBase } from '../district/settle.js';
 import type { Repositories } from '../db/repos/index.js';
+import { adminCaps, adminWaives } from '../admin/mode.js';
 import type { VendorBid, VendorLotResult } from '../db/repos/vendor-auctions.js';
 import { notify } from '../social/notify.js';
 import { tellPagesFound } from '../social/pages.js';
 import { settleEach } from '../world/guard.js';
+import { shownNameOf } from '../social/names.js';
 
 /**
  * The Runner's lots (market extension, maintainer 2026-09-08), server side.
@@ -128,6 +130,8 @@ export interface VendorBidRequest {
   /** Caps. Rounded on the way in: the wire is an integer and so is the till. */
   amount: number;
   now: Date;
+  /** Admin mode: the bid is not held to the crew's caps, and the close charges nothing. */
+  admin?: boolean;
 }
 
 /**
@@ -192,7 +196,12 @@ export function placeVendorBid(repos: Repositories, request: VendorBidRequest): 
     .filter((id) => cityOfVendorLine(id) === room);
   if (!canOpenLot(open, lineId)) return refuse('too_many_lots');
   if (amount < minimum) return refuse('too_low');
-  if (base.resources.caps < chargeFor(repos, base, amount, now)) return refuse('cannot_afford');
+  if (
+    base.resources.caps < chargeFor(repos, base, amount, now) &&
+    !adminWaives('cannot_afford', request.admin ?? false)
+  ) {
+    return refuse('cannot_afford');
+  }
 
   repos.vendorAuctions.placeBid({
     day: visit.day,
@@ -243,7 +252,7 @@ export function bidderNames(
   const names = new Map<string, string>();
   for (const bid of bids) {
     if (names.has(bid.userId)) continue;
-    names.set(bid.userId, repos.users.findById(bid.userId)?.username ?? 'Somebody');
+    names.set(bid.userId, shownNameOf(repos, bid.userId, 'Somebody'));
   }
   return names;
 }
@@ -329,14 +338,14 @@ interface LotAward {
  * otherwise leave the lot due again, and the second pass would hand a second unit off a line the
  * catalogue rations to one.
  */
-export function settleVendorAuctions(repos: Repositories, now: Date): number {
+export function settleVendorAuctions(repos: Repositories, now: Date, admin = false): number {
   // Counted, so the world settle can tell every open tab the barrow changed. See `world/settle.ts`.
   return settleEach(
     repos,
     'runner lots',
     repos.vendorAuctions.unsettled(now),
     (lot) => `${lot.day}:${lot.session}:${lot.lineId}`,
-    (lot) => closeLot(repos, lot, now),
+    (lot) => closeLot(repos, lot, now, admin),
   );
 }
 
@@ -344,6 +353,7 @@ function closeLot(
   repos: Repositories,
   lot: { day: string; session: number; lineId: string },
   now: Date,
+  admin: boolean,
 ): void {
   const { day, session, lineId } = lot;
   const closedAt = visitClosedAt(day, session, now);
@@ -352,7 +362,7 @@ function closeLot(
   // A line id that names nothing on that day's barrow cannot be sold to anybody, and leaving it due
   // would settle it again on every read for ever. It goes down as a lot nobody took.
   const { winner, ranked } = line
-    ? award(repos, { day, session, line, bids, now, closedAt })
+    ? award(repos, { day, session, line, bids, now, closedAt, admin })
     : { winner: null, ranked: [] };
 
   repos.vendorAuctions.recordResult({
@@ -397,6 +407,7 @@ function award(
     bids: readonly VendorBid[];
     now: Date;
     closedAt: Date;
+    admin: boolean;
   },
 ): LotAward {
   const { day, session, line, bids, now, closedAt } = lot;
@@ -414,7 +425,7 @@ function award(
     // crew down.
     const base = settleBase(repos, bidder, now).base;
 
-    const charge = chargeFor(repos, base, entry.amount, now);
+    const charge = adminCaps(chargeFor(repos, base, entry.amount, now), lot.admin);
     if (base.resources.caps < charge) continue;
 
     const won: ItemCost = { [line.item as ItemId]: 1 };
@@ -475,16 +486,14 @@ function tellTheBarrow(
     notify(repos, {
       userId: winner.userId,
       kind: 'market_won',
-      title: `You took ${name} off the Runner for ${winner.price}`,
+      title: `You took ${name} off the Runner for ${winner.price.toLocaleString('en')} caps`,
       link: '/game/market',
       subjectId: lineId,
       at: closedAt,
     });
   }
 
-  const winnerName = winner
-    ? (repos.users.findById(winner.userId)?.username ?? 'another crew')
-    : '';
+  const winnerName = winner ? shownNameOf(repos, winner.userId, 'another crew') : '';
   for (const bid of bids) {
     if (bid.userId === winner?.userId) continue;
     notify(repos, {
@@ -493,7 +502,9 @@ function tellTheBarrow(
       title: missedLotTitle({
         name,
         passed: outcomeAgainst(ranked, winner?.userId ?? null, bid.userId) === 'passed',
-        winner: winner ? { name: winnerName, price: String(winner.price) } : null,
+        winner: winner
+          ? { name: winnerName, price: `${winner.price.toLocaleString('en')} caps` }
+          : null,
         nobody: 'went unsold',
       }),
       link: '/game/market',
@@ -543,9 +554,7 @@ export function lotResultsFor(
         item: result.item,
         outcome: outcomeFor(repos, result, userId),
         price: result.price,
-        winner: result.winnerUserId
-          ? (repos.users.findById(result.winnerUserId)?.username ?? null)
-          : null,
+        winner: result.winnerUserId ? shownNameOf(repos, result.winnerUserId, null) : null,
         yourBid: bid.amount,
       },
     ];

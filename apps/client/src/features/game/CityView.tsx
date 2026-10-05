@@ -266,14 +266,20 @@ function DistrictTag({
        * It missed by **one pixel**. Measured at the tag's own font, the widest authored name comes
        * to 143px of text and 159px with its padding, against a cap of 160px, which is why the map
        * looked right for a year and then did not the day a twenty-one character district opened.
-       * `11rem` leaves seventeen pixels over, and `cities.spec.ts` measures the rendered box of
-       * every authored tag rather than trusting this sum.
+       * `11rem` left seventeen pixels over, which the holder's mark then spent: twenty of them on
+       * a Combine-held Marshalling Yards, and it wrapped again.
+       *
+       * **Always one line** (maintainer, 2026-10-05), so the cap is gone and nothing wraps. What
+       * keeps a long name on the map instead is the type: a label past 22 characters, which only
+       * a crew's own name on its own plot can be, steps down a size the way `plaqueType` does on
+       * the district plaque, and `OnPlate` keeps every tag's centre 100px inside the visible
+       * window. `cities.spec.ts` measures every tag, the mark and a 28-character crew included.
        */}
       <span
         className={cn(
-          'flex items-center whitespace-normal rounded-sm border px-2 py-0.5 shadow-lifted',
-          'max-w-[11rem] text-balance break-words text-center',
-          'font-display text-[11px] font-semibold uppercase leading-tight tracking-[0.1em]',
+          'flex items-center whitespace-nowrap rounded-sm border px-2 py-0.5 shadow-lifted',
+          'font-display font-semibold uppercase leading-tight',
+          label.length > 22 ? 'text-[10px] tracking-[0.06em]' : 'text-[11px] tracking-[0.1em]',
           'transition-colors duration-200',
           /*
            * Your own ground is the one tag that leads somewhere different, so it stays legible as
@@ -504,8 +510,8 @@ function CapturedGatePanel({
         </span>
       </div>
       <p className="font-body text-[12px] leading-snug text-ink-300">
-        +{Math.round(gate.defensePercent)}% holding it, and{' '}
-        {Math.round(gate.intelResistancePercent)} points against anybody spying on it.
+        {/* Its points against spies are not printed: spy strength is not public (2026-10-01). */}+
+        {Math.round(gate.defensePercent)}% holding it.
       </p>
       {working ? (
         <div className="flex flex-wrap items-center gap-3">

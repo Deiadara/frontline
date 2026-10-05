@@ -166,6 +166,17 @@ export function leavingDisbands(rank: FactionRank, memberCount: number): boolean
   return rank === 'leader' || memberCount <= 1;
 }
 
+/**
+ * Whether this person, on their way out, may name who leads after them (maintainer, 2026-09-30).
+ *
+ * A leader with somebody else at the table. Leaving still disbands by default, and the leader may
+ * still choose that: naming a successor is the other door, and the route and the dialog both ask
+ * this one question so they cannot disagree about who is offered it.
+ */
+export function canNameSuccessor(rank: FactionRank, memberCount: number): boolean {
+  return rank === 'leader' && memberCount > 1;
+}
+
 export const FactionSchema = z.object({
   id: IdSchema,
   name: FactionNameSchema,
@@ -195,6 +206,12 @@ export const FactionMemberSchema = z.object({
   userId: IdSchema,
   baseId: IdSchema,
   username: z.string().min(1),
+  /**
+   * The name they go by (`displayNameOf`), which every other screen prints. `username` is the login
+   * name, kept for addressing and for the seat order's tie-break, so renaming never reseats anybody.
+   * Optional so a fixture without it still parses; the screens fall back to `username`.
+   */
+  displayName: z.string().min(1).optional(),
   /** What their district is called: the name they picked, which is what other screens show. */
   districtName: z.string().min(1),
   districtId: z.string().min(1),
@@ -242,6 +259,11 @@ export const FactionMemberSchema = z.object({
   overseerName: z.string().min(1).nullable().default(null),
 });
 export type FactionMember = z.infer<typeof FactionMemberSchema>;
+
+/** The name a member is printed under: the one they go by, or their login name on an old row. */
+export function memberName(member: Pick<FactionMember, 'username' | 'displayName'>): string {
+  return member.displayName ?? member.username;
+}
 
 /** An invitation, which is the only way in. */
 export const FactionInviteSchema = z.object({
@@ -310,13 +332,13 @@ export type FactionRefusal = z.infer<typeof FactionRefusalSchema>;
 
 /** One sentence a player can act on, for every way this can be turned down. */
 export const FACTION_REFUSAL_TEXT: Record<FactionRefusal, string> = {
-  not_established: `Founding a faction takes district level ${FOUND_FACTION_PLAYER_LEVEL} and the Nexus at ${FOUND_FACTION_NEXUS_LEVEL}.`,
+  not_established: `Founding a faction takes level ${FOUND_FACTION_PLAYER_LEVEL} and the Nexus at ${FOUND_FACTION_NEXUS_LEVEL}.`,
   already_in_a_faction: 'You are already in a faction. Leave it first.',
   faction_full: `A faction holds ${MAX_FACTION_MEMBERS} people. This one is full.`,
   name_taken: 'Another faction already goes by that name.',
   not_a_member: 'You are not in that faction.',
   not_allowed: 'Your rank does not carry that.',
-  no_such_player: 'Nobody in this city goes by that name.',
+  no_such_player: 'Nobody goes by that name.',
   already_invited: 'They already have an invitation from you.',
   already_a_member: 'They are already at your table.',
   no_such_invite: 'That invitation is no longer open.',

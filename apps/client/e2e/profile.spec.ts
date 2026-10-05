@@ -226,7 +226,7 @@ test.describe("a crew's file", () => {
     await page.setViewportSize({ width: 1280, height: 900 });
     await installApi(page, me);
     await page.goto('/game/leaderboard');
-    await page.getByTestId('standing-link-Vex_Combine').click();
+    await page.getByTestId('standing-link-Vex_Holdings').click();
     await expect(page).toHaveURL(/\/game\/crews\/vex-user$/);
     await expect(page.getByTestId('crew-profile')).toBeVisible();
   });

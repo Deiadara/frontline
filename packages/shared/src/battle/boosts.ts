@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { OFFICER_ROLE_LABELS, type OfficerRole } from '../roles.js';
-import { UNIT_TIERS, findUnit, type UnitTier } from '../units/index.js';
+import { UNIT_TIERS, findUnit, type UnitTier, type UnitTierStat } from '../units/index.js';
 import { bareLineRules, standsInLine, type LineRules } from './line.js';
 
 /**
@@ -68,9 +68,15 @@ export const BoostEffectSchema = z.discriminatedUnion('kind', [
 ]);
 export type BoostEffect = z.infer<typeof BoostEffectSchema>;
 
-/** Who is allowed to offer this. Read at view time, never stored on a battle. */
+/**
+ * Who is allowed to offer this. Read at view time, never stored on a battle.
+ *
+ * `open` is off the shelf for anybody. `blueprint` is made from its drawings and nobody proposes
+ * it: the three a Lab rung used to propose are opened by their blueprint alone (maintainer,
+ * 2026-10-01). `officer` is proposed by whoever is working that chair.
+ */
 export type BoostUnlock =
-  { kind: 'open' } | { kind: 'tech'; techId: string } | { kind: 'officer'; role: OfficerRole };
+  { kind: 'open' } | { kind: 'blueprint' } | { kind: 'officer'; role: OfficerRole };
 
 export interface BattleBoostSpec {
   id: string;
@@ -102,19 +108,19 @@ const TIER_LABELS: Readonly<Record<UnitTier, string>> = {
  *
  * ## The rate, and why it has to be about the same for all of them
  *
- * `boostBundle` folds every boost down to one whole-force percentage, so the only thing that
- * separates two of them at the point of use is **how many points of force percentage you get for
- * the infamy**. Two boosts at different rates are not two decisions, they are a right answer and a
- * trap, and the shop's own doc promises the opposite: a narrow boost buys "a bigger percentage for
- * the same money", which is a claim about the rate being flat.
+ * Two boosts at different rates are not two decisions, they are a right answer and a trap. Until
+ * 2026-10-02 the rate was read off the label, in infamy per point of percentage, because every
+ * narrow boost was folded onto the whole force by head count and a point was a point.
  *
- * It was not. Measured against a force built to make each one land at full coverage, the shop ran
- * from 6.5 infamy per point (Paid In Advance) to 44 (They Came For This): a factor of seven between
- * the best buy and the worst, with no gate or flavour explaining it. The band is 13 to 28 now, and
- * the spread inside it is the honest part: a boost you can only use on one unique unit is worth
- * less per point than one that lands on everything you own, because it is harder to cover.
+ * Narrow boosts land on the units they name now (`boostBundle`), so a point on a Razor and a
+ * point on a Juggernaut are different amounts of fight, and the rate is measured in the engine
+ * instead: what a boost adds to the share of the enemy a line built around it kills (its slice
+ * half the line by unit slots), against what the open name of the same stat adds to the same
+ * fights. Measured that day, the narrow names were worth 170 to 550 infamy at the open names'
+ * rate, while they were priced at 420 to 1150. They were re-priced to the measurement (maintainer
+ * ruling P10-C).
  *
- * `boosts.test.ts` holds the band. A new boost is priced into it first and flavoured second.
+ * `boosts.test.ts` holds the rate. A new boost is priced into it first and flavoured second.
  */
 export const BATTLE_BOOSTS: readonly BattleBoostSpec[] = [
   {
@@ -152,23 +158,23 @@ export const BATTLE_BOOSTS: readonly BattleBoostSpec[] = [
     name: 'Paid In Advance',
     description:
       'The cheap end of the roster, paid before the fight instead of after it. They notice.',
-    cost: 620,
+    cost: 280,
     effect: { kind: 'tier', tier: 'rabble', stat: 'offense', percent: 40 },
-    unlock: { kind: 'officer', role: 'finance_officer' },
+    unlock: { kind: 'officer', role: 'fixer' },
   },
   {
     id: 'boost_drilled_all_week',
     name: 'Drilled All Week',
     description: 'Seven days of the same approach, walked until nobody has to be told twice.',
-    cost: 420,
+    cost: 310,
     effect: { kind: 'tier', tier: 'wonder', stat: 'offense', percent: 28 },
-    unlock: { kind: 'officer', role: 'instructor_of_the_young' },
+    unlock: { kind: 'officer', role: 'veteran' },
   },
   {
     id: 'boost_the_right_doors',
     name: 'The Right Doors',
     description: 'Somebody has already been inside and marked which way the specialists go in.',
-    cost: 560,
+    cost: 320,
     effect: { kind: 'tier', tier: 'specialist', stat: 'offense', percent: 30 },
     unlock: { kind: 'officer', role: 'master_of_whispers' },
   },
@@ -176,23 +182,24 @@ export const BATTLE_BOOSTS: readonly BattleBoostSpec[] = [
     id: 'boost_plated_overnight',
     name: 'Plated Overnight',
     description: 'Every heavy thing you own, up on blocks and welded to until the sun came up.',
-    cost: 700,
+    cost: 170,
     effect: { kind: 'tier', tier: 'heavy', stat: 'defense', percent: 35 },
-    unlock: { kind: 'tech', techId: 'tech_standard_parts' },
+    unlock: { kind: 'blueprint' },
   },
   {
     id: 'boost_shaped_for_this',
     name: 'Shaped For This',
     description: 'The charges cut for this wall, this week, by somebody who measured it.',
-    cost: 640,
+    cost: 300,
     effect: { kind: 'tier', tier: 'heavy', stat: 'offense', percent: 32 },
-    unlock: { kind: 'tech', techId: 'tech_shaped_charges' },
+    unlock: { kind: 'blueprint' },
   },
   {
     id: 'boost_they_came_for_this',
     name: 'They Came For This',
     description: 'The one on your roster the city tells stories about, told the story is tonight.',
-    cost: 780,
+    // Re-measured when morale began reading wounds (2026-10-05): worth 324 on its built-for line.
+    cost: 330,
     effect: { kind: 'tier', tier: 'legendary', stat: 'offense', percent: 45 },
     unlock: { kind: 'officer', role: 'raid_boss' },
   },
@@ -200,9 +207,10 @@ export const BATTLE_BOOSTS: readonly BattleBoostSpec[] = [
     id: 'boost_the_colossus_walks',
     name: 'The Colossus Walks',
     description: 'Fuel nobody should be able to get, poured into the biggest thing in the city.',
-    cost: 1150,
+    // Re-measured when morale began reading wounds (2026-10-05): worth 344 on its built-for line.
+    cost: 350,
     effect: { kind: 'unit', unitId: 'the_colossus', stat: 'offense', percent: 50 },
-    unlock: { kind: 'tech', techId: 'tech_demolition_doctrine' },
+    unlock: { kind: 'blueprint' },
   },
 ];
 
@@ -212,8 +220,8 @@ const BY_ID = new Map(BATTLE_BOOSTS.map((spec) => [spec.id, spec]));
  * Names a crew may burn on one fight before anything is researched (§D7).
  *
  * One, and the rule reads as one: a fight is decided by what you brought, and a name is the thumb
- * on the scale rather than the scale. The Field Commander's last rung buys a second
- * (`battleBoostsFlat`), which is a real reward at the end of a ten-rung track rather than a dial.
+ * on the scale rather than the scale. The Field Commander's eighth rung, Two Names, buys a second
+ * (`battleBoostsFlat`), which is a real reward deep in a ten-rung track rather than a dial.
  */
 export const BASE_BATTLE_BOOSTS = 1;
 
@@ -240,13 +248,15 @@ export function describeBoostEffect(effect: BoostEffect): string {
   }
 }
 
-/** Why this one is on offer, or what it would take. Empty for the boosts anybody may buy. */
-export function describeBoostUnlock(unlock: BoostUnlock, techName: (id: string) => string): string {
+/**
+ * Why this one is on offer, or what it would take. Empty for the boosts anybody may buy, and for
+ * one made from drawings the crew holds: the blueprint line is the view's (`describeBlueprintGate`).
+ */
+export function describeBoostUnlock(unlock: BoostUnlock): string {
   switch (unlock.kind) {
     case 'open':
+    case 'blueprint':
       return '';
-    case 'tech':
-      return `Proposed by the Lab: ${techName(unlock.techId)}`;
     case 'officer':
       return `Proposed by your ${OFFICER_ROLE_LABELS[unlock.role]}`;
   }
@@ -257,26 +267,25 @@ export function describeBoostUnlock(unlock: BoostUnlock, techName: (id: string) 
  *
  * §D12e: a boost that is *manufactured* is behind its blueprint as well as behind whoever proposed
  * it. The document is checked first because it is the harder gate and the one a player can do
- * something about: a Lab project and a chair are things you already have or do not, and a blueprint
- * is a thing you are part way through collecting.
+ * something about: a chair is a thing you already have or do not, and a blueprint is a thing you
+ * are part way through collecting. A manufactured boost nobody proposes is the blueprint alone.
  *
  * The gate arrives as a predicate rather than as an inventory, for the same reason every other
  * blueprint gate does: `blueprints/requirements.ts` sits above `battle/` in the import graph, and
  * reaching back down from here would close the loop at module load. Callers hand in
  * `(id) => blueprintGateMet(inventory, 'battle_boost', id)`. A boost nothing gates answers true, so
- * the three boosts that are open to anybody are unaffected.
+ * the boosts that are open to anybody and carry no drawings are unaffected.
  */
 export function boostAvailable(
   spec: { id: string; unlock: BoostUnlock },
-  crew: { technologies: readonly string[]; roles: readonly OfficerRole[] },
+  crew: { roles: readonly OfficerRole[] },
   blueprintUnlocked: (boostId: string) => boolean,
 ): boolean {
   if (!blueprintUnlocked(spec.id)) return false;
   switch (spec.unlock.kind) {
     case 'open':
+    case 'blueprint':
       return true;
-    case 'tech':
-      return crew.technologies.includes(spec.unlock.techId);
     case 'officer':
       return crew.roles.includes(spec.unlock.role);
   }
@@ -285,7 +294,8 @@ export function boostAvailable(
 /**
  * How much of a force one boost reaches, 0..1, by head count.
  *
- * Used to turn a narrow boost into a whole-force figure the engine can apply. **Heads, not unit
+ * What the fight page prints as a boost's reach, and how a morale boost aimed at a slice is folded
+ * onto the side (`boostBundle`). It used to fold every narrow boost that way. **Heads, not unit
  * slots** (maintainer, 2026-09-15): a unit slot prices what a sheet costs to house, to carry and to
  * kill, and it says nothing about a battlefield. This was the one reader of slots inside the
  * engine, and it made a narrow boost on the heavy end worth more than the share of the line it
@@ -320,24 +330,93 @@ export function boostCoverage(
 }
 
 /**
- * A bought boost as the battle engine reads it: three whole-force percentages.
+ * The half of a boost that lands on the units it names: per-tier and per-unit percentages, on the
+ * channels the engine already reads per stack (`effectiveStats`).
+ */
+export interface AimedBoost {
+  unitTierPercent: Partial<Record<UnitTier, Partial<Record<UnitTierStat, number>>>>;
+  unitKindPercent: Record<string, Partial<Record<UnitTierStat, number>>>;
+}
+
+/** A bought boost as the battle engine reads it. */
+export interface BoostBundle {
+  offensePercent: number;
+  defensePercent: number;
+  moralePercent: number;
+  aimed: AimedBoost;
+}
+
+export const NO_AIM: AimedBoost = { unitTierPercent: {}, unitKindPercent: {} };
+
+/** The engine's channel for a boost's stat on a named unit. Morale has none: it is a side's. */
+const AIMED_STAT: Readonly<Partial<Record<BoostStat, UnitTierStat>>> = {
+  offense: 'offense',
+  defense: 'vitality',
+};
+
+/**
+ * A bought boost as the battle engine reads it.
  *
- * A narrow boost is folded down by {@link boostCoverage} rather than applied at full strength,
- * because the engine resolves a force and not a unit list. `+50% attack for the Colossus` on a
- * force that is a third Colossus by head count is `+16.7%` on the force, which is the same
- * arithmetic a player would do in their head and the reason a narrow boost is priced by how narrow
- * it is.
+ * A whole-force boost lands on the three whole-force channels. A tier or unit boost lands on the
+ * units it names, at its full percentage (maintainer ruling P10-C, 2026-10-02). It used to be
+ * folded down by {@link boostCoverage} and spread over the whole force by head count, so The
+ * Colossus Walks (+50% attack for The Colossus) with one Colossus and forty Razors gave +1.22% to
+ * all forty-one, a third of what the card promises and most of it on the Razors.
+ *
+ * Morale is still folded by coverage, because morale is held per stack but broken per side: there
+ * is no channel for one unit's nerve, and no boost on the shelf aims morale at a slice.
  */
 export function boostBundle(
   effect: BoostEffect,
   force: Readonly<Record<string, number>>,
   rules: LineRules = bareLineRules(),
-): { offensePercent: number; defensePercent: number; moralePercent: number } {
+): BoostBundle {
+  const aimedStat = AIMED_STAT[effect.stat];
+  if (effect.kind !== 'force' && aimedStat) {
+    const amount = { [aimedStat]: effect.percent };
+    return {
+      offensePercent: 0,
+      defensePercent: 0,
+      moralePercent: 0,
+      aimed:
+        effect.kind === 'tier'
+          ? { unitTierPercent: { [effect.tier]: amount }, unitKindPercent: {} }
+          : { unitTierPercent: {}, unitKindPercent: { [effect.unitId]: amount } },
+    };
+  }
   const share = boostCoverage(effect, force, rules) * effect.percent;
   return {
     offensePercent: effect.stat === 'offense' ? share : 0,
     defensePercent: effect.stat === 'defense' ? share : 0,
     moralePercent: effect.stat === 'morale' ? share : 0,
+    aimed: NO_AIM,
+  };
+}
+
+/** Adds two `{ key: { stat: number } }` maps, the shape both aimed channels have. */
+function addAimed<K extends string>(
+  a: Partial<Record<K, Partial<Record<UnitTierStat, number>>>>,
+  b: Partial<Record<K, Partial<Record<UnitTierStat, number>>>>,
+): Partial<Record<K, Partial<Record<UnitTierStat, number>>>> {
+  const total = { ...a };
+  for (const key of Object.keys(b) as K[]) {
+    const into = { ...(total[key] ?? {}) };
+    for (const [stat, value] of Object.entries(b[key] ?? {}) as [UnitTierStat, number][]) {
+      into[stat] = (into[stat] ?? 0) + value;
+    }
+    total[key] = into;
+  }
+  return total;
+}
+
+/** Two aimed boosts on one side, added: two names stack by adding, aimed or not. */
+export function mergeAimed(a: AimedBoost, b: AimedBoost): AimedBoost {
+  return {
+    unitTierPercent: addAimed(a.unitTierPercent, b.unitTierPercent),
+    unitKindPercent: addAimed(
+      a.unitKindPercent,
+      b.unitKindPercent,
+    ) as AimedBoost['unitKindPercent'],
   };
 }
 

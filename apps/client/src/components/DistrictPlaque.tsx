@@ -49,31 +49,7 @@ export const PLAQUE_PLATE =
 export function PlaqueFace({ name }: { name: string }) {
   return (
     <>
-      {/* The four corner rules. Drawn, because a plate is a plate by its corners: a plain border
-          reads as a box around text and this has to read as something bolted to a wall.
-
-          `!absolute`, and it has to be. `.painted > *` sets `position: relative` on every direct
-          child (it is what lifts content above the soft-light texture layer), and a child
-          combinator outranks a plain class however the utilities are ordered. Without the
-          important flag these four sat in the flex flow and stacked into an I-beam at the top of
-          the sign. */}
-      {(
-        [
-          'left-1 top-1 border-l-2 border-t-2',
-          'right-1 top-1 border-r-2 border-t-2',
-          'left-1 bottom-1 border-b-2 border-l-2',
-          'right-1 bottom-1 border-b-2 border-r-2',
-        ] as const
-      ).map((corner) => (
-        <span
-          key={corner}
-          aria-hidden
-          className={cn(
-            '!absolute h-2.5 w-2.5 border-brass-300/70 transition-colors group-hover:border-brass-100',
-            corner,
-          )}
-        />
-      ))}
+      <PlaqueCorners />
 
       <span
         className={cn(
@@ -95,6 +71,40 @@ export function PlaqueFace({ name }: { name: string }) {
         aria-hidden
         className="!absolute bottom-1.5 left-1/2 h-px w-1/2 -translate-x-1/2 bg-gradient-to-r from-transparent via-brass-300/70 to-transparent transition-colors group-hover:via-brass-100"
       />
+    </>
+  );
+}
+
+/**
+ * The four corner rules. Drawn, because a plate is a plate by its corners: a plain border reads as a
+ * box around text and this has to read as something bolted to a wall. Shared with every other plate
+ * hung on a painting (`HeldByPlaque`), so the two cannot drift.
+ *
+ * `!absolute`, and it has to be. `.painted > *` sets `position: relative` on every direct child (it
+ * is what lifts content above the soft-light texture layer), and a child combinator outranks a plain
+ * class however the utilities are ordered. Without the important flag these four sat in the flex
+ * flow and stacked into an I-beam at the top of the sign.
+ */
+export function PlaqueCorners() {
+  return (
+    <>
+      {(
+        [
+          'left-1 top-1 border-l-2 border-t-2',
+          'right-1 top-1 border-r-2 border-t-2',
+          'left-1 bottom-1 border-b-2 border-l-2',
+          'right-1 bottom-1 border-b-2 border-r-2',
+        ] as const
+      ).map((corner) => (
+        <span
+          key={corner}
+          aria-hidden
+          className={cn(
+            '!absolute h-2.5 w-2.5 border-brass-300/70 transition-colors group-hover:border-brass-100',
+            corner,
+          )}
+        />
+      ))}
     </>
   );
 }

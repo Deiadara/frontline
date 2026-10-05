@@ -175,6 +175,16 @@ export function runTheFight(world: World, battleId: string): void {
   if (ran.length !== 1) throw new Error(`${ran.length} fights ran, not one`);
 }
 
+/**
+ * Puts a finished fight's mark more than a day behind us, so the crew that called it and lost may
+ * call the same place again (`LOST_CALL_COOLDOWN_HOURS`, maintainer 2026-10-05).
+ */
+export function aDayAfter(world: World, battleId: string): void {
+  world.db
+    .prepare('UPDATE scheduled_battles SET scheduled_for = ? WHERE id = ?')
+    .run(new Date(Date.now() - 25 * 3_600_000).toISOString(), battleId);
+}
+
 /** Every column walking anywhere, landed now. */
 export function landEveryMove(world: World): void {
   world.db

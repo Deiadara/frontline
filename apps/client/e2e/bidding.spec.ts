@@ -146,7 +146,7 @@ test.describe('bidding (§H7)', () => {
 
     // And afterwards the value is a sealed card rather than a field somebody can edit again.
     await expect(page.getByTestId('sealed-card')).toContainText(String(floor + 40));
-    await expect(page.getByTestId('sealed-card')).toContainText('Revealed at midnight');
+    await expect(page.getByTestId('sealed-card')).toContainText(/Revealed at \d\d:\d\d\./);
     await expect(page.getByTestId('lock-final')).toHaveCount(0);
 
     await settleFonts(page);

@@ -263,30 +263,37 @@ export function gradePay(grade: Grade): number {
 }
 
 /**
- * A fight's premium on top, over plain work of the same grade.
+ * A fight's premium over plain work of the same grade, in percent (maintainer, 2026-09-30).
  *
- * The old tier ladder paid 1 to 3.2 over Fight I to Fight V and 4.2 for a Siege; this is that
- * ladder read at each grade's pay level, and Mayhem takes the Siege's 4.2.
+ * The ruling: a job with a fight in it pays about 20 to 250% more by its grade, 10% extra at F-
+ * and 200% at a late S. It replaced a flat 1.6 for being a battle times the old tier ladder's lift
+ * (1 to 3.2, and 4.2 for Mayhem), which had a fight at F- paying 60% over the plain job beside it
+ * and a Mayhem nearly seven times.
+ *
+ * One geometric curve through both anchors, `floor + scale * (growth^index - 1)`, rather than a
+ * table: it climbs slowly through the Skirmishes, where a fight is cheap to win, and steeply
+ * through Siege and Mayhem, where it is not. The growth is the one free number, and 1.26 is what
+ * lands S+ on 250% (250.02) with F- and S exactly on their anchors.
  */
-const FIGHT_LADDER_ANCHORS: readonly { level: number; lift: number }[] = [
-  { level: 1, lift: 1 },
-  { level: 10, lift: 1.35 },
-  { level: 25, lift: 1.8 },
-  { level: 40, lift: 2.4 },
-  { level: 70, lift: 3.2 },
-];
-export const MAYHEM_FIGHT_LIFT = 4.2;
+export const FIGHT_PREMIUM_FLOOR_PERCENT = 10;
+export const FIGHT_PREMIUM_AT_S_PERCENT = 200;
+export const FIGHT_PREMIUM_GROWTH = 1.26;
 
-export function fightLift(grade: Grade): number {
-  if (fightCategory(grade) === 'mayhem') return MAYHEM_FIGHT_LIFT;
-  const level = GRADE_PAY_LEVEL[grade];
-  const anchors = FIGHT_LADDER_ANCHORS;
-  const last = anchors[anchors.length - 1]!;
-  if (level >= last.level) return last.lift;
-  const next = anchors.find((anchor) => anchor.level >= level)!;
-  const prev = [...anchors].reverse().find((anchor) => anchor.level <= level)!;
-  const t = next.level === prev.level ? 0 : (level - prev.level) / (next.level - prev.level);
-  return prev.lift + (next.lift - prev.lift) * t;
+const S_INDEX = gradeIndex('S');
+const FIGHT_PREMIUM_SCALE =
+  (FIGHT_PREMIUM_AT_S_PERCENT - FIGHT_PREMIUM_FLOOR_PERCENT) /
+  (FIGHT_PREMIUM_GROWTH ** S_INDEX - 1);
+
+export function fightPremiumPercent(grade: Grade): number {
+  return (
+    FIGHT_PREMIUM_FLOOR_PERCENT +
+    FIGHT_PREMIUM_SCALE * (FIGHT_PREMIUM_GROWTH ** gradeIndex(grade) - 1)
+  );
+}
+
+/** The same premium as a multiplier on a plain job's pay: 1.1 at F-, 3 at S. */
+export function fightPayFactor(grade: Grade): number {
+  return 1 + fightPremiumPercent(grade) / 100;
 }
 
 /** How much longer each mark above a job's lowest grade keeps a crew on site. */

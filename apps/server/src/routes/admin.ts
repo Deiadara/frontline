@@ -21,6 +21,7 @@ import {
   RESEARCH_ITEMS,
   findDistrict,
   AdminKnobsRequestSchema,
+  AdminResetRequestSchema,
   BUILDING_KINDS,
   RESOURCE_KEYS,
   addItems,
@@ -61,7 +62,7 @@ import { storeCeilingsOf } from '../district/stores.js';
 import { ownBase } from './own-base.js';
 import { rollName } from '../bar/names.js';
 import { createRng } from '../characters/rng.js';
-import { legendaryRoom } from '../units/training.js';
+import { legendaryRoom } from '../units/muster.js';
 import { officerDuty } from '../crew/duty.js';
 import type { Repositories } from '../db/repos/index.js';
 
@@ -92,7 +93,7 @@ import type { Repositories } from '../db/repos/index.js';
  * somewhere else: units posted on an ally's ground, Sleeper cells, and columns between the crew's
  * places. None of them is on the base row, so none of them went with it. Every one still drew beds
  * off the fresh crew (`unitsAbroad`), so an old army abroad could leave eight Scavengers with no
- * free bed for the Bar or the training floor, and a column bound for a location the reset had just
+ * free bed for the Bar or the muster bench, and a column bound for a location the reset had just
  * released claimed it again the moment it arrived. The standing orders go too: they name the old crew's officers and parties.
  */
 function withdrawFromTheMap(repos: Repositories, baseId: string, now: string): void {
@@ -187,11 +188,17 @@ function forgetTheOldRuns(repos: Repositories, baseId: string): void {
  *
  * The seat was the old crew's: a fresh level-1 crew stayed at the table, as its leader if the old
  * one led it. Through {@link leaveFaction}, the same path `POST /factions/leave` takes, so the
- * table is told, posted units walk home, and a leader leaving disbands it as the board's rule says.
+ * table is told, posted units walk home, and a leader leaving disbands it as the board's rule says,
+ * or hands it to the successor they named (maintainer, 2026-09-30).
  */
-function leaveTheOldFaction(repos: Repositories, userId: string, username: string, now: Date) {
-  const held = repos.factions.membershipOf(userId);
-  if (held) leaveFaction(repos, held, username, now);
+function leaveTheOldFaction(
+  repos: Repositories,
+  user: { id: string; username: string },
+  now: Date,
+  successorId: string | undefined,
+) {
+  const held = repos.factions.membershipOf(user.id);
+  if (held) leaveFaction(repos, held, user.username, now, successorId);
 }
 
 function snapshot(app: FastifyInstance, base: Base): AdminSnapshot {
@@ -383,9 +390,9 @@ function grantedArmy(repos: Repositories, base: Base, granted: Army): Army {
  * The officers knob replaces the whole roster, and a bare replace left behind what an officer
  * leaves when `releaseOfficer` lets them go: a drill still standing on the floor under their id,
  * and their fee still counted in the payroll book. The drill was the one that showed, because
- * `trainingBlocker` counts sessions against the one bench, so a knob pressed while an officer was
- * drilling answered "The floor is taken" to every drill for the rest of the hour, with nobody on
- * the screen to cancel. The same two lines are cleared here, the same way.
+ * `trainingBlocker` counts sessions against the places in the queue, so a knob pressed while an
+ * officer was drilling held one of them for the rest of the hour, with nobody on the screen to
+ * cancel. The same two lines are cleared here, the same way.
  */
 /**
  * Refuses the officers knob while somebody it would strike off is out leading a run or a fight
@@ -475,13 +482,13 @@ export function registerAdminRoutes(app: FastifyInstance): void {
 
       /*
        * Bodies on the roster, added rather than set: see `AdminGrantRequestSchema.units`. The
-       * training queue is handed back untouched, because a grant is a gift and not an order. No bed
+       * muster queue is handed back untouched, because a grant is a gift and not an order. No bed
        * is asked for, because admin mode waives `no_unit_slots` at every other door too.
        */
       if (body.units !== undefined) {
         const army = grantedArmy(app.repos, next, body.units);
         next = { ...next, army };
-        app.repos.bases.updateArmy(next.id, army, next.trainingQueue);
+        app.repos.bases.updateArmy(next.id, army, next.musterQueue);
       }
 
       if (body.footholds === 'every-city') grantFootholds(app, next.id);
@@ -550,6 +557,7 @@ export function registerAdminRoutes(app: FastifyInstance): void {
    * and on the barrow, which the next close settles against the fresh crew.
    */
   app.post('/admin/reset', { preHandler: app.authenticate }, (request): AdminMutationResponse => {
+    const { successorId } = parseBody(AdminResetRequestSchema, request.body ?? {});
     return app.db.transaction(() => {
       const base = ownBase(app, request.currentUser.id);
 
@@ -557,7 +565,7 @@ export function registerAdminRoutes(app: FastifyInstance): void {
       const now = new Date();
       callOffTheOldFights(app.repos, base, now);
       leaveTheOldAlliedFights(app.repos, base, now);
-      leaveTheOldFaction(app.repos, request.currentUser.id, request.currentUser.username, now);
+      leaveTheOldFaction(app.repos, request.currentUser, now, successorId);
 
       // Then the ground, while the id still means something.
       for (const control of app.repos.city.controls().values()) {
@@ -662,7 +670,7 @@ export function registerAdminRoutes(app: FastifyInstance): void {
         app.repos.bases.updateResearch(next.id, { ...next.research, active: null });
         next = {
           ...next,
-          trainingQueue: [],
+          musterQueue: [],
           research: { ...next.research, active: null },
         };
       }

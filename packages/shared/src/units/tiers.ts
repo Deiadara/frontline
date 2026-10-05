@@ -52,3 +52,14 @@ export const UNIT_TIER_STAT_LABELS: Record<UnitTierStat, string> = {
   vitality: 'vitality',
   armor: 'armour',
 };
+
+/**
+ * The number on a bonus to one of these stats, with its unit.
+ *
+ * Armour is points on a 0..100 rating: `battle/effects.ts` adds a tier's or a unit's armour flat,
+ * the way it adds `unitArmorPercent`. The cards said `+20% Ironsides armour` and the engine gave
+ * twenty points, which on a sheet of 64 is half as much again as the percentage would have been.
+ */
+export function tierStatAmount(stat: UnitTierStat, amount: number): string {
+  return stat === 'armor' ? `+${amount}` : `+${amount}%`;
+}

@@ -33,6 +33,13 @@ import { ErrorNote } from '../../components/ui/ErrorNote';
 
 type PlaceKey = string;
 
+/** The list's headings: empty ground is a destination since P6-A (2026-10-02), never a source. */
+const GROUP_LABELS: Readonly<Record<MoveDestination['group'], string>> = {
+  yours: 'Yours',
+  faction: 'The faction',
+  empty: 'Empty ground',
+};
+
 const keyOf = (place: MovePlace): PlaceKey =>
   place.kind === 'location' ? `location:${place.locationId}` : place.kind;
 
@@ -133,7 +140,7 @@ export function MoveDialog({
               hint: `${entry.districtName}${entry.holderName ? ` · ${entry.holderName}'s` : ''}`,
             }
           : {}),
-        group: entry.group === 'yours' ? 'Yours' : 'The faction',
+        group: GROUP_LABELS[entry.group],
       }));
 
   const units = Object.entries(standing)
@@ -168,7 +175,7 @@ export function MoveDialog({
               value: key,
               label: entry.label,
               hint: `${armySize(there)} standing${entry.districtName ? ` · ${entry.districtName}` : ''}`,
-              group: entry.group === 'yours' ? 'Yours' : 'The faction',
+              group: GROUP_LABELS[entry.group],
             }))}
             onChange={(next) => {
               setFromKey(next);
@@ -265,7 +272,11 @@ export function MoveDialog({
                 ? 'Pick somebody and somewhere'
                 : quote.data
                   ? formatDuration((onTheTrain ? rail.minutes : quote.data.minutes) * 60)
-                  : 'Working it out…'
+                  : // A refused quote is the server's answer, not one still coming: it read
+                    // "Working it out" for ever while Send stayed live (bug pass, 2026-10-02).
+                    quote.isError
+                    ? quote.error.message
+                    : 'Working it out…'
             }
             testId="move-time"
           />
@@ -314,7 +325,7 @@ export function MoveDialog({
         </Button>
         <Button
           size="sm"
-          disabled={!legal || move.isPending}
+          disabled={!legal || move.isPending || quote.isError}
           onClick={() =>
             move.mutate(
               { from, to, army: sending, vehicles, byRail: onTheTrain },

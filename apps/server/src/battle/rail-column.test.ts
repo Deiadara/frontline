@@ -69,7 +69,7 @@ async function crewOnTheLine(platforms: readonly string[], home: string) {
     app.repos.city.put({ ...control, holder: { kind: 'crew', baseId }, garrison: {} });
   }
   const base = app.repos.bases.findById(baseId)!;
-  app.repos.bases.updateArmy(base.id, { razors: 8 }, base.trainingQueue);
+  app.repos.bases.updateArmy(base.id, { razors: 8 }, base.musterQueue);
   // A movement row names the fight it is walking to, so the fight has to exist. Two of them,
   // because the march and the ride are sent separately and a column is keyed by battle.
   for (const id of ['battle-foot', 'battle-rail']) {

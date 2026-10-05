@@ -73,27 +73,30 @@ describe('a location at a level', () => {
      * rather than the old one. What has to hold across that change is the *curve*: the three
      * steps still stand in the 1 : 2.2 : 4.5 ratio the line above pins, which is what a saved
      * control row at level 3 is priced against.
+     *
+     * The literals carry the flat 10% rise of 2026-10-05 (`LOCATION_UPGRADE_PRICE_RISE`), which
+     * moved every step by the same factor and so left the ratio alone.
      */
     expect(upgradeCost('gas_station', 1)).toEqual({
-      planks: 120,
-      highQualityMetal: 12,
-      scrap: 36,
-      oil: 48,
-      caps: 24,
+      planks: 132,
+      highQualityMetal: 13,
+      scrap: 40,
+      oil: 53,
+      caps: 26,
     });
     expect(upgradeCost('gas_station', 2)).toEqual({
-      planks: 264,
-      highQualityMetal: 26,
-      scrap: 79,
-      oil: 106,
-      caps: 53,
+      planks: 290,
+      highQualityMetal: 29,
+      scrap: 87,
+      oil: 116,
+      caps: 58,
     });
     expect(upgradeCost('gas_station', 3)).toEqual({
-      planks: 540,
-      highQualityMetal: 54,
-      scrap: 162,
-      oil: 216,
-      caps: 108,
+      planks: 594,
+      highQualityMetal: 59,
+      scrap: 178,
+      oil: 238,
+      caps: 119,
     });
   });
 
@@ -126,8 +129,8 @@ describe('a location at a level', () => {
     // Straight multiplication, rounded: percentages, flat points and per-hour rates.
     expect(ladder('high_ground', 'defense_percent')).toEqual([12, 18, 24, 30]);
     expect(ladder('revolutionist_statue', 'intimidation')).toEqual([6, 9, 12, 15]);
-    // Rounds half up, which is what makes a 5 into 8 rather than 7 at level 2.
-    expect(ladder('broadcast_station', 'officer_group')).toEqual([5, 8, 10, 13]);
+    // Halved and floored since 2026-10-05 (maintainer: outside the lift cap, at half the size).
+    expect(ladder('broadcast_station', 'officer_group')).toEqual([2, 4, 5, 6]);
     // The whole-number channels, where the "at least one more per level" floor is what bites.
     expect(ladder('gym', 'training_sessions')).toEqual([1, 2, 3, 4]);
     // The two that paid in sight and scouting parties until 2026-09-29, now intel at the same worth.

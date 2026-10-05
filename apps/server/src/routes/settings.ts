@@ -13,7 +13,7 @@ import {
 import bcrypt from 'bcryptjs';
 import type { FastifyInstance } from 'fastify';
 import { AppError, parseBody } from '../errors.js';
-import { SESSION_HEADER, signSession } from '../auth/session.js';
+import { issueSession } from '../auth/session.js';
 import type { UserRecord } from '../types.js';
 
 /**
@@ -56,6 +56,28 @@ function refuseTakenDisplayName(app: FastifyInstance, userId: string, displayNam
           (other.displayName !== null && sameDisplayName(other.displayName, displayName))),
     );
   if (clash) throw new AppError('DISPLAY_NAME_TAKEN', DISPLAY_NAME_TAKEN_MESSAGE);
+}
+
+/**
+ * A username another player already shows as their display name (bug pass, 2026-10-02), the other
+ * direction of {@link refuseTakenDisplayName}: Alice called herself `Kestrel`, Bob renamed his
+ * login to `Kestrel`, and every letter he signed and every pick of "Kestrel" in the composer reached
+ * him rather than her. `userId` is the caller, null at registration; their own display name is fine.
+ */
+export function refuseUsernameWornByAnother(
+  app: FastifyInstance,
+  userId: string | null,
+  username: string,
+): void {
+  const clash = app.repos.users
+    .names()
+    .some(
+      (other) =>
+        other.id !== userId &&
+        other.displayName !== null &&
+        sameDisplayName(other.displayName, username),
+    );
+  if (clash) throw new AppError('USERNAME_TAKEN', 'Another player already goes by that name');
 }
 
 export function registerSettingsRoutes(app: FastifyInstance): void {
@@ -113,6 +135,9 @@ export function registerSettingsRoutes(app: FastifyInstance): void {
         if (current?.username !== body.username && isReservedName(body.username)) {
           throw new AppError('USERNAME_RESERVED', RESERVED_NAME_MESSAGE);
         }
+        if (current?.username !== body.username) {
+          refuseUsernameWornByAnother(app, userId, body.username);
+        }
       }
       if (typeof body.displayName === 'string' && current?.displayName !== body.displayName) {
         refuseTakenDisplayName(app, userId, body.displayName);
@@ -166,7 +191,7 @@ export function registerSettingsRoutes(app: FastifyInstance): void {
     }
     app.repos.users.setPasswordHash(record.id, passwordHash);
     const version = app.repos.users.revokeSessions(record.id);
-    reply.header(SESSION_HEADER, signSession(app, record.id, version));
+    issueSession(app, reply, record.id, version, request.sessionVia);
     app.repos.history.record({
       actorId: record.id,
       baseId: null,

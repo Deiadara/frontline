@@ -5,8 +5,11 @@
  *
  * What is real: the boards (`missionOffers` at the crew's level, on the day's keys), the grades,
  * the odds (`missionOdds` against the leader's grade for the job), the clock, the XP and the level
- * curve, the Bar's own recruits (`barRoster`), and the training rules (one bench, five hours a day,
- * two points a session and one above fifty, never the same attribute twice running).
+ * curve, the fight premium (`missionXp` through `fightPayFactor`), the Bar's own recruits
+ * (`barRoster`), the officer slots a level grants (`officerSlotsAt`: none before the Bar, one at
+ * level 5, another every two levels), the infamy a won raid on Combine ground pays
+ * (`infamyForRaidWon`), and the training rules (one bench, five hours a day, two points a session
+ * and one above fifty, never the same attribute twice running).
  *
  * What is a model, and says so: how long a player is on each day, which job they pick (the best
  * expected XP an hour with the best free leader), how often they hire, and where their training
@@ -15,7 +18,8 @@
  * not simulated), and a win kills `KILLED_ON_WIN` of the enemy's unit slots, a loss `KILLED_ON_LOSS`,
  * which is what pays infamy, and every other day it calls a fight on Combine ground
  * (`DECLARED_EVERY_DAYS`). Every point of infamy is spent on the next rank as soon as it covers it.
- * XP from buildings, research, drills and hires is left out, so a real crew runs a little ahead.
+ * XP from buildings, research, drills, hires, declared fights and feats is left out, so a real crew
+ * runs a little ahead. Feats pay no infamy, so leaving them out costs the rank ladder nothing.
  *
  * A leader leads one job at a time across every crew: the first version cleared the busy set per
  * crew, so one officer ran every slot at once and the pace read faster than the game allows.
@@ -36,7 +40,9 @@ import {
   MAX_NOTORIETY,
   NOTORIETY_TIERS,
   infamyForKills,
+  infamyForRaidWon,
   missionInfamyForKills,
+  officerSlotsAt,
   notorietyUpgradeCost,
   TRAINING_GAIN,
   TRAINING_HALF_GAIN_FROM,
@@ -79,13 +85,20 @@ const KILLED_ON_WIN = 0.75;
 const KILLED_ON_LOSS = 0.35;
 /**
  * And a fight it calls itself every so many days on Combine ground, in `mixed` mode: the garrison
- * killed at a point a slot (sized like the day's hardest fight card) and the site's own 40.
+ * killed at a point a slot (sized like the day's hardest fight card) and what a won raid on an
+ * ordinary Combine site pays on top. It used to add the site's 40 alone and miss the 25 every won
+ * raid pays.
  */
 const DECLARED_EVERY_DAYS = 2;
-const GOVERNMENT_SITE_INFAMY = 40;
-/** How often the crew signs somebody, and how many it can pay for. */
+const GOVERNMENT_SITE_INFAMY = infamyForRaidWon({ fromTheState: true, seatOfPower: false });
+/**
+ * How often the crew signs somebody, and how many officers its payroll book is assumed to carry.
+ * The level's slots are the other ceiling (`officerSlotsAt`), and the lower of the two binds. The
+ * pace barely feels the book: 3, 5, 8 and 12 officers all put level ninety within two days of each
+ * other (measured 2026-10-01), because two or three crews out at once need few leaders.
+ */
 const HIRE_EVERY_DAYS = 3;
-const MAX_OFFICERS = 6;
+const PAID_OFFICERS = 5;
 
 interface Leader {
   name: string;
@@ -187,11 +200,14 @@ function hire(leaders: Leader[], day: number, level: number, profiles: readonly 
     score(one.attributes) > score(top.attributes) ? one : top,
   );
   const recruit = { name: best.name, attributes: best.attributes, lastDrilled: null, freeAt: 0 };
-  if (leaders.length < MAX_OFFICERS) {
+  // The Overseer is `leaders[0]` and holds no officer slot.
+  if (leaders.length - 1 < Math.min(officerSlotsAt(level), PAID_OFFICERS)) {
     leaders.push(recruit);
     return;
   }
   const officers = leaders.slice(1);
+  // Below the Bar's level there is no slot to fill and nobody to swap out.
+  if (officers.length === 0) return;
   const weakest = officers.reduce((low, one) =>
     score(one.attributes) < score(low.attributes) ? one : low,
   );

@@ -43,7 +43,7 @@ export async function edges(h: Harness, cast: Cast): Promise<void> {
 }
 
 async function benchLimits(h: Harness, d: Player): Promise<void> {
-  h.at('edges: the training bench is full');
+  h.at('edges: the muster bench is full');
   grantResources(h, d, { caps: 5_000, supplies: 2_000 });
   const roster = await h.ok<UnitsResponse>({ as: d, method: 'GET', route: '/api/units' });
   const unit = roster?.units.find((one) => one.unlocked && !one.unique);
@@ -53,7 +53,7 @@ async function benchLimits(h: Harness, d: Player): Promise<void> {
     const res = await h.ok<{ queue: { id: string }[] }>({
       as: d,
       method: 'POST',
-      route: '/api/units/train',
+      route: '/api/units/muster',
       body: { unitId: unit.id, count: 1 },
     });
     const last = res?.queue[res.queue.length - 1];
@@ -62,10 +62,10 @@ async function benchLimits(h: Harness, d: Player): Promise<void> {
   await h.refuse({
     as: d,
     method: 'POST',
-    route: '/api/units/train',
+    route: '/api/units/muster',
     body: { unitId: unit.id, count: 1 },
     expect: 409,
-    code: 'TRAINING_QUEUE_FULL',
+    code: 'MUSTER_QUEUE_FULL',
   });
   for (const id of placed.reverse()) {
     await h.call({
@@ -90,7 +90,7 @@ async function benchLimits(h: Harness, d: Player): Promise<void> {
     await h.refuse({
       as: d,
       method: 'POST',
-      route: '/api/units/train',
+      route: '/api/units/muster',
       body: { unitId: unit.id, count: fits + 1 },
       expect: 409,
       code: 'NO_UNIT_SLOTS',
@@ -98,13 +98,13 @@ async function benchLimits(h: Harness, d: Player): Promise<void> {
     const first = await h.ok<{ queue: { id: string }[] }>({
       as: d,
       method: 'POST',
-      route: '/api/units/train',
+      route: '/api/units/muster',
       body: { unitId: unit.id, count: fits },
     });
     await h.refuse({
       as: d,
       method: 'POST',
-      route: '/api/units/train',
+      route: '/api/units/muster',
       body: { unitId: unit.id, count: 1 },
       expect: 409,
       code: 'NO_UNIT_SLOTS',
@@ -127,7 +127,7 @@ async function benchLimits(h: Harness, d: Player): Promise<void> {
     await h.refuse({
       as: d,
       method: 'POST',
-      route: '/api/units/train',
+      route: '/api/units/muster',
       body: { unitId: unit.id, count: 1 },
       expect: 409,
       code: 'NO_UNIT_SLOTS',

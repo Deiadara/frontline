@@ -239,7 +239,7 @@ async function declare(stack: Stack, target: BattleTarget): Promise<string> {
 
 async function deploy(stack: Stack, battleId: string, army: Record<string, number>) {
   const base = stack.app.repos.bases.findById(stack.baseId)!;
-  stack.app.repos.bases.updateArmy(base.id, army, base.trainingQueue);
+  stack.app.repos.bases.updateArmy(base.id, army, base.musterQueue);
   const res = await stack.app.inject({
     method: 'POST',
     url: '/api/battles/deploy',

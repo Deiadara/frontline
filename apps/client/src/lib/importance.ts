@@ -21,3 +21,15 @@ export const IMPORTANCE_EDGE: Record<AttributeImportance, string> = {
   essential: 'border-l-2 border-l-brass-300',
   irreplaceable: 'border-l-2 border-l-iris-300',
 };
+
+/**
+ * The same tiers as {@link IMPORTANCE_EDGE}, for the word itself (maintainer, 2026-10-04: the
+ * Training hover names the tier in its colour). Insignificant has no edge colour to borrow, so it
+ * is set in the faint ink the rest of the game uses for "this does not count for much".
+ */
+export const IMPORTANCE_TEXT: Record<AttributeImportance, string> = {
+  insignificant: 'text-ink-400',
+  useful: 'text-ferrite-300',
+  essential: 'text-brass-300',
+  irreplaceable: 'text-iris-300',
+};

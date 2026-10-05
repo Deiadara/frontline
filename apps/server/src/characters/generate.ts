@@ -97,7 +97,7 @@ const MAX_WEAKNESSES = 3;
  * How many perks a recruit rolls (§B7): nought to three, weighted towards the low end.
  *
  * The weights are the whole balance of the perk book. Three-perk recruits have to be rare, because
- * a perk is a permanent crew-wide bonus and nineteen chairs is a lot of them; making them common
+ * a perk is a permanent crew-wide bonus and thirteen chairs is a lot of them; making them common
  * would turn a full roster into a stack of multipliers rather than a set of choices. A little over
  * half of the Bar carries at least one, so the keyword line on a card is worth reading without
  * being the only thing on it.

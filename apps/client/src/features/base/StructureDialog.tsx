@@ -8,8 +8,6 @@ import {
   buildingBuildSeconds,
   buildingCost,
   buildingLevel,
-  payrollBonusPercent,
-  payrollLedger,
   canAfford,
   findBuilding,
   isUnlockedForQueue,
@@ -23,7 +21,7 @@ import {
   nextModificationSlotLevel,
   nextQueuedLevel,
   projectedBuildings,
-  queueCancelWindowMs,
+  buildCancelWindowMs,
   queueRemainingMs,
   atLevelCeiling,
   buildingNeedsParts,
@@ -46,11 +44,15 @@ import {
   type ModificationFamily,
   type ModificationSlot,
   type ModificationSpec,
+  overTheStores,
+  overTheStoresText,
+  storeCeilings,
+  type StoreCeilings,
 } from '@frontline/shared';
 import { useState, type ReactNode } from 'react';
 import { ApiRequestError } from '../../lib/api';
 import { CostLine } from '../../components/Resources';
-import { useCancelBuild, useCrewStanding, useIncreasePayroll } from '../../lib/queries';
+import { useCancelBuild, useCrewStanding, useMe } from '../../lib/queries';
 import { CancelMark } from '../../components/ui/CancelMark';
 import { DrawnButton } from '../../components/ui/DrawnButton';
 import { DrawnRule } from '../../components/ui/DrawnMarks';
@@ -62,7 +64,7 @@ import { ItemGlyph } from '../inventory/ItemGlyph';
 import { ItemWindow } from '../market/MarketPage';
 import { structureBonus } from './bonus';
 import { formatDuration, formatRemaining } from './format';
-import { PayrollMeter, RaisePayroll } from '../../components/Payroll';
+import { PayrollBookDialog } from '../../components/Payroll';
 import { useServerClock } from '../missions/useServerClock';
 import { ErrorNote } from '../../components/ui/ErrorNote';
 
@@ -133,6 +135,8 @@ export function StructureDialog({
   // it off (maintainer request, 2026-09-12). The clock is the district read's, like the rail's.
   const now = useServerClock(serverNow, receivedAt);
   const crewStandingEffects = useCrewStanding().data?.effects;
+  // The crew's half of the production rates, so a producing structure quotes what the settle pays.
+  const productionYield = useMe().data?.productionYield;
   const cancel = useCancelBuild(base.id);
   const underWay = buildQueue.filter((entry) => entry.kind === kind);
   const [payrollOpen, setPayrollOpen] = useState(false);
@@ -175,12 +179,17 @@ export function StructureDialog({
     (level) => level === nextSlotAt,
   ).length;
 
-  // §F2: the Apothecary's ceiling is filled to the structure *plus* the crew's Logistics, so the
+  // §F2: the Apothecary's ceiling is filled to the structure *plus* the crew's storage bonus, so the
   // line that quotes it reads the same fold the settle does.
   const crewStorage = crewStandingEffects?.['storageCapacityPercent'] ?? 0;
-  const bonus = structureBonus(kind, buildings, standing?.level ?? 0, crewStorage);
+  const ceilings = storeCeilings(buildings, crewStorage);
+  // A price no amount of waiting reaches: the stores cannot hold it.
+  const over = cost !== null && !affordable ? overTheStores(cost, ceilings) : null;
+  const bonus = structureBonus(kind, buildings, standing?.level ?? 0, crewStorage, productionYield);
   const nextBonus =
-    nextLevel === null ? null : structureBonus(kind, buildings, nextLevel, crewStorage);
+    nextLevel === null
+      ? null
+      : structureBonus(kind, buildings, nextLevel, crewStorage, productionYield);
 
   return (
     <Modal
@@ -360,7 +369,7 @@ export function StructureDialog({
                           </span>
                         </div>
                         <CancelMark
-                          windowMs={queueCancelWindowMs(entry, now)}
+                          windowMs={buildCancelWindowMs(entry, base, now)}
                           label={`Call off ${spec.name} level ${entry.level}`}
                           pending={cancel.isPending}
                           onCancel={() => cancel.mutate({ orderId: entry.id })}
@@ -416,7 +425,13 @@ export function StructureDialog({
           </div>
 
           {/* §E: three brackets, each one a door to the bench that cuts what goes in it. */}
-          <Section title={`Modifications: ${slots.used} of ${MAX_MODIFICATION_SLOTS} slots`} grow>
+          {/* No "Build more in the Scrapyard" button under the rack (maintainer, 2026-10-04): the
+            empty brackets are already doors to the same bench. */}
+          <Section
+            title={`Modifications: ${slots.used} of ${MAX_MODIFICATION_SLOTS} slots`}
+            grow
+            fill
+          >
             <SlotRack kind={kind} base={base} onGo={onGo} onClear={onClearSlot} />
             {/* Only the line that is still news. "All three are open" was a sentence about nothing
               to do, printed exactly when a player has nothing left to wait for (maintainer
@@ -427,26 +442,6 @@ export function StructureDialog({
                 {nextSlotAt}. The Scrapyard builds what goes in them.
               </p>
             )}
-            {/*
-             * §I3a: the way to make more, from the place you found out you were short.
-             *
-             * The brackets above are doors to the same bench, and this is the one for a player who
-             * has none free: it is the only control in the section that is still worth pressing when
-             * all three are full.
-             *
-             * It opens the yard on *this* structure's bench rather than on the whole board, which
-             * the yard reads off `?view` and `?bench` together. The bench ids are `BuildingKind`, so
-             * there is no second name to keep in step.
-             */}
-            <DrawnButton
-              size="sm"
-              className="mt-2.5"
-              data-sound="click"
-              data-testid={`structure-build-addons-${kind}`}
-              onClick={() => onGo(`/game/scrapyard?view=modifications&bench=${kind}`)}
-            >
-              Build more in the Scrapyard
-            </DrawnButton>
           </Section>
         </div>
       </div>
@@ -479,26 +474,31 @@ export function StructureDialog({
             boostPending={boostPending}
             onGo={onGo}
             onPayroll={() => setPayrollOpen(true)}
+            ceilings={ceilings}
           />
           <DrawnButton
             disabled={cost === null || !affordable || !partsInHand || queueFull || pending}
             onClick={onBuild}
+            data-tip={over ? overTheStoresText(over) : undefined}
+            data-testid="build-structure"
           >
             {pending
               ? 'Working…'
-              : !partsInHand
-                ? 'Short of parts'
-                : queueFull
-                  ? 'Queue full'
-                  : standing || buildQueue.some((entry) => entry.kind === kind)
-                    ? 'Queue upgrade'
-                    : 'Queue build'}
+              : over
+                ? 'Stores too small'
+                : !partsInHand
+                  ? 'Short of parts'
+                  : queueFull
+                    ? 'Queue full'
+                    : standing || buildQueue.some((entry) => entry.kind === kind)
+                      ? 'Queue upgrade'
+                      : 'Queue build'}
           </DrawnButton>
         </div>
       </footer>
 
       {/* §H7: the payroll book, in its own window off the Nexus (maintainer, 2026-09-28). */}
-      {payrollOpen && <PayrollDialog base={base} onClose={() => setPayrollOpen(false)} />}
+      {payrollOpen && <PayrollBookDialog base={base} onClose={() => setPayrollOpen(false)} />}
     </Modal>
   );
 }
@@ -553,7 +553,19 @@ function SlotRack({
 
   return (
     <>
-      <ul className="flex flex-col gap-1.5" data-testid={`slots-${kind}`}>
+      {/*
+       * Spread over the panel's spare height (maintainer, 2026-10-04): `pt-3`, `gap-3` and the
+       * body's `pb-3` are the same 12px, so the rule to the first row, the rows to each other and
+       * the last row to the frame all get 12px plus the same share of the slack.
+       *
+       * The floor is the height the rack and the "Build more in the Scrapyard" button under it
+       * took together, so the windows where that button was what set the deck's height (the
+       * Infirmary and the Garage) kept their size when it went.
+       */}
+      <ul
+        className="flex min-h-[134.5px] flex-1 flex-col justify-evenly gap-3 pt-3"
+        data-testid={`slots-${kind}`}
+      >
         {slots.map((slot) => (
           <SlotRow key={slot.index} slot={slot} kind={kind} onClear={setStripping} onGo={onGo} />
         ))}
@@ -789,6 +801,7 @@ function StructureAction({
   boostPending,
   onGo,
   onPayroll,
+  ceilings,
 }: {
   kind: BuildingKind;
   base: Base;
@@ -798,6 +811,8 @@ function StructureAction({
   boostPending: boolean;
   onGo: (path: string) => void;
   onPayroll: () => void;
+  /** What the stores can hold, so a price past them says so rather than "short". */
+  ceilings: StoreCeilings;
 }) {
   switch (kind) {
     case 'generator':
@@ -808,6 +823,7 @@ function StructureAction({
           receivedAt={receivedAt}
           onBoost={onBoost}
           pending={boostPending}
+          ceilings={ceilings}
         />
       );
     case 'lab':
@@ -862,10 +878,10 @@ function StructureAction({
         <DrawnButton
           size="sm"
           data-sound="click"
-          data-testid="nexus-change-payroll"
+          data-testid="nexus-open-payroll"
           onClick={onPayroll}
         >
-          Change payroll
+          Increase payroll
         </DrawnButton>
       );
     default:
@@ -888,21 +904,30 @@ function BurnButton({
   receivedAt,
   onBoost,
   pending,
+  ceilings,
 }: {
   base: Base;
   serverNow: string | undefined;
   receivedAt: number | undefined;
   onBoost: () => void;
   pending: boolean;
+  ceilings: StoreCeilings;
 }) {
   // The district read's own clock, so a skewed machine reads the same burn as everyone else.
   const now = useServerClock(serverNow, receivedAt);
   const remainingMs = buildBoostRemainingMs(base.economy.buildBoostUntil, now);
   const oil = buildBoostOilCost(base.buildings);
+  const over = overTheStores({ oil }, ceilings);
   if (buildingLevel(base.buildings, 'generator') <= 0) return null;
 
   return (
-    <span className="inline-flex" data-testid="build-boost" data-tip={BUILD_BOOST_OIL_LINE(oil)}>
+    <span
+      className="inline-flex"
+      data-testid="build-boost"
+      data-tip={
+        over ? `${BUILD_BOOST_OIL_LINE(oil)} ${overTheStoresText(over)}` : BUILD_BOOST_OIL_LINE(oil)
+      }
+    >
       {remainingMs > 0 ? (
         <DrawnButton size="sm" disabled data-testid="build-boost-remaining">
           Burning · <span className="tabular-nums">{formatDuration(remainingMs / 1000)}</span> left
@@ -914,16 +939,29 @@ function BurnButton({
           data-testid="build-boost-buy"
           onClick={onBoost}
         >
-          {pending ? 'Lighting…' : base.resources.oil < oil ? 'Short of oil' : `Burn ${oil} oil`}
+          {pending
+            ? 'Lighting…'
+            : over
+              ? 'Stores too small'
+              : base.resources.oil < oil
+                ? 'Short of oil'
+                : `Burn ${oil} oil`}
         </DrawnButton>
       )}
     </span>
   );
 }
 
-/** One sentence, so the price and the promise cannot drift apart on the screen. */
+/**
+ * One sentence, so the price and the promise cannot drift apart on the screen.
+ *
+ * Said the way `boostedQueue` does it (bug pass, 2026-10-02). It used to read "25% faster for 2
+ * hours", and the burn takes a quarter off what is left of the whole queue however long it runs, so
+ * a queue of six ten-hour orders lost about fifteen hours to one burn the copy priced at thirty
+ * minutes.
+ */
 const BUILD_BOOST_OIL_LINE = (oil: number): string =>
-  `${oil} oil makes all building upgrades ${BUILD_BOOST_PERCENT}% faster for ${BUILD_BOOST_HOURS} hours.`;
+  `${oil} oil takes ${BUILD_BOOST_PERCENT}% off the time left on every order already queued, and off any order placed in the next ${BUILD_BOOST_HOURS} hours.`;
 
 /**
  * Why there is no next level, and whether that is the end of the road or a thing to go and do.
@@ -981,11 +1019,17 @@ function ceilingReason(kind: BuildingKind, base: Base): Ceiling {
 function Section({
   title,
   grow = false,
+  fill = false,
   children,
 }: {
   title: string;
   /** Fill the column: the two panels whose bottoms have to meet the rule together. */
   grow?: boolean;
+  /**
+   * Hand the panel's spare height to the body, for a child that spreads itself over it. The child
+   * brings its own top padding, so it can match it to the gaps it spreads.
+   */
+  fill?: boolean;
   children: ReactNode;
 }) {
   return (
@@ -1028,99 +1072,10 @@ function Section({
             running into it. */}
         <span aria-hidden className="ink-rule absolute inset-x-3 -bottom-[1px]" />
       </h3>
-      <div className="relative min-w-0 px-3 pb-3 pt-2.5">{children}</div>
+      <div className={cn('relative min-w-0 px-3 pb-3', fill ? 'flex flex-1 flex-col' : 'pt-2.5')}>
+        {children}
+      </div>
     </section>
-  );
-}
-
-/**
- * What the crew may promise officers, and the one control that raises it (§H7).
- *
- * The ceiling comes straight off the base: `payrollCapacity` of the Nexus level, what has been
- * bought and the district's own bonus are all on the base this dialog was handed, and a second read
- * of those would be a second answer. The step *price* is the exception, and the reason is below.
- */
-function PayrollBook({ base }: { base: Base }) {
-  const raise = useIncreasePayroll();
-  /*
-   * The step discount is the one figure in this ledger that is not on the base.
-   *
-   * `payrollStepDiscountPercent` (§B7) is a crew channel, not a district one, so the base this
-   * dialog was handed cannot answer it and the default of 0 quoted full price. `POST /bar/payroll`
-   * charges `payrollStepCost(steps, payrollStepDiscountPercent)`, so a crew holding `ledger_hand`
-   * and `bank_contact` (13% between them) saw "500 caps, once" and a disabled button on 450 caps
-   * while the route would have taken 435: the panel refused a purchase the server accepts, and the
-   * Bar's copy of this same control showed the right price all along.
-   *
-   * Read off `/overseer/me`, which is where the client already gets the whole `CrewEffects` struct.
-   * Before it answers the panel quotes full price, which is the behaviour this replaces rather than
-   * a new one; gating the button on the query instead would turn a request that fails into a
-   * permanent refusal, which is the harm this is fixing.
-   */
-  const effects = useCrewStanding().data?.effects;
-  const ledger = payrollLedger(
-    base.economy.payroll,
-    buildingLevel(base.buildings, CENTRAL_BUILDING),
-    payrollBonusPercent(base.buildings),
-    effects?.['payrollStepDiscountPercent'],
-  );
-
-  return (
-    <div className="flex flex-col gap-2.5" data-testid="nexus-payroll">
-      <dl className="flex flex-col gap-2.5">
-        <Stat label="Committed to officers">
-          <span className="font-display text-sm font-semibold tabular-nums text-ink-100">
-            {ledger.committed.toLocaleString()} / {ledger.capacity.toLocaleString()} caps / wk
-          </span>
-        </Stat>
-        <Stat label="Left to promise">
-          <span className="font-display text-sm font-semibold tabular-nums text-brass-300">
-            {ledger.available.toLocaleString()}
-          </span>
-        </Stat>
-      </dl>
-      {/* Ringed, because the track's own colour is a hair off the paper it now sits on: an empty
-          book drew a gap rather than an empty bar. See the note on `PayrollMeter`. */}
-      <PayrollMeter ledger={ledger} className="ring-1 ring-brass-500/30" />
-      <RaisePayroll
-        ledger={ledger}
-        caps={base.resources.caps}
-        onRaise={() => raise.mutate({ fromSteps: base.economy.payroll.purchasedSteps })}
-        pending={raise.isPending}
-        error={raise.error?.message ?? null}
-        testId="nexus-increase-payroll"
-        className="pt-2.5"
-      />
-    </div>
-  );
-}
-
-/**
- * The payroll book in a window of its own, opened off the Nexus's Change payroll control
- * (maintainer, 2026-09-28). It used to be a panel in the Nexus window, and the fattest one.
- */
-function PayrollDialog({ base, onClose }: { base: Base; onClose: () => void }) {
-  return (
-    <Modal
-      onClose={onClose}
-      labelledBy="payroll-dialog-title"
-      size="default"
-      dismissible
-      data-testid="payroll-dialog"
-    >
-      <div className="relative flex shrink-0 flex-col gap-1.5 px-5 pb-3.5 pt-4">
-        <p className="font-display text-[11px] uppercase tracking-[0.2em] text-brass-300">
-          The Nexus
-        </p>
-        <h2 id="payroll-dialog-title" className="font-stamp text-[23px] leading-none text-ink-100">
-          The payroll book
-        </h2>
-        <span aria-hidden className="ink-rule absolute inset-x-5 bottom-0" />
-      </div>
-      <div className="px-5 pb-5 pt-3.5">
-        <PayrollBook base={base} />
-      </div>
-    </Modal>
   );
 }
 

@@ -5,6 +5,7 @@ import {
   plateAspect,
   type FactionMember,
   type FactionRank,
+  memberName,
 } from '@frontline/shared';
 import { HoverCard } from '../../components/ui/HoverCard';
 import { cn } from '../../lib/cn';
@@ -107,7 +108,7 @@ function Seat({
   return (
     <HoverCard
       className={PLATE}
-      label={`${member.username}: open their file`}
+      label={`${memberName(member)}: open their file`}
       onActivate={() => {
         releaseHover();
         onOpen();
@@ -153,7 +154,7 @@ function Seat({
               isSelf ? 'text-brass-100' : 'text-ink-100',
             )}
           >
-            {member.username}
+            {memberName(member)}
           </span>
           <span
             className={cn(

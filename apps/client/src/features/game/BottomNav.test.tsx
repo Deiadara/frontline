@@ -91,7 +91,7 @@ function drawBar(me: unknown) {
 beforeEach(() => {
   vi.stubGlobal('fetch', fetchMock);
   fetchMock.mockReset();
-  useSession.setState({ token: 'session-token', user: null });
+  useSession.setState({ signedIn: true, user: null });
 });
 
 afterEach(() => vi.unstubAllGlobals());
@@ -246,13 +246,13 @@ describe('§I3: the doors, and what shuts them', () => {
    *
    * The benched case is the one worth having: an officer on the books with `role: null` is signed
    * and paid and doing no job, and the Lab already refuses to work for them
-   * (`no_head_of_research`). A door that counted them would open a screen that cannot be used.
+   * (`no_researcher`). A door that counted them would open a screen that cannot be used.
    */
   it('shuts the Archive until somebody is sitting in the chair', async () => {
     const person = createCommander(
       'c-archivist',
       'Vela Roshan',
-      'head_of_research',
+      'researcher',
       { logic: 44, signals: 31, stealth: 20 },
       [],
       300,
@@ -260,9 +260,7 @@ describe('§I3: the doors, and what shuts them', () => {
     await drawSettledBar(crewWith({ level: 40, commanders: [{ ...person, role: null }] }));
     expect(shut('Research')).toBe(true);
 
-    await drawSettledBar(
-      crewWith({ level: 40, commanders: [{ ...person, role: 'head_of_research' }] }),
-    );
+    await drawSettledBar(crewWith({ level: 40, commanders: [{ ...person, role: 'researcher' }] }));
     expect(shut('Research')).toBe(false);
   });
 });

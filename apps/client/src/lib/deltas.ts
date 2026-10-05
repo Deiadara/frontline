@@ -27,9 +27,9 @@ export interface DeltaMark {
   /**
    * A price that was quoted and then not taken (admin mode, `admin/mode.ts`).
    *
-   * The testing build waives every training, build and research bill while still quoting it, so
+   * The testing build waives every muster, build and research bill while still quoting it, so
    * the stockpile never moves and the diff below has nothing to say. The board still wants the
-   * receipt: pressing Train and seeing nothing reads as a button that did not work. So the client
+   * receipt: pressing Muster and seeing nothing reads as a button that did not work. So the client
    * announces the quoted bill itself ({@link announceWaived}), and the figure says it was waived
    * rather than pretending the number went down.
    */

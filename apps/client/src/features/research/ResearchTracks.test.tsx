@@ -13,7 +13,7 @@ import { ResearchPage } from './ResearchPage';
 import { useSession } from '../../store/session';
 
 /**
- * §C on the screen: three tabs, eighteen trades on a rail, ten rungs on the one you opened.
+ * §C on the screen: three tabs, thirteen trades on a rail, ten rungs on the one you opened.
  *
  * The page reads the server's answer and adds nothing of its own to it, which is the property
  * worth testing: a rung's blocker, its two marks and its price all come off the wire, and a screen
@@ -31,10 +31,26 @@ const reply = (body: unknown) =>
     json: () => Promise.resolve(body),
   } as Response);
 
-function stub(research: ResearchResponse = F.research): void {
+/** The fixture crew with a stockpile that covers any rung, for the cases about the route. */
+const RICH = {
+  ...F.me,
+  base: {
+    ...F.me.base!,
+    resources: {
+      caps: 1_000_000,
+      supplies: 1_000_000,
+      oil: 1_000_000,
+      scrap: 1_000_000,
+      planks: 1_000_000,
+      highQualityMetal: 1_000_000,
+    },
+  },
+};
+
+function stub(research: ResearchResponse = F.research, me: typeof F.me = F.me): void {
   fetchMock.mockImplementation((path: string) => {
     if (path.endsWith('/research')) return reply(research);
-    if (path.endsWith('/me')) return reply(F.me);
+    if (path.endsWith('/me')) return reply(me);
     // Only the Blueprints and Reimagining workspaces read the inventory now. The strip above them
     // does not, and one of the tests below is that it does not.
     if (path.endsWith('/market')) return reply(F.market);
@@ -69,7 +85,7 @@ async function openTracks() {
 beforeEach(() => {
   vi.stubGlobal('fetch', fetchMock);
   fetchMock.mockReset();
-  useSession.setState({ token: 'session-token', user: null });
+  useSession.setState({ signedIn: true, user: null });
 });
 
 afterEach(() => vi.unstubAllGlobals());
@@ -173,7 +189,7 @@ describe('the archive tabs', () => {
 });
 
 describe('the research tracks', () => {
-  it('is a precondition that the fixture has a full eighteen tracks with rungs on each', () => {
+  it('is a precondition that the fixture has a full thirteen tracks with rungs on each', () => {
     expect(F.research.tracks).toHaveLength(OFFICER_ROLES.length);
     expect(F.research.technologies).toHaveLength(OFFICER_ROLES.length * RESEARCH_TRACK_STEPS);
     // ...and that at least one chair is empty, which is the state with its own drawing.
@@ -207,7 +223,7 @@ describe('the research tracks', () => {
    * §I1d again, one level down: the open trade is the URL too.
    *
    * It was component state, and the shut Reimagining bench needs to send a player to one rung on
-   * one trade. A link that can only reach the tab lands them on the first row of eighteen.
+   * one trade. A link that can only reach the tab lands them on the first row of thirteen.
    */
   it('opens the trade the URL names rather than the first on the rail', async () => {
     stub();
@@ -282,15 +298,27 @@ describe('the research tracks', () => {
     expect(deepCard.getByText(`Head ${deep.requiresHeadMark}`)).toBeInTheDocument();
   });
 
-  it('names the Head of Research and what their sheet is worth to the clock', async () => {
+  it('names the Researcher and what their sheet is worth to the clock', async () => {
     stub();
     await openTracks();
     const head = F.research.head;
-    if (!head) throw new Error('the fixture has no Head of Research');
+    if (!head) throw new Error('the fixture has no Researcher');
     expect(await screen.findByText(head.name)).toBeInTheDocument();
+    // What the Head adds to the joined clock cut, not the Head's own figure (P7-C, 2026-10-02).
     expect(
-      screen.getByText(`${head.timeCutPercent.toFixed(1)}% off every research clock.`),
+      screen.getByText(`Makes all research ${head.addsPercent.toFixed(1)}% faster.`),
     ).toBeInTheDocument();
+  });
+
+  it("prints the track officer's chair passive in the server's own words", async () => {
+    const held = F.research.tracks.find((track) => track.passive !== null);
+    if (!held?.passive) throw new Error('the fixture has no seated track officer');
+    stub();
+    const rail = await openTracks();
+    fireEvent.click(within(rail).getByTestId(`research-track-${held.role}`));
+    const panel = within(await screen.findByTestId(`tech-track-${held.role}`));
+    expect(panel.getByText(held.passive)).toBeInTheDocument();
+    expect(panel.queryByText(/off every price on this track/)).toBeNull();
   });
 
   it('says a track is shut when nobody holds it, rather than quoting a discount', async () => {
@@ -314,7 +342,7 @@ describe('the research tracks', () => {
   });
 
   it('starts a rung through the tech route, naming it', async () => {
-    stub();
+    stub(F.research, RICH);
     const rail = await openTracks();
     // Whichever track the fixture leaves a rung startable on: the test is about the route, not
     // about one chair, and the fixture's chairs are the fixture's business.
@@ -333,6 +361,33 @@ describe('the research tracks', () => {
       expect(typeof body).toBe('string');
       expect(body as string).toContain(open.id);
     });
+  });
+
+  /*
+   * Bug pass, 2026-10-02: the rung's own gates were the only thing on the button, and the server
+   * also refuses a second rung while one is running and a rung the crew cannot pay for.
+   */
+  it('shuts every other rung while one is on the bench', async () => {
+    const open = F.research.technologies.filter((tech) => tech.blocker === null && !tech.known);
+    const [running, other] = [open[0]!, open.find((tech) => tech.id !== open[0]!.id)!];
+    stub(F.startedResearch(running.id), RICH);
+    const rail = await openTracks();
+    fireEvent.click(within(rail).getByTestId(`research-track-${other.track}`));
+
+    const button = within(await screen.findByTestId(`tech-${other.id}`)).getByRole('button');
+    expect(button).toHaveTextContent('The bench is busy');
+    expect(button).toBeDisabled();
+  });
+
+  it('shuts a rung the stockpile cannot pay for', async () => {
+    const open = F.research.technologies.find((tech) => tech.blocker === null && !tech.known)!;
+    stub(F.research, F.me);
+    const rail = await openTracks();
+    fireEvent.click(within(rail).getByTestId(`research-track-${open.track}`));
+
+    const card = within(await screen.findByTestId(`tech-${open.id}`));
+    await waitFor(() => expect(card.getByRole('button')).toHaveTextContent('Short of materials'));
+    expect(card.getByRole('button')).toBeDisabled();
   });
 });
 
@@ -368,8 +423,8 @@ describe('the running programme, on a fast machine', () => {
  * The rail is in two groups: chairs with somebody in them, then the empty ones (maintainer,
  * 2026-09-22).
  *
- * Eighteen trades in catalogue order scattered the empty chairs through the list, so the question
- * the rail is actually asked, "which trades is nobody covering", meant scanning eighteen rows for
+ * Thirteen trades in catalogue order scattered the empty chairs through the list, so the question
+ * the rail is actually asked, "which trades is nobody covering", meant scanning thirteen rows for
  * a red line. Order is the answer rather than a filter, because every trade still has to be
  * reachable in one press.
  */

@@ -17,7 +17,7 @@ function renderApp(initialPath: string) {
 }
 
 beforeEach(() => {
-  useSession.setState({ token: null, user: null });
+  useSession.setState({ signedIn: false, user: null });
   localStorage.clear();
 });
 

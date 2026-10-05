@@ -8,7 +8,7 @@ import { liveHub } from './hub.js';
  * One table over the route prefixes rather than a `liveHub.broadcast` line in each of thirty
  * handlers: a write that changes the shared world and forgets to say so is a bug two players
  * notice as two different maps, and a table a new route falls into by its prefix cannot forget.
- * What is *not* here is deliberate: spying, building, training, research and the crew's own file change nothing another player can see, and
+ * What is *not* here is deliberate: spying, building, mustering, training, research and the crew's own file change nothing another player can see, and
  * the sender's own tabs already learn of those through the write's response and the `base` kind.
  *
  * Only a **successful** write broadcasts (see the hook below). A refusal changed nothing, so
@@ -48,9 +48,14 @@ const PREFIXES: readonly Broadcast[] = [
   { prefix: '/overseer', kind: 'world', match: 'exact' },
   { prefix: '/base/district-name', kind: 'world' },
   { prefix: '/settings/profile', kind: 'world' },
-  // The barrow and the shelves.
-  { prefix: '/market', kind: 'market' },
-  { prefix: '/black-market', kind: 'market' },
+  // The barrow, the board and the shelf: the writes other crews see. Not the supply run, the
+  // Broker or a claim, which are one crew's own books and used to ping every open market screen
+  // (bug pass, 2026-10-02). A withdraw is here because it releases counters on other listings.
+  { prefix: '/market/bid', kind: 'market' },
+  { prefix: '/market/offer', kind: 'market' },
+  { prefix: '/market/accept', kind: 'market' },
+  { prefix: '/market/withdraw', kind: 'market' },
+  { prefix: '/black-market/bid', kind: 'market' },
   // The room: a bid or a sealed one moves every seat's price for everybody in it.
   { prefix: '/bar/bid', kind: 'bar' },
   { prefix: '/bar/seal', kind: 'bar' },

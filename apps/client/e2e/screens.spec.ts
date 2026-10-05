@@ -1,4 +1,4 @@
-import { CITY_DISTRICTS, labelText, STARTING_RESOURCES } from '@frontline/shared';
+import { CITY_DISTRICTS, HOME_LOCKED_TEXT, labelText, STARTING_RESOURCES } from '@frontline/shared';
 import { expect, test, type Page } from '@playwright/test';
 import type { MeResponse } from '@frontline/shared';
 import {
@@ -82,7 +82,7 @@ test('character select renders all presets', async ({ page }) => {
 /**
  * The crew chart (GDD §C1, §C2).
  *
- * Nineteen chairs, filled or empty, each drawn as a card whose top two thirds is the officer's
+ * Thirteen chairs, filled or empty, each drawn as a card whose top two thirds is the officer's
  * portrait. What this pins is that the chart shows *people*: a face at a size worth painting, the
  * four attribute peaks under it, and what they carry. It used to pin a row of pips and a §G7
  * percentage on every card, and both went with the assignee pool.
@@ -97,17 +97,22 @@ test('the crew chart draws every chair, and a face on the filled ones', async ({
 
   // Every position is drawn, filled or not: the point of the chart is that a player can see the
   // holes as well as the people.
-  await expect(page.locator('[data-testid^="seat-"]')).toHaveCount(OFFICER_ROLES.length);
+  // ...plus the Overseer's card, which leads the grid and holds no chair (2026-10-04).
+  await expect(page.locator('[data-testid^="seat-"]')).toHaveCount(OFFICER_ROLES.length + 1);
+  await expect(page.locator('[data-testid^="seat-"]').first()).toHaveAttribute(
+    'data-testid',
+    'seat-overseer',
+  );
   await expect(page.getByText('Vacant').first()).toBeVisible();
 
   // A filled chair carries the person rather than a unit count: their face, their name, and what
   // they bring. The portrait is the card, so its absence is the failure this screen could most
   // easily have shipped.
-  const seat = page.getByTestId('seat-instructor_of_the_young');
+  const seat = page.getByTestId('seat-field_commander');
   await expect(seat.locator('img, svg').first()).toBeVisible();
   await expect(seat.getByText('The Ghost of Sector Nine')).toBeVisible();
   // §B7: the keyword line is what the card leads with under the picture. The four group averages
-  // that used to sit here were the same narrow band on all nineteen cards.
+  // that used to sit here were the same narrow band on all thirteen cards.
   await expect(seat.getByText('Wire Tap')).toBeVisible();
 
   // Opening a chair shows the whole sheet, what they cost, and the way to the training floor.
@@ -117,8 +122,11 @@ test('the crew chart draws every chair, and a face on the filled ones', async ({
   await expect(card.getByText('On the books')).toBeVisible();
   await expect(card.getByRole('link', { name: 'Training' })).toBeVisible();
   await expect(card.getByText('Cryptography')).toBeVisible();
+  // `crewFat` seats this officer a moment ago: the file counts down to the chair giving.
+  await expect(card.getByTestId('chair-settling')).toBeVisible();
 
   await settleFonts(page);
+  await page.screenshot({ path: test.info().outputPath('crew-detail-settling.png') });
 
   // Officer names and role labels are the long strings here; nothing may ellipsise or spill.
   const overflowing = await page.evaluate(() =>
@@ -127,7 +135,7 @@ test('the crew chart draws every chair, and a face on the filled ones', async ({
       .map((el) => el.textContent?.slice(0, 40) ?? ''),
   );
   expect(overflowing, 'officer names must not overflow their column').toEqual([]);
-  // No vertical clipping gate: nineteen cards are taller than the sheet, so the last visible row
+  // No vertical clipping gate: thirteen cards are taller than the sheet, so the last visible row
   // is always half-cut by the fold. That is what a scroller does.
 
   await page.screenshot({ path: 'screenshots/crew.png', fullPage: false });
@@ -140,8 +148,8 @@ test('the crew chart draws every chair, and a face on the filled ones', async ({
 test('the crew chart explains itself before anybody is hired', async ({ page }) => {
   /*
    * A crew past the door with nobody in it. §I3 opens this screen at level 5 (2026-09-19), so the
-   * starting crew meets a locked door; `lateGame` is past it but now seats a Head of Research, and
-   * the whole case is nineteen empty chairs. So: the late-game save with its books cleared.
+   * starting crew meets a locked door; `lateGame` is past it but now seats a Researcher, and
+   * the whole case is thirteen empty chairs. So: the late-game save with its books cleared.
    */
   await installApi(page, {
     ...lateGame,
@@ -271,12 +279,17 @@ test('the bar lists tonight’s roster and the crew already signed', async ({ pa
   await page.getByTestId('open-crew').click();
   await expect(page.getByText('The Ghost of Sector Nine')).toBeVisible();
   await expect(page.getByText('Wire Tap')).toBeVisible();
-  await expect(page.getByText('caps/wk').first()).toBeVisible();
+  // Wages in plain caps (maintainer, 2026-10-01: "payroll is just caps, not caps / wk").
+  await expect(page.getByTestId('crew-list')).toContainText('caps');
+  await expect(page.getByTestId('crew-list')).not.toContainText(/wk|a week/);
   await page.keyboard.press('Escape');
 
-  // §H7: the book is the constraint every bid on this screen answers to, one click away.
-  await page.getByTestId('open-payroll').click();
-  await expect(page.getByTestId('payroll-book')).toBeVisible();
+  // §H7: the book is the constraint every bid on this screen answers to. The figure is a readout
+  // that opens nothing; the drawn button beside it is the one door (maintainer, 2026-10-01).
+  await page.getByTestId('payroll-readout').click();
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await page.getByTestId('bar-increase-payroll').click();
+  await expect(page.getByTestId('payroll-dialog')).toBeVisible();
   await expect(page.getByTestId('increase-payroll')).toBeVisible();
   await page.keyboard.press('Escape');
 
@@ -400,8 +413,8 @@ test('the bar’s seat screen stops at both ends of the roster', async ({ page }
  * as counts per tier rather than as "some row is marked": a rule that paints everything gold would
  * pass the weaker version.
  *
- * The Instructor of the Young is the fixture's officer, and their chair rates one skill
- * irreplaceable, two essential and three useful. That is the shape both screens have to show.
+ * The Field Commander is the fixture's officer, and every chair rates one skill irreplaceable, two
+ * essential and four useful (2026-10-04). That is the shape both screens have to show.
  */
 test('an officer sheet edges every skill by what their chair wants, on crew and on training', async ({
   page,
@@ -419,14 +432,14 @@ test('an officer sheet edges every skill by what their chair wants, on crew and 
     });
 
   await page.goto('/game/crew');
-  await page.getByTestId('seat-instructor_of_the_young').click();
+  await page.getByTestId('seat-field_commander').click();
   await expect(page.getByTestId('crew-detail')).toBeVisible();
   await settleFonts(page);
   const crew = await tally();
   expect(crew, 'the crew sheet lost its importance edges').toMatchObject({
     irreplaceable: 1,
     essential: 2,
-    useful: 3,
+    useful: 4,
   });
 
   // ...and the same officer on the training tab, where the drilling decision is actually made.
@@ -439,10 +452,13 @@ test('an officer sheet edges every skill by what their chair wants, on crew and 
   expect(training.essential).toBeGreaterThan(0);
   expect(training.useful).toBeGreaterThan(0);
 
-  // The Overseer sits in no chair, so their sheet is drawn plain rather than all-insignificant.
+  // The Overseer is graded on a seat of their own since 2026-10-04 (`ROLE_IMPORTANCE.overseer`), so
+  // their sheet is edged the same way: one irreplaceable, two essential, four useful.
   await page.getByTestId('training-subjects').getByRole('button').first().click();
   await expect(page.getByTestId('training-sheet')).toBeVisible();
-  expect(await tally()).toEqual({});
+  await expect
+    .poll(tally, { message: "the Overseer's sheet is not edged by their own seat" })
+    .toMatchObject({ irreplaceable: 1, essential: 2, useful: 4 });
 });
 
 test('a standing note opens fully on screen, on every screen that has one', async ({ page }) => {
@@ -456,10 +472,10 @@ test('a standing note opens fully on screen, on every screen that has one', asyn
     '/game/market',
     '/game/market/offers',
     '/game/bar',
-    // Not `/game/overseer` or `/game/training`: the board had the notes on both taken out. The
-    // overseer's file lost "Whose numbers these are" when the crew's ledger moved to its own
-    // screen, and the training rail lost "How a day works", which was read once and then sat at
-    // the foot of the rail for good.
+    // Not `/game/overseer`: the board had its note taken out when the crew's ledger moved to its
+    // own screen. The training rail lost "How a day works" the same way, and the tab carries
+    // "Train Faster" on the quotation's line instead (maintainer, 2026-10-01).
+    '/game/training',
     '/game/admin',
   ];
 
@@ -944,8 +960,8 @@ test('a refused launch tells the player why', async ({ page }) => {
       contentType: 'application/json',
       body: JSON.stringify({
         error: {
-          code: 'MISSION_NEEDS_OFFICER',
-          message: 'That job is too hard to run without an officer leading it',
+          code: 'MISSION_REFUSED',
+          message: HOME_LOCKED_TEXT,
         },
       }),
     });
@@ -965,7 +981,7 @@ test('a refused launch tells the player why', async ({ page }) => {
    * and a DOM assertion cannot tell "explained" from "invisible".
    */
   const refusal = job.getByRole('alert');
-  await expect(refusal).toHaveText('That job is too hard to run without an officer leading it');
+  await expect(refusal).toHaveText(HOME_LOCKED_TEXT);
   await expect(refusal).toBeInViewport();
   // ...and only on that card, so the board does not read as three simultaneous failures.
   await expect(page.getByRole('alert')).toHaveCount(1);
@@ -1275,7 +1291,7 @@ test('a district the crew holds nothing in opens as its page, from a link and fr
  * §B7: the gate on a district this crew has taken whole.
  *
  * The panel is the only way a player learns the mechanic exists, so it has to say what the wall is
- * worth in both the units it pays in, and the button has to actually reach the server. Asserted on
+ * worth in a fight (its worth against a spy is not public), and the button has to actually reach the server. Asserted on
  * the request as well as on the screen, because a control that looks like it worked and did not is
  * the failure this suite keeps finding.
  */
@@ -1288,8 +1304,9 @@ test('a captured district offers its gate, and raising it reaches the server', a
   // Level 6 at the shared rates: 6 x 2.5 defending, 6 x 1.5 against a spy.
   await expect(panel).toContainText('Lv 6');
   await expect(panel).toContainText('15%');
-  // Ten points per level against spies (2026-09-22), and the card says points, not a percent.
-  await expect(panel).toContainText('60 points');
+  // No points against spies: spy strength is not public (maintainer, 2026-10-01).
+  await expect(panel).not.toContainText(/points|spy/i);
+  await page.screenshot({ path: 'e2e-out/captured-gate-panel.png' });
 
   const raised = page.waitForRequest(
     (request) => request.url().includes('/api/city/gate') && request.method() === 'POST',
@@ -1412,7 +1429,7 @@ test('the crew screen leads with the people, and every card stands at one height
    * the DOM: it collapses to a zero-height inline span at the top of the picture, which every
    * "is it rendered" check passes.
    */
-  await page.getByTestId('seat-head_of_research').click();
+  await page.getByTestId('seat-researcher').click();
   const file = page.getByTestId('crew-detail');
   await expect(file).toBeVisible();
   const layers = await file.locator('[data-injured="true"]').evaluate((frame) => {
@@ -1450,7 +1467,7 @@ test('the crew screen leads with the people, and every card stands at one height
  *
  * `UnitsPage` fed `useDeltaMarks` an `Object.fromEntries(data?.units ?? [])`, so the frame before
  * the roster arrived was a perfectly good first reading of a crew that owned **nothing**. The
- * reading after it was therefore a crew that had just trained its whole roster, and every card on
+ * reading after it was therefore a crew that had just mustered its whole roster, and every card on
  * the page threw a green `+12` on arrival. The hook refuses to announce a first reading; what it
  * could not know was that the caller had handed it a placeholder instead of `undefined`.
  *

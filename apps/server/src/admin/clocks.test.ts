@@ -44,7 +44,7 @@ async function bench() {
   const chosen = await chooseOverseer(app, token);
   const baseId = chosen.json<{ base: { id: string } }>().base.id;
   const base = app.repos.bases.findById(baseId)!;
-  app.repos.bases.updateArmy(baseId, { ...base.army, razors: 20 }, base.trainingQueue);
+  app.repos.bases.updateArmy(baseId, { ...base.army, razors: 20 }, base.musterQueue);
   // A location of the crew's own, in its own city, for the upgrade and the move.
   const city = cityOfDistrict(base.districtId);
   const location = CITY_DISTRICTS.filter((one) => one.cityId === city)

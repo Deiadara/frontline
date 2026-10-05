@@ -6,7 +6,7 @@ import { cn } from '../../lib/cn';
  * A control somebody drew a box around.
  *
  * The rest of the kit's buttons are filled or outlined rectangles, which is right for the ones a
- * player clicks a hundred times: a Train button should be a button. This one is for the handful of
+ * player clicks a hundred times: a Muster button should be a button. This one is for the handful of
  * places where the control is a *note to yourself* rather than a machine affordance, and where the
  * surrounding screen is already paper and ink. The border is `.ink-box`, a rectangle drawn with the
  * same displaced stroke as the rules and the discs, so it wobbles and overshoots its own corner.

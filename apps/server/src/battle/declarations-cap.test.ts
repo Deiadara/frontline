@@ -72,6 +72,16 @@ describe('how many fights may be called at once', () => {
         entry.locations.some((one) => startingHolder(one, entry).kind === 'unoccupied'),
     );
     if (!district) throw new Error('fixture: no open contested district wide enough');
+    // Nobody may call a fight on empty ground (maintainer, 2026-10-04). Looters squat every empty
+    // plot but the last, which stays empty as the seam, and the calls go at the held ones.
+    const empty = district.locations.filter(
+      (one) => app.repos.city.control(one.id)!.holder.kind === 'unoccupied',
+    );
+    for (const location of empty.slice(0, -1)) {
+      const control = app.repos.city.control(location.id)!;
+      app.repos.city.put({ ...control, holder: { kind: 'looters' } });
+    }
+    const targets = district.locations.filter((one) => one.id !== empty.at(-1)?.id);
     app.repos.bases.updateArmy(base.id, { razors: 40 }, []);
 
     const declare = (locationId: string) =>
@@ -85,10 +95,10 @@ describe('how many fights may be called at once', () => {
         },
       });
 
-    const [first, ...rest] = district.locations;
+    const [first, ...rest] = targets;
     if (!first) throw new Error('fixture: no locations');
     for (let at = 0; at < MAX_PENDING_DECLARATIONS; at += 1) {
-      const location = district.locations[at];
+      const location = targets[at];
       if (!location) throw new Error('fixture: ran out of locations');
       const called = await declare(location.id);
       expect(called.statusCode, called.body.slice(0, 200)).toBe(200);

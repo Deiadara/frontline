@@ -6,6 +6,7 @@ import {
   formatDuration,
   heldItems,
   missionCarry,
+  missionCompletesAt,
   missionTimings,
   missionXpEarned,
   weightOf,
@@ -17,7 +18,7 @@ import {
   type ResourceKey,
   type UnitLoadouts,
 } from '@frontline/shared';
-import { ResourceIcon } from '../../components/Resources';
+import { ResourceIcon, RewardLine } from '../../components/Resources';
 import { Button } from '../../components/ui/Button';
 import { Modal } from '../../components/ui/Modal';
 import { cn } from '../../lib/cn';
@@ -69,6 +70,8 @@ export function MissionReportWindow({
 }) {
   const template = findMissionTemplate(mission.templateId);
   const failed = mission.outcome === 'failure';
+  // A recall settles as a failure, but nobody was lost.
+  const recalled = mission.recalledAt !== null;
 
   return (
     <Modal
@@ -82,11 +85,11 @@ export function MissionReportWindow({
         <p
           className={cn(
             'font-display text-[11px] uppercase tracking-[0.22em]',
-            failed ? 'text-oxblood-300' : 'text-bile-300',
+            recalled ? 'text-ink-300' : failed ? 'text-oxblood-300' : 'text-bile-300',
           )}
           data-testid={`mission-outcome-${mission.id}`}
         >
-          {failed ? 'Lost' : 'Success'} · {areaName(mission.areaId)}
+          {recalled ? 'Called back' : failed ? 'Lost' : 'Success'} · {areaName(mission.areaId)}
         </p>
         <h2 id={TITLE_ID} className="font-display text-lg font-bold tracking-[0.08em] text-ink-100">
           {template?.name ?? mission.templateId}
@@ -103,8 +106,21 @@ export function MissionReportWindow({
             data-testid={`mission-leader-${mission.id}`}
           />
           {/* What the run paid, which is the frozen figure only on a clean run. */}
-          <Field label="Experience" value={`${missionXpEarned(mission).toLocaleString()} XP`} />
-          <Field label="Round trip" value={formatDuration(missionTimings(mission).totalMinutes)} />
+          <Field
+            label="Experience"
+            value={`${(mission.xpPaid ?? missionXpEarned(mission)).toLocaleString()} XP`}
+          />
+          {/* The time they were actually out: a recall turns them round, and the planned clock
+              said "2h 0m" about a crew that was gone six minutes. */}
+          <Field label="Round trip" value={formatDuration(roundTripMinutes(mission))} />
+          {/* What a battle job paid in infamy, kept on the row since 0137. Only when it paid any. */}
+          {(mission.infamyPaid ?? 0) > 0 && (
+            <Field
+              label="Infamy"
+              value={`+${(mission.infamyPaid ?? 0).toLocaleString()}`}
+              data-testid={`mission-infamy-${mission.id}`}
+            />
+          )}
         </dl>
 
         <FileSection icon="crew" title="The crew" note="Who went out, and who walked back in">
@@ -280,6 +296,19 @@ function Haul({
           <WastedAtTheGate mission={mission} />
         </>
       )}
+      {/* The Bone Market's caps for the crew's own dead, which the return banked beside the haul
+          and the report never mentioned (bug pass, 2026-10-02). Kept since migration 0137. */}
+      {Object.values(mission.refund ?? {}).some((amount) => (amount ?? 0) > 0) && (
+        <div
+          className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1"
+          data-testid={`mission-refund-${mission.id}`}
+        >
+          <span className="font-body text-[12px] text-ink-400">
+            The Bone Market paid for the dead:
+          </span>
+          <RewardLine rewards={mission.refund ?? {}} />
+        </div>
+      )}
     </FileSection>
   );
 }
@@ -398,4 +427,12 @@ function Drops({ mission }: { mission: Mission }) {
  */
 function dropName(id: string): string {
   return findBlueprintPage(id)?.name ?? lotSpec(id)?.name ?? id;
+}
+
+/** Minutes out, door to door: the planned clock, or the shorter one a recall turned them round on. */
+function roundTripMinutes(mission: Mission): number {
+  if (mission.recalledAt === null) return missionTimings(mission).totalMinutes;
+  return Math.ceil(
+    (missionCompletesAt(mission).getTime() - Date.parse(mission.startedAt)) / 60_000,
+  );
 }

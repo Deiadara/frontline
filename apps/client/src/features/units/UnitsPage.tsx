@@ -1,17 +1,21 @@
 import {
-  MAX_TRAINING_QUEUE,
+  MAX_MUSTER_QUEUE,
   UNIT_TIERS,
   UNIT_TIER_LABELS,
-  TRAINING_CANCEL_REFUND,
+  MUSTER_CANCEL_REFUND,
   findUnit,
-  splitDueTraining,
-  trainingBatchProgress,
-  trainingCancelWindowMs,
-  trainingCancellable,
+  findVehicle,
+  splitDueMuster,
+  musterBatchProgress,
+  musterCancelWindowMs,
+  musterCancellable,
+  timeSavingPercent,
+  suppliesOnlyCut,
+  musterSpeedAfterTaper,
   type BonusLine,
-  type TrainingOrder,
+  type MusterOrder,
   type UnitTier,
-  trainingCost,
+  musterCost,
 } from '@frontline/shared';
 import { useEffect, useMemo } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
@@ -24,10 +28,10 @@ import { InfoWindow } from '../../components/ui/InfoWindow';
 import { cn } from '../../lib/cn';
 import { announceWaived, useDeltaMarks } from '../../lib/deltas';
 import {
-  useCancelTraining,
+  useCancelMuster,
   useMe,
   useRefreshCrew,
-  useTrainUnits,
+  useMusterUnits,
   useUnits,
 } from '../../lib/queries';
 import { HomeMark } from '../actions/CensusMarks';
@@ -65,8 +69,8 @@ function isRosterTab(value: string | null): value is RosterTab {
 export function UnitsPage() {
   const me = useMe();
   const query = useUnits();
-  const train = useTrainUnits(me.data?.base?.id);
-  const cancel = useCancelTraining(me.data?.base?.id);
+  const muster = useMusterUnits(me.data?.base?.id);
+  const cancel = useCancelMuster(me.data?.base?.id);
   const now = useServerClock(query.data?.serverNow, query.dataUpdatedAt);
   /*
    * Carriers first (maintainer request).
@@ -95,12 +99,12 @@ export function UnitsPage() {
    * counted down beneath it. Two orders looked like they were running at once, which is the one
    * thing the queue is meant to say cannot happen.
    *
-   * `splitDueTraining` is the function the *server* settles with, so deriving the display from it
+   * `splitDueMuster` is the function the *server* settles with, so deriving the display from it
    * means the bench shows exactly what the next read is going to leave, and a batch that is
    * part-way through shows its real delivered count instead of a stale one. Same rule in both
    * places, one implementation, which is why it cannot drift.
    */
-  const bench = data ? splitDueTraining(data.queue, now).pending : [];
+  const bench = data ? splitDueMuster(data.queue, now).pending : [];
   const settled = data !== undefined && bench.length < data.queue.length;
 
   /*
@@ -117,8 +121,8 @@ export function UnitsPage() {
    * And the crew with it, so the experience lands on the meter at the same moment the unit lands
    * on the card (maintainer request, 2026-09-12).
    *
-   * One settle produces both: `settleTraining` stands the unit up *and* pays the §I1 experience
-   * for having trained it. The roster and the crew are two reads, though, so re-reading only the
+   * One settle produces both: `settleMuster` stands the unit up *and* pays the §I1 experience
+   * for having mustered it. The roster and the crew are two reads, though, so re-reading only the
    * roster showed the `+1` on the unit and left the experience waiting for the shell's own poll,
    * up to five seconds later. A player watching a batch land saw the two halves of one event
    * arrive separately, and the second one with nothing on screen to explain it.
@@ -134,14 +138,14 @@ export function UnitsPage() {
    * What each count on the roster just did.
    *
    * Nothing trickles into a unit count, so there is no rate to write off: a unit appearing was
-   * trained and a unit vanishing marched out or died. Above the early return below, because a hook
+   * mustered and a unit vanishing marched out or died. Above the early return below, because a hook
    * cannot be called conditionally; `useDeltaMarks` announces nothing until it has two readings,
    * so a page that has not loaded yet costs it nothing.
    *
    * **`undefined` while the roster is loading, never `{}`** (maintainer, 2026-09-20: "when you
    * change between pages in units etc make sure the +12 etc doesn't show up, only when you get a
    * NEW unit"). `?? []` made the loading frame a perfectly good *first* reading of a crew that
-   * owns nothing, so the reading that followed it was a crew that had just trained its entire
+   * owns nothing, so the reading that followed it was a crew that had just mustered its entire
    * roster: opening the tab threw a green `+12` off every card on it. The hook already refuses to
    * announce its first reading; what it cannot know is that the caller handed it a placeholder.
    * `undefined` is the one value it treats as "no reading yet", which is what this is.
@@ -249,36 +253,53 @@ export function UnitsPage() {
             {data.unitSlotsUsed} / {data.unitSlotsCap}
           </span>
         </HoverCard>
-        {data.trainingCostReduction > 0 && (
+        {data.musterCostReduction > 0 && (
           <Tag
-            label={`-${data.trainingCostReduction}% cost`}
-            testId="training-bonus-cost"
-            title="Training cost"
+            // Rounded like the supplies chip beside it: the Chemistry share tapers, so the sum is
+            // fractional, and it printed as "-14.900425863264273% cost".
+            label={`-${Math.round(data.musterCostReduction)}% cost`}
+            testId="muster-bonus-cost"
+            title="Muster cost"
             meaning="Every material"
-            lines={data.trainingBreakdown?.cost}
-            total={data.trainingCostReduction}
+            lines={data.musterBreakdown?.cost}
+            total={data.musterCostReduction}
           />
         )}
-        {(data.trainingSuppliesReduction ?? 0) > 0 && (
+        {(data.musterSuppliesReduction ?? 0) > 0 && (
           <Tag
-            label={`-${Math.round(data.trainingSuppliesReduction ?? 0)}% supplies`}
-            testId="training-bonus-supplies"
+            // The roster ships the sum; the bill tapers it beside the cost cut (`suppliesLineCut`),
+            // and the chip prints what it adds on top of the cost chip, so the two add up to the line.
+            label={`-${Math.round(suppliesOnlyCut(data.musterCostReduction, data.musterSuppliesReduction ?? 0))}% supplies`}
+            testId="muster-bonus-supplies"
             title="Supplies"
             // Not "§B5", which is where the rule is written down and not something a player has
             // read. What the line has to say is why there are two discounts on one price.
             meaning="Supplies only"
-            lines={data.trainingBreakdown?.supplies}
-            total={data.trainingSuppliesReduction ?? 0}
+            lines={data.musterBreakdown?.supplies}
+            total={suppliesOnlyCut(data.musterCostReduction, data.musterSuppliesReduction ?? 0)}
           />
         )}
-        {data.trainingSpeedBonus > 0 && (
+        {(data.musterVeteranReduction ?? 0) > 0 && (
+          // No breakdown page: one officer is the whole of it, and the hover says where it lands.
+          <span
+            className={TAG_CHIP}
+            data-testid="muster-bonus-veteran"
+            data-tip="The Veteran's cut comes off every line of the bill, after the other cuts."
+          >
+            -{Math.round(data.musterVeteranReduction ?? 0)}% cost (Veteran)
+          </span>
+        )}
+        {data.musterSpeedBonus > 0 && (
           <Tag
-            label={`-${data.trainingSpeedBonus}% training time`}
-            testId="training-bonus-speed"
-            title="Training time"
+            // The figure is a summed speed, which `musterSecondsFor` tapers and divides the clock
+            // by: 60 of it is 59.5 after the taper and 37% off the time, not 60 (2026-10-01). The
+            // page under it lists the speed.
+            label={`-${timeSavingPercent(musterSpeedAfterTaper(data.musterSpeedBonus))}% muster time`}
+            testId="muster-bonus-speed"
+            title="Muster speed"
             meaning="Every unit"
-            lines={data.trainingBreakdown?.speed}
-            total={data.trainingSpeedBonus}
+            lines={data.musterBreakdown?.speed}
+            total={musterSpeedAfterTaper(data.musterSpeedBonus)}
           />
         )}
         {/* The crew screen's line, running on from the last chip (maintainer, 2026-09-21). */}
@@ -296,7 +317,7 @@ export function UnitsPage() {
         <header className="flex items-baseline gap-3">
           <h2 className="font-stamp text-[17px] leading-none text-brass-100">On the bench</h2>
           <span className="font-display text-[12px] uppercase tracking-[0.16em] tabular-nums text-ink-300">
-            {bench.length} / {MAX_TRAINING_QUEUE}
+            {bench.length} / {MAX_MUSTER_QUEUE}
           </span>
         </header>
 
@@ -312,7 +333,7 @@ export function UnitsPage() {
         ) : (
           <ol
             className="grid gap-x-4 gap-y-2 sm:grid-cols-2 xl:grid-cols-3"
-            data-testid="training-queue"
+            data-testid="muster-queue"
           >
             {bench.map((order, index) => (
               <BenchRow
@@ -365,13 +386,13 @@ export function UnitsPage() {
             portrait puts 47% of that into the picture: the sheet beside it is then 271px, which
             is where `Penetration` started crossing its own bar. The roster's own layout gate
             already calls that ratio the defect, in those words. */}
-        {/* The count field is bounded by `TRAINING_MAX_BATCH` rather than by what the crew can pay
+        {/* The count field is bounded by `MUSTER_MAX_BATCH` rather than by what the crew can pay
             for and house (that figure is only the **Max** button's target), so a refused batch is
             an ordinary thing to do rather than an edge case. Named against the unit that was
             pressed, the way the mission board attributes a refused launch. */}
-        {train.error && (
+        {muster.error && (
           <ErrorNote>
-            {findUnit(train.variables?.unitId ?? '')?.name ?? 'That order'}: {train.error.message}
+            {findUnit(muster.variables?.unitId ?? '')?.name ?? 'That order'}: {muster.error.message}
           </ErrorNote>
         )}
 
@@ -396,22 +417,21 @@ export function UnitsPage() {
                 carriersFight={data.carriersFight ?? false}
                 deltas={mustered[unit.id] ?? []}
                 // The crew-wide half of the Bonuses chip. The unit's own half rides on the row.
-                {...(data.trainingBreakdown === undefined
-                  ? {}
-                  : { bonuses: data.trainingBreakdown })}
-                training={{
+                {...(data.musterBreakdown === undefined ? {} : { bonuses: data.musterBreakdown })}
+                muster={{
                   resources: data.resources,
                   spare: Math.max(0, data.unitSlotsCap - data.unitSlotsUsed),
                   // §A4: the crew-wide cut plus what this unit's own ground takes off it, which is
-                  // the same sum the training route charges with. Quoting only the crew-wide figure
+                  // the same sum the muster route charges with. Quoting only the crew-wide figure
                   // would have **Max** offering a batch at a price the server does not charge.
-                  discountPercent: data.trainingCostReduction + (unit.homeCostReduction ?? 0),
-                  suppliesPercent: data.trainingSuppliesReduction ?? 0,
+                  discountPercent: data.musterCostReduction + (unit.homeCostReduction ?? 0),
+                  suppliesPercent: data.musterSuppliesReduction ?? 0,
+                  veteranPercent: data.musterVeteranReduction ?? 0,
                   // §B6, the same sum on the clock: crew-wide plus this unit's own ground.
-                  speedPercent: data.trainingSpeedBonus + (unit.homeSpeedBonus ?? 0),
-                  pending: train.isPending,
-                  onTrain: (count) =>
-                    train.mutate(
+                  speedPercent: data.musterSpeedBonus + (unit.homeSpeedBonus ?? 0),
+                  pending: muster.isPending,
+                  onMuster: (count) =>
+                    muster.mutate(
                       { unitId: unit.id, count },
                       {
                         // Admin mode quotes the bill and does not take it, so the stockpile never
@@ -421,11 +441,12 @@ export function UnitsPage() {
                           const spec = findUnit(unit.id);
                           if (me.data?.admin === true && spec !== undefined) {
                             announceWaived(
-                              trainingCost(
+                              musterCost(
                                 spec,
                                 count,
-                                data.trainingCostReduction + (unit.homeCostReduction ?? 0),
-                                data.trainingSuppliesReduction ?? 0,
+                                data.musterCostReduction + (unit.homeCostReduction ?? 0),
+                                data.musterSuppliesReduction ?? 0,
+                                data.musterVeteranReduction ?? 0,
                               ),
                             );
                           }
@@ -457,21 +478,22 @@ function BenchRow({
   pending,
   onCancel,
 }: {
-  order: TrainingOrder;
+  order: MusterOrder;
   now: Date;
   /** The only order actually running; the rest are queued behind it. */
   head: boolean;
   pending: boolean;
   onCancel: () => void;
 }) {
-  const unit = findUnit(order.unitId);
-  const { done, total, nextMs, nextProgress } = trainingBatchProgress(order, now);
+  // A Garage order sits on the same bench, so a machine is named off its own catalogue.
+  const name = findUnit(order.unitId)?.name ?? findVehicle(order.unitId)?.name ?? order.unitId;
+  const { done, total, nextMs, nextProgress } = musterBatchProgress(order, now);
   return (
     <li className="flex min-w-0 items-center gap-2">
       <span className="min-w-0 flex-1">
         <span className="flex items-baseline justify-between gap-2">
           <span className="truncate font-display text-[11px] uppercase tracking-[0.1em] text-ink-200">
-            {unit?.name ?? order.unitId}
+            {name}
           </span>
           <span className="shrink-0 font-display text-[11px] tabular-nums text-ink-300">
             {done} / {total}
@@ -490,17 +512,21 @@ function BenchRow({
             the bench column is narrow and the countdown beside the X is most of its width. */}
         <CancelMark
           className="mt-1.5"
-          windowMs={trainingCancellable(order, now) ? trainingCancelWindowMs(order, now) : 0}
-          label={`Call off the ${unit?.name ?? order.unitId} batch`}
+          windowMs={musterCancellable(order, now) ? musterCancelWindowMs(order, now) : 0}
+          label={`Call off the ${name} batch`}
           pending={pending}
           onCancel={onCancel}
-          tip={`Call it off: ${Math.round(TRAINING_CANCEL_REFUND * 100)}% back`}
+          tip={`Call it off: ${Math.round(MUSTER_CANCEL_REFUND * 100)}% back`}
           data-testid={`cancel-${order.id}`}
         />
       </span>
     </li>
   );
 }
+
+/** The look every chip on the roster's head shares. */
+const TAG_CHIP =
+  'border border-surface-600 px-2 py-0.5 font-display text-[11px] uppercase tracking-[0.16em] text-ink-300';
 
 /**
  * One of the three figures on the roster's head, and the page behind it.
@@ -525,11 +551,7 @@ function Tag({
   /** Written out rather than derived from the title: a copy edit should not move a test's handle. */
   testId: string;
 }) {
-  const chip = (
-    <span className="border border-surface-600 px-2 py-0.5 font-display text-[11px] uppercase tracking-[0.16em] text-ink-300">
-      {label}
-    </span>
-  );
+  const chip = <span className={TAG_CHIP}>{label}</span>;
   if (lines === undefined) return chip;
   return (
     <HoverCard

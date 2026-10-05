@@ -530,6 +530,18 @@ describe('every migration from 0081 on, on a database with rows in every table',
     '0132_offers_per_city.sql',
     '0133_invitation_letters.sql',
     '0134_mailbox_cap.sql',
+    '0135_consigliere_removed.sql',
+    '0136_mission_xp_paid.sql',
+    '0137_mission_infamy_and_refund.sql',
+    '0138_spy_snapshot_and_away_gate.sql',
+    '0139_blocked_senders.sql',
+    '0140_deployed_peaks.sql',
+    '0141_faction_seats.sql',
+    '0142_chair_rework.sql',
+    '0143_muster_rename.sql',
+    '0144_upgrade_paid.sql',
+    '0145_stackhouse.sql',
+    '0146_gate_paid.sql',
   ];
   /**
    * Dropped along with the mechanics under them, so they are not there to be counted: the Bar's
@@ -1232,7 +1244,7 @@ describe('0077: the retired desk projects', () => {
 
   const rung = {
     id: 'r-tech',
-    project: { kind: 'technology', techId: 'tech_field_triage' },
+    project: { kind: 'technology', techId: 'tech_drill_yard' },
     startedAt: NOW,
     durationMinutes: 120,
   };
@@ -1266,7 +1278,7 @@ describe('0077: the retired desk projects', () => {
 
   const ROWS = [
     { active: deskProject('investigation'), facts: [{ kind: 'pairing', attributes: ['speed'] }] },
-    { active: deskProject('training'), facts: [], technologies: ['tech_blood_bank'] },
+    { active: deskProject('training'), facts: [], technologies: ['tech_drill_yard'] },
     { active: deskProject('modification'), facts: [] },
     { active: rung, facts: [], technologies: ['tech_field_dressing'] },
     { active: null, facts: [] },
@@ -1289,7 +1301,7 @@ describe('0077: the retired desk projects', () => {
   it('keeps everything the row was not about', () => {
     const db = legacy(ROWS);
     runMigrations(db);
-    expect(researchOf(db, 1).technologies).toEqual(['tech_blood_bank']);
+    expect(researchOf(db, 1).technologies).toEqual(['tech_drill_yard']);
     expect(researchOf(db, 3).technologies).toEqual(['tech_field_dressing']);
     expect(researchOf(db, 5).technologies).toEqual(['tech_sorted_salvage']);
   });
@@ -2729,5 +2741,281 @@ describe('0134: every mailbox kept to its newest hundred', () => {
       readBy: 1,
     });
     db.close();
+  });
+});
+
+describe('0135: the Consigliere leaves the game', () => {
+  const AT = '0135_consigliere_removed.sql';
+
+  function before(
+    commanders: { id: string; role: string | null }[],
+    research: { active: string | null; technologies: string[] },
+  ): AppDatabase {
+    const db = openDatabase(':memory:');
+    migrateUpTo(db, AT);
+    db.prepare(
+      'INSERT INTO users (id, username, password_hash, created_at) VALUES (?, ?, ?, ?)',
+    ).run('u135', 'adviser', 'x', NOW);
+    insert(db, 'bases', {
+      id: 'b135',
+      owner_id: 'u135',
+      name: 'Advisers',
+      district_id: 'kettle-row',
+      created_at: NOW,
+      commanders_json: JSON.stringify(commanders.map((one) => ({ ...one, name: one.id }))),
+      research_json: JSON.stringify({
+        active:
+          research.active === null
+            ? null
+            : { project: { kind: 'technology', techId: research.active }, finishesAt: NOW },
+        technologies: research.technologies,
+      }),
+    });
+    return db;
+  }
+
+  function saved(db: AppDatabase): {
+    roles: Record<string, string | null>;
+    active: string | null;
+    technologies: string[];
+  } {
+    const row = db
+      .prepare('SELECT commanders_json, research_json FROM bases WHERE id = ?')
+      .get('b135') as { commanders_json: string; research_json: string };
+    const officers = JSON.parse(row.commanders_json) as { id: string; role: string | null }[];
+    const research = JSON.parse(row.research_json) as {
+      active: { project: { techId: string } } | null;
+      technologies: string[];
+    };
+    return {
+      roles: Object.fromEntries(officers.map((one) => [one.id, one.role])),
+      active: research.active?.project.techId ?? null,
+      technologies: research.technologies,
+    };
+  }
+
+  it('benches a seated Consigliere and drops the track, leaving everybody else alone', () => {
+    const db = before(
+      [
+        { id: 'adviser', role: 'consigliere' },
+        { id: 'wire', role: 'master_of_whispers' },
+        { id: 'spare', role: null },
+      ],
+      {
+        active: 'tech_insulation',
+        technologies: ['tech_written_reports', 'tech_the_quiet_word', 'tech_nothing_in_writing'],
+      },
+    );
+    runMigrations(db);
+    expect(saved(db)).toEqual({
+      roles: { adviser: null, wire: 'master_of_whispers', spare: null },
+      active: null,
+      technologies: ['tech_written_reports'],
+    });
+    db.close();
+  });
+
+  it('leaves a crew that never had one byte-identical, and an active project on another track', () => {
+    const db = before([{ id: 'wire', role: 'master_of_whispers' }], {
+      active: 'tech_the_whole_wire',
+      technologies: ['tech_written_reports'],
+    });
+    const raw = () => db.prepare('SELECT commanders_json, research_json FROM bases').get();
+    const untouched = raw();
+    runMigrations(db);
+    expect(raw()).toEqual(untouched);
+    db.close();
+  });
+
+  it('gives a spy job somewhere to freeze its score, and leaves older jobs on null', () => {
+    const db = openDatabase(':memory:');
+    runMigrations(db);
+    const columns = (db.prepare('PRAGMA table_info(spy_runs)').all() as { name: string }[]).map(
+      (column) => column.name,
+    );
+    expect(columns).toEqual(expect.arrayContaining(['chair_points', 'intel_percent']));
+    db.close();
+  });
+});
+
+describe('0143: making units is mustering', () => {
+  const AT = '0143_muster_rename.sql';
+
+  function before(): AppDatabase {
+    const db = openDatabase(':memory:');
+    migrateUpTo(db, AT);
+    insert(db, 'users', { id: 'u143', username: 'mustering', password_hash: 'x', created_at: NOW });
+    insert(db, 'overseers', {
+      id: 'o143',
+      user_id: 'u143',
+      preset_id: 'enforcer',
+      name: 'Sergeant',
+      archetype: 'enforcer',
+      portrait_id: 'overseer-1',
+      bio: 'bio',
+      attributes_json: '{}',
+      perks_json: JSON.stringify(['training_officer', 'hard_trainer']),
+      created_at: NOW,
+    });
+    insert(db, 'bases', {
+      id: 'b143',
+      owner_id: 'u143',
+      name: 'Musterers',
+      district_id: 'kettle-row',
+      created_at: NOW,
+      training_queue_json: JSON.stringify([{ id: 'q1', unitId: 'razors', count: 2 }]),
+      commanders_json: JSON.stringify([
+        { id: 'c1', name: 'Drill', role: null, perks: ['training_officer'] },
+        { id: 'c2', name: 'Other', role: null, perks: ['hard_trainer'] },
+      ]),
+    });
+    for (const [id, kind] of [
+      ['n1', 'unit_trained'],
+      ['n2', 'training_done'],
+    ] as const) {
+      insert(db, 'notifications', {
+        id,
+        user_id: 'u143',
+        kind,
+        title: 'title',
+        link: '/game/units',
+        created_at: NOW,
+      });
+    }
+    insert(db, 'notification_settings', {
+      user_id: 'u143',
+      muted_json: JSON.stringify(['unit_trained', 'training_done']),
+    });
+    for (const tally of ['units_trained', 'missions_done']) {
+      insert(db, 'crew_tallies', { base_id: 'b143', tally, value: 40 });
+    }
+    for (const featId of ['trained_1', 'trained_10', 'runs_1']) {
+      insert(db, 'crew_feats', { base_id: 'b143', feat_id: featId, claimed_at: NOW });
+    }
+    return db;
+  }
+
+  const column = (db: AppDatabase, sql: string): unknown[] =>
+    (db.prepare(sql).all() as Record<string, unknown>[]).map((row) => Object.values(row)[0]);
+
+  it('moves every stored unit-queue name to muster and leaves officer training alone', () => {
+    const db = before();
+    runMigrations(db);
+    // The bench moves column with every order on it.
+    expect(column(db, 'SELECT muster_queue_json FROM bases')).toEqual([
+      JSON.stringify([{ id: 'q1', unitId: 'razors', count: 2 }]),
+    ]);
+    expect(column(db, 'SELECT kind FROM notifications ORDER BY id')).toEqual([
+      'unit_mustered',
+      'training_done',
+    ]);
+    expect(column(db, 'SELECT muted_json FROM notification_settings')).toEqual([
+      JSON.stringify(['unit_mustered', 'training_done']),
+    ]);
+    expect(column(db, 'SELECT tally FROM crew_tallies ORDER BY tally')).toEqual([
+      'missions_done',
+      'units_mustered',
+    ]);
+    expect(column(db, 'SELECT feat_id FROM crew_feats ORDER BY feat_id')).toEqual([
+      'mustered_1',
+      'mustered_10',
+      'runs_1',
+    ]);
+    expect(column(db, 'SELECT perks_json FROM overseers')).toEqual([
+      JSON.stringify(['muster_master', 'hard_trainer']),
+    ]);
+    const officers = JSON.parse(column(db, 'SELECT commanders_json FROM bases')[0] as string) as {
+      perks: string[];
+    }[];
+    expect(officers.map((officer) => officer.perks)).toEqual([['muster_master'], ['hard_trainer']]);
+    db.close();
+  });
+
+  it('leaves a save with no old names in it byte-identical, bar the column name', () => {
+    const db = openDatabase(':memory:');
+    migrateUpTo(db, AT);
+    insert(db, 'users', { id: 'u143', username: 'quiet', password_hash: 'x', created_at: NOW });
+    insert(db, 'bases', {
+      id: 'b143',
+      owner_id: 'u143',
+      name: 'Quiet',
+      district_id: 'kettle-row',
+      created_at: NOW,
+      commanders_json: JSON.stringify([{ id: 'c1', name: 'Drill', role: null, perks: [] }]),
+    });
+    // The whole row, with the bench read under whichever name the column has at the time.
+    const raw = () => {
+      const {
+        training_queue_json: before,
+        muster_queue_json: after,
+        ...rest
+      } = db.prepare('SELECT * FROM bases').get() as Record<string, unknown>;
+      return { ...rest, queue: before ?? after };
+    };
+    const untouched = raw();
+    runMigrations(db);
+    expect(raw()).toEqual(untouched);
+    db.close();
+  });
+});
+
+describe('0142: the chair rework', () => {
+  const AT = '0142_chair_rework.sql';
+
+  function before(commanders: unknown[], research: unknown): AppDatabase {
+    const db = openDatabase(':memory:');
+    migrateUpTo(db, AT);
+    insert(db, 'users', { id: 'u142', username: 'chairs', password_hash: 'x', created_at: NOW });
+    insert(db, 'bases', {
+      id: 'b142',
+      owner_id: 'u142',
+      name: 'Chairs',
+      district_id: 'kettle-row',
+      created_at: NOW,
+      commanders_json: JSON.stringify(commanders),
+      research_json: JSON.stringify(research),
+    });
+    return db;
+  }
+
+  const row = (db: AppDatabase) =>
+    db.prepare('SELECT commanders_json, research_json FROM bases WHERE id = ?').get('b142') as {
+      commanders_json: string;
+      research_json: string;
+    };
+
+  it('renames five chairs, benches four, and drops the rungs that left', () => {
+    const db = before(
+      [
+        { id: 'a', name: 'A', role: 'head_of_research', perks: [] },
+        { id: 'b', name: 'B', role: 'chief_medic', perks: [] },
+        { id: 'c', name: 'C', role: 'trader', perks: [] },
+        { id: 'd', name: 'D', role: 'security_officer', perks: [] },
+      ],
+      {
+        technologies: ['tech_field_triage', 'tech_batch_runs', 'tech_drill_yard', 'tech_vetting'],
+        active: { id: 'r', project: { kind: 'technology', techId: 'tech_clean_room' } },
+      },
+    );
+    runMigrations(db);
+    const after = row(db);
+    const officers = JSON.parse(after.commanders_json) as { role: string | null }[];
+    expect(officers.map((one) => one.role)).toEqual(['researcher', null, 'trader', 'veteran']);
+    const research = JSON.parse(after.research_json) as { technologies: string[]; active: unknown };
+    // The moved rungs kept their ids, so a save keeps them.
+    expect(research.technologies).toEqual(['tech_batch_runs', 'tech_drill_yard']);
+    expect(research.active).toBeNull();
+  });
+
+  it('leaves a save with none of it byte-identical, a moved project included', () => {
+    const commanders = [{ id: 'a', name: 'A', role: 'trader', perks: [] }];
+    const research = {
+      technologies: ['tech_batch_runs'],
+      active: { id: 'r', project: { kind: 'technology', techId: 'tech_reimagining' } },
+    };
+    const db = before(commanders, research);
+    const untouched = row(db);
+    runMigrations(db);
+    expect(row(db)).toEqual(untouched);
   });
 });

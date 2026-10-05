@@ -5,6 +5,7 @@ import { modificationRequirement, requirementRefusal } from './requirements.js';
 import { scrapyardLevelForModification } from './scrapyard.js';
 import type { PartialResources } from '../resources.js';
 import {
+  LOCAL_EFFECTS,
   SET_BONUSES,
   MAX_MODIFICATION_SLOTS,
   modificationFits,
@@ -17,6 +18,7 @@ import {
 import type { BuildingKind } from './kinds.js';
 import { findBuilding, type Building } from './state.js';
 import type { UnitModificationSpec } from '../units/modifications.js';
+import { timeSavingPercent, musterSpeedAfterTaper } from '../time/speed.js';
 
 /**
  * The Scrapyard's add-ons (§B9) and the slots they go in (§E).
@@ -291,8 +293,8 @@ export type ModificationBlueprintGate = (spec: ModificationSpec) => boolean;
 /**
  * Whether the crew may build this modification, and why not.
  *
- * The document before the money. The price is last for the reason `upgradeRefusal` gives, that it
- * is the one gate which fixes itself.
+ * The document before the money. The price is last because it is the one gate which fixes
+ * itself.
  *
  * `affordable` takes the **spec**, not a price, and is passed in rather than computed: what a crew
  * actually pays depends on yard discounts this module has no business knowing about. It used to
@@ -400,14 +402,21 @@ const ADDON_EFFECT_LABELS: Readonly<Record<ModificationEffect, string>> = {
   build_cost_reduction: 'off what a build costs',
   build_time_reduction: 'off how long a build takes',
   storage_percent: 'room in the stockpile',
-  defense_percent: 'holding your ground',
-  faction_xp_percent: 'faction experience',
+  // `gatePercent`, not `defensePercent`: see `gateDefensePercent` (wiring audit, 2026-10-01).
+  defense_percent: 'Gate defense (tapers)',
+  // The crew's own experience (`awardPlayerXp`). A faction has none.
+  faction_xp_percent: 'experience',
   research_time_reduction: 'off how long research takes',
   housing_percent: 'unit slots',
   payroll_percent: 'room on the payroll',
-  raid_loot_percent: 'what a raid brings home',
-  training_time_reduction: 'off how long training takes',
-  training_supplies_reduction: 'off the supplies a unit costs',
+  // The bag (`lootCapacityPercent`), which a job's haul is carried home in as well as a raid's.
+  raid_loot_percent: 'loot capacity',
+  // Both bench channels taper rather than stop (`musterSpeedAfterTaper`, `suppliesLineCut`,
+  // maintainer 2026-10-01), and the card says so, as defence does. The time card's number is a
+  // speed and is printed as the time it takes off: see `describeMagnitude`.
+  muster_time_reduction: 'muster time (tapers)',
+  muster_supplies_reduction: 'off the supplies a unit costs (tapers)',
+  counter_intel_points: 'points against spies',
 };
 
 /**
@@ -420,14 +429,29 @@ const ADDON_EFFECT_LABELS: Readonly<Record<ModificationEffect, string>> = {
  */
 export function describeSetBonus(family: ModificationFamily): string {
   const bonus = SET_BONUSES[family];
-  return `+${bonus.magnitude}% ${ADDON_EFFECT_LABELS[bonus.effect]}`;
+  // A production card pays its own structure; the Plumbing set pays every producing structure
+  // (2026-10-01), so its line says where, or it reads as the card's.
+  const where = LOCAL_EFFECTS.includes(bonus.effect) ? ' across the district' : '';
+  return `${describeMagnitude(bonus.effect, bonus.magnitude)}${where}`;
+}
+
+/** Channels counted in points rather than percent. Printed without a percent sign. */
+const POINT_EFFECTS: readonly ModificationEffect[] = ['counter_intel_points'];
+
+function describeMagnitude(effect: ModificationEffect, magnitude: number): string {
+  // A muster card adds speed and the clock is divided by it (`musterSecondsFor`), so a 16 is 13.8%
+  // off on its own. It printed "+16% off how long training takes" (maintainer, 2026-10-01); it now
+  // prints that card's own cut, the way the Gauntlet's line and every muster rung and place do.
+  if (effect === 'muster_time_reduction') {
+    return `-${timeSavingPercent(musterSpeedAfterTaper(magnitude))}% ${ADDON_EFFECT_LABELS[effect]}`;
+  }
+  const unit = POINT_EFFECTS.includes(effect) ? '' : '%';
+  return `+${magnitude}${unit} ${ADDON_EFFECT_LABELS[effect]}`;
 }
 
 /** One line saying what an entry does, for the Scrapyard's list. */
 export function describeAddonEffect(spec: ModificationSpec | UnitModificationSpec): string {
-  if ('magnitude' in spec) {
-    return `+${spec.magnitude}% ${ADDON_EFFECT_LABELS[spec.effect]}`;
-  }
+  if ('magnitude' in spec) return describeMagnitude(spec.effect, spec.magnitude);
   // `UnitStats` carries a `damageType` and a `resistances` map alongside the numbers, and neither
   // reads as "+3 something": only the numeric lines make a sentence.
   return Object.entries(spec.effect)

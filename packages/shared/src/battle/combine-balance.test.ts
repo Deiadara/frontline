@@ -67,13 +67,17 @@ const fight = (
     },
   });
 
-/** How many of the player's fighting sheets this defence turns back, at equal unit slots. */
-function turnsBack(
+/**
+ * How this defence fares against the player's fighting sheets at equal unit slots: how many it
+ * turns back, and the mean share of fights it holds across all of them.
+ */
+function holdReading(
   defender: Record<string, number>,
   extras: { presence?: CombinePower; territory?: TerritoryEffects } = {},
   seeds = 8,
-): number {
+): { held: number; share: number } {
   let held = 0;
+  let share = 0;
   for (const unit of ROSTER) {
     let wins = 0;
     for (let seed = 0; seed < seeds; seed += 1) {
@@ -85,8 +89,9 @@ function turnsBack(
       }
     }
     if (wins * 2 > seeds) held += 1;
+    share += wins / seeds / ROSTER.length;
   }
-  return held;
+  return { held, share };
 }
 
 const ROSTER = PLAYER_UNITS.filter((unit) => unit.combat !== false && unit.tier !== 'legendary');
@@ -123,21 +128,49 @@ describe('the Combine ladder, at equal unit slots', () => {
    * 95, at 8 seeds and at 32 a matchup: Levy 1 and 2, Greycoat 14, Enforcer 13, Suppressor 13. The
    * Juggernaut is on the attacking roster here and moved nothing; the Greycoat still out-holds the
    * two sheets above it.
+   *
+   * Measured again 2026-09-30 at 64 seeds a matchup: Levy 2, Greycoat 14, Enforcer 13, Suppressor
+   * 13, and by mean share held 8%, 59%, 60%, 58%. Still no climb, on either reading. The smallest
+   * retune found that makes it climb, proposed and not applied: Greycoat offense 122 to 112 and
+   * Suppressor offense 372 to 400, which reads 2, 10, 13, 14 (mean 8%, 51%, 60%, 64%) and leaves
+   * the Juggernaut pin below at 12 against 12. Re-enable this with those sheets.
+   *
+   * Re-enabled 2026-10-01 on those sheets (maintainer approved the retune). Swept at 64 seeds a
+   * matchup, because 8 is where the old order passed on luck: 2, 10, 13, 14 of 22, and the same
+   * at 8, 32 and 128 seeds and on three other seed namespaces at 64. Enforcer against Suppressor
+   * is the narrow step (60% against 64% mean share held), so the strict order there is the
+   * assertion most likely to go red on a later retune, which is the point of it.
+   *
+   * It went red on 2026-10-02, when being outnumbered started counting unit slots instead of
+   * heads (maintainer ruling P10-B). Big sheets stopped feeling outnumbered by the same weight in
+   * small ones, and the reading moved to 1, 9, 15, 15 of 21 (mean share held 5%, 44%, 67%, 69%).
+   * The top step now ties on the count and still climbs on share held, so the order is asserted
+   * on share, which separates what the count rounds away, and the count keeps its bands.
    */
-  it.skip('climbs from the conscripts to the gun crews, and in that order', () => {
+  it('climbs from the conscripts to the gun crews, and in that order', () => {
+    const SEEDS = 64;
+    const levy = holdReading(slotsOf('civic_levy'), {}, SEEDS);
+    const greycoat = holdReading(slotsOf('greycoat'), {}, SEEDS);
+    const enforcer = holdReading(slotsOf('street_enforcers'), {}, SEEDS);
+    const suppressor = holdReading(slotsOf('suppressor'), {}, SEEDS);
     const held = {
-      civic_levy: turnsBack(slotsOf('civic_levy')),
-      greycoat: turnsBack(slotsOf('greycoat')),
-      street_enforcers: turnsBack(slotsOf('street_enforcers')),
-      suppressor: turnsBack(slotsOf('suppressor')),
+      civic_levy: levy.held,
+      greycoat: greycoat.held,
+      street_enforcers: enforcer.held,
+      suppressor: suppressor.held,
     };
-    expect(held.civic_levy).toBeLessThan(held.greycoat);
-    expect(held.greycoat).toBeLessThanOrEqual(held.street_enforcers);
-    expect(held.street_enforcers).toBeLessThan(held.suppressor);
-    // The bands, each around its measured figure.
-    expect(held.civic_levy, `Levy ${held.civic_levy}`).toBeLessThanOrEqual(5);
-    expect(held.greycoat, `Greycoat ${held.greycoat}`).toBeGreaterThanOrEqual(6);
-    expect(held.suppressor, `Suppressor ${held.suppressor}`).toBeGreaterThanOrEqual(13);
+    const pct = (share: number) => `${Math.round(share * 100)}%`;
+    const reading = `Levy ${levy.held} (${pct(levy.share)}), Greycoat ${greycoat.held} (${pct(greycoat.share)}), Enforcer ${enforcer.held} (${pct(enforcer.share)}), Suppressor ${suppressor.held} (${pct(suppressor.share)})`;
+    expect(levy.share, reading).toBeLessThan(greycoat.share);
+    expect(greycoat.share, reading).toBeLessThan(enforcer.share);
+    expect(enforcer.share, reading).toBeLessThan(suppressor.share);
+    expect(held.street_enforcers, reading).toBeLessThanOrEqual(held.suppressor);
+    // The bands, each around its measured figure. The Greycoat's ceiling is the one the two
+    // failed passes broke: it read 14 on the old sheet, over both sheets above it.
+    expect(held.civic_levy, reading).toBeLessThanOrEqual(4);
+    expect(held.greycoat, reading).toBeGreaterThanOrEqual(8);
+    expect(held.greycoat, reading).toBeLessThanOrEqual(12);
+    expect(held.suppressor, reading).toBeGreaterThanOrEqual(13);
     // ...and nobody is a wall: every sheet in the regime has an answer on the roster.
     expect(held.suppressor).toBeLessThan(ROSTER.length);
   });
@@ -183,7 +216,7 @@ describe('the Combine ladder, at equal unit slots', () => {
    * defence"), and swept at 32 seeds a matchup rather than 8, because 8 had passed on seed luck:
    * 12 against 12.
    */
-  it('is no stronger than the heavy the player can already train', () => {
+  it('is no stronger than the heavy the player can already muster', () => {
     const SEEDS = 32;
     const rivals = ROSTER.filter((unit) => unit.id !== 'suppressor' && unit.id !== 'juggernauts');
     const held = (defenderId: string) => {

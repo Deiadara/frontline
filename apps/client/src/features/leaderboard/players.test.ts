@@ -102,6 +102,14 @@ describe('filtering the table', () => {
     expect(names(filterPlayers(ENTRIES, 'marrow'))).toEqual(['Marrow']);
   });
 
+  // Bug pass, 2026-10-02: the board prints the name a player goes by, and the search only knew logins.
+  it('finds a player by the name they go by as well as their login', () => {
+    const vex: PlayerStanding = { ...ENTRIES[0]!, username: 'vex_1987', displayName: 'Kestrel' };
+    expect(filterPlayers([vex], 'kestrel')).toEqual([vex]);
+    expect(filterPlayers([vex], 'vex')).toEqual([vex]);
+    expect(suggestPlayers([vex], 'kes')).toEqual([vex]);
+  });
+
   it('keeps the order it was handed, not the match order', () => {
     const sorted = sortPlayers(ENTRIES, 'level');
     expect(names(filterPlayers(sorted, 'n'))).toEqual(

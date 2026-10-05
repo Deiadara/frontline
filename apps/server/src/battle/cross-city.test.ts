@@ -68,7 +68,7 @@ describe('a fight nothing can resolve', () => {
   it('is closed rather than retried for ever, and its column comes home', async () => {
     const { app, baseId } = await world();
     const base = app.repos.bases.findById(baseId)!;
-    app.repos.bases.updateArmy(base.id, { razors: 6 }, base.trainingQueue);
+    app.repos.bases.updateArmy(base.id, { razors: 6 }, base.musterQueue);
 
     /*
      * A battle row pointed at ground the world does not have.

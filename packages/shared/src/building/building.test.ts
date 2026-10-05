@@ -60,6 +60,7 @@ import {
   GENERATOR_TIME_DISCOUNT_PER_LEVEL,
   LATE_COST_FROM_LEVEL,
   baseBuildSeconds,
+  BUILDING_PRICE_RISE,
   baseBuildingCost,
   buildDiscountFor,
   buildingBuildSeconds,
@@ -78,16 +79,16 @@ import { NEXUS_LADDERS, levelCapForNexus, nexusLevelForUpgrade } from './kinds.j
 import {
   GATE_DEFENSE_PERCENT_PER_LEVEL,
   GATE_INTEL_RESISTANCE_PER_LEVEL,
-  MAX_GAUNTLET_TRAINING_BONUS,
-  MAX_GREENHOUSE_SUPPLIES_DISCOUNT,
-  TRAINING_TIME_PER_GAUNTLET_LEVEL,
+  MAX_GAUNTLET_MUSTER_BONUS,
+  MUSTER_SUPPLIES_PER_GREENHOUSE_LEVEL,
+  MUSTER_TIME_PER_GAUNTLET_LEVEL,
   gateDefensePercent,
   gateIntelResistancePercent,
-  trainingSuppliesReduction,
-  trainingTimeReduction,
+  musterSuppliesReduction,
+  musterTimeReduction,
 } from './standing.js';
 import { UNIT_CATALOG, findUnit } from '../units/catalog.js';
-import { trainingCost, trainingSeconds } from '../units/training.js';
+import { musterCost, musterSecondsFor } from '../units/muster.js';
 import {
   HOUSING_BASE,
   PRODUCING_BUILDINGS,
@@ -106,6 +107,10 @@ import {
   payrollBonusPercent,
   factionXpBonus,
   researchTimeReduction,
+  researchTimeCut,
+  RESEARCH_TIME_CEILING,
+  RESEARCH_COST_PER_LAB_LEVEL,
+  labResearchCostCut,
 } from './standing.js';
 import {
   BASE_BUILD_QUEUE,
@@ -720,7 +725,8 @@ describe('what the district makes (§A1)', () => {
 
   /*
    * The rate the Production panel prints is the rate the accrual pays: the structures and the
-   * ground, the crew's line speed on both, and a resource's own yield on top of that.
+   * ground, the crew's line speed on both, and a resource's own yield added to it (maintainer,
+   * 2026-10-01: yield adds to production like every other pair of sources, never multiplies).
    */
   it('quotes the hourly rate the accrual then pays, crew and ground included', () => {
     const district = [build('generator', 5), build('scrapyard', 4), build('apothecary', 20)];
@@ -731,7 +737,7 @@ describe('what the district makes (§A1)', () => {
     };
     const ground = { caps: 7, scrap: 3 };
     const rates = productionRates(district, crew, ground);
-    expect(rates.oil).toBeCloseTo(30 * 1.2 * 1.5, 9);
+    expect(rates.oil).toBeCloseTo(30 * (1 + 0.2 + 0.5), 9);
     expect(rates.caps).toBeCloseTo(7 * 1.2, 9);
     expect(rates.scrap).toBeCloseTo((40 + 3) * 1.2, 9);
 
@@ -871,7 +877,7 @@ describe('what the district makes (§A1)', () => {
   });
 
   /**
-   * The crew's Logistics has to reach every reader of the ceiling, not only the clamp.
+   * The crew's storage bonus has to reach every reader of the ceiling, not only the clamp.
    *
    * `storageCapacityPercent` (§F2) was spent inside `accrueProduction` and nowhere else, so a crew
    * on +12 banked 47,808 scrap against a stockpile panel, a HUD bar and a supply run that all still
@@ -1008,12 +1014,19 @@ describe('what the district is worth to the crew (§A1)', () => {
     expect(districtDefense(fortified)).toBeGreaterThan(districtDefense([build('gate', 5)]));
   });
 
+  // On the price since 2026-10-02 (P7-C): the Lab's level cuts what research costs, not its clock.
   it('gives the Lab a live effect off its own level', () => {
-    expect(researchTimeReduction([])).toBe(0);
-    expect(researchTimeReduction([build('lab', 10)])).toBeGreaterThan(0);
+    expect(labResearchCostCut([])).toBe(0);
+    expect(labResearchCostCut([build('lab', 10)])).toBeGreaterThan(0);
+    expect(researchTimeReduction([build('lab', 10)])).toBe(0);
   });
 
-  it('caps every reduction, however many modifications are stacked on it', () => {
+  /*
+   * The muster reductions keep their ceiling here. Research, build cost and build time do not
+   * (maintainer, 2026-10-01): their points join the crew's and the one bound is the consumer's
+   * taper, which never reaches its ceiling however much is stacked.
+   */
+  it('bounds every reduction once, however many modifications are stacked on it', () => {
     const stacked: Building[] = [
       {
         ...build('lab', 20),
@@ -1021,9 +1034,14 @@ describe('what the district is worth to the crew (§A1)', () => {
       },
       { ...build('gauntlet', 20), modifications: ['gauntlet_salvaged_simulators'] },
     ];
-    expect(researchTimeReduction(stacked)).toBeLessThanOrEqual(MAX_EFFECT_REDUCTION);
+    // The cards only: the Lab's own level cuts the price, not the clock (P7-C, 2026-10-02).
+    expect(researchTimeReduction(stacked)).toBe(24 + 16);
+    expect(labResearchCostCut(stacked)).toBe(20 * RESEARCH_COST_PER_LAB_LEVEL);
+    expect(researchTimeCut(researchTimeReduction(stacked) + 200)).toBeLessThan(
+      RESEARCH_TIME_CEILING,
+    );
     const effects = districtEffects(stacked);
-    expect(effects.research_time_reduction).toBeLessThanOrEqual(MAX_EFFECT_REDUCTION);
+    expect(effects.muster_time_reduction).toBeLessThanOrEqual(MAX_EFFECT_REDUCTION);
   });
 });
 
@@ -1193,7 +1211,8 @@ describe('the build queue (§A1)', () => {
   });
 
   /**
-   * Four orders, and six once the Fabricator's third rung is in (maintainer, 2026-09-22).
+   * Four orders, and six once Batch Runs is in (maintainer, 2026-09-22), the Engineer's third rung
+   * since the Fabricator's chair went (2026-10-04).
    *
    * It was a flat six from the first minute of a run. The rung is `Batch Runs`, whose line is
    * about running work in parallel rather than one at a time, and the two slots it adds take the
@@ -1207,16 +1226,17 @@ describe('the build queue (§A1)', () => {
     expect(BASE_BUILD_QUEUE).toBe(4);
     expect(MAX_BUILD_QUEUE).toBe(6);
     expect(buildQueueCapacity([])).toBe(4);
-    expect(buildQueueCapacity(['tech_jigs_and_fixtures', 'tech_tool_steel'])).toBe(4);
+    expect(buildQueueCapacity(['tech_load_tables', 'tech_site_discipline'])).toBe(4);
     expect(buildQueueCapacity([BUILD_QUEUE_RESEARCH_ID])).toBe(6);
-    expect(buildQueueCapacity([BUILD_QUEUE_RESEARCH_ID, 'tech_cold_forming'])).toBe(6);
+    expect(buildQueueCapacity([BUILD_QUEUE_RESEARCH_ID, 'tech_load_tables'])).toBe(6);
   });
 
   it('names a rung the research catalogue actually has, on the track and step it claims', () => {
     const rung = RESEARCH_ITEMS.find((item) => item.id === BUILD_QUEUE_RESEARCH_ID);
     expect(rung, BUILD_QUEUE_RESEARCH_ID).toBeDefined();
-    expect(rung?.track).toBe('fabricator');
-    // The third entry, which is what the maintainer asked for and what the unlock line promises.
+    // The Engineer's since the Fabricator's chair went (2026-10-04), still the third entry, which is
+    // what the maintainer asked for and what the unlock line promises.
+    expect(rung?.track).toBe('engineer');
     expect(rung?.step).toBe(3);
     expect(rung?.payout.unlocks).toContain('build slots');
   });
@@ -1317,23 +1337,28 @@ describe('the build queue (§A1)', () => {
  * the ceiling should fail here by name.
  */
 describe('§B5, §B6, §B7: what the Greenhouse, the Gauntlet and the Gate are worth', () => {
-  it('§B5: takes supplies off a training bill and leaves every other line alone', () => {
-    expect(trainingSuppliesReduction([])).toBe(0);
-    const small = trainingSuppliesReduction([build('greenhouse', 5)]);
-    const large = trainingSuppliesReduction([build('greenhouse', 12)]);
+  it('§B5: takes supplies off a muster bill and leaves every other line alone', () => {
+    expect(musterSuppliesReduction([])).toBe(0);
+    const small = musterSuppliesReduction([build('greenhouse', 5)]);
+    const large = musterSuppliesReduction([build('greenhouse', 12)]);
     expect(small).toBeGreaterThan(0);
     expect(large).toBeGreaterThan(small);
-    // Capped, so a maxed Greenhouse is not most of a unit's rations.
-    expect(trainingSuppliesReduction([build('greenhouse', BUILDING_MAX_LEVEL)])).toBe(
-      MAX_GREENHOUSE_SUPPLIES_DISCOUNT,
+    // Half a point a level and no ceiling of its own (2026-10-01): a maxed Greenhouse is 10, and
+    // every level up to it still pays.
+    expect(musterSuppliesReduction([build('greenhouse', BUILDING_MAX_LEVEL)])).toBe(10);
+    expect(musterSuppliesReduction([build('greenhouse', BUILDING_MAX_LEVEL)])).toBe(
+      BUILDING_MAX_LEVEL * MUSTER_SUPPLIES_PER_GREENHOUSE_LEVEL,
+    );
+    expect(musterSuppliesReduction([build('greenhouse', BUILDING_MAX_LEVEL)])).toBeGreaterThan(
+      musterSuppliesReduction([build('greenhouse', BUILDING_MAX_LEVEL - 1)]),
     );
 
     // And the discount reaches the supplies line and nothing else.
     const razors = findUnit('razors');
     expect(razors).toBeDefined();
     if (!razors) return;
-    const plain = trainingCost(razors, 4);
-    const fed = trainingCost(razors, 4, 0, MAX_GREENHOUSE_SUPPLIES_DISCOUNT);
+    const plain = musterCost(razors, 4);
+    const fed = musterCost(razors, 4, 0, 10);
     expect(fed.supplies ?? 0).toBeLessThan(plain.supplies ?? 0);
     for (const key of RESOURCE_KEYS) {
       if (key === 'supplies') continue;
@@ -1341,20 +1366,20 @@ describe('§B5, §B6, §B7: what the Greenhouse, the Gauntlet and the Gate are w
     }
   });
 
-  it('§B6: takes training time off every unit, including the ones it cannot train', () => {
-    expect(trainingTimeReduction([])).toBe(0);
-    const mid = trainingTimeReduction([build('gauntlet', 8)]);
-    expect(mid).toBe(8 * TRAINING_TIME_PER_GAUNTLET_LEVEL);
-    expect(trainingTimeReduction([build('gauntlet', BUILDING_MAX_LEVEL)])).toBe(
-      MAX_GAUNTLET_TRAINING_BONUS,
+  it('§B6: takes muster time off every unit, including the ones it cannot muster', () => {
+    expect(musterTimeReduction([])).toBe(0);
+    const mid = musterTimeReduction([build('gauntlet', 8)]);
+    expect(mid).toBe(8 * MUSTER_TIME_PER_GAUNTLET_LEVEL);
+    expect(musterTimeReduction([build('gauntlet', BUILDING_MAX_LEVEL)])).toBe(
+      MAX_GAUNTLET_MUSTER_BONUS,
     );
 
     // "Every unit" is the load-bearing half: the Cyber Dogs are made in the Infirmary and the
     // Colossus in the Garage, and both come off the same clock.
-    const elsewhere = UNIT_CATALOG.filter((unit) => unit.trainedAt !== 'gauntlet');
+    const elsewhere = UNIT_CATALOG.filter((unit) => unit.musteredAt !== 'gauntlet');
     expect(elsewhere.length).toBeGreaterThan(0);
     for (const unit of elsewhere) {
-      expect(trainingSeconds(unit, 1, mid), unit.id).toBeLessThan(trainingSeconds(unit, 1, 0));
+      expect(musterSecondsFor(unit, 1, mid), unit.id).toBeLessThan(musterSecondsFor(unit, 1, 0));
     }
   });
 
@@ -1441,37 +1466,28 @@ describe('the Infirmary, at the boardrate', () => {
 });
 
 /**
- * The medics' curve (maintainer ruling, 2026-09-29): "diminishing, no cap". The old 40% ceiling was
- * reached by a level 10 Infirmary alone, so for a crew that had built one the medics' ten rungs
- * (46 points) paid nothing. Pinned by hand at the calibration points the ruling asked for: a
- * typical crew that has finished both tracks lands near the old ceiling.
+ * The medics' curve (maintainer ruling, 2026-09-29): "diminishing, no cap". The Lab's medic rungs
+ * went with the Chief Medic's and the Wetware Chief's chairs (2026-10-04), so what feeds it now is
+ * the Infirmary and a handful of perks; the curve itself is pinned here by hand.
  */
 describe('the medics, on a curve rather than a ceiling', () => {
-  const MEDIC_RUNGS = RESEARCH_ITEMS.flatMap((spec) =>
-    spec.payout.bonus?.kind === 'casualty_recovery' ? [spec.payout.bonus.percent] : [],
-  );
-
-  it('lands a crew with both tracks near the old ceiling', () => {
-    expect(MEDIC_RUNGS.reduce((sum, points) => sum + points, 0)).toBe(46);
-    // Both tracks with a level 5, a level 10, and a level 10 plus a medic of Medicine 40.
-    expect(casualtyRecoveryShare(46 + 20)).toBeCloseTo(36.6, 1);
-    expect(casualtyRecoveryShare(46 + 40)).toBeCloseTo(41.0, 1);
-    expect(casualtyRecoveryShare(46 + 40 + 10)).toBeCloseTo(42.7, 1);
+  it('holds the calibration points', () => {
+    expect(casualtyRecoveryShare(40)).toBeCloseTo(27.5, 1);
+    expect(casualtyRecoveryShare(66)).toBeCloseTo(36.6, 1);
+    expect(casualtyRecoveryShare(86)).toBeCloseTo(41.0, 1);
     expect(casualtyRecoveryShare(0)).toBe(0);
     expect(casualtyRecoveryShare(-20)).toBe(0);
   });
 
-  it('pays every rung something, on top of a level 10 Infirmary', () => {
-    let points = 40;
-    for (const rung of MEDIC_RUNGS) {
-      const before = casualtyRecoveryShare(points);
-      points += rung;
-      const gain = casualtyRecoveryShare(points) - before;
-      // A whole point of share at least: the smallest rung is 5 points, and on top of 81 points
-      // the curve still pays a fifth of one for one.
-      expect(gain, `a ${rung}-point rung at ${points - rung} points`).toBeGreaterThan(0.9);
-      // And less than it would alone: the curve diminishes.
-      expect(gain).toBeLessThan(rung);
+  it('pays every point something, and less than the last', () => {
+    let previous = casualtyRecoveryShare(40);
+    let lastGain = Number.POSITIVE_INFINITY;
+    for (let points = 45; points <= 120; points += 5) {
+      const gain = casualtyRecoveryShare(points) - previous;
+      expect(gain, `${points}`).toBeGreaterThan(0);
+      expect(gain, `${points}`).toBeLessThan(lastGain);
+      previous = casualtyRecoveryShare(points);
+      lastGain = gain;
     }
   });
 
@@ -1685,10 +1701,12 @@ describe('what a structure starts asking for partway up', () => {
           `${kind} L${level}`,
         ).toBeUndefined();
       }
-      // The figure in the catalogue is what the fifth level costs, not a level-1 price scaled up.
-      expect(baseBuildingCost(structure, 5).highQualityMetal, kind).toBe(amount);
+      // The figure in the catalogue is what the fifth level costs, not a level-1 price scaled up:
+      // only the flat rise every structure carries (`BUILDING_PRICE_RISE`) sits on top of it.
+      const atFifth = Math.round(amount * BUILDING_PRICE_RISE);
+      expect(baseBuildingCost(structure, 5).highQualityMetal, kind).toBe(atFifth);
       // ...and it climbs from there like every other line.
-      expect(baseBuildingCost(structure, 6).highQualityMetal ?? 0, kind).toBeGreaterThan(amount);
+      expect(baseBuildingCost(structure, 6).highQualityMetal ?? 0, kind).toBeGreaterThan(atFifth);
     }
   });
 

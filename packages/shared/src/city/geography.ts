@@ -1,4 +1,4 @@
-import { MAX_TRAVEL_SPEED_BONUS, roadMinutes } from '../time/speed.js';
+import { roadMinutes } from '../time/speed.js';
 import type { District, Position } from './districts.js';
 import { findDistrict } from './atlas.js';
 
@@ -66,10 +66,9 @@ export interface RoadPace {
   reductionPercent?: number;
   /** Whole minutes the crew's holdings take off after the percentage. See `roadMinutes`. */
   flatMinutesOff?: number;
+  /** The Cartographer's cut off the road's base, before everything else. See `roadMinutes`. */
+  baseCutPercent?: number;
 }
-
-/** Re-exported from `time/speed.ts`, where the arithmetic that spends it lives. */
-export { MAX_TRAVEL_SPEED_BONUS };
 
 export function travelMinutesBetween(from: District, to: District, pace: RoadPace = {}): number {
   return Math.max(
@@ -79,6 +78,7 @@ export function travelMinutesBetween(from: District, to: District, pace: RoadPac
       pace.speed ?? 0,
       pace.reductionPercent ?? 0,
       pace.flatMinutesOff ?? 0,
+      pace.baseCutPercent ?? 0,
     ),
   );
 }

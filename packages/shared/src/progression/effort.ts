@@ -8,8 +8,8 @@
  *
  * It lived inside `missions.ts` as half of `rewardScale`, which is why for a long time it applied to
  * missions and to nothing else: a 55-second first Gauntlet and a nine-hour level 20 both paid the
- * same flat 60 XP, and so did every research project and every training batch. The curve is here
- * now and the mission reward multiplies it by its own `KIND_REWARD_MULTIPLIER` on top.
+ * same flat 60 XP, and so did every research project and every muster batch. The curve is here
+ * now and the mission reward multiplies it by its own kind premium (`kindPayFactor`) on top.
  */
 
 /** The length everything is priced against: a job of exactly this long is worth its anchor. */

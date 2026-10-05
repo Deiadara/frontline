@@ -40,11 +40,4 @@ describe('the retired recruit pool', () => {
     expect(EFFECT_CHANNELS as readonly string[]).not.toContain('recruitPoolPercent');
     expect(Object.keys(noCrewEffects())).not.toContain('recruitPoolPercent');
   });
-
-  it('left Charisma and Diplomacy pushing a live channel', () => {
-    for (const name of ['charisma', 'diplomacy'] as const) {
-      expect(EFFECT_CHANNELS, name).toContain(ATTRIBUTE_EFFECTS[name].channel);
-      expect(Object.keys(noCrewEffects()), name).toContain(ATTRIBUTE_EFFECTS[name].channel);
-    }
-  });
 });

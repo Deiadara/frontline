@@ -56,7 +56,7 @@ const board: BattlesResponse = {
 beforeEach(() => {
   // The dialog's query is enabled by a session, and nothing here may reach the network: a board
   // that is not in the cache stays out of it.
-  useSession.setState({ token: 'session-token', user: null });
+  useSession.setState({ signedIn: true, user: null });
   vi.stubGlobal(
     'fetch',
     vi.fn((path: string) => {
@@ -323,5 +323,36 @@ describe('the buttons on the row', () => {
         order[index - 1]!.compareDocumentPosition(order[index]!) & Node.DOCUMENT_POSITION_FOLLOWING,
       ).toBeTruthy();
     }
+  });
+});
+
+/**
+ * Bug pass, 2026-10-02: the marks were printed on the browser's clock, while the board, the Fights
+ * tab and the bells print the player's. 22:30 UTC is 07:30 the next morning in Tokyo.
+ */
+describe('the marks on offer', () => {
+  it("are printed on the player's own clock face", () => {
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false, refetchOnWindowFocus: false, staleTime: Infinity },
+      },
+    });
+    queryClient.setQueryData(queryKeys.battles, board);
+    queryClient.setQueryData(queryKeys.me, { user: { timezone: 'Asia/Tokyo' } });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <DeclareDialog
+          target={target}
+          placeName="Kessler Press"
+          slots={[EARLY]}
+          infamy={RICH}
+          pending={false}
+          error={null}
+          onClose={() => undefined}
+          onConfirm={() => undefined}
+        />
+      </QueryClientProvider>,
+    );
+    expect(screen.getByTestId(`slot-${EARLY}`)).toHaveTextContent('07:30');
   });
 });

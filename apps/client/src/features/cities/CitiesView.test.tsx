@@ -65,7 +65,7 @@ describe('the opening: a wall of homes', () => {
       '4 of 4 plots free',
     );
     expect(screen.getByTestId(`city-status-${TERMINUS_CITY_ID}`)).toHaveTextContent(
-      'Full: four crews already live here',
+      'Full: 4 crews already live here',
     );
     expect(screen.getByTestId(`city-status-${SHUT.id}`)).toHaveTextContent('No map here yet');
   });

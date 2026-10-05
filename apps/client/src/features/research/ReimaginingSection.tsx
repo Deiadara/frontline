@@ -25,6 +25,7 @@ import { ScreenLoad } from '../../components/ui/LoadFailure';
 import { cn } from '../../lib/cn';
 import { RARITY_TEXT } from '../../lib/rarity';
 import { useMarket, useReimagine } from '../../lib/queries';
+import { formatRemaining } from '../base/format';
 import { PageGlyph } from './BlueprintGlyph';
 import { ErrorNote } from '../../components/ui/ErrorNote';
 
@@ -150,7 +151,14 @@ function Bench({ inventory, context }: { inventory: Inventory; context: Reimagin
 
   const held = heldPages(inventory);
   const total = held.reduce((sum, entry) => sum + entry.held, 0);
-  const spare = sparePages(inventory).reduce((sum, entry) => sum + entry.spare, 0);
+  const spares = new Map(sparePages(inventory).map((entry) => [entry.pageId, entry.spare]));
+  const spare = [...spares.values()].reduce((sum, count) => sum + count, 0);
+  // Spares only (P7-B, 2026-10-02): a page that is the one copy a document still needs stays off
+  // the tray, and the tile counts the spare copies rather than every copy held.
+  const offered = held.flatMap((entry) => {
+    const copies = spares.get(entry.page.id) ?? 0;
+    return copies > 0 ? [{ ...entry, held: copies }] : [];
+  });
 
   return (
     <div className="flex min-h-0 flex-col gap-3 lg:h-full" data-testid="reimagining-section">
@@ -226,7 +234,7 @@ function Bench({ inventory, context }: { inventory: Inventory; context: Reimagin
               )}
               {/* A refusal from the server, which is a different thing from the one above: this
                   crew passed the check the page could make and something changed underneath it.
-                  Unseating the Head of Research in another tab is the ordinary way to get here. */}
+                  Unseating the Researcher in another tab is the ordinary way to get here. */}
               {trade.error !== null && (
                 <ErrorNote>
                   {REIMAGINING_REFUSAL_MESSAGES[trade.error.message as ReimaginingRefusal] ??
@@ -238,7 +246,7 @@ function Bench({ inventory, context }: { inventory: Inventory; context: Reimagin
         </div>
 
         <div className="min-h-0 lg:overflow-y-auto">
-          <Tray held={held} slots={slots} total={total} spare={spare} full={ready} onPut={put} />
+          <Tray held={offered} slots={slots} total={total} spare={spare} full={ready} onPut={put} />
         </div>
       </div>
     </div>
@@ -246,22 +254,22 @@ function Bench({ inventory, context }: { inventory: Inventory; context: Reimagin
 }
 
 /**
- * Where the rung that opens this bench is, which today is the Fabricator's track and not the Head
- * of Research's.
+ * Where the rung that opens this bench is, which today is the Salvager's track and not the
+ * Researcher's.
  *
  * Read off the catalogue rather than written down, because `tracks.ts` says in as many words that
- * it keeps the right to move the item. A hard-coded `head_of_research` here would keep sending
+ * it keeps the right to move the item. A hard-coded `researcher` here would keep sending
  * players to an empty rail the day it did, and nothing would fail until somebody looked.
  */
 const REIMAGINING_TRACK = findResearchItem(REIMAGINING_RESEARCH_ID)?.track ?? null;
 
 /** What a shut bench asks the player to go and do, and where that is. */
-function nextDoor(hasHeadOfResearch: boolean): { to: string; label: string } | null {
-  // The chair first, always. Without somebody in the Head of Research post every rung on every
+function nextDoor(hasResearcher: boolean): { to: string; label: string } | null {
+  // The chair first, always. Without somebody in the Researcher post every rung on every
   // trade is shut (§C1c), so a crew missing both cannot start the research either: sending them at
   // the rung would be sending them at a button that refuses. One door, and it is the next thing.
-  if (!hasHeadOfResearch) {
-    return { to: '/game/bar', label: `Hire a ${OFFICER_ROLE_LABELS.head_of_research} at the Bar` };
+  if (!hasResearcher) {
+    return { to: '/game/bar', label: `Hire a ${OFFICER_ROLE_LABELS.researcher} at the Bar` };
   }
   if (REIMAGINING_TRACK === null) return null;
   return {
@@ -273,20 +281,24 @@ function nextDoor(hasHeadOfResearch: boolean): { to: string; label: string } | n
 /**
  * §G4 shut: the lock, one sentence saying what is missing, and the door out of it.
  *
- * The sentence on its own was a dead end. A player who reads that nobody is in the Head of Research
+ * The sentence on its own was a dead end. A player who reads that nobody is in the Researcher
  * chair still has to know that chairs are filled at the Bar, and a player who reads that the Lab has
- * not worked Reimagining out has to know which of eighteen trades the rung is on. Both are one press
+ * not worked Reimagining out has to know which of thirteen trades the rung is on. Both are one press
  * now, and the second one opens the rail on the right trade rather than on the first one.
  */
 function LockedBench({ context }: { context: ReimaginingContext }) {
-  const { hasHeadOfResearch, hasReimaginingResearch } = context;
+  const { hasResearcher, hasReimaginingResearch } = context;
+  const backIn = context.researcherBackInSeconds ?? null;
   const sentence =
-    !hasHeadOfResearch && !hasReimaginingResearch
-      ? 'The Lab has not worked Reimagining out yet, and there is nobody in the Head of Research chair to run it.'
-      : !hasHeadOfResearch
-        ? 'Nobody is sitting in the Head of Research chair, and the bench does not run without one.'
-        : 'The Lab has not worked Reimagining out yet.';
-  const door = nextDoor(hasHeadOfResearch);
+    !hasResearcher && backIn !== null
+      ? `Your ${OFFICER_ROLE_LABELS.researcher} is laid up, back in ${formatRemaining(backIn * 1000)}. The bench waits for them.`
+      : !hasResearcher && !hasReimaginingResearch
+        ? 'The Lab has not worked Reimagining out yet, and there is nobody in the Researcher chair to run it.'
+        : !hasResearcher
+          ? 'Nobody is sitting in the Researcher chair, and the bench does not run without one.'
+          : 'The Lab has not worked Reimagining out yet.';
+  // The chair is filled when they are only laid up: no door to the Bar to hire a second one.
+  const door = !hasResearcher && backIn !== null ? null : nextDoor(hasResearcher);
   return (
     <div
       className="lab-bench rivets brushed relative flex flex-col items-center justify-center gap-5 rounded-sm border border-surface-600/60 py-20"
@@ -647,19 +659,25 @@ function Tray({
   return (
     <div className="flex flex-col gap-2">
       <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
-        <h3 className="font-stamp text-[15px] leading-tight text-ink-100">
-          Pages in the inventory
-        </h3>
+        <h3 className="font-stamp text-[15px] leading-tight text-ink-100">Spare pages</h3>
         <span className="font-display text-[11px] uppercase tracking-[0.14em] text-ink-300">
           {total === 0
             ? 'Nothing to feed it'
             : `${total} ${total === 1 ? 'page' : 'pages'}, ${spare} spare`}
         </span>
       </div>
-      {held.length === 0 ? (
+      {total === 0 ? (
         <p className="font-body text-[13px] leading-relaxed text-ink-300">
           The bench eats pages and you are carrying none. Missions bring them back, the Black Market
           sells them for infamy, and the Runner turns up with one now and again.
+        </p>
+      ) : held.length === 0 ? (
+        <p
+          className="font-body text-[13px] leading-relaxed text-ink-300"
+          data-testid="reimagine-no-spares"
+        >
+          Only spare pages go in, and you have none. Every page you hold is the one copy a document
+          you are still collecting needs.
         </p>
       ) : (
         <ul

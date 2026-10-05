@@ -78,7 +78,7 @@ beforeEach(() => {
   vi.stubGlobal('fetch', fetchMock);
   fetchMock.mockReset();
   fetchMock.mockImplementation((path: string) => reply(path.endsWith('/settings') ? settings : {}));
-  useSession.setState({ token: 'session-token', user: null });
+  useSession.setState({ signedIn: true, user: null });
 });
 
 afterEach(() => vi.unstubAllGlobals());
@@ -223,6 +223,28 @@ describe('the sheet reads as asked', () => {
     await screen.findByRole('heading', { name: 'Password' });
     expect(screen.queryByTestId('settings-current-password')).toBeNull();
     expect(screen.getByTestId('settings-new-password')).toBeTruthy();
+  });
+});
+
+describe('logging out', () => {
+  /** The cookie is httpOnly, so only the server can drop it (security pass, 2026-09-30). */
+  it('asks the server to clear the session, then signs the page out', async () => {
+    fetchMock.mockImplementation((path: string) =>
+      reply(
+        path.endsWith('/settings') ? settings : path.endsWith('/auth/logout') ? { ok: true } : {},
+      ),
+    );
+    renderSettings();
+    fireEvent.click(await screen.findByTestId('settings-logout'));
+
+    await waitFor(() => expect(useSession.getState().signedIn).toBe(false));
+    expect(
+      fetchMock.mock.calls.some(
+        ([path, init]) =>
+          String(path).endsWith('/auth/logout') &&
+          (init as RequestInit | undefined)?.method === 'POST',
+      ),
+    ).toBe(true);
   });
 });
 

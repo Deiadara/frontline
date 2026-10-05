@@ -36,8 +36,17 @@ describe('broadcastKindFor', () => {
 
   it('names the market and the bar for theirs', () => {
     expect(broadcastKindFor('POST', '/api/market/bid')).toBe('market');
-    expect(broadcastKindFor('POST', '/api/market/offer/accept')).toBe('market');
-    expect(broadcastKindFor('POST', '/api/black-market/take')).toBe('market');
+    expect(broadcastKindFor('POST', '/api/market/offer')).toBe('market');
+    expect(broadcastKindFor('POST', '/api/market/accept')).toBe('market');
+    expect(broadcastKindFor('POST', '/api/market/withdraw')).toBe('market');
+    expect(broadcastKindFor('POST', '/api/black-market/bid')).toBe('market');
+  });
+
+  // Bug pass, 2026-10-02: one crew's own trades are nobody else's business.
+  it('keeps a crew\u2019s own market books to itself', () => {
+    expect(broadcastKindFor('POST', '/api/market/supply')).toBeNull();
+    expect(broadcastKindFor('POST', '/api/market/barter')).toBeNull();
+    expect(broadcastKindFor('POST', '/api/market/claim')).toBeNull();
     expect(broadcastKindFor('POST', '/api/bar/bid')).toBe('bar');
     expect(broadcastKindFor('POST', '/api/bar/seal')).toBe('bar');
   });
@@ -46,7 +55,7 @@ describe('broadcastKindFor', () => {
   it('says nothing for a write that changes only the writer', () => {
     expect(broadcastKindFor('POST', '/api/city/spy')).toBeNull();
     expect(broadcastKindFor('POST', '/api/base/build')).toBeNull();
-    expect(broadcastKindFor('POST', '/api/units/train')).toBeNull();
+    expect(broadcastKindFor('POST', '/api/units/muster')).toBeNull();
     expect(broadcastKindFor('POST', '/api/research/start')).toBeNull();
     expect(broadcastKindFor('POST', '/api/bar/release')).toBeNull();
     expect(broadcastKindFor('POST', '/api/bar/payroll')).toBeNull();

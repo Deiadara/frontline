@@ -147,6 +147,19 @@ describe('reinforcing an ally who is being broken into', () => {
     const defenderRows = app.repos.sieges.side(battleId, 'defender');
     expect(defenderRows.every((row) => row.baseId === null)).toBe(true);
 
+    // Before sending, the ally can ask when the help would land: the deploy quote answers a faction
+    // ally who has no row yet, on the side the reinforce route would put them (bug pass, 2026-10-02).
+    const quoted = await app.inject({
+      method: 'POST',
+      url: '/api/battles/deploy/quote',
+      headers: auth(ally.token),
+      payload: { battleId, changes: { razors: 5 } },
+    });
+    expect(quoted.statusCode, quoted.body.slice(0, 300)).toBe(200);
+    expect(quoted.json<{ inTime: boolean; arrivesAt: string }>().arrivesAt).toEqual(
+      expect.any(String),
+    );
+
     // The victim is asleep and has deployed nothing. The ally steps in.
     const helped = await app.inject({
       method: 'POST',

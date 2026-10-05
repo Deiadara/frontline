@@ -1,5 +1,6 @@
 import { adminWaives } from '../admin/mode.js';
 import {
+  chairPassiveOf,
   CENTRAL_BUILDING,
   buildQueueCapacity,
   buildingBuildSeconds,
@@ -11,6 +12,7 @@ import {
   isUnlockedForQueue,
   atLevelCeiling,
   nextQueuedLevel,
+  queueTailStands,
   projectedBuildings,
   queueStartsAt,
   queueCancellable,
@@ -22,8 +24,6 @@ import {
   type Base,
   type BuildQueueEntry,
   type BuildingKind,
-  discounted,
-  speedMultiplier,
   buildingParts,
   hasItems,
   removeItems,
@@ -102,7 +102,7 @@ function refusalFor(
    * The price this order will actually be charged.
    *
    * Passed in rather than recomputed, because `queueBuild` charges the *discounted* cost
-   * (`discounted(buildingCost(...), buildCostPercent + buildingCostPercent[structure])`) and this
+   * (`buildingCost(..., buildCostPercent + buildingCostPercent[structure])`) and this
    * gate used to read the bare `buildingCost`. A crew with the Bench Sponsor and enough scrap for
    * the discounted Lab was refused `cannot_afford` for a price nothing would ever have taken off
    * them, and no client could fix it: the discount is not on the wire and the server refuses on the
@@ -162,9 +162,15 @@ function priceOf(
   effects: CrewEffects,
 ): PartialResources {
   const credit = effects.buildingCreditLevels[structure] ?? 0;
-  return discounted(
-    buildingCost(structure, creditedLevel(level, credit), buildings),
+  // The crew's points join the cards' on one sum under one taper (maintainer, 2026-10-01), rather
+  // than coming off what the cards had already taken off.
+  return buildingCost(
+    structure,
+    creditedLevel(level, credit),
+    buildings,
     discountFor(effects, structure),
+    // The Engineer's passive (maintainer, 2026-10-04).
+    chairPassiveOf(effects, 'engineer', 'building_cost'),
   );
 }
 
@@ -244,8 +250,8 @@ function clockSeconds(
       1,
       Math.round(
         withReduction(
-          buildingBuildSeconds(structure, level, base.buildings) /
-            speedMultiplier(effects.buildSpeedPercent),
+          // The crew's build speed is points on the same sum as the Generator's and the cards'.
+          buildingBuildSeconds(structure, level, base.buildings, effects.buildSpeedPercent),
           burn,
         ),
       ),
@@ -372,7 +378,7 @@ export type BuildCancelResult =
  *
  * Inside the first tenth of its own clock, or before it has started at all: an order waiting
  * behind another has done nothing yet. Ninety percent of the materials come back and every part
- * comes back whole. The orders behind it close up, the way a cancelled training batch's do: each
+ * comes back whole. The orders behind it close up, the way a cancelled muster batch's do: each
  * entry's clock is absolute and was frozen at the completion of the one in front, so the one
  * behind a cancelled order would otherwise wait out a build that no longer exists.
  */
@@ -386,7 +392,9 @@ export function cancelBuild(
   const entry = base.buildQueue.find((queued) => queued.id === orderId);
   if (!entry) return { kind: 'refused', reason: 'unknown_order' };
   if (!queueCancellable(entry, now)) return { kind: 'refused', reason: 'window_closed' };
-  if (!tailStands(base, orderId)) return { kind: 'refused', reason: 'orders_behind' };
+  if (!queueTailStands(base.buildQueue, base.buildings, base.level, orderId)) {
+    return { kind: 'refused', reason: 'orders_behind' };
+  }
 
   const refund = cancelRefund(entry.paid);
   // Back into the stores as far as they have room, warned about first (maintainer ruling,
@@ -416,29 +424,6 @@ export function cancelBuild(
   repos.bases.updateHoldings(cancelled.id, cancelled.resources, cancelled.inventory);
   repos.bases.updateDistrict(cancelled.id, cancelled.buildings, cancelled.buildQueue);
   return { kind: 'cancelled', base: cancelled, refund };
-}
-
-/**
- * Whether every order behind `orderId` would still have been allowed without it (bug pass,
- * 2026-09-27).
- *
- * Each order was judged against the queue in front of it: its level is one above what that queue
- * produces, and its Nexus requirement is met by it. Cancelling an order in front changes that
- * answer, and nothing re-asks it when the later order lands, so a Gate queued 1 to 2 and 2 to 3
- * with the first cancelled jumped from 1 to 3 for a tenth of level 2's price, and a structure
- * queued behind the Nexus rung that unlocked it was built with the rung cancelled. Refused, with
- * the reason, rather than cancelling the tail as well: those orders are the player's to call off.
- */
-function tailStands(base: Base, orderId: string): boolean {
-  const at = base.buildQueue.findIndex((queued) => queued.id === orderId);
-  const remaining = base.buildQueue.filter((queued) => queued.id !== orderId);
-  return remaining.slice(at).every((later, offset) => {
-    const ahead = remaining.slice(0, at + offset);
-    return (
-      nextQueuedLevel(later.kind, base.buildings, ahead) === later.level &&
-      unmetForQueue(later.kind, base.buildings, ahead, base.level).length === 0
-    );
-  });
 }
 
 export function nexusGate(

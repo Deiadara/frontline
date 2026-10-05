@@ -20,6 +20,8 @@ import { Modal } from '../../components/ui/Modal';
 import { Panel } from '../../components/ui/Panel';
 import { WeatherBanner } from '../../components/ui/WeatherBanner';
 import { CombineLeaderTag } from './CombineLeader';
+import { HeldByPlaque } from './HeldByPlaque';
+import { HELD_BY_ON_THE_RIGHT } from './marks';
 import { ContestedScene, hasPainting } from './ContestedScene';
 import { LocationSheet, cardHeadingId, cardId, crewFileHref } from './LocationSheet';
 import { SpyDialog, spyingOf } from './SpyPanel';
@@ -1022,6 +1024,18 @@ function ContestedDistrict({
           />
         )}
       </div>
+
+      {/* Who holds the whole of this ground, on a plate at the painting's foot (maintainer,
+          2026-09-30), in the left corner unless a sign already stands there. Nothing on ground
+          held in pieces. */}
+      <HeldByPlaque
+        data={data}
+        className={cn(
+          '!absolute z-10',
+          HELD_BY_ON_THE_RIGHT.has(data.district.id) ? 'right-4' : 'left-4',
+        )}
+        style={{ bottom: 'calc(var(--nav-h, 0px) + 12px)' }}
+      />
 
       {spying && (
         <SpyDialog

@@ -277,7 +277,7 @@ describe('the worst ground in the game', () => {
         });
         for (const unit of UNIT_CATALOG) {
           for (const defending of [false, true]) {
-            for (const outnumbered of [false, true]) {
+            for (const outnumbered of [0, 0.5, 1]) {
               const effective = effectiveStats(
                 unit,
                 field,

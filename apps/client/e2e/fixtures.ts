@@ -15,7 +15,6 @@ import {
   DEFAULT_CITY_ID,
   TRAVEL_BAND_MINUTES,
   FEATS,
-  capturedGateIntelResistancePercent,
   capturedGateDefensePercent,
   capturedGateSeconds,
   capturedGateCost,
@@ -91,8 +90,11 @@ import {
   TRAINING_GAIN,
   TRAINING_SECONDS,
   TRAININGS_PER_DAY,
-  crewSheet,
-  effectsOfSheet,
+  crewEffects,
+  describeChairPassive,
+  describeOverseerPassive,
+  OFFICER_MARK_FLOOR,
+  OFFICER_MARK_BAND,
   type CrewStandingResponse,
   type TrainingResponse,
   COMBAT_CONTEXT_LABELS,
@@ -116,11 +118,14 @@ import {
   unitRules,
   markedUnit,
   districtUnitSlotCapacity,
+  buildingLevel,
+  payrollBonusPercent,
   noTerritoryEffects,
   unitSlotDraw,
   findUnit,
   unitSlotsUsed,
-  trainingCost,
+  suppliesOnlyCut,
+  musterCost,
   describeHoldBonus,
   describeRequirement,
   unitUnlockClauses,
@@ -152,6 +157,7 @@ import {
   DISMISSAL_WEEKS,
   PAYROLL_STEP,
   payrollStepCost,
+  payrollLedger,
   type UnitsResponse,
   MODIFICATIONS,
   BUILDING_KINDS,
@@ -211,6 +217,7 @@ import {
   type AdminSnapshot,
   type BlackMarketLot,
   type BlackMarketResponse,
+  type StackhouseResponse,
   type SettingsResponse,
   DEFAULT_SOUND_VOLUME,
   GAME_TIMEZONE,
@@ -220,7 +227,6 @@ import {
   blackMarketPrice,
   findBlackMarketGood,
   gateDefensePercent,
-  gateIntelResistancePercent,
 } from '@frontline/shared';
 
 const NOW = '2026-08-12T10:00:00.000Z';
@@ -299,7 +305,7 @@ export const base: Base = {
    * what it spends has to leave the other screens something to work with.
    */
   army: { razors: 4, scavengers: 2, sleepers: 1 },
-  trainingQueue: [],
+  musterQueue: [],
   training: startingTraining('2026-08-16T00:00:00.000Z'),
   inventory: {},
   fittedUpgrades: [],
@@ -371,10 +377,10 @@ export const meNoOverseer: MeResponse = {
  * as timeouts rather than as a locked door, because a spec waiting for a row it will never see
  * waits the full fifteen seconds.
  */
-const headOfResearch: Commander = createCommander(
+const researcher: Commander = createCommander(
   'c-archive',
   'Vela Roshan',
-  'head_of_research',
+  'researcher',
   { logic: 62, signals: 48, stealth: 24 },
   [],
   420,
@@ -392,7 +398,7 @@ export const lateGameBase: Base = {
    * either side of the slash rather than four. This is still the widest it ever gets.
    */
   level: 15,
-  commanders: [headOfResearch],
+  commanders: [researcher],
   /*
    * A district with the structures a late game has, and the Scrapyard above all.
    *
@@ -466,20 +472,22 @@ export const lateGameBase: Base = {
     {
       id: 'bq-3',
       kind: 'gate',
-      level: 5,
+      // One above the Gate standing at 5: a queue the server would take, or every cancel ahead of
+      // it is refused for leaving it standing on nothing (bug pass, 2026-10-02).
+      level: 6,
       startedAt: new Date(Date.now() + 47 * 60 * 1000).toISOString(),
       durationSeconds: 55 * 60,
       paid: buildingCost('gate', 5, base.buildings),
       parts: {},
     },
   ],
-  trainingQueue: [
+  musterQueue: [
     {
       id: 'tq-1',
       unitId: 'razors',
       count: 6,
       delivered: 0,
-      paid: trainingCost(findUnit('razors')!, 6),
+      paid: musterCost(findUnit('razors')!, 6),
       startedAt: new Date(Date.parse(NOW) - 30 * 1000).toISOString(),
       durationSeconds: 270,
     },
@@ -590,7 +598,6 @@ export const city: CityResponse = {
       upgradingUntil: null,
       upgradingSince: null,
       defensePercent: capturedGateDefensePercent(6),
-      intelResistancePercent: capturedGateIntelResistancePercent(6),
       refusal: null,
     },
   ],
@@ -728,7 +735,9 @@ export const districtDetail: DistrictDetailResponse = {
   // Contested ground, so nobody lives here and there is nothing standing to look at.
   residentBuildings: [],
   holder: null,
-  unified: { title: 'Run of the Scrapfields', effect: '-10% training cost' },
+  // Held in pieces, so nobody's table is on a "Held by" plaque.
+  holderFaction: null,
+  unified: { title: 'Run of the Scrapfields', effect: '-10% muster cost' },
   base: null,
   raidable: false,
   closed: false,
@@ -774,7 +783,7 @@ function spyReportOnRivals(locationId: string, placeName: string): SpyReport {
     unitsShown: true,
     totalSlots: null,
     foundOut: false,
-    accuracy: 0.82,
+    accuracy: 0.8,
     unseen: 5,
     accuracyShown: true,
   };
@@ -1134,7 +1143,7 @@ export const unitsResponse: UnitsResponse = {
     unitSlotsUsed({ razors: 3, sleepers: 2 }),
   unitSlotsCap:
     districtUnitSlotCapacity(base.buildings, noTerritoryEffects()) -
-    unitSlotDraw({ ...base, army: {}, trainingQueue: [] }).total,
+    unitSlotDraw({ ...base, army: {}, musterQueue: [] }).total,
   // Two orders on the bench, one part-way through and one behind it. An empty queue screenshots
   // the empty state and nothing else, and the live bench is the half of this screen with a clock
   // on it: the half most likely to lay out badly once a countdown reaches its widest.
@@ -1147,7 +1156,7 @@ export const unitsResponse: UnitsResponse = {
       // Recorded, because the bench's Cancel is only offered on an order whose price is known.
       // 30 seconds into a 270-second batch is past the tenth, so this one is *not* cancellable:
       // the screenshot state worth pinning is the ordinary one.
-      paid: trainingCost(findUnit('razors')!, 6),
+      paid: musterCost(findUnit('razors')!, 6),
       startedAt: new Date(Date.parse(NOW) - 30 * 1000).toISOString(),
       durationSeconds: 270,
     },
@@ -1156,38 +1165,47 @@ export const unitsResponse: UnitsResponse = {
       unitId: 'sparks',
       count: 3,
       delivered: 0,
-      paid: trainingCost(findUnit('sparks')!, 3),
+      paid: musterCost(findUnit('sparks')!, 3),
       startedAt: new Date(Date.parse(NOW) + 240 * 1000).toISOString(),
       durationSeconds: 150,
     },
   ],
   resources: base.resources,
-  trainingCostReduction: 10,
-  trainingSpeedBonus: 33,
-  trainingSuppliesReduction: 22,
+  musterCostReduction: 10,
+  musterSpeedBonus: 34,
+  // A Greenhouse 8 (half a point a level), Sealed Growrooms and Grey Water Loop: 14 points, which
+  // the supplies line takes as 12.5 beside the 10 of cost cut (`suppliesLineCut`, 2026-10-01).
+  musterSuppliesReduction: 14,
   /*
    * Where those three come from, which is what the chips' hover pages print.
    *
    * Deliberately one of each kind of payer on the two lists that have a choice about it: a named
    * officer, a block of ground, a finished programme, a structure and a fitted card, with the
-   * supplies list running past its ceiling. A fixture with one line on each would screenshot a
+   * supplies list ending on its taper. A fixture with one line on each would screenshot a
    * page that cannot show a wrapped name, a long note or a negative figure. A raid used to take a
    * line here too; since 2026-09-29 it cuts the structures' output and nothing else.
    */
-  trainingBreakdown: {
+  musterBreakdown: {
     cost: [
-      { source: 'Wenqing Adebayo-Lindqvist', note: 'Chemistry 74', percent: 3 },
-      { source: 'Unit Costing', note: 'The Lab', percent: 4 },
+      // Officers pay into these through their perks alone since 2026-10-04, named for the
+      // officer with the perk as the note (`units/breakdown.ts`).
+      { source: 'Wenqing Adebayo-Lindqvist', note: 'Surplus Dealer', percent: 2 },
+      { source: 'Wenqing Adebayo-Lindqvist', note: 'Bar Regular', percent: 2 },
+      { source: 'Unit Costing', note: 'The Lab', percent: 3 },
       { source: 'The Foundry Arcade', note: 'Level 4', percent: 3 },
     ],
     supplies: [
-      { source: 'The Greenhouse', note: 'Level 7', percent: 14 },
-      { source: 'Sealed Growrooms', note: 'The Greenhouse', percent: 14 },
-      { source: 'Past what a district can take', note: 'Modifications stop at 70%', percent: -6 },
+      { source: 'The Greenhouse', note: 'Level 8', percent: 4 },
+      { source: 'Sealed Growrooms', note: 'The Greenhouse', percent: 7 },
+      { source: 'Grey Water Loop', note: 'The Greenhouse', percent: 3 },
+      {
+        source: 'Tapering',
+        note: 'Toward 70% off, with the cost cut',
+        percent: suppliesOnlyCut(10, 14) - 14,
+      },
     ],
     speed: [
-      { source: 'Ola Nkemdirim', note: 'Cybernetics 61', percent: 3 },
-      { source: 'Hard School', note: 'Instructor', percent: 2 },
+      { source: 'Ola Nkemdirim', note: 'Muster Master', percent: 6 },
       { source: 'The Gauntlet', note: 'Level 12', percent: 24 },
       { source: 'Night Course', note: 'The Gauntlet', percent: 4 },
     ],
@@ -1223,7 +1241,7 @@ export const unitsResponse: UnitsResponse = {
       name: unit.name,
       tier: unit.tier,
       blurb: unit.blurb,
-      trainedAt: unit.trainedAt,
+      musteredAt: unit.musteredAt,
       unique: unit.unique,
       stats: unit.stats,
       modifiers: unit.modifiers.map((id) => ({
@@ -1250,7 +1268,7 @@ export const unitsResponse: UnitsResponse = {
         ];
       }),
       cost: unit.cost,
-      trainSeconds: unit.trainSeconds,
+      musterSeconds: unit.musterSeconds,
       unitSlots: unit.unitSlots,
       /*
        * §A4: the Cyberhounds' own Doghouse, and nobody else's.
@@ -1513,14 +1531,17 @@ export const bar: BarResponse = {
     barOfficer('off-1', 'The Ghost of Sector Nine', 'master_of_whispers', 1240, {
       perks: ['wire_tap', 'street_ears', 'counter_signals'],
     }),
-    barOfficer('off-2', 'Odile Marchetti', 'finance_officer', 340),
+    barOfficer('off-2', 'Odile Marchetti', 'fixer', 340),
     barOfficer('off-3', 'Bruno Lindqvist', 'raid_boss', 88, { perks: [] }),
   ],
   slotsUsed: 3,
+  // Level 29's officer slots: one with the Bar at 5 and another every two levels since. The level
+  // was 12 until the slot ladder (2026-09-30), raised so thirteen stays the truth and the auction
+  // window keeps the room to bid that its layout guards were written against.
   slotsTotal: 13,
   infamy: 100,
   notoriety: 5,
-  level: 12,
+  level: 29,
   caps: 125000,
   payroll: {
     capacity: 2400,
@@ -1530,7 +1551,7 @@ export const bar: BarResponse = {
     nextStepCost: payrollStepCost(6),
     stepSize: PAYROLL_STEP,
   },
-  filledRoles: ['master_of_whispers', 'finance_officer', 'raid_boss'],
+  filledRoles: ['master_of_whispers', 'fixer', 'raid_boss'],
   auctions: BAR_AUCTIONS,
   /**
    * §H7: two of the two tables this crew may sit at, which is what makes the room's cap readable.
@@ -1901,6 +1922,7 @@ export function missionsResponse(now: Date = new Date()): MissionsResponse {
     justResolved: [],
     resources: lateGameBase.resources,
     activeLimit: BASE_CONCURRENT_MISSIONS,
+    xpBonusPercent: 0,
     areas: MISSION_AREAS,
     army: lateGameBase.army,
     serverNow: now.toISOString(),
@@ -1991,6 +2013,7 @@ export function settlingMissions(now: Date = new Date()): {
     justResolved,
     resources,
     activeLimit: BASE_CONCURRENT_MISSIONS,
+    xpBonusPercent: 0,
     areas: MISSION_AREAS,
     army: base.army,
     serverNow: now.toISOString(),
@@ -2018,7 +2041,7 @@ export function settlingMissions(now: Date = new Date()): {
  */
 
 /**
- * §C: who is in each of the nineteen chairs, in `OFFICER_ROLES` order.
+ * §C: who is in each of the seventeen chairs, in `OFFICER_ROLES` order.
  *
  * A spread rather than a flat sheet, and two chairs left empty on purpose: a track with nobody on
  * it is a state the page has to draw, and a fixture where every chair is full would screenshot a
@@ -2041,7 +2064,6 @@ const FIXTURE_TRACK_MARKS: readonly (OfficerMark | null)[] = [
   'D+',
   'F',
   'B',
-  'C-',
   'E',
   'S-',
 ];
@@ -2050,6 +2072,8 @@ const fixtureHead: NonNullable<ResearchResponse['head']> = {
   name: 'Wenqing "Compass" Adebayo-Lindqvist',
   mark: 'B+',
   timeCutPercent: 18.4,
+  // What the Head adds once joined with the Lab's cards and the crew's points (P7-C).
+  addsPercent: 15.2,
 };
 
 /** Real names in `OFFICER_ROLES` order, with the longest of them on a chair that has a mark. */
@@ -2086,12 +2110,15 @@ const fixtureTrackMark = (role: OfficerRole): OfficerMark | null =>
  * it certifies nothing. Less one so every reachable track has exactly one startable rung, which is
  * the control the page is for.
  */
+/** A Lab at its top: the tier gate (P7-C) opens every rung, so the chairs decide the page. */
+const FIXTURE_LAB_LEVEL = 20;
+
 const fixtureKnown: string[] = OFFICER_ROLES.flatMap((role) => {
   const chairs = { trackMark: fixtureTrackMark(role), headMark: fixtureHead.mark };
   const done: string[] = [];
   for (let step = 1; step <= RESEARCH_TRACK_STEPS; step += 1) {
     const spec = RESEARCH_ITEMS.find((item) => item.track === role && item.step === step);
-    if (!spec || researchItemRefusal(spec.id, done, chairs) !== null) break;
+    if (!spec || researchItemRefusal(spec.id, done, chairs, FIXTURE_LAB_LEVEL) !== null) break;
     done.push(spec.id);
   }
   return done.slice(0, -1);
@@ -2099,10 +2126,12 @@ const fixtureKnown: string[] = OFFICER_ROLES.flatMap((role) => {
 
 const fixtureTechnologies: LabTech[] = RESEARCH_ITEMS.map((spec) => {
   const known = fixtureKnown.includes(spec.id);
-  const refusal = researchItemRefusal(spec.id, fixtureKnown, {
-    trackMark: fixtureTrackMark(spec.track),
-    headMark: fixtureHead.mark,
-  });
+  const refusal = researchItemRefusal(
+    spec.id,
+    fixtureKnown,
+    { trackMark: fixtureTrackMark(spec.track), headMark: fixtureHead.mark },
+    FIXTURE_LAB_LEVEL,
+  );
   return {
     id: spec.id,
     track: spec.track,
@@ -2121,13 +2150,19 @@ const fixtureTechnologies: LabTech[] = RESEARCH_ITEMS.map((spec) => {
   };
 });
 
+/** The points at the bottom of a mark's band: what a fixture officer at that mark has in the seat. */
+function markPoints(mark: OfficerMark): number {
+  return OFFICER_MARK_FLOOR + markIndex(mark) * OFFICER_MARK_BAND;
+}
+
 const fixtureTracks: ResearchTrackStatus[] = OFFICER_ROLES.map((role) => {
   const mark = fixtureTrackMark(role);
   return {
     role,
     officerName: mark === null ? null : (FIXTURE_TRACK_NAMES[OFFICER_ROLES.indexOf(role)] ?? null),
     mark,
-    costCutPercent: mark === null ? 0 : Math.round(markIndex(mark) * 15) / 10,
+    // The server's sentence for the chair, read off the points at the bottom of the mark's band.
+    passive: mark === null ? null : describeChairPassive(role, markPoints(mark)),
     done: fixtureKnown.filter((id) => RESEARCH_ITEMS.some((s) => s.id === id && s.track === role))
       .length,
   };
@@ -2136,7 +2171,7 @@ const fixtureTracks: ResearchTrackStatus[] = OFFICER_ROLES.map((role) => {
 const researchBase = {
   serverNow: NOW,
   caps: 125000,
-  // §C: eighteen tracks, each with finished rungs, one startable rung and locked ones above it.
+  // §C: seventeen tracks, each with finished rungs, one startable rung and locked ones above it.
   technologies: fixtureTechnologies,
   tracks: fixtureTracks,
   head: fixtureHead,
@@ -2278,6 +2313,8 @@ function crewOfficer(
     weeklyWage,
     injuredUntil,
     mark: role === null ? null : mark,
+    // What their chair gives the crew, in the server's words. Nothing on the bench.
+    passive: role === null || mark === null ? null : describeChairPassive(role, markPoints(mark)),
   };
 }
 
@@ -2325,30 +2362,75 @@ function crewAt(
       used: officers.length,
       capacity: districtUnitSlotCapacity(base.buildings, noTerritoryEffects()),
     },
+    // §H7: the book, with every officer above committed against it and fifty expansions bought:
+    // the 1,500 the six old 250 steps put on it, at the flat 30 each (2026-10-01).
+    payroll: payrollLedger(
+      {
+        purchasedSteps: 50,
+        commitments: Object.fromEntries(
+          officers.map((officer) => [officer.officerId, officer.weeklyWage]),
+        ),
+      },
+      buildingLevel(base.buildings, 'nexus'),
+      payrollBonusPercent(base.buildings),
+    ),
+    // The Overseer, first on the grid in every state: they are chosen before the first screen.
+    overseer: crewOverseer,
     officers,
   };
 }
 
-/** A level-1 crew: nobody hired. The empty state, which is nineteen vacant chairs. */
+/**
+ * The Overseer as the crew screen draws them (maintainer, 2026-10-04): their own sheet, the Right
+ * Hand's lift on it, and the grade their own seat earns with its one passive.
+ */
+const crewOverseer: NonNullable<CrewResponse['overseer']> = {
+  name: overseer.name,
+  portraitId: overseer.portraitId,
+  attributes: overseer.attributes,
+  lifted: overseer.attributes,
+  lift: [],
+  perks: [...overseer.perks],
+  mark: 'B-',
+  passive: describeOverseerPassive(markPoints('B-')),
+};
+
+/** A level-1 crew: nobody hired. The empty state, which is thirteen vacant chairs. */
 export const crewStart: CrewResponse = crewAt(1, []);
 
 /**
  * The widest this screen ever gets, and the state every layout guard has to survive.
  *
- * The longest officer name and the longest role label on the board, which is what actually
- * threatens the column, plus enough hires that the grid wraps.
+ * The longest officer name and a long role label, which is what actually threatens the column,
+ * plus enough hires that the grid wraps. The longest label, Master of Whispers, stays vacant: the
+ * bench spec fills it.
  */
-export const crewFat: CrewResponse = crewAt(48, [
-  ['off-1', 'The Ghost of Sector Nine', 'instructor_of_the_young'],
+const crewFatSeats: CrewResponse = crewAt(48, [
+  ['off-1', 'The Ghost of Sector Nine', 'field_commander'],
   // §D6: one of them came back from a fight on a stretcher, so the grid's screenshot carries the
   // red band and the countdown beside four healthy cards rather than needing a fixture of its own.
-  ['off-2', 'Wilhelmina Okonkwo-Restrepo', 'head_of_research', 19],
+  ['off-2', 'Wilhelmina Okonkwo-Restrepo', 'researcher', 19],
   ['off-3', 'Vela', 'professor'],
   // §C2: two on the bench, because one would not show whether the section can hold more than one,
   // and the bench is the half of the roster that is allowed to.
   ['off-4', 'Tomas Reyes', null],
   ['off-5', 'Nadia Ferrand', null],
 ]);
+
+/**
+ * The Field Commander took the chair a moment ago (`CHAIR_SETTLE_HOURS`, maintainer 2026-10-05), so
+ * the file the screens spec opens and sweeps for overflow carries the "Settling in" line under the
+ * passive, at the longest officer name.
+ */
+export const crewFat: CrewResponse = {
+  ...crewFatSeats,
+  officers: crewFatSeats.officers.map((officer) =>
+    officer.officerId === 'off-1'
+      ? // Off the wall clock, not `NOW`: the window counts down on the browser's own clock.
+        { ...officer, chairFrom: new Date(Date.now() + (5 * 60 + 40) * 60_000).toISOString() }
+      : officer,
+  ),
+};
 
 /**
  * §F2: the Training tab with one hour already running and one officer idle.
@@ -2360,10 +2442,9 @@ export const trainingResponse: TrainingResponse = {
   serverNow: NOW,
   sessionsLeft: 3,
   perDay: TRAININGS_PER_DAY,
-  // Two benches (the Professor's Second Chair): with the one the game starts on, the idle
-  // officer's every drill would read "The floor is taken" while the Overseer's hour runs, and
-  // the free half of the screen would be a sheet of dimmed rows.
-  benches: 2,
+  // The queue the game starts with: the Overseer's hour and room for the idle officer behind it,
+  // so the free half of the screen is a sheet of open rows rather than dimmed ones.
+  queueSlots: 2,
   gainPerSession: TRAINING_GAIN,
   sessionSeconds: TRAINING_SECONDS,
   subjects: [
@@ -2372,6 +2453,8 @@ export const trainingResponse: TrainingResponse = {
       name: overseer.name,
       role: 'Overseer',
       officerRole: null,
+      // Graded on their own seat since 2026-10-04, as the crew fixture's Overseer is.
+      mark: 'B-',
       portraitId: overseer.portraitId,
       attributes: overseer.attributes,
       perks: overseer.perks,
@@ -2394,6 +2477,8 @@ export const trainingResponse: TrainingResponse = {
       officerRole: 'professor',
       // Off the pool, the way the server derives it: `officerPortraitId('officer-1')`.
       portraitId: officerPortraitId('officer-1'),
+      // The stamp on their face, the one their crew card wears for the chair.
+      mark: 'C+',
       // A specialist, not a flat sheet: the profile's whole point is that one officer's good
       // number becomes the crew's, and a fixture at the recruitment mean shows none of that.
       attributes: makeAttributes(14, { intuition: 46, analysis: 38, diplomacy: 33, logic: 30 }),
@@ -2408,27 +2493,59 @@ export const trainingResponse: TrainingResponse = {
 };
 
 /**
- * Best-of across the Overseer and the one officer above: the sheet the effects come from.
+ * The room the standing is folded from: the Overseer and the three seated officers of `crewFat`.
  *
- * The Professor's duties are spelled out here rather than looked up: which attributes a seat puts
- * to work is a server-side table (§B8a) and deliberately unreachable from the client, so a fixture
- * that needs a seated officer states the seat's duties itself.
+ * Attributes stopped feeding the crew's channels on 2026-10-04, so what lights a channel here is
+ * perks alone. Each officer brings three, so the effects page lays out a full grid of cards rather
+ * than the one or two a lean fixture would light.
  */
-const PROFESSOR_CREW = crewSheet([
-  { attributes: overseer.attributes, role: null, perks: [] },
+const STANDING_ROOM: readonly {
+  role: OfficerRole;
+  name: string;
+  mark: OfficerMark;
+  perks: string[];
+}[] = [
   {
-    attributes: makeAttributes(14, { intuition: 46, analysis: 38, diplomacy: 33, logic: 30 }),
-    role: 'professor',
-    perks: [],
+    role: 'field_commander',
+    name: 'The Ghost of Sector Nine',
+    mark: 'B+',
+    perks: ['drill_sergeant', 'old_colours', 'wall_builder'],
   },
+  {
+    role: 'researcher',
+    name: 'Wilhelmina Okonkwo-Restrepo',
+    mark: 'A-',
+    perks: ['lab_discipline', 'site_foreman', 'shift_pattern'],
+  },
+  {
+    role: 'professor',
+    name: 'Vela',
+    mark: 'C+',
+    perks: ['road_captain', 'pack_mule', 'payroll_clerk'],
+  },
+];
+
+const STANDING_EFFECTS = crewEffects([
+  { attributes: overseer.attributes, role: null, perks: overseer.perks },
+  ...STANDING_ROOM.map((seat) => ({
+    attributes: makeAttributes(14, { intuition: 46, analysis: 38, diplomacy: 33, logic: 30 }),
+    role: seat.role,
+    perks: seat.perks,
+  })),
 ]);
 
-/** The Overseer's own file: their sheet, the crew's best-of, and what it is all buying. */
+/** The Overseer's own file: their sheet, what each chair gives, and what it is all buying. */
 export const crewStanding: CrewStandingResponse = {
   overseer,
-  crewSheet: PROFESSOR_CREW,
+  chairs: STANDING_ROOM.map((seat) => ({
+    role: seat.role,
+    officerName: seat.name,
+    mark: seat.mark,
+    passive: describeChairPassive(seat.role, markPoints(seat.mark)),
+  })),
+  overseerGrade: { mark: crewOverseer.mark, passive: crewOverseer.passive },
   effects: Object.fromEntries(
-    EFFECT_CHANNELS.map((channel) => [channel, effectsOfSheet(PROFESSOR_CREW)[channel]]),
+    EFFECT_CHANNELS.map((channel) => [channel, STANDING_EFFECTS[channel]]),
   ),
   // Nothing granted: the fixture crew has finished no research that hands a sheet a mark.
   marks: {},
@@ -2439,7 +2556,8 @@ export const crewStanding: CrewStandingResponse = {
    * the whole reason the field exists is that `effects` is people-only and cannot say so. A zero
    * here would draw the board exactly as the bug did and prove nothing.
    */
-  haulPercent: effectsOfSheet(PROFESSOR_CREW).lootCapacityPercent + 25,
+  haulPercent: STANDING_EFFECTS.lootCapacityPercent + 25,
+  missionCapsPercent: 0,
 };
 
 /**
@@ -2491,7 +2609,7 @@ export const market: MarketResponse = {
   cities: [DEFAULT_CITY_ID],
   // §G4: this is the late-game crew, so the Lab will do the trade. The locked state is covered by
   // the unit tests, which can toggle it; a screenshot fixture wants the state with a button in it.
-  reimagining: { hasHeadOfResearch: true, hasReimaginingResearch: true },
+  reimagining: { hasResearcher: true, hasReimaginingResearch: true },
   serverNow: NOW,
   caps: lateGameBase.resources.caps,
   resources: lateGameBase.resources,
@@ -2769,7 +2887,7 @@ export const garage: GarageResponse = {
  * untouched lot, a lot the reader is leading and a lot they have been outbid on.
  */
 const BLACK_MARKET_DAY = '2026-08-12';
-const blackMarketSlots = blackMarketBoard(BLACK_MARKET_DAY, [0, 0, 1, 0, 0]);
+const blackMarketSlots = blackMarketBoard(BLACK_MARKET_DAY, [0, 0, 1, 0, 0, 0]);
 
 /**
  * A city a little way along, so the fixture exercises the weighting rather than the identity case.
@@ -2808,6 +2926,58 @@ function blackLotFor(
     yourBid: mine?.amount ?? null,
   };
 }
+
+/**
+ * The Stackhouse's book (2026-10-05), at its widest: three fights with the longest names the board
+ * prints, one of them a faction ally's, and last night's bet come in. Off the wall clock rather than
+ * `NOW`, because the panel counts down on the browser's own clock.
+ */
+const STACKHOUSE_NOW = Date.now();
+const inHours = (hours: number): string =>
+  new Date(STACKHOUSE_NOW + hours * 3_600_000).toISOString();
+export const stackhouseBook: StackhouseResponse = {
+  serverNow: new Date(STACKHOUSE_NOW).toISOString(),
+  unlocked: true,
+  fights: [
+    {
+      battleId: 'bet-1',
+      place: 'The Rustyard Pumphouse',
+      districtName: 'Steelbelt',
+      attacker: { name: 'The Ninth Street Crew', yours: true },
+      defender: { name: 'The Combine', yours: false },
+      startsAt: inHours(5),
+      closesAt: inHours(4),
+    },
+    {
+      battleId: 'bet-2',
+      place: 'the gate at GLASSHOUSE FIELDS',
+      districtName: 'Glasshouse Fields',
+      attacker: { name: 'Wilhelmina Okonkwo-Restrepo’s Night Shift', yours: false },
+      defender: { name: 'Rustline Collective of the Lower Docks', yours: true },
+      startsAt: inHours(9),
+      closesAt: inHours(8),
+    },
+    {
+      battleId: 'bet-3',
+      place: 'a raid on THE UNDERGRID',
+      districtName: 'The Undergrid',
+      attacker: { name: 'Rustline Collective of the Lower Docks', yours: true },
+      defender: { name: 'Looters', yours: false },
+      startsAt: inHours(20),
+      closesAt: inHours(19),
+    },
+  ],
+  activeBet: null,
+  lastResult: {
+    place: 'Chrome Row Market',
+    backing: 'The Ninth Street Crew',
+    stake: 2_500,
+    outcome: 'won',
+    payout: 5_000,
+    settledAt: inHours(-6),
+  },
+  maxStake: 5_000,
+};
 
 export const blackMarket: BlackMarketResponse = {
   day: BLACK_MARKET_DAY,
@@ -3094,7 +3264,7 @@ const comingBattle = (
     enemySize === null
       ? 'Nothing. They are running dark.'
       : 'A rough count. Nobody would swear to it.',
-  opponentName: role === 'attacker' ? 'Looters' : 'The Vex Combine',
+  opponentName: role === 'attacker' ? 'Looters' : 'Vex Holdings',
   // §D7: priced against what this fixture actually has on the ground, exactly as the server does
   // it, so the fattest screenshot of the drop-down is the real arithmetic rather than round numbers
   // somebody typed. The Lab has finished nothing and the crew is one officer, so the gated half of
@@ -3121,7 +3291,7 @@ const comingBattle = (
       description: spec.description,
       cost: spec.cost,
       effect: describeBoostEffect(spec.effect),
-      source: describeBoostUnlock(spec.unlock, (techId) => techId),
+      source: describeBoostUnlock(spec.unlock),
       reach: Math.round(boostCoverage(spec.effect, muster.army) * 100),
       affordable: BOARD_INFAMY >= spec.cost,
       available: spec.unlock.kind === 'open',
@@ -3131,7 +3301,7 @@ const comingBattle = (
   boostIds: [],
   boostSlots: 1,
   // §D1: nobody named yet, and one officer on the books who could be. The picker's interesting
-  // state on a screenshot is "there is somebody to send", not a crew of nineteen.
+  // state on a screenshot is "there is somebody to send", not a crew of seventeen.
   officerId: null,
   // §C3: two bikes in the yard, one already loaded, so the counter row screenshots in both states.
   vehicles: { motorcycle: 1 },
@@ -3354,8 +3524,6 @@ export const battles: BattlesResponse = {
     // Only the Gate is bought for a defence, so only the Gate says what it is worth. Read off the
     // same folds the server projects with, so the screen's figures are the fight's figures.
     defensePercent: building.kind === 'gate' ? gateDefensePercent(base.buildings) : null,
-    intelResistancePercent:
-      building.kind === 'gate' ? gateIntelResistancePercent(base.buildings) : null,
   })),
   serverNow: BOARD_NOW,
 };
@@ -3628,7 +3796,7 @@ const FACTION_PROFILE_MEMBERS: FactionProfileResponse['members'] = [
     // The one row whose display name is not their login name, so a screen that addressed the mail
     // by the wrong one of the two is visible here rather than only to a player who set one.
     username: 'Vex the Younger',
-    handle: 'Vex_Combine',
+    handle: 'Vex_Holdings',
     rank: 'chief',
     level: 11,
     infamy: 7200,
@@ -3695,8 +3863,8 @@ export const messagesScreen: MessagesResponse = {
       id: 'msg-2',
       threadId: 'thread-2',
       senderUserId: 'other-user',
-      senderName: 'Vex_Combine',
-      replyTo: 'Vex_Combine',
+      senderName: 'Vex_Holdings',
+      replyTo: 'Vex_Holdings',
       senderFaction: null,
       audience: 'player',
       addressedTo: 'Nikos',
@@ -3798,7 +3966,7 @@ export const notificationsScreen: NotificationsResponse = {
      * The two kinds a live server writes most, and neither was on this fixture.
      *
      * `district_attacked` is always-on, so it is the row that proves the settings screen draws a
-     * switch it cannot turn off; `unit_trained` is one per finished batch, which is the highest
+     * switch it cannot turn off; `unit_mustered` is one per finished batch, which is the highest
      * volume the bell ever sees. A fixture that carried neither screenshotted a bell nobody's
      * bell looks like.
      */
@@ -3814,7 +3982,7 @@ export const notificationsScreen: NotificationsResponse = {
     },
     {
       id: 'note-5',
-      kind: 'unit_trained',
+      kind: 'unit_mustered',
       title: 'A batch is off the bench',
       body: '6 Razors.',
       link: '/game/units',
@@ -3862,7 +4030,7 @@ export const leaderboardPlayers: LeaderboardResponse = {
     {
       rank: 2,
       userId: 'vex-user',
-      username: 'Vex_Combine',
+      username: 'Vex_Holdings',
       // The plot the city fixture puts Vex Holdings on.
       districtId: BOT_DISTRICT_ID,
       cityId: 'ashfall',
@@ -4061,7 +4229,10 @@ const scrapyardEntry = (
   };
 };
 
-/** Tall enough for the advanced brackets and the second rung, short of the third: all four states. */
+/**
+ * A yard at 6: the basic band and most of the intricate one open, the advanced band (from 9 since
+ * the 2026-10-02 spread) and above shut, so open rows and rows shut by the yard's level both show.
+ */
 const SCRAPYARD_FIXTURE_LEVEL = 6;
 
 /**
@@ -4095,6 +4266,8 @@ const trapEntries: ScrapyardEntry[] = TRAP_CATALOG.map((spec, index) => ({
 export const scrapyard: ScrapyardResponse = {
   scrapyardLevel: SCRAPYARD_FIXTURE_LEVEL,
   discountPercent: scrapyardDiscountPercent(SCRAPYARD_FIXTURE_LEVEL),
+  // Nobody in the Salvager's chair on the fixture crew.
+  salvagerCutPercent: 0,
   resources: lateGameBase.resources,
   entries: [
     ...MODIFICATIONS.map(scrapyardEntry),

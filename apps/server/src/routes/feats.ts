@@ -3,6 +3,7 @@ import {
   addItems,
   addToStash,
   canClaimFeat,
+  drawFeatPages,
   mergeFeatRewards,
   findFeat,
   splitFeatReward,
@@ -59,7 +60,7 @@ export function registerFeatRoutes(app: FastifyInstance): void {
     /*
      * Settled first, and this is not optional.
      *
-     * Production, builds and training all land lazily on read. Without this, a crew that has been
+     * Production, builds and musters all land lazily on read. Without this, a crew that has been
      * away for a day would see a feats screen built from the stockpile they had when they logged
      * out, press nothing, and come back a moment later to find three of them finished. Worse, the
      * badge on the bottom bar reads from the same evaluation and would disagree with the screen.
@@ -131,11 +132,11 @@ export function registerFeatRoutes(app: FastifyInstance): void {
         refuse('already_claimed');
       }
 
-      payFeat(app.repos, fresh, paid, now);
+      const delivered = payFeat(app.repos, fresh, paid, now, featId);
       const settled = app.repos.bases.findByOwnerId(request.currentUser.id) ?? fresh;
       return {
         featId,
-        paid,
+        paid: delivered,
         ...(wasted !== undefined ? { wasted } : {}),
         feats: projectFeats(app.repos, settled, now),
       };
@@ -212,8 +213,11 @@ export function registerFeatRoutes(app: FastifyInstance): void {
         .map((one) => findFeat(one.id))
         .filter((spec): spec is NonNullable<typeof spec> => spec !== undefined);
 
-      const paid = mergeFeatRewards(collected.map((spec) => spec.reward));
-      if (collected.length > 0) payFeat(app.repos, fresh, paid, now);
+      const merged = mergeFeatRewards(collected.map((spec) => spec.reward));
+      const paid =
+        collected.length > 0
+          ? payFeat(app.repos, fresh, merged, now, collected.map((spec) => spec.id).join(','))
+          : merged;
 
       const settled = app.repos.bases.findByOwnerId(request.currentUser.id) ?? fresh;
       return {
@@ -242,7 +246,15 @@ export function registerFeatRoutes(app: FastifyInstance): void {
  * and a feat pays units, experience or resources instead. The schema has no field for it, so there
  * is nothing here to pay and nothing for the `infamy_earned` ladder to be told.
  */
-function payFeat(repos: Repositories, base: Base, reward: FeatReward, now: Date): void {
+function payFeat(
+  repos: Repositories,
+  base: Base,
+  owed: FeatReward,
+  now: Date,
+  /** Which feats this pays, in the draw's seed, so two claims in one millisecond draw apart. */
+  feats: string,
+): FeatReward {
+  const reward = withPagesDrawn(owed, `${base.id}:${now.toISOString()}:${feats}`);
   // Through the stores' one door like every other credit. `reward` is already the part that fits,
   // so nothing is lost here; the landed figure is still the one the ladders are told about.
   const credit = creditBase(repos, base, reward.resources ?? {}, now);
@@ -255,10 +267,10 @@ function payFeat(repos: Repositories, base: Base, reward: FeatReward, now: Date)
   }
 
   if (reward.units) {
-    // Straight onto the roster at home rather than into the training queue. A feat is a reward and
+    // Straight onto the roster at home rather than into the muster queue. A feat is a reward and
     // not an order: making somebody wait forty minutes for units they have already earned would
     // be a punishment dressed as a gift.
-    repos.bases.updateArmy(base.id, mergeArmies(base.army, reward.units), base.trainingQueue);
+    repos.bases.updateArmy(base.id, mergeArmies(base.army, reward.units), base.musterQueue);
   }
 
   if (reward.boosts) {
@@ -302,4 +314,18 @@ function payFeat(repos: Repositories, base: Base, reward: FeatReward, now: Date)
       at: now,
     });
   }
+  return reward;
+}
+
+/**
+ * A reward's random pages, drawn (P8-A, 2026-10-02): the mid game pays "a random page", decided
+ * on the claim so nothing on the board can be read to predict it. What comes back is the reward
+ * as delivered, with the pages it drew in `items`, which is what the receipt shows.
+ */
+function withPagesDrawn(reward: FeatReward, seed: string): FeatReward {
+  if (!reward.pages) return reward;
+  const { pages, ...rest } = reward;
+  const items: Record<string, number> = { ...(rest.items ?? {}) };
+  for (const page of drawFeatPages(pages, seed)) items[page] = (items[page] ?? 0) + 1;
+  return Object.keys(items).length > 0 ? { ...rest, items } : rest;
 }

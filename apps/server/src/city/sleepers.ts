@@ -117,7 +117,7 @@ export function plantSleepers(repos: Repositories, input: PlantInput): SleeperRe
   repos.sleepers.insert(cell);
 
   const base: Base = { ...input.base, army: removeForce(input.base.army, sending) };
-  repos.bases.updateArmy(base.id, base.army, base.trainingQueue);
+  repos.bases.updateArmy(base.id, base.army, base.musterQueue);
   return { kind: 'ok', base, cell };
 }
 
@@ -245,7 +245,7 @@ export function settleSleepers(repos: Repositories, now: Date): number {
       if (cell.phase === 'returning') {
         const base = repos.bases.findById(cell.baseId);
         if (base) {
-          repos.bases.updateArmy(base.id, mergeArmies(base.army, cell.army), base.trainingQueue);
+          repos.bases.updateArmy(base.id, mergeArmies(base.army, cell.army), base.musterQueue);
         }
         repos.sleepers.remove(cell.id);
         return;

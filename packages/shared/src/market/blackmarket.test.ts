@@ -32,17 +32,17 @@ import { CITIES } from '../city/cities.js';
 const NO_TURNOVER = Array.from({ length: BLACK_MARKET_SLOTS }, () => 0);
 
 describe('the shelf', () => {
-  it('is five slots and one take a day, as numbers rather than as constants', () => {
+  it('is six slots and one take a day, as numbers rather than as constants', () => {
     // Written as literals on purpose. Every other assertion in this file derives its expectation
     // from `BLACK_MARKET_SLOTS`, so lowering that constant to four leaves the whole suite green
     // while the shelf quietly loses a slot: the shape of tautology that hides a half-implemented
     // change. These three lines are the independent anchor: they say what the maintainer asked for.
-    expect(BLACK_MARKET_SLOTS).toBe(5);
+    expect(BLACK_MARKET_SLOTS).toBe(6);
     expect(BLACK_MARKET_TAKES_PER_DAY).toBe(1);
-    expect(blackMarketBoard('2026-08-16', [])).toHaveLength(5);
+    expect(blackMarketBoard('2026-08-16', [])).toHaveLength(6);
   });
 
-  it('always stands five deep', () => {
+  it('always stands six deep', () => {
     expect(blackMarketBoard('2026-08-16', NO_TURNOVER)).toHaveLength(BLACK_MARKET_SLOTS);
     // Including from an empty turnover list, which is what a day nobody has shopped on looks like.
     expect(blackMarketBoard('2026-08-16', [])).toHaveLength(BLACK_MARKET_SLOTS);

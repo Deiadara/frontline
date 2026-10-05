@@ -1,4 +1,5 @@
 import {
+  nextQueuedLevel,
   BUILDING_CATALOG,
   buildQueueCapacity,
   RESOURCE_KEYS,
@@ -7,7 +8,7 @@ import {
   unitSlotDraw,
   playerLevelGrants,
   playerXpToNextLevel,
-  queueCancelWindowMs,
+  buildCancelWindowMs,
   queueProgressAt,
   queueRemainingMs,
   storageCapacity,
@@ -16,6 +17,7 @@ import {
   payrollBonusPercent,
   buildingLevel,
   committedPayroll,
+  disruptionPercentAt,
   type Base,
   type PartialResources,
   type BuildingKind,
@@ -72,7 +74,7 @@ import { ErrorNote } from '../../components/ui/ErrorNote';
  */
 export function BasePanel() {
   const me = useMe();
-  // §F2: the store is filled to the structure plus the crew's Logistics, so the shelves quoted
+  // §F2: the store is filled to the structure plus the crew's storage bonus, so the shelves quoted
   // here are computed the way `accrueProduction` fills them rather than off the buildings alone.
   const crewStorage = useCrewStanding().data?.effects['storageCapacityPercent'] ?? 0;
   const baseId = me.data?.base?.id;
@@ -237,7 +239,7 @@ export function BasePanel() {
             <HousingReadout base={base} />
           </Panel>
           <Panel title="Production">
-            <ProductionRows base={base} rates={me.data?.productionRates} />
+            <ProductionRows base={base} rates={me.data?.productionRates} now={now} />
           </Panel>
         </div>
 
@@ -253,13 +255,13 @@ export function BasePanel() {
               'scrap',
               storageCapacity(base.buildings, crewStorage),
             ).toLocaleString()}{' '}
-            scrap or planks,{' '}
+            each of scrap and planks,{' '}
             {storageCapacityFor(
               base.buildings,
               'oil',
               storageCapacity(base.buildings, crewStorage),
             ).toLocaleString()}{' '}
-            oil or supplies and{' '}
+            each of oil and supplies and{' '}
             {storageCapacityFor(
               base.buildings,
               'highQualityMetal',
@@ -302,7 +304,15 @@ export function BasePanel() {
           error={build.error ?? boost.error ?? clear.error}
           onBuild={() =>
             build.mutate(
-              { kind: selectedPlot },
+              {
+                kind: selectedPlot,
+                // The level the window was quoting, so a second tab's order is refused as stale
+                // rather than buying the level after it.
+                ...(() => {
+                  const level = nextQueuedLevel(selectedPlot, base.buildings, base.buildQueue);
+                  return level === null ? {} : { level };
+                })(),
+              },
               {
                 // The testing build waives the bill it quoted: say what it was. See `announceWaived`.
                 onSuccess: () => {
@@ -380,7 +390,7 @@ function BuildQueue({ base, serverNow, receivedAt }: BuildQueueProps) {
               {/* Inside the first tenth, or before the clock has started at all: the order can
                   still be called off, and ninety percent of what it took comes back. */}
               <CancelMark
-                windowMs={queueCancelWindowMs(entry, now)}
+                windowMs={buildCancelWindowMs(entry, base, now)}
                 label={`Call off ${BUILDING_CATALOG[entry.kind].name} level ${entry.level}`}
                 pending={cancel.isPending}
                 onCancel={() => cancel.mutate({ orderId: entry.id })}
@@ -702,7 +712,7 @@ function BuildQueueRail({ base, serverNow, receivedAt, room, onStripHeight }: Bu
                 X with its countdown is most of that. */}
               <CancelMark
                 className="mt-0.5"
-                windowMs={queueCancelWindowMs(entry, now)}
+                windowMs={buildCancelWindowMs(entry, base, now)}
                 label={`Call off ${BUILDING_CATALOG[entry.kind].name} level ${entry.level}`}
                 pending={cancel.isPending}
                 onCancel={() => cancel.mutate({ orderId: entry.id })}
@@ -801,7 +811,7 @@ function HousingReadout({ base }: { base: Base }) {
    * `unitSlotDraw(base)` only knows what the district row carries: officers, the army at home,
    * the bench and the yard. The server's `districtUnitSlots` also counts garrisons on held ground,
    * units and machines on the road and the territory's slot bonus, and it is what the Units page
-   * prints and what the training door refuses on. Two screens reading two totals for one budget is
+   * prints and what the muster door refuses on. Two screens reading two totals for one budget is
    * the bug (bug pass, 2026-09-15); the fallback exists so the panel never draws a zero while the
    * roster is still loading.
    */
@@ -844,10 +854,26 @@ function HousingReadout({ base }: { base: Base }) {
 /**
  * What the district makes an hour, as `/me` quotes it: the structures, the ground, the crew's line
  * speed and yields. The structures alone until `/me` answers, which undercounts rather than lies.
+ *
+ * While a raid's cut is running, one more row says so (bug pass, 2026-10-01): the rates above are
+ * already the cut ones, and without it a player who missed the notification saw output drop by a
+ * third with no reason and no end in sight. The figure is the settle's own (`disruptionPercentAt`
+ * on the stored record, which a second raid has already stacked into), and the row is not drawn
+ * at all otherwise.
  */
-function ProductionRows({ base, rates }: { base: Base; rates: PartialResources | undefined }) {
+function ProductionRows({
+  base,
+  rates,
+  now,
+}: {
+  base: Base;
+  rates: PartialResources | undefined;
+  now: Date;
+}) {
   const perHour = rates ?? districtProduction(base.buildings).perHour;
   const producing = RESOURCE_KEYS.filter((key) => (perHour[key] ?? 0) !== 0);
+  const { disruption } = base.economy;
+  const cut = Math.round(disruptionPercentAt(disruption, now));
 
   if (producing.length === 0) {
     return (
@@ -868,6 +894,14 @@ function ProductionRows({ base, rates }: { base: Base; rates: PartialResources |
           tone={(perHour[key] ?? 0) < 0 ? 'bad' : 'good'}
         />
       ))}
+      {cut > 0 && disruption.until !== null && (
+        <StatRow
+          label="Raided"
+          value={`-${cut}% for ${formatRemaining(Date.parse(disruption.until) - now.getTime())}`}
+          tone="bad"
+          testId="production-raided"
+        />
+      )}
     </dl>
   );
 }
@@ -880,11 +914,15 @@ function ProductionRows({ base, rates }: { base: Base; rates: PartialResources |
  */
 function PayrollRows({ base }: { base: Base }) {
   const officers = base.commanders.length;
-  const ledger = payrollLedger(
-    base.economy.payroll,
-    buildingLevel(base.buildings, 'nexus'),
-    payrollBonusPercent(base.buildings),
-  );
+  // The server's book, the Fixer's share included (2026-10-04); the local one until it answers.
+  const served = useCrewStanding().data?.payroll;
+  const ledger =
+    served ??
+    payrollLedger(
+      base.economy.payroll,
+      buildingLevel(base.buildings, 'nexus'),
+      payrollBonusPercent(base.buildings),
+    );
 
   return (
     <dl className="flex flex-col divide-y divide-surface-700">
@@ -928,9 +966,11 @@ function ProgressionRows({ base }: { base: Base }) {
           <span className="block h-full bg-brass-300" style={{ width: `${pct}%` }} />
         </span>
       </div>
-      <dl className="flex flex-col divide-y divide-surface-700 border-t border-surface-700">
-        <StatRow label="Recruit slots" value={String(grants.recruitSlots)} />
-      </dl>
+      {grants.recruitSlots > 0 && (
+        <dl className="flex flex-col divide-y divide-surface-700 border-t border-surface-700">
+          <StatRow label="Officer slots" value={String(grants.recruitSlots)} />
+        </dl>
+      )}
     </div>
   );
 }
@@ -939,13 +979,15 @@ function StatRow({
   label,
   value,
   tone = 'plain',
+  testId,
 }: {
   label: string;
   value: string;
   tone?: 'plain' | 'good' | 'bad';
+  testId?: string;
 }) {
   return (
-    <div className="flex items-center justify-between gap-4 px-4 py-2.5">
+    <div className="flex items-center justify-between gap-4 px-4 py-2.5" data-testid={testId}>
       <dt className="font-display text-[11px] uppercase tracking-[0.18em] text-ink-300">{label}</dt>
       <dd
         className={cn(

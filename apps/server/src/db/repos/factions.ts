@@ -1,10 +1,13 @@
 import {
   BadgeSchema,
+  FACTION_CARDS,
   FACTION_RANKS,
   MAX_FACTION_MEMBERS,
   type Faction,
+  type FactionCard,
   type FactionRank,
 } from '@frontline/shared';
+import type { Statement } from 'better-sqlite3';
 import type { AppDatabase } from '../index.js';
 import { readJson } from '../json.js';
 
@@ -29,6 +32,8 @@ export interface FactionMemberRow {
    * and this is a record of what they brought in. See migration `0050`.
    */
   infamyEarned: number;
+  /** The card the leader seated them at, or null when the deal places them (`dealCards`). */
+  seat: FactionCard | null;
 }
 
 export interface FactionInviteRow {
@@ -64,8 +69,10 @@ export interface FactionsRepo {
    * Seats somebody. Deliberately cannot carry `infamyEarned`: a new member starts at zero, and a
    * signature that accepted a figure would be a way to hand a faction a record it did not earn.
    */
-  addMember(row: Omit<FactionMemberRow, 'infamyEarned'>): void;
+  addMember(row: Omit<FactionMemberRow, 'infamyEarned' | 'seat'>): void;
   setRank(userId: string, rank: FactionRank): void;
+  /** Seats a member at a card, or clears their seat back to the deal. The leader's to set. */
+  setSeat(userId: string, seat: FactionCard | null): void;
   removeMember(userId: string): void;
   /**
    * Credits a fight's infamy to the faction the winner was in, and to their own row in it.
@@ -103,6 +110,7 @@ interface MemberRow {
   rank: string;
   joined_at: string;
   infamy_earned: number;
+  seat: string | null;
 }
 
 interface InviteRow {
@@ -140,6 +148,10 @@ const toMember = (row: MemberRow): FactionMemberRow => ({
   rank: toRank(row.rank),
   joinedAt: row.joined_at,
   infamyEarned: row.infamy_earned,
+  // A stored card the catalogue no longer knows reads as unseated rather than throwing.
+  seat: (FACTION_CARDS as readonly string[]).includes(row.seat ?? '')
+    ? (row.seat as FactionCard)
+    : null,
 });
 
 const toInvite = (row: InviteRow): FactionInviteRow => ({
@@ -173,6 +185,8 @@ export function createFactionsRepo(db: AppDatabase): FactionsRepo {
     'INSERT INTO faction_members (user_id, faction_id, rank, joined_at) VALUES (?, ?, ?, ?)',
   );
   const setRankStmt = db.prepare('UPDATE faction_members SET rank = ? WHERE user_id = ?');
+  // Prepared on first use: the column arrives in 0141, and some tests migrate only part way.
+  let setSeatStmt: Statement | undefined;
   const removeMemberStmt = db.prepare('DELETE FROM faction_members WHERE user_id = ?');
   const creditMemberStmt = db.prepare(
     'UPDATE faction_members SET infamy_earned = infamy_earned + ? WHERE user_id = ?',
@@ -252,6 +266,10 @@ export function createFactionsRepo(db: AppDatabase): FactionsRepo {
     },
     setRank(userId, rank) {
       setRankStmt.run(rank, userId);
+    },
+    setSeat(userId, seat) {
+      setSeatStmt ??= db.prepare('UPDATE faction_members SET seat = ? WHERE user_id = ?');
+      setSeatStmt.run(seat, userId);
     },
     addInfamyEarned(userId, amount) {
       // A player in no faction has no row and the subquery finds no faction, so both statements are

@@ -9,6 +9,7 @@ import type * as ApiModule from './api';
 const launchMission = vi.hoisted(() => vi.fn());
 const getMissions = vi.hoisted(() => vi.fn());
 const buildStructure = vi.hoisted(() => vi.fn());
+const cancelBuild = vi.hoisted(() => vi.fn());
 const plantSleepers = vi.hoisted(() => vi.fn());
 const getMarket = vi.hoisted(() => vi.fn());
 const barterResources = vi.hoisted(() => vi.fn());
@@ -17,11 +18,20 @@ const placeBlackMarketBid = vi.hoisted(() => vi.fn());
 const recallMission = vi.hoisted(() => vi.fn());
 const sendMessage = vi.hoisted(() => vi.fn());
 const leaveFaction = vi.hoisted(() => vi.fn());
+const musterUnits = vi.hoisted(() => vi.fn());
+const takeVehicles = vi.hoisted(() => vi.fn());
+const moveUnits = vi.hoisted(() => vi.fn());
+const reassignOfficer = vi.hoisted(() => vi.fn());
+const releaseOfficer = vi.hoisted(() => vi.fn());
+const getResearch = vi.hoisted(() => vi.fn());
+const claimFeat = vi.hoisted(() => vi.fn());
+const claimAllFeats = vi.hoisted(() => vi.fn());
 vi.mock('./api', async (importOriginal) => ({
   ...(await importOriginal<typeof ApiModule>()),
   launchMission,
   getMissions,
   buildStructure,
+  cancelBuild,
   plantSleepers,
   getMarket,
   barterResources,
@@ -30,6 +40,14 @@ vi.mock('./api', async (importOriginal) => ({
   recallMission,
   sendMessage,
   leaveFaction,
+  musterUnits,
+  takeVehicles,
+  moveUnits,
+  reassignOfficer,
+  releaseOfficer,
+  getResearch,
+  claimFeat,
+  claimAllFeats,
 }));
 
 const { ApiRequestError } = await import('./api');
@@ -37,6 +55,7 @@ const {
   queryKeys,
   usePlantSleepers,
   useBuildStructure,
+  useCancelBuild,
   useLaunchMission,
   useMissions,
   useMarket,
@@ -44,8 +63,15 @@ const {
   useBlackMarket,
   usePlaceBlackMarketBid,
   useRecallMission,
-  useSendMessage,
   useLeaveFaction,
+  useMusterUnits,
+  useTakeVehicles,
+  useMoveUnits,
+  useReassignOfficer,
+  useReleaseOfficer,
+  useResearch,
+  useClaimFeat,
+  useClaimAllFeats,
 } = await import('./queries');
 const { useSession } = await import('../store/session');
 
@@ -58,6 +84,7 @@ function harness<T>(hook: () => T) {
     <QueryClientProvider client={client}>{children}</QueryClientProvider>
   );
   return {
+    client,
     ...renderHook(hook, { wrapper }),
     /** Which caches the hook asked react-query to refetch, order-independent. */
     invalidated: () => invalidate.mock.calls.map(([filters]) => JSON.stringify(filters?.queryKey)),
@@ -74,6 +101,7 @@ beforeEach(() => {
   launchMission.mockReset();
   getMissions.mockReset();
   buildStructure.mockReset();
+  cancelBuild.mockReset();
   plantSleepers.mockReset();
   getMarket.mockReset();
   barterResources.mockReset();
@@ -82,7 +110,15 @@ beforeEach(() => {
   recallMission.mockReset();
   sendMessage.mockReset();
   leaveFaction.mockReset();
-  useSession.setState({ token: 'session-token', user: null });
+  musterUnits.mockReset();
+  takeVehicles.mockReset();
+  moveUnits.mockReset();
+  reassignOfficer.mockReset();
+  releaseOfficer.mockReset();
+  getResearch.mockReset();
+  claimFeat.mockReset();
+  claimAllFeats.mockReset();
+  useSession.setState({ signedIn: true, user: null });
 });
 
 /**
@@ -154,6 +190,10 @@ describe('a refused launch that had already settled the board', () => {
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
     expect(invalidated()).toEqual(expect.arrayContaining(BOTH));
+    // Bug pass, 2026-10-02: the party leaves the roster and its machines the yard.
+    expect(invalidated()).toEqual(
+      expect.arrayContaining([JSON.stringify(queryKeys.units), JSON.stringify(queryKeys.garage)]),
+    );
   });
 });
 
@@ -255,6 +295,8 @@ describe('a level-up refreshes the §G layer it moved', () => {
         JSON.stringify(queryKeys.city),
         JSON.stringify(queryKeys.units),
         JSON.stringify(queryKeys.district('steelbelt')),
+        // Bug pass, 2026-10-02: and the crew's fold, which holding ground pays into.
+        JSON.stringify(queryKeys.crewStanding),
       ]),
     );
   });
@@ -274,6 +316,48 @@ describe('a level-up refreshes the §G layer it moved', () => {
  * The refetch behind each write is held open here on purpose. A test whose assertion can be
  * satisfied by the invalidation landing measures nothing about the write.
  */
+/*
+ * The server announces a level once, on whichever response drains it first, and the Monitor's
+ * board poll or a cancelled build can beat `/me` to it. Those screens print nothing, so the level
+ * goes to the shell toast through the `me` cache; the Missions page and the build button print
+ * their own and keep it.
+ */
+describe('a level-up landing on a screen that does not print it', () => {
+  const seeded = (client: QueryClient) =>
+    client.setQueryData(queryKeys.me, { user: null, overseer: null, base: null });
+  const announced = (client: QueryClient) =>
+    client.getQueryData<{ levelUp?: unknown }>(queryKeys.me)?.levelUp;
+
+  it("passes a board poll's level to the shell toast", async () => {
+    getMissions.mockResolvedValue({ missions: [], justResolved: [], levelUp: LEVELLED });
+    const { client, result } = harness(() => useMissions());
+    seeded(client);
+    await waitFor(() => expect(result.current.data).toBeDefined());
+    await waitFor(() => expect(announced(client)).toEqual(LEVELLED));
+  });
+
+  it('keeps it on the board when the Missions page prints it', async () => {
+    getMissions.mockResolvedValue({ missions: [], justResolved: [], levelUp: LEVELLED });
+    const { client, result } = harness(() => useMissions(undefined, { drawsLevelUp: true }));
+    seeded(client);
+    await waitFor(() => expect(result.current.data).toBeDefined());
+    expect(announced(client)).toBeUndefined();
+  });
+
+  it("passes a cancelled build's level on, refused or not", async () => {
+    cancelBuild.mockResolvedValueOnce({ base: {}, levelUp: LEVELLED });
+    const { client, result } = harness(() => useCancelBuild(undefined));
+    seeded(client);
+    result.current.mutate({} as never);
+    await waitFor(() => expect(announced(client)).toEqual(LEVELLED));
+
+    seeded(client);
+    cancelBuild.mockRejectedValueOnce(new ApiRequestError(409, 'REFUSED', 'no', LEVELLED));
+    result.current.mutate({} as never);
+    await waitFor(() => expect(announced(client)).toEqual(LEVELLED));
+  });
+});
+
 describe('a write answered with a whole board puts it on the screen reading that city', () => {
   /** A read that never answers, so only the mutation's own write can move what is on screen. */
   const pending = () => new Promise<never>(() => undefined);
@@ -400,21 +484,12 @@ describe('a write answered with a whole board puts it on the screen reading that
 });
 
 /**
- * Two writes that move a feat's number without touching the district: a letter sent is counted
- * (`tallyMessageSent`), and a seat given up moves `faction_seats`. Both refreshed `/me`, so the
- * badge moved, and left the feats board cached, so the page under the badge disagreed with it.
+ * A write that moves a feat's number without touching the district: a seat given up moves
+ * `faction_seats`. It refreshed `/me`, so the badge moved, and left the feats board cached, so the
+ * page under the badge disagreed with it. (Letters counted too, until the letters feats went,
+ * maintainer 2026-10-02.)
  */
 describe('a write that moves a feat refreshes the feats board', () => {
-  it('after a letter is sent', async () => {
-    sendMessage.mockResolvedValueOnce({ messages: {} });
-    const { result, invalidated } = harness(() => useSendMessage());
-
-    result.current.mutate({} as never);
-
-    await waitFor(() => expect(result.current.isSuccess).toBe(true));
-    expect(invalidated()).toContain(JSON.stringify(queryKeys.feats));
-  });
-
   it('after a seat at a table is given up', async () => {
     leaveFaction.mockResolvedValueOnce({ faction: {} });
     const { result, invalidated } = harness(() => useLeaveFaction());
@@ -423,5 +498,123 @@ describe('a write that moves a feat refreshes the feats board', () => {
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
     expect(invalidated()).toContain(JSON.stringify(queryKeys.feats));
+  });
+});
+
+/**
+ * Bug pass, 2026-10-02: the unit bench and the Garage share one queue and one set of beds, and the
+ * Vehicles tab reads both off `/garage`, which does not poll.
+ */
+describe('a batch put on the bench', () => {
+  it('refreshes the yard as well as the roster', async () => {
+    musterUnits.mockResolvedValueOnce({});
+    const { result, invalidated } = harness(() => useMusterUnits('base-1'));
+
+    result.current.mutate({} as never);
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(invalidated()).toEqual(
+      expect.arrayContaining([JSON.stringify(queryKeys.units), JSON.stringify(queryKeys.garage)]),
+    );
+  });
+});
+
+// Bug pass, 2026-10-02: machines taken to a fight leave the Garage's fleet, which does not poll.
+describe('machines taken to a fight', () => {
+  it('refreshes the yard with the board', async () => {
+    takeVehicles.mockResolvedValueOnce({ battles: {}, base: {} });
+    const { result, invalidated } = harness(useTakeVehicles);
+
+    result.current.mutate({} as never);
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(invalidated()).toEqual(
+      expect.arrayContaining([
+        JSON.stringify(queryKeys.battles),
+        JSON.stringify(queryKeys.garage),
+        JSON.stringify(queryKeys.crewStanding),
+      ]),
+    );
+  });
+});
+
+// Bug pass, 2026-10-02: machines leave the yard with a column from the district.
+describe('a move with machines in it', () => {
+  it('refreshes the yard with the road', async () => {
+    moveUnits.mockResolvedValueOnce({});
+    const { result, invalidated } = harness(useMoveUnits);
+
+    result.current.mutate({} as never);
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(invalidated()).toEqual(
+      expect.arrayContaining([JSON.stringify(queryKeys.actions), JSON.stringify(queryKeys.garage)]),
+    );
+  });
+});
+
+// Bug pass, 2026-10-02: who sits where prices the Scrapyard and the Garage, and neither polls.
+describe('a seat changed or an officer let go', () => {
+  const PRICED = [JSON.stringify(queryKeys.scrapyard), JSON.stringify(queryKeys.garage)];
+
+  it('refreshes the yards after a seat change', async () => {
+    reassignOfficer.mockResolvedValueOnce({ crew: {} });
+    const { result, invalidated } = harness(useReassignOfficer);
+    result.current.mutate({} as never);
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(invalidated()).toEqual(expect.arrayContaining(PRICED));
+  });
+
+  it('refreshes the yards and the drill floor after a release', async () => {
+    releaseOfficer.mockResolvedValueOnce({});
+    const { result, invalidated } = harness(useReleaseOfficer);
+    result.current.mutate({} as never);
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(invalidated()).toEqual(
+      expect.arrayContaining([...PRICED, JSON.stringify(queryKeys.training)]),
+    );
+  });
+});
+
+// Bug pass, 2026-10-02: most rungs pay into the crew's fold, which does not poll.
+describe('a rung landing between two reads of the Lab', () => {
+  it('refreshes the crew fold as well as the HUD', async () => {
+    getResearch
+      .mockResolvedValueOnce({ technologies: [{ known: true }, { known: false }] })
+      .mockResolvedValue({ technologies: [{ known: true }, { known: true }] });
+    const { result, invalidated } = harness(useResearch);
+    await waitFor(() => expect(result.current.data).toBeDefined());
+
+    void result.current.refetch();
+
+    await waitFor(() =>
+      expect(invalidated()).toEqual(
+        expect.arrayContaining([
+          JSON.stringify(queryKeys.me),
+          JSON.stringify(queryKeys.crewStanding),
+        ]),
+      ),
+    );
+  });
+});
+
+// Bug pass, 2026-10-02: a reward moves the stockpile and the beds the two yards price against.
+describe('a feat claimed', () => {
+  const YARDS = [JSON.stringify(queryKeys.scrapyard), JSON.stringify(queryKeys.garage)];
+
+  it('refreshes the yards after one claim', async () => {
+    claimFeat.mockResolvedValueOnce({});
+    const { result, invalidated } = harness(useClaimFeat);
+    result.current.mutate({} as never);
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(invalidated()).toEqual(expect.arrayContaining(YARDS));
+  });
+
+  it('refreshes the yards after collecting them all', async () => {
+    claimAllFeats.mockResolvedValueOnce({});
+    const { result, invalidated } = harness(useClaimAllFeats);
+    result.current.mutate({} as never);
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(invalidated()).toEqual(expect.arrayContaining(YARDS));
   });
 });

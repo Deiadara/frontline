@@ -177,9 +177,17 @@ export function readColumn(
   return { speed, heldBy: machine === undefined ? null : machine.name };
 }
 
+/**
+ * A pace as the screens print it: whole. A speed bonus multiplies it, so a walker at 45 with +12%
+ * is 50.400000000000006, which the send window printed as it came (bug pass, 2026-10-02).
+ */
+export function shownPace(speed: number): number {
+  return Math.round(speed);
+}
+
 /** `Held to 45 by 12 Scavengers walking`, or the pace alone when nothing can be named. */
 export function heldToLine(read: ColumnRead): string {
   return read.heldBy === null
-    ? `Rides at ${read.speed}`
-    : `Held to ${read.speed} by ${read.heldBy}`;
+    ? `Rides at ${shownPace(read.speed)}`
+    : `Held to ${shownPace(read.speed)} by ${read.heldBy}`;
 }

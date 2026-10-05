@@ -470,7 +470,7 @@
   /**
    * An empty chair, drawn.
    *
-   * The crew screen is nineteen chairs and most of them start empty, so the vacancy is the state a
+   * The crew screen is thirteen chairs and most of them start empty, so the vacancy is the state a
    * player sees most of. An icon and the word "Vacant" said it but did not *show* it; a drawn chair
    * with nobody in it says the same thing in the register the rest of the screen is in. Same
    * displaced-stroke grammar as `.ink-disc`, so the line has the wobble a pen has.
@@ -633,6 +633,45 @@
    */
   .ink-frame-brass {
     border-image-source: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120' viewBox='0 0 120 120'%3E%3Cg fill='none' stroke='%23f0ad4c' stroke-opacity='0.85' stroke-width='2.6' stroke-linecap='round'%3E%3Cpath d='M4 4 H12 q24 -0.7 48 -0.2 q24 0.5 48 0.1 H116'/%3E%3Cpath d='M116 4 V12 q0.6 24 0.1 48 q-0.7 24 -0.1 48 V116'/%3E%3Cpath d='M116 116 H108 q-24 0.7 -48 0.2 q-24 -0.5 -48 -0.1 H4'/%3E%3Cpath d='M4 116 V108 q-0.6 -24 -0.1 -48 q0.7 -24 0.1 -48 V4'/%3E%3C/g%3E%3C/svg%3E");
+  }
+
+  /**
+   * The Black Market's frame (maintainer, 2026-10-05): the paper menu's drawn edge, inked in the
+   * room's tangerine instead of the paper's pale brass, and a touch heavier so the edge reads clean
+   * against soot. Two passes of the pen, the second faint and a hair off the first, which is what
+   * makes it a hand rather than a ruler. Same slice and tiling as `.ink-frame`, so it scales the
+   * same way at every panel size.
+   */
+  .ink-frame-tangerine {
+    border-image-source: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120' viewBox='0 0 120 120'%3E%3Cg fill='none' stroke='%23ff8c1a' stroke-linecap='round'%3E%3Cg stroke-opacity='0.82' stroke-width='2.8'%3E%3Cpath d='M4 4 H12 q24 -0.9 48 -0.2 q24 0.7 48 0.1 H116'/%3E%3Cpath d='M116 4 V12 q0.8 24 0.1 48 q-0.9 24 -0.1 48 V116'/%3E%3Cpath d='M116 116 H108 q-24 0.9 -48 0.2 q-24 -0.7 -48 -0.1 H4'/%3E%3Cpath d='M4 116 V108 q-0.8 -24 -0.1 -48 q0.9 -24 0.1 -48 V4'/%3E%3C/g%3E%3Cg stroke-opacity='0.3' stroke-width='1.2'%3E%3Cpath d='M6 6.4 H14 q22 0.8 46 0.3 q24 -0.6 46 0.2 H114'/%3E%3Cpath d='M113.6 6 V14 q-0.7 22 -0.2 46 q0.6 24 -0.1 46 V114'/%3E%3Cpath d='M114 113.6 H106 q-22 -0.8 -46 -0.3 q-24 0.6 -46 -0.2 H6'/%3E%3Cpath d='M6.4 114 V106 q0.7 -22 0.2 -46 q-0.6 -24 0.1 -46 V6'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E");
+  }
+
+  /**
+   * The Black Market's sheet: `.card-paper`'s recipe in soot, with the room's light (a low warm
+   * glow off the top left, as if the only lamp in the back room were behind the reader) instead of
+   * the paper's grey sheen. The ground is restated as the longhand for the reason `.card-paper`
+   * gives.
+   */
+  .card-soot {
+    position: relative;
+    /*
+     * The rust is the sheet's own (bug report, 2026-10-05). It used to come from the cards and rows
+     * on it: `.rusted::before` is absolutely placed, they were not positioned, so every stain spread
+     * over the whole panel, and lifting a row on hover pulled its stain back in and the panel went
+     * grey. The blooms are painted here, deliberately, and the rows keep theirs to themselves.
+     */
+    background:
+      radial-gradient(ellipse 55% 40% at 4% 96%, rgb(146 74 30 / 0.42), transparent 72%),
+      radial-gradient(ellipse 34% 46% at 98% 14%, rgb(122 58 24 / 0.32), transparent 74%),
+      radial-gradient(ellipse 40% 30% at 62% 70%, rgb(140 68 26 / 0.18), transparent 70%),
+      linear-gradient(152deg, rgb(28 22 30 / 0.94), rgb(17 14 20 / 0.96) 55%, rgb(10 9 13 / 0.97)),
+      radial-gradient(ellipse at 14% 0%, rgb(255 140 26 / 0.09), transparent 60%);
+    background-color: rgb(15 13 19);
+  }
+
+  /** The heading's rule in the same ink as `.ink-frame-tangerine`. */
+  .ink-rule-tangerine {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='4'%3E%3Cpath d='M0 2.2 C 40 1.6, 80 2.8, 120 2.2 S 200 1.7, 240 2.7 S 280 2, 300 2.2' fill='none' stroke='%23ff8c1a' stroke-opacity='0.65' stroke-width='1.4' stroke-linecap='round'/%3E%3C/svg%3E");
   }
 
   /**

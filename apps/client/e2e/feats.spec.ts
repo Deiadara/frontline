@@ -350,7 +350,8 @@ for (const [tag, width, height] of [
       levelUp: {
         level: 24,
         levelsGained: 2,
-        grants: { recruitSlots: 25 },
+        // Level 24's officer slots: one at the Bar's 5, another every two levels since.
+        grants: { recruitSlots: 10 },
         unlocks: [{ id: 'research', name: 'Research', description: 'The Lab opens.', level: 24 }],
       },
     });

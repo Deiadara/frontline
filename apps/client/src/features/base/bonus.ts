@@ -1,20 +1,27 @@
 import {
   VEHICLES,
   RESOURCE_KEYS,
+  basePayrollCapacity,
   buildingProduction,
-  districtDefense,
-  gateIntelResistancePercent,
+  structureProductionRates,
+  casualtyRecoveryShare,
+  gateDefensePercent,
+  heldDefense,
   generatorTimeDiscount,
   infirmaryRecoveryPercent,
   payrollBonusPercent,
   unitSlotCapacity,
-  researchTimeReduction,
+  labResearchCostCut,
   storageCapacity,
   storageCapacityFor,
-  trainingSuppliesReduction,
-  trainingTimeReduction,
+  timeSavingPercent,
+  suppliesOnlyCut,
+  musterSpeedAfterTaper,
+  musterSuppliesReduction,
+  musterTimeReduction,
   type Building,
   type BuildingKind,
+  type CrewYield,
   type PartialResources,
 } from '@frontline/shared';
 
@@ -27,7 +34,7 @@ import {
  * to buy the level and go and look at the readouts underneath the district.
  *
  * Every figure comes from the same shared function the server settles with: `storageCapacity`,
- * `districtDefense`, `trainingTimeReduction` and the rest: evaluated against a district with this
+ * `gateDefensePercent`, `musterTimeReduction` and the rest: evaluated against a district with this
  * structure at the level in question. Nothing here has its own formula, and nothing here knows a constant the
  * game does not: a rebalance in `@frontline/shared` moves this line without anybody remembering to.
  */
@@ -60,6 +67,16 @@ export function districtWith(
 const round = (value: number): string => Math.round(value).toLocaleString();
 
 /** An hourly rate, to one decimal where the rate is small enough for one to matter. */
+/**
+ * What a structure makes an hour: its share of the settle's rates when the crew's yield is known,
+ * and the structure and its cards alone when it is not (a `/me` from before the field).
+ */
+function made(kind: BuildingKind, buildings: readonly Building[], crew?: CrewYield) {
+  return crew
+    ? structureProductionRates(kind, buildings, crew)
+    : buildingProduction(kind, buildings);
+}
+
 function perHour(rates: PartialResources): string {
   const parts = RESOURCE_KEYS.flatMap((key) => {
     const rate = rates[key] ?? 0;
@@ -84,25 +101,36 @@ const LINES: Record<
   (
     buildings: readonly Building[],
     level?: number,
-    /** §F2: what the crew's own Logistics adds, for the one line that has a ceiling in it. */
+    /** §F2: what the crew's own storage bonus (perks and the Lab) adds, for the one line that has a ceiling in it. */
     crewStoragePercent?: number,
+    /** The crew's half of the production rates (`/me`), for the three lines that make something. */
+    crewYield?: CrewYield,
   ) => StructureBonus
 > = {
-  nexus: (buildings) => ({
-    label: 'Authorises every other structure up to',
-    value: `Nexus ${buildings.find((b) => b.kind === 'nexus')?.level ?? 0}`,
-  }),
+  nexus: (buildings) => {
+    const level = buildings.find((b) => b.kind === 'nexus')?.level ?? 0;
+    // And the payroll book its levels add (maintainer, 2026-10-01), which was on no line: what
+    // `basePayrollCapacity` holds over the bare book, before the Quarters' and the cards' percent.
+    const payroll = basePayrollCapacity(level) - basePayrollCapacity(0);
+    return {
+      label: 'Authorises every other structure up to',
+      value: `Nexus ${level} · +${round(payroll)} caps payroll`,
+    };
+  },
   quarters: (buildings) => ({
     label: 'Unit slots for the district, and what the payroll book stretches to',
     value: `${round(unitSlotCapacity(buildings))} unit slots · +${round(payrollBonusPercent(buildings))}% payroll`,
   }),
-  greenhouse: (buildings) => ({
+  greenhouse: (buildings, _level, _storage, crew) => ({
     label: 'Grows, and off the supplies a recruit eats',
-    value: `${perHour(buildingProduction('greenhouse', buildings))} · -${round(trainingSuppliesReduction(buildings))}%`,
+    // As the bench takes it: `musterCost` tapers the Greenhouse and its cards toward 70% off the
+    // line (`suppliesLineCut`, maintainer 2026-10-01). Read with no cost cut beside it, which this
+    // dialog does not know; beside one, the Units chip prints the same or a fraction less.
+    value: `${perHour(made('greenhouse', buildings, crew))} · -${round(suppliesOnlyCut(0, musterSuppliesReduction(buildings)))}%`,
   }),
-  scrapyard: (buildings) => ({
+  scrapyard: (buildings, _level, _storage, crew) => ({
     label: 'Salvages',
-    value: perHour(buildingProduction('scrapyard', buildings)),
+    value: perHour(made('scrapyard', buildings, crew)),
   }),
   /*
    * §B11: the Garage gives nothing passively, so its line is about what its level *opens*.
@@ -129,10 +157,10 @@ const LINES: Record<
    * against an Apothecary 5 read 2,162 here and watched the standing bar cap at 721.
    */
   apothecary: (buildings, _level, crewStoragePercent = 0) => {
-    // ...and with the crew's own Logistics on it, which is what the settle fills the store to.
+    // ...and with the crew's own storage bonus on it, which is what the settle fills the store to.
     const bulk = storageCapacity(buildings, crewStoragePercent);
     return {
-      label: 'Holds of scrap or planks · oil or supplies · HQ metal',
+      label: 'Holds of each: scrap and planks · oil and supplies · HQ metal',
       value: [
         bulk,
         storageCapacityFor(buildings, 'oil', bulk),
@@ -150,27 +178,38 @@ const LINES: Record<
    * plot that refines fuel was told about somebody else's build queue and nothing about the fuel.
    * Same shape as the Greenhouse above: what it makes, then what it takes off a clock.
    */
-  generator: (buildings) => ({
-    label: 'Refines, and off every other structure’s build clock',
+  generator: (buildings, _level, _storage, crew) => ({
+    // Points that join the cards' and the crew's own on one sum (2026-10-01), so the line says so.
+    label: 'Refines, and off every other structure’s build clock, added to your crew’s',
     // The discount is quoted against a structure that is not the Generator: it never discounts its
     // own next level.
-    value: `${perHour(buildingProduction('generator', buildings))} · ${round(generatorTimeDiscount('quarters', buildings))}%`,
+    value: `${perHour(made('generator', buildings, crew))} · ${round(generatorTimeDiscount('quarters', buildings))}%`,
   }),
   gate: (buildings) => ({
     label: 'A raider has to beat, and a spy has to see past',
-    value: `${round(districtDefense(buildings))} defence · ${round(gateIntelResistancePercent(buildings))}% cover`,
+    // What the fight reads: `gateDefensePercent` through the held-ground curve. `districtDefense` is
+    // only asked whether a Gate stands (wiring audit, 2026-10-01). Its points against spies are not
+    // printed: spy strength is not public (maintainer, 2026-10-01).
+    value: `+${round(heldDefense(gateDefensePercent(buildings)))}% defence`,
   }),
+  // The Lab's level cuts the price and opens a tier every two levels; its cards still cut the
+  // clock (maintainer ruling P7-C, 2026-10-02).
   lab: (buildings) => ({
-    label: 'Off every research clock',
-    value: `${round(researchTimeReduction(buildings))}%`,
+    label: 'Off every research price, and a tier of programmes every two levels',
+    // A tenth, because it moves in halves: a Lab at 1 is 1.5%, not 2.
+    value: `${Math.round(labResearchCostCut(buildings) * 10) / 10}%`,
   }),
   gauntlet: (buildings) => ({
-    label: 'Off every unit’s training clock',
-    value: `${round(trainingTimeReduction(buildings))}%`,
+    label: 'Off every unit’s muster clock',
+    // The Gauntlet's figure is a speed, which `musterSecondsFor` tapers and divides the clock by, so
+    // 40 of it is 29% off the clock (bug pass and taper, 2026-10-01).
+    value: `${timeSavingPercent(musterSpeedAfterTaper(musterTimeReduction(buildings)))}%`,
   }),
   infirmary: (buildings) => ({
     label: 'Of the fallen back on their feet after a win',
-    value: `${round(infirmaryRecoveryPercent(buildings))}%`,
+    // Its four a level are medic points, and the share they walk home is the curve's (wiring audit,
+    // 2026-10-01): a level 10 Infirmary is 40 points and 28%.
+    value: `${round(casualtyRecoveryShare(infirmaryRecoveryPercent(buildings)))}%`,
   }),
 };
 
@@ -181,6 +220,8 @@ export function structureBonus(
   level: number,
   /** §F2: the crew's storage channel, which the Apothecary's ceiling is filled to. */
   crewStoragePercent = 0,
+  /** The crew's half of the production rates, off `/me`. */
+  crewYield?: CrewYield,
 ): StructureBonus {
-  return LINES[kind](districtWith(buildings, kind, level), level, crewStoragePercent);
+  return LINES[kind](districtWith(buildings, kind, level), level, crewStoragePercent, crewYield);
 }

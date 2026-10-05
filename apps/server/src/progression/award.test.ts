@@ -1,4 +1,6 @@
 import {
+  makeAttributes,
+  createCommander,
   PLAYER_XP_AWARDS,
   STARTING_RESOURCES,
   playerXpToNextLevel,
@@ -14,7 +16,14 @@ import {
 import { afterEach, describe, expect, it } from 'vitest';
 import { openDatabase, runMigrations, type AppDatabase } from '../db/index.js';
 import { createRepositories, type Repositories } from '../db/repos/index.js';
-import { awardPlayerXp, levelUpFrom, mergeLevelUps, takeLevelUp } from './award.js';
+import {
+  awardPlayerXp,
+  levelUpFrom,
+  mergeLevelUps,
+  missionXpBonusPercent,
+  professorXpPercent,
+  takeLevelUp,
+} from './award.js';
 
 const NOW = '2026-08-13T09:30:00.000Z';
 const open: AppDatabase[] = [];
@@ -51,7 +60,7 @@ function seedBase(db: AppDatabase, repos: Repositories, level: number): Base {
     buildings: [],
     buildQueue: [],
     army: {},
-    trainingQueue: [],
+    musterQueue: [],
     training: startingTraining('2026-08-16T00:00:00.000Z'),
     inventory: {},
     fittedUpgrades: [],
@@ -88,12 +97,12 @@ describe('awardPlayerXp: the single XP write path (INTERFACES R7)', () => {
     awardPlayerXp(repos, base, 'raidWon'); // 80
     const reread = repos.bases.findById('base-1');
     expect(reread).toBeDefined();
-    const { award } = awardPlayerXp(repos, reread as Base, 'questCompleted'); // +200 => 280, clears 158
+    const { award } = awardPlayerXp(repos, reread as Base, 'questCompleted'); // +200 => 280, clears 138
 
     expect(award).toMatchObject({ level: 3, levelsGained: 1 });
     expect(repos.bases.findById('base-1')).toMatchObject({
       level: 3,
-      progression: { xpIntoLevel: 122 },
+      progression: { xpIntoLevel: 142 },
     });
   });
 
@@ -107,8 +116,8 @@ describe('awardPlayerXp: the single XP write path (INTERFACES R7)', () => {
     const { award } = awardPlayerXp(repos, at3, 'missionCompleted');
 
     expect(award.level).toBe(4);
-    // Level 4 is where §G3's per-officer cap turns over from 1 to 2.
-    expect(award.grants).toEqual({ recruitSlots: 5 });
+    // Level 4 is still short of the Bar, so there is no officer slot yet: the first comes at 5.
+    expect(award.grants).toEqual({ recruitSlots: 0 });
     // Level 4 opens nothing: the level doors are at 3, 5, 5, 10 and 15 (`AREA_REQUIREMENTS`,
     // re-cut 2026-09-19). Pinned as empty rather than left unasserted: an award that announced a
     // door it had not opened is the bug this field makes possible, and it would look exactly like
@@ -120,7 +129,7 @@ describe('awardPlayerXp: the single XP write path (INTERFACES R7)', () => {
     const { db, repos } = makeRepos();
     // 140 of the 158 needed to clear level 2; one mission (120) carries it into level 3, which is
     // where Drills opens. Re-recorded 2026-09-19: the Archive used to be the level-3 door and is
-    // now opened by hiring a Head of Research, so no level announces it at all.
+    // now opened by hiring a Researcher, so no level announces it at all.
     const base = seedBase(db, repos, 2);
     repos.bases.updateProgression(base.id, 2, { xpIntoLevel: 140 });
     const at2 = repos.bases.findById('base-1') as Base;
@@ -130,7 +139,7 @@ describe('awardPlayerXp: the single XP write path (INTERFACES R7)', () => {
     expect(award.level).toBe(3);
     expect(award.unlocks.map((unlock) => unlock.id)).toEqual(['training']);
     // With its copy, because a locked door has to be able to say what is behind it.
-    expect(award.unlocks[0]?.name).toBe('Drills');
+    expect(award.unlocks[0]?.name).toBe('Training');
     expect(award.unlocks[0]?.description).toBeTruthy();
   });
 
@@ -159,6 +168,45 @@ describe('awardPlayerXp: the single XP write path (INTERFACES R7)', () => {
     }
     expect(base.level).toBeGreaterThan(1);
   });
+});
+
+/*
+ * The officer slots a level-up announces are the level's (maintainer, 2026-10-01: "Remove the +1
+ * at the bar mechanic"). The two rungs that used to add a slot pay a universal bonus now, so a crew
+ * holding both is told exactly what a crew with an empty Lab is told.
+ */
+describe('awardPlayerXp: officer slots are the level alone', () => {
+  const FORMER_SLOT_RUNGS = ['tech_the_growth_curve', 'tech_succession_planning'];
+
+  /** The award that carries a crew from `from` to `from + 1`, with these rungs done. */
+  function levelUpAt(from: number, technologies: readonly string[]) {
+    const { db, repos } = makeRepos();
+    const seeded = seedBase(db, repos, from);
+    const base: Base = {
+      ...seeded,
+      research: { ...seeded.research, technologies: [...technologies] },
+    };
+    repos.bases.updateResearch(base.id, base.research);
+    return awardPlayerXp(repos, base, 'missionCompleted', 0, playerXpToNextLevel(from)).award;
+  }
+  const slotEntries = (unlocks: readonly PlayerLevelUnlock[]) =>
+    unlocks.filter((unlock) => unlock.id.startsWith('officer_slot_'));
+
+  it.each([[[] as string[]], [FORMER_SLOT_RUNGS]])(
+    'announces the level slot as it stands, with %j finished',
+    (technologies) => {
+      // The thirteenth and last slot, at 29 since the chair rework (2026-10-04).
+      const award = levelUpAt(28, technologies);
+      expect(award.level).toBe(29);
+      expect(award.grants).toEqual({ recruitSlots: 13 });
+      expect(slotEntries(award.unlocks)).toMatchObject([
+        {
+          id: 'officer_slot_13',
+          description: 'Room for 13 officers, one for every chair. That is the last of them.',
+        },
+      ]);
+    },
+  );
 });
 
 /**
@@ -314,7 +362,7 @@ describe('the level-up nobody announced', () => {
     const { db, repos } = makeRepos();
     const base = seedBase(db, repos, 1);
     repos.bases.updateProgression(base.id, 1, { xpIntoLevel: 0 });
-    awardPlayerXp(repos, repos.bases.findById(base.id)!, 'unitTrained', 0, 1);
+    awardPlayerXp(repos, repos.bases.findById(base.id)!, 'unitMustered', 0, 1);
     expect(repos.bases.pendingLevelUp(base.id)).toBeUndefined();
   });
 
@@ -332,5 +380,35 @@ describe('the level-up nobody announced', () => {
     expect(mergeLevelUps(undefined, second)).toEqual(second);
     expect(mergeLevelUps(first, undefined)).toEqual(first);
     expect(mergeLevelUps(undefined, undefined)).toBeUndefined();
+  });
+});
+
+/**
+ * The Professor's passive (maintainer, 2026-10-04): more experience from missions, and from nothing
+ * else. Every other award goes through `awardPlayerXp` without it.
+ */
+describe("the Professor's share of a mission's experience", () => {
+  const withProfessor = (repos: Repositories, base: Base): Base => {
+    repos.bases.updateCommanders(base.id, [
+      createCommander('prof', 'Prof', 'professor', makeAttributes(100)),
+    ]);
+    return repos.bases.findById(base.id)!;
+  };
+
+  it('adds up to half to a mission, and nothing to a raid', () => {
+    const plain = makeRepos();
+    const plainBase = seedBase(plain.db, plain.repos, 2);
+    const taught = makeRepos();
+    const taughtBase = withProfessor(taught.repos, seedBase(taught.db, taught.repos, 2));
+
+    expect(professorXpPercent(plain.repos, plainBase)).toBe(0);
+    expect(professorXpPercent(taught.repos, taughtBase)).toBe(50);
+    expect(missionXpBonusPercent(taught.repos, taughtBase)).toBe(
+      missionXpBonusPercent(plain.repos, plainBase) + 50,
+    );
+
+    const raid = (repos: Repositories, base: Base) =>
+      awardPlayerXp(repos, base, 'raidWon').award.xpGained;
+    expect(raid(taught.repos, taughtBase)).toBe(raid(plain.repos, plainBase));
   });
 });

@@ -77,7 +77,7 @@ beforeEach(() => {
     if (String(path).endsWith('/me')) return reply(F.me);
     throw new Error(`unstubbed request: ${String(path)}`);
   });
-  useSession.setState({ token: 'session-token', user: null });
+  useSession.setState({ signedIn: true, user: null });
 });
 
 afterEach(() => vi.unstubAllGlobals());
@@ -93,8 +93,8 @@ describe('sorting the players board', () => {
   it('redraws the table by level when Level is picked', async () => {
     await renderBoard();
     await sortBy(/^Level/);
-    await waitFor(() => expect(rows()[0]).toBe('Vex_Combine'));
-    expect(rows()).toEqual(['Vex_Combine', 'Marrow', 'Ash_Wren', 'Sable_Ninth', 'Nikos']);
+    await waitFor(() => expect(rows()[0]).toBe('Vex_Holdings'));
+    expect(rows()).toEqual(['Vex_Holdings', 'Marrow', 'Ash_Wren', 'Sable_Ninth', 'Nikos']);
   });
 
   /**
@@ -136,9 +136,9 @@ describe('sorting the players board', () => {
   it('leaves the rank column saying where each crew sits on the board', async () => {
     await renderBoard();
     await sortBy(/^Level/);
-    await waitFor(() => expect(rows()[0]).toBe('Vex_Combine'));
+    await waitFor(() => expect(rows()[0]).toBe('Vex_Holdings'));
     // Vex is second on the board and first in the table: the sort reorders, it does not re-rank.
-    expect(screen.getByTestId('standing-Vex_Combine')).toHaveTextContent('2');
+    expect(screen.getByTestId('standing-Vex_Holdings')).toHaveTextContent('2');
   });
 });
 
@@ -304,7 +304,7 @@ describe('the shape of the board', () => {
 
   it('strikes the top three of the board as places', async () => {
     await renderBoard();
-    expect(podium()).toEqual(['Sable_Ninth', 'Vex_Combine', 'Nikos']);
+    expect(podium()).toEqual(['Sable_Ninth', 'Vex_Holdings', 'Nikos']);
     expect(screen.getByTestId('podium-Sable_Ninth')).toHaveAttribute('data-place', '1');
   });
 
@@ -315,8 +315,26 @@ describe('the shape of the board', () => {
   it('keeps the podium on the board as ranked when the table is re-sorted', async () => {
     await renderBoard();
     await sortBy(/^Level/);
-    await waitFor(() => expect(rows()[0]).toBe('Vex_Combine'));
+    await waitFor(() => expect(rows()[0]).toBe('Vex_Holdings'));
     expect(podium()[0]).toBe('Sable_Ninth');
+  });
+
+  // Under "Total infamy" the podium ranks by the total it prints, so first never shows less than
+  // third (maintainer, 2026-10-02).
+  it('ranks the podium by total when the board is sorted by total', async () => {
+    await renderBoard();
+    await sortBy(/^Total infamy/);
+    const board = F.leaderboardPlayers.board === 'players' ? F.leaderboardPlayers.entries : [];
+    const byTotal = [...board]
+      .sort(
+        (a, b) =>
+          b.totalInfamy - a.totalInfamy ||
+          b.level - a.level ||
+          a.username.localeCompare(b.username),
+      )
+      .slice(0, 3)
+      .map((entry) => entry.displayName ?? entry.username);
+    await waitFor(() => expect(podium()).toEqual(byTotal));
   });
 
   it('draws no podium for a board too short to have a top three', async () => {

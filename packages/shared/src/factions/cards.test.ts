@@ -1,3 +1,4 @@
+import type { FactionCard } from './factions.js';
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_ATTRIBUTES, type Attributes } from '../attributes.js';
 import { OFFICER_MARKS } from '../crew/marks.js';
@@ -23,11 +24,18 @@ import { FACTION_CARDS } from './factions.js';
  * a letter. Both are pinned against hand-worked cases.
  */
 
-const seat = (username: string, rank: 'leader' | 'chief' | 'member', armySize: number) => ({
+/** `joined` is a day of September: the smaller, the earlier they sat down. */
+const seat = (
+  username: string,
+  rank: 'leader' | 'chief' | 'member',
+  joined: number,
+  card: FactionCard | null = null,
+) => ({
   userId: `u-${username}`,
   username,
   rank,
-  armySize,
+  joinedAt: `2026-09-${String(joined).padStart(2, '0')}T12:00:00.000Z`,
+  seat: card,
 });
 
 const sheet = (overrides: Partial<Attributes>): Attributes => ({
@@ -43,24 +51,51 @@ describe('dealing the cards', () => {
     expect(SEAT_SLOT_ORDER[0]).toBe(2);
   });
 
-  it('deals by rank, then by who fields the most, then by name', () => {
+  it('deals the unseated by rank, then by who sat down first, then by name', () => {
     const dealt = dealCards([
-      seat('Marrow', 'member', 30),
-      seat('Zed', 'member', 30),
-      seat('Sable', 'chief', 10),
+      seat('Marrow', 'member', 3),
+      seat('Zed', 'member', 3),
+      seat('Sable', 'chief', 20),
       seat('Nikos', 'leader', 1),
-      seat('Abel', 'member', 30),
+      seat('Abel', 'member', 3),
     ]);
     expect(dealt.get('u-Nikos')).toBe('ace_spades');
     expect(dealt.get('u-Sable')).toBe('king_diamonds');
-    // The three members tie on units and fall back to the name: Abel, Marrow, Zed.
+    // The three members sat down the same day and fall back to the name: Abel, Marrow, Zed.
     expect(dealt.get('u-Abel')).toBe('queen_hearts');
     expect(dealt.get('u-Marrow')).toBe('joker');
     expect(dealt.get('u-Zed')).toBe('jack_clubs');
   });
 
+  /**
+   * The leader assigns the seats (maintainer ruling P3-C, 2026-10-02). Cards were dealt by the
+   * army at home, so a member who marched out to a table-mate's fight lost theirs mid-fight.
+   */
+  it('keeps the seats the leader set and deals what is left to the rest', () => {
+    const dealt = dealCards([
+      seat('Nikos', 'leader', 1, 'joker'),
+      seat('Sable', 'chief', 2),
+      seat('Abel', 'member', 3, 'ace_spades'),
+      seat('Marrow', 'member', 4),
+    ]);
+    expect(dealt.get('u-Nikos')).toBe('joker');
+    expect(dealt.get('u-Abel')).toBe('ace_spades');
+    // The rest of the row in its usual order, the middle first: king, then queen.
+    expect(dealt.get('u-Sable')).toBe('king_diamonds');
+    expect(dealt.get('u-Marrow')).toBe('queen_hearts');
+  });
+
+  it('gives a card two rows name to the higher seat and deals the other one a free card', () => {
+    const dealt = dealCards([
+      seat('Nikos', 'leader', 1, 'joker'),
+      seat('Abel', 'member', 3, 'joker'),
+    ]);
+    expect(dealt.get('u-Nikos')).toBe('joker');
+    expect(dealt.get('u-Abel')).toBe('ace_spades');
+  });
+
   it('deals nothing to a sixth chair', () => {
-    const six = Array.from({ length: 6 }, (_, at) => seat(`P${at}`, 'member', 10 - at));
+    const six = Array.from({ length: 6 }, (_, at) => seat(`P${at}`, 'member', at + 1));
     const dealt = dealCards(six);
     expect(dealt.size).toBe(5);
     expect(dealt.has('u-P5')).toBe(false);
@@ -68,9 +103,9 @@ describe('dealing the cards', () => {
 
   it('orders the table the way the roster reads', () => {
     const order = seatOrder([
-      seat('Marrow', 'member', 90),
+      seat('Marrow', 'member', 1),
       seat('Sable', 'chief', 10),
-      seat('Nikos', 'leader', 1),
+      seat('Nikos', 'leader', 20),
     ]).map((entry) => entry.username);
     expect(order).toEqual(['Nikos', 'Sable', 'Marrow']);
   });

@@ -81,7 +81,7 @@ describe('the receipt for a fight the leader did not walk away from', () => {
 
     const base = app.repos.bases.findById(baseId)!;
     app.repos.bases.updateEconomy(baseId, { ...base.economy, infamy: DECLARE_INFAMY_COST * 4 });
-    app.repos.bases.updateArmy(baseId, { razors: 8 }, base.trainingQueue);
+    app.repos.bases.updateArmy(baseId, { razors: 8 }, base.musterQueue);
     app.repos.bases.updateCommanders(baseId, [
       createCommander(OFFICER_ID, 'Vasco Renn', 'field_commander'),
     ]);

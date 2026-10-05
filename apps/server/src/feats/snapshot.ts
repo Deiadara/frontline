@@ -19,8 +19,12 @@ import {
   type Commander,
   type FeatSnapshot,
 } from '@frontline/shared';
-import { officerFitReader, type OfficerFitReader } from '../crew/standing.js';
+import { ledgerFor } from '../bar/hire.js';
+import { mergeArmies } from '../battle/forces.js';
+import { crewEffectsFor, officerFitReader, type OfficerFitReader } from '../crew/standing.js';
 import { districtsHeldWhole } from '../city/gates.js';
+import { unitsAbroad } from '../district/unit-slots.js';
+import { garrisonedUnits } from '../units/roster.js';
 import type { Repositories } from '../db/repos/index.js';
 
 /**
@@ -125,14 +129,26 @@ export function featSnapshot(repos: Repositories, base: Base): FeatSnapshot {
   put('masterpieces_fitted', cards.filter((spec) => spec.rarity === 'masterpiece').length);
 
   // --- the roster ---
-  const army = base.army;
+  // The gate is the district's own door, and the units card and the beds count it as home: a crew
+  // that stood its army there to defend used to fall back down all three ladders.
+  const army = mergeArmies(base.army, base.gateArmy ?? {});
   const counts = Object.values(army).filter((count): count is number => (count ?? 0) > 0);
   put(
     'army_units',
     counts.reduce((total, count) => total + count, 0),
   );
-  put('army_unit_slots', unitSlotsUsed(army));
-  put('unit_kinds_held', counts.length);
+  /*
+   * The slot ladder and "kinds held" count every unit on the books (maintainer ruling P2-A,
+   * 2026-10-02): garrisons on held ground, columns on the road, crews out on missions and Sleepers
+   * planted abroad, the same fold the beds count (`districtUnitSlots`). "Twenty at Home" is about
+   * standing in the district and keeps reading home and gate alone.
+   */
+  const owned = mergeArmies(
+    mergeArmies(army, garrisonedUnits(repos, base)),
+    unitsAbroad(repos, base),
+  );
+  put('army_unit_slots', unitSlotsUsed(owned));
+  put('unit_kinds_held', Object.values(owned).filter((count) => (count ?? 0) > 0).length);
   put(
     'fleet_size',
     Object.values(base.fleet).reduce((total, count) => total + (count ?? 0), 0),
@@ -140,6 +156,8 @@ export function featSnapshot(repos: Repositories, base: Base): FeatSnapshot {
 
   // --- the officers ---
   put('officers_held', base.commanders.length);
+  // The book as the Bar reads it, the Fixer's share included (2026-10-04).
+  put('payroll_capacity', ledgerFor(base, crewEffectsFor(repos, base)).capacity);
   /*
    * The best mark on the books, as an index on the ladder rather than a letter.
    *
@@ -185,7 +203,8 @@ export function featSnapshot(repos: Repositories, base: Base): FeatSnapshot {
    * a crew gets its foothold abroad by marching across and taking ground, not by moving house, so
    * there is no moment at which anybody would remember to write a city onto the crew row.
    *
-   * `cities_held` counts home in, and is not the same question as "is anything abroad": a crew
+   * `cities_held` counts the cities with a held location in them, home only when something there
+   * is held, and is not the same question as "is anything abroad": a crew
    * that holds one Terminus platform and nothing in Ashfall is abroad and is in one city.
    */
   const homeCity = cityOf(base.districtId);
@@ -197,6 +216,11 @@ export function featSnapshot(repos: Repositories, base: Base): FeatSnapshot {
   // The railway, which is one location kind and therefore one filter (`city/rails.ts`). A rival
   // does not have to break your city to break your line, only to take one platform.
   put('rail_stations_held', heldPlaces.filter((one) => one.kind === 'rail_station').length);
+  // P8-C: the best-worked holding. Held ground starts at level 1, so nothing held reads 0.
+  put(
+    'location_level_held',
+    heldPlaces.reduce((best, one) => Math.max(best, controls.get(one.id)?.level ?? 0), 0),
+  );
   const heldWhole = districtsHeldWhole(repos, base.id);
   put('districts_held_whole', heldWhole.length);
   put(
@@ -228,7 +252,8 @@ export function featSnapshot(repos: Repositories, base: Base): FeatSnapshot {
   // --- the table ---
   const membership = repos.factions.membershipOf(base.ownerId);
   const faction = membership ? repos.factions.find(membership.factionId) : undefined;
-  put('faction_infamy', faction?.infamyEarned ?? 0);
+  // The member's own share, "Earned here" (P3-D, 2026-10-02), not the table's lifetime total.
+  put('faction_infamy', membership?.infamyEarned ?? 0);
   put('faction_seats', faction ? repos.factions.members(faction.id).length : 0);
 
   // --- the inventory and the stockpile ---

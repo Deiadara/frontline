@@ -27,7 +27,7 @@ export const WAGE_FREE_RATING = 18;
 export const WAGE_RATING_PER_CAP = 2;
 
 /**
- * §F2: what Authority and Negotiation talk off an opening number.
+ * §F2: what the crew's wage discount (perks and the Lab's rungs) talks off an opening number.
  *
  * It used to come off a weekly bill that no longer exists, so it comes off the *asking price* now,
  * which is the better place for it anyway: people take less to work under somebody worth working
@@ -58,12 +58,12 @@ function ratingAboveAverage(attributes: Attributes): number {
  * tags are visibly different hires, and a mid sheet carrying something that pays everywhere asks
  * more than a slightly better sheet carrying something that pays on one unit, which is the trade.
  *
- * Sized against the **payroll book**, which is the ceiling that matters: `basePayrollCapacity` runs
- * from 225 at the start to 2230 at the end (a Nexus at 20 with `PAYROLL_STEPS_MAX` bought). This
- * read "about 1300" until 2026-09-20, which was the ceiling before the steps were extended. At twelve, an officer carrying two of the best
- * tags asked 1448 a week, more than a finished crew's entire book for one person, and the Bar
- * started refusing hires it had just offered. With `MAX_PERK_WORTH` capping a single tag, the
- * dearest two-tag hire in the game now lands under 900: expensive, and holdable.
+ * Sized against the **payroll book**, which is the ceiling that matters. When this was set the book
+ * topped out at 2,230 and an officer carrying two of the best tags asked 1,448 a week at twelve a
+ * point, more than a finished crew's entire book for one person. With `MAX_PERK_WORTH` capping a
+ * single tag, the dearest two-tag hire in the game lands under 900. The book no longer tops out
+ * (maintainer, 2026-09-30: expansions are always for sale), and at about 10,800 for a crew with a
+ * finished Quarters and twenty eight expansions that is ten such chairs.
  */
 export const CAPS_PER_PERK_POINT = 8;
 
@@ -109,7 +109,7 @@ export function reservationWage(asking: number): number {
  *
  * The auction compares, reports and remembers the price everybody at the table could see. What the
  * winner's own negotiators do is talk that number down **after** it is won, so the crew's Union
- * Rep, its Authority and its Negotiation come off the book entry and off nothing anybody bid
+ * Rep and its Lab rungs come off the book entry and off nothing anybody bid
  * against. Everything shared stays shared: the result row, the notification, the results panel and
  * every leaderboard read the price, and only this crew's ledger and their officer's `weeklyWage`
  * carry the figure below it.
@@ -117,9 +117,11 @@ export function reservationWage(asking: number): number {
  * Capped at `MAX_WAGE_DISCOUNT`, like the asking price (bug pass, 2026-09-23).
  *
  * The note here used to say the opposite, that the ceiling "belongs to the asking price" and the
- * floor here is one cap. It was reachable: Authority, Negotiation and Empathy at eighty are 60
- * points on their own, the seven research rungs add 41 and `sig_paymaster` another 18, so a
- * late crew reaches 119 and every officer it signs costs **one cap a week**. The payroll ceiling
+ * floor here is one cap. It was reachable: Authority, Negotiation and Empathy at eighty were 60
+ * points on their own, the seven research rungs of the day added 41 and `sig_paymaster` another
+ * 18, so a late crew reached 119 and every officer it signed cost **one cap a week**. Skills
+ * stopped paying the channel on 2026-10-04, and the six wage rungs (37) with the four wage perks
+ * (33) still clear the ceiling. The payroll ceiling
  * is the only thing limiting how many people a crew can have on the books, and at a wage of one
  * it stops binding entirely, which takes the cost out of the whole Bar.
  *

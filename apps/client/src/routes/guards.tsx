@@ -8,15 +8,15 @@ import { useSession } from '../store/session';
 
 /** Gate that requires an authenticated session. */
 export function RequireAuth({ children }: { children: ReactNode }) {
-  const token = useSession((s) => s.token);
-  if (token === null) return <Navigate to="/auth" replace />;
+  const signedIn = useSession((s) => s.signedIn);
+  if (!signedIn) return <Navigate to="/auth" replace />;
   return <>{children}</>;
 }
 
 /** Gate for public-only routes (auth): bounce authenticated users into the game. */
 export function RequireGuest({ children }: { children: ReactNode }) {
-  const token = useSession((s) => s.token);
-  if (token !== null) return <Navigate to="/game" replace />;
+  const signedIn = useSession((s) => s.signedIn);
+  if (signedIn) return <Navigate to="/game" replace />;
   return <>{children}</>;
 }
 
@@ -55,7 +55,7 @@ export function RequireNoOverseer({ children }: { children: ReactNode }) {
  * hire can still call `POST /api/market/offers` by hand and it will work. That is a gap rather
  * than a design, and it is a real one for the doors that gate a system rather than a screen. It is
  * tolerable only because every one of these areas enforces its own rules anyway: the Lab already
- * refuses to work without a Head of Research, and the Scrapyard already refuses to build without a
+ * refuses to work without a Researcher, and the Scrapyard already refuses to build without a
  * Scrapyard. What a player skipping the gate gets is a screen, not a capability.
  */
 export function RequireUnlock({ area, children }: { area: GatedArea; children: ReactNode }) {

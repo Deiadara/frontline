@@ -12,6 +12,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { buildApp } from '../app.js';
 import { loadConfig } from '../config.js';
 import { openDatabase, runMigrations, type AppDatabase } from '../db/index.js';
+import { SESSION_COOKIE } from '../auth/session.js';
 import { liveHub } from './hub.js';
 import { MAX_STREAMS_PER_ADDRESS } from './routes.js';
 import { chooseOverseer } from '../testing/overseer.js';
@@ -131,6 +132,21 @@ describe('the live channel over the wire', () => {
     // The header that decides whether this works behind nginx at all.
     expect(res.headers.get('x-accel-buffering')).toBe('no');
 
+    const [ready] = await readFrames(res.body!, 1);
+    expect(ready).toContain('event: ready');
+    controller.abort();
+  });
+
+  /** How the browser opens it (security pass, 2026-09-30): the session cookie and no header. */
+  it('opens on the session cookie alone', async () => {
+    const stack = await makeStack('cookied');
+    const controller = new AbortController();
+    const res = await fetch(`${stack.url}/events`, {
+      headers: { cookie: `${SESSION_COOKIE}=${stack.token}` },
+      signal: controller.signal,
+    });
+
+    expect(res.status).toBe(200);
     const [ready] = await readFrames(res.body!, 1);
     expect(ready).toContain('event: ready');
     controller.abort();

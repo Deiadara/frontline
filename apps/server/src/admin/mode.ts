@@ -12,7 +12,8 @@ import type { PartialResources } from '@frontline/shared';
  * Two rules make it a testing mode rather than a cheat:
  *
  * - **The interface still shows the real numbers.** A build still reads "4h 20m · 1,200 scrap", and
- *   the admin badge on the HUD is what explains why it finished in five seconds and cost nothing.
+ *   the Console's own badge and note are what explain why it finished in five seconds and cost
+ *   nothing. The standing bar carries no plate for it (maintainer, 2026-09-30).
  *   A mode that also rewrote the prices would be a different game, and a reviewer judging the
  *   economy would be judging a screen the players never see.
  * - **Refusals still refuse.** Free is not the same as unconditional: a structure the Nexus does not
@@ -21,8 +22,8 @@ import type { PartialResources } from '@frontline/shared';
  *   that cost a reviewer an afternoon rather than telling them something.
  *
  * It is **on by default** (`ADMIN=false` turns it off) because the maintainer asked for the testing build
- * to be the one you get by running the thing. The badge in the HUD is not decoration: an unmarked
- * free-and-instant build would be indistinguishable from a broken economy.
+ * to be the one you get by running the thing. The Console says so on its own page (`AdminPage`), so
+ * a reviewer who wonders why a build was free has one place to look.
  */
 
 /** What everything costs in time while admin mode is on. The board's number. */
@@ -70,6 +71,15 @@ export function adminCost(cost: PartialResources, admin: boolean): PartialResour
  */
 export function adminCaps(caps: number, admin: boolean): number {
   return admin ? 0 : caps;
+}
+
+/**
+ * The same, for a price in infamy (maintainer, 2026-10-02: admin mode waives everything it says it
+ * waives). Boosts, ranks, calling a fight and the back room all charged real infamy, and refused at
+ * zero, under a console that said nothing is charged.
+ */
+export function adminInfamy(infamy: number, admin: boolean): number {
+  return admin ? 0 : infamy;
 }
 
 /**

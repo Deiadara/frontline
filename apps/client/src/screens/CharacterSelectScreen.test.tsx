@@ -305,7 +305,7 @@ describe('choosing a city', () => {
     const full = screen.getByTestId(`city-card-${TERMINUS_CITY_ID}`);
     expect(full).toHaveAttribute('aria-disabled', 'true');
     expect(screen.getByTestId(`city-status-${TERMINUS_CITY_ID}`)).toHaveTextContent(
-      'Full: four crews already live here',
+      'Full: 4 crews already live here',
     );
 
     const unbuilt = CITIES_OFFERED.find((offer) => offer.refusal === 'unbuilt')!;

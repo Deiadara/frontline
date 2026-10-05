@@ -1,40 +1,34 @@
 import { applyPerkBonus, discounted, noCrewEffects, type CrewEffects } from '../crew/effects.js';
+import { chairPassivePercent } from '../crew/passives.js';
 import type { LeaderBonus } from '../crew/leading.js';
 import { describePerkBonus, type PerkBonus } from '../crew/perks.js';
-import {
-  OFFICER_MARKS,
-  OFFICER_MARK_CEILING,
-  OFFICER_MARK_FLOOR,
-  markAtLeast,
-  markIndex,
-  type OfficerMark,
-} from '../crew/marks.js';
+import { OFFICER_MARKS, markAtLeast, markIndex, type OfficerMark } from '../crew/marks.js';
 import { OFFICER_ROLES, OFFICER_ROLE_LABELS, type OfficerRole } from '../roles.js';
 import type { PartialResources } from '../resources.js';
 import { ATTRIBUTE_LABELS, type AttributeName } from '../attributes.js';
 
 /**
- * Research, as eighteen tracks (maintainer brief 2026-09-03, §C).
+ * Research, as thirteen tracks (maintainer brief 2026-09-03, §C).
  *
  * One track per officer role, ten rungs each. A track is that officer's trade written down: what
- * the Cartographer knows about crossing the city, what the Chief Medic knows about who comes back.
- * The Lab used to hold a flat tree of fifteen programmes on five themes nobody was attached to;
+ * the Cartographer knows about crossing the city, what the Veteran knows about turning a crowd
+ * into a fighting force. The Lab used to hold a flat tree of fifteen programmes on five themes nobody was attached to;
  * this is the same machinery pointed at the people the player actually hires.
  *
  * ## Three things gate a rung
  *
- * The **track's own officer** has to be in their chair, at a mark (§C1b, §C2a). The **Head of
- * Research** has to be in theirs for anything at all (§C1c), and past the third rung they have a
+ * The **track's own officer** has to be in their chair, at a mark (§C1b, §C2a). The
+ * **Researcher** has to be in theirs for anything at all (§C1c), and past the third rung they have a
  * mark of their own to clear (§C2e). And the rung below has to be finished, so a track is climbed
  * rather than cherry-picked.
  *
  * ## Marks gate, points pay
  *
  * A mark is a threshold and a label, and that is the whole of what it does here (§C3b). Every
- * number that actually moves is computed from the underlying score: the Head of Research's cuts the
- * clock ({@link researchTimeCutPercent}), the track officer's cuts the bill
- * ({@link trackCostCutPercent}). Train one attribute and the figures move the same afternoon; the
- * letter moves in a week, which is what makes it worth printing.
+ * number that actually moves is computed from the underlying score: the Researcher's cuts the
+ * clock ({@link researchTimeCutPercent}), and nobody cuts the bill but the Lab (2026-10-04). Train
+ * one attribute and the figures move the same afternoon; the letter moves in a week, which is what
+ * makes it worth printing.
  *
  * ## The curve
  *
@@ -68,7 +62,7 @@ export const TRACK_MARKS: readonly OfficerMark[] = [
 ];
 
 /**
- * What the Head of Research has to be, and from which rung (§C2e).
+ * What the Researcher has to be, and from which rung (§C2e).
  *
  * Three thresholds, taking effect after the 3rd, 5th and 7th item. Each sits one band above the
  * track requirement at the rung where it starts, so the Head is the binding gate on rungs 4, 6 and
@@ -89,7 +83,7 @@ export function requiredTrackMark(step: number): OfficerMark {
   return TRACK_MARKS[Math.min(TRACK_MARKS.length, Math.max(1, step)) - 1] as OfficerMark;
 }
 
-/** The mark the Head of Research needs for a rung, or `null` on the first three. */
+/** The mark the Researcher needs for a rung, or `null` on the first three. */
 export function requiredHeadMark(step: number): OfficerMark | null {
   let needed: OfficerMark | null = null;
   for (const threshold of HEAD_MARK_THRESHOLDS) {
@@ -103,8 +97,8 @@ export function requiredHeadMark(step: number): OfficerMark | null {
  *
  * Any bonus a perk or a piece of ground can pay ({@link PerkBonus}: every channel the crew fold
  * already reads, a tier or one unit's own stats, flat points on every officer in a group, a
- * resource an hour, syringes, training sessions), plus three grants no perk makes: another
- * crew out on a job at once, another chair at the Bar, another fight called at once. A rung is
+ * resource an hour, syringes, training sessions), plus the grants no perk makes: another
+ * crew out on a job at once, another fight called at once, another name on a fight. A rung is
  * folded into the same struct territory, crew attributes and the Garage all write into, so a
  * finished rung is wired into every consumer that already reads those effects with no new
  * parameter threaded anywhere. `unlocks` is set on the rungs that also open something the crew can
@@ -123,14 +117,12 @@ export type ResearchBonus =
   | PerkBonus
   /** Another crew out on a job at the same time (§E). */
   | { kind: 'mission_slots'; flat: number }
-  /** Another chair at the Bar: one more officer on the books. */
-  | { kind: 'recruit_slots'; flat: number }
   /** Another fight called and pending at once. */
   | { kind: 'declarations'; flat: number }
   /** §D7: another name a crew may burn on one fight. */
   | { kind: 'battle_boosts'; flat: number }
   /** Another bench on the training floor: one more person drilling at the same time. */
-  | { kind: 'training_benches'; flat: number }
+  | { kind: 'training_queue'; flat: number }
   /** Another spy job out at the same time (Two Sets of Eyes, maintainer 2026-09-28). */
   | { kind: 'spy_parties'; flat: number }
   /**
@@ -169,13 +161,14 @@ export type ResearchBonus =
  * channel on the crew fold.
  */
 export type ResearchPayout =
-  { bonus: ResearchBonus; unlocks?: string } | { bonus?: undefined; unlocks: string };
+  | { bonus: ResearchBonus; also?: ResearchBonus; unlocks?: string }
+  | { bonus?: undefined; also?: undefined; unlocks: string };
 
 /**
  * The kinds of payout, and which bonus is which (§C4a, widened by the board on 2026-09-04).
  *
  * Held as a table rather than as a comment so `research.tracks.test.ts` can assert that every one
- * of the 180 rungs lands in one of them. A ninth family cannot be added by accident: a bonus kind
+ * of the 130 rungs lands in one of them. A ninth family cannot be added by accident: a bonus kind
  * with no entry here fails the same test.
  */
 export const PAYOUT_FAMILIES = [
@@ -193,15 +186,17 @@ export type PayoutFamily = (typeof PAYOUT_FAMILIES)[number];
 /**
  * Which family each bonus kind belongs to.
  *
- * `intel` is filed under `counterintel` with its mirror: the Master of Whispers' track is
- * about the quiet war in both directions. `people` is what lifts the officers or seats another;
+ * `intel` is filed under `counterintel` with its mirror: the quiet war in both directions. No
+ * rung pays either since the maintainer took spying off every rung outside the chair's grade
+ * (2026-10-01); the two keep a family because a rung may pay any perk's bonus, and both are still
+ * perks. `people` is what lifts the officers or seats another;
  * `command` is what widens what the crew may have going at once.
  */
 const KIND_FAMILY: Readonly<Record<ResearchBonus['kind'], PayoutFamily>> = {
   research_speed: 'thrift',
   build_speed: 'thrift',
-  training_speed: 'thrift',
-  training_cost: 'thrift',
+  muster_speed: 'thrift',
+  muster_cost: 'thrift',
   build_cost: 'thrift',
   wage_discount: 'thrift',
   payroll_step_discount: 'thrift',
@@ -218,6 +213,7 @@ const KIND_FAMILY: Readonly<Record<ResearchBonus['kind'], PayoutFamily>> = {
   resource: 'yield',
   resource_yield: 'yield',
   mission_spoils: 'yield',
+  mission_caps: 'yield',
   salvage_refund: 'yield',
   unit_slots: 'yield',
   xp_gain: 'yield',
@@ -255,13 +251,12 @@ const KIND_FAMILY: Readonly<Record<ResearchBonus['kind'], PayoutFamily>> = {
   officer_group: 'people',
   officer_attribute: 'people',
   officer_threshold: 'people',
-  recruit_slots: 'people',
   training_sessions: 'people',
 
   mission_slots: 'command',
   declarations: 'command',
   battle_boosts: 'command',
-  training_benches: 'command',
+  training_queue: 'command',
   spy_parties: 'command',
   chair_teaches: 'people',
 
@@ -276,7 +271,7 @@ const KIND_FAMILY: Readonly<Record<ResearchBonus['kind'], PayoutFamily>> = {
 
   // Filed by what it changes, the same way the rules above are: this one decides how much of a
   // haul reaches the yard, so it sits with `loot_capacity` and `mission_spoils` rather than with
-  // the rest of the Chief Medic's track.
+  // the rest of the Veteran's track.
   recovered_carry_loot: 'yield',
 
   // The chairs' own fighting rungs (2026-09-28): a sheet in a fight, whoever's it is.
@@ -299,7 +294,7 @@ export interface ResearchItemSpec {
   description: string;
   payout: ResearchPayout;
   cost: PartialResources;
-  /** The catalogue clock, before the Lab, the crew and the Head of Research take their cuts. */
+  /** The catalogue clock, before the Lab, the crew and the Researcher take their cuts. */
   minutes: number;
   requiresMark: OfficerMark;
   requiresHeadMark: OfficerMark | null;
@@ -312,7 +307,7 @@ const roundTo = (value: number, unit: number): number => Math.round(value / unit
  *
  * A formula rather than 180 hand-written prices: the numbers are meant to read as one ladder, and
  * a table that long drifts the moment somebody retunes half of it. High quality metal appears from
- * the fourth rung, which is also where the Head of Research's own mark starts to bite.
+ * the fourth rung, which is also where the Researcher's own mark starts to bite.
  */
 export function researchItemCost(step: number): PartialResources {
   const cost: PartialResources = {
@@ -331,14 +326,18 @@ export function researchItemMinutes(step: number): number {
 /** One rung as it is written in the catalogue below. Everything else is derived. */
 type TrackEntry = TrackEntryCommon &
   // `unlocks` is set on the rungs that open something, in the thing's own words. A rung with no
-  // bonus is a rule and nothing else: see {@link ResearchPayout}.
-  ({ bonus: ResearchBonus; unlocks?: string } | { bonus?: undefined; unlocks: string });
+  // bonus is a rule and nothing else: see {@link ResearchPayout}. `also` is a second bonus, paid
+  // beside the first: the seven rungs that opened a trap or a boost pay one in place of the door.
+  (
+    | { bonus: ResearchBonus; also?: ResearchBonus; unlocks?: string }
+    | { bonus?: undefined; also?: undefined; unlocks: string }
+  );
 
 interface TrackEntryCommon {
   name: string;
   blurb: string;
   /**
-   * The price, clock and Head of Research mark, where the maintainer set them by hand rather than
+   * The price, clock and Researcher mark, where the maintainer set them by hand rather than
    * leaving them to the depth formulas. Only the Master of Whispers' track does (the ledger of
    * 2026-09-28); every other rung is priced by {@link researchItemCost} and its siblings.
    */
@@ -365,9 +364,11 @@ function idOf(name: string): string {
 
 function payoutOf(entry: TrackEntry): ResearchPayout {
   if (entry.bonus === undefined) return { unlocks: entry.unlocks };
-  return entry.unlocks === undefined
-    ? { bonus: entry.bonus }
-    : { bonus: entry.bonus, unlocks: entry.unlocks };
+  return {
+    bonus: entry.bonus,
+    ...(entry.also === undefined ? {} : { also: entry.also }),
+    ...(entry.unlocks === undefined ? {} : { unlocks: entry.unlocks }),
+  };
 }
 
 function buildTrack(track: OfficerRole, entries: readonly TrackEntry[]): ResearchItemSpec[] {
@@ -393,8 +394,7 @@ function buildTrack(track: OfficerRole, entries: readonly TrackEntry[]): Researc
  *
  * On the Master of Whispers' track almost every rung is a rule rather than a number, so the spy
  * module asks for the rung itself: what a report prints, which tiers are open, whether the runners
- * can be seen, and the courier. On the Consigliere's: word that a place was spied, and then whose
- * spies and what they learnt.
+ * can be seen, and the courier.
  */
 export const SPY_WRITTEN_RESEARCH_ID = 'tech_written_reports';
 export const SPY_PAID_TIERS_RESEARCH_ID = 'tech_paid_informants';
@@ -404,35 +404,31 @@ export const SPY_ESTIMATE_RESEARCH_ID = 'tech_counting_the_empty_beds';
 export const SPY_SLEEPERS_RESEARCH_ID = 'tech_sleeper_lists';
 export const SPY_COURIER_RESEARCH_ID = 'tech_turned_runners';
 export const SPY_WHOLE_WIRE_RESEARCH_ID = 'tech_the_whole_wire';
-export const SPY_NOTICE_RESEARCH_ID = 'tech_reading_the_room';
-export const SPY_TRACE_RESEARCH_ID = 'tech_names_and_faces';
+
+/** The Fixer's third rung, which opens the Stackhouse (`market/stackhouse.ts`, 2026-10-05). */
+export const STACKHOUSE_RESEARCH_ID = 'tech_put_your_money';
 
 /** What each track is about, in the one line the rail prints under its name. */
 export const RESEARCH_TRACK_BLURBS: Readonly<Record<OfficerRole, string>> = {
   master_of_whispers: 'What you find out, and what it costs to.',
-  lead_engineer: 'What is standing, how fast it went up, and what it cost.',
-  finance_officer: 'What everything costs and what you actually pay.',
-  head_of_growth: 'More of everything, off the same ground.',
+  engineer: 'What is standing, how fast it went up, and what it cost.',
+  fixer: 'What everything costs and what you actually pay.',
+  steward: 'More of everything, off the same ground.',
   field_commander: 'How much of what you brought is really in the fight.',
-  head_of_research: 'Everything the Lab does, done sooner.',
-  wetware_chief: 'Meat improved, at a price.',
-  fabricator: 'Making the thing, out of whatever there is.',
+  researcher: 'Everything the Lab does, done sooner.',
   salvager: 'There is nothing new. There is only what somebody left.',
   right_hand: 'The room runs whether you are in it or not.',
   cartographer: 'How long it takes to get anywhere.',
   trader: 'What you can get for what you have.',
-  security_officer: 'Getting in should cost them.',
-  chief_medic: 'How many of them come back.',
-  instructor_of_the_young: 'How fast a unit becomes a soldier.',
+  veteran: 'How fast a crowd becomes a fighting force, and what it costs.',
   raid_boss: 'Going and taking it.',
-  consigliere: 'What they never find out.',
   professor: 'Somebody has to sit with the files.',
 };
 
 const CATALOGUE: readonly ResearchItemSpec[] = [
   /*
    * The maintainer's ledger of 2026-09-28, rung by rung: names, blurbs, prices, clocks and the
-   * Head of Research's marks are theirs, written out rather than left to the depth formulas.
+   * Researcher's marks are theirs, written out rather than left to the depth formulas.
    *
    * No rung here pays intel any more. How much a job reads comes from the Master of Whispers'
    * points in the chair (`spyScore`), so the way to spy better is a better chair; what the track
@@ -559,7 +555,7 @@ const CATALOGUE: readonly ResearchItemSpec[] = [
     },
   ]),
 
-  ...buildTrack('lead_engineer', [
+  ...buildTrack('engineer', [
     {
       name: 'Load Tables',
       blurb: 'Somebody finally wrote down what each beam actually carries.',
@@ -571,9 +567,12 @@ const CATALOGUE: readonly ResearchItemSpec[] = [
       bonus: { kind: 'build_speed', percent: 5 },
     },
     {
-      name: 'Formwork Reuse',
-      blurb: 'The same moulds, twelve pours, if you clean them.',
-      bonus: { kind: 'build_cost', percent: 6 },
+      name: 'Batch Runs',
+      blurb: 'Forty of them, then set up for the next thing. Never one at a time.',
+      // Off the Fabricator's track, whose chair left the game (maintainer, 2026-10-04). The door it
+      // opens is the Engineer's trade, so the rung moved with its id and saves keep it.
+      bonus: { kind: 'build_speed', percent: 6 },
+      unlocks: 'two more build slots, taking the queue from four to six',
     },
     {
       name: 'Bracing Standards',
@@ -586,7 +585,8 @@ const CATALOGUE: readonly ResearchItemSpec[] = [
       /*
        * The Gauntlet, priced a level lower for ever (`building_credit`).
        *
-       * A level is 28% of the bill at any height (`BUILDING_COST_GROWTH`), so this is worth about
+       * A level is 28% of the bill at any height (`BUILDING_COST_GROWTH`), less where the bill
+       * bends under the store (`fittedToTheStore`), so this is worth about
        * what the track's own `building_cost` rung is worth on the Gate, and it is worth it just as
        * much at level 18 as at level 2. One level, not two: two is a strictly better perk than
        * anything else on this track and the ladder is meant to be climbed rather than skipped.
@@ -620,7 +620,7 @@ const CATALOGUE: readonly ResearchItemSpec[] = [
     },
   ]),
 
-  ...buildTrack('finance_officer', [
+  ...buildTrack('fixer', [
     {
       name: 'Double Entry',
       blurb: 'Two columns. It is astonishing how much stops going missing.',
@@ -632,9 +632,11 @@ const CATALOGUE: readonly ResearchItemSpec[] = [
       bonus: { kind: 'market_discount', percent: 5 },
     },
     {
-      name: 'Wage Bands',
-      blurb: 'Everybody knows what the job pays before they ask what it pays.',
-      bonus: { kind: 'wage_discount', percent: 6 },
+      // Replaced Wage Bands (maintainer, 2026-10-05): the Fixer's third rung opens the book.
+      id: STACKHOUSE_RESEARCH_ID,
+      name: 'Put Your Money Where Your Mouth Is',
+      blurb: 'Unlocks the Stackhouse in the Black Market.',
+      unlocks: 'the Stackhouse in the Black Market',
     },
     {
       name: 'Depreciation',
@@ -649,7 +651,8 @@ const CATALOGUE: readonly ResearchItemSpec[] = [
     {
       name: 'Unit Costing',
       blurb: 'What one soldier costs to put in the field, to the cap.',
-      bonus: { kind: 'training_cost', percent: 8 },
+      // Cut from 8 with every general muster cut (maintainer, 2026-10-01).
+      bonus: { kind: 'muster_cost', percent: 3 },
     },
     {
       name: 'Hedged Stock',
@@ -673,7 +676,7 @@ const CATALOGUE: readonly ResearchItemSpec[] = [
     },
   ]),
 
-  ...buildTrack('head_of_growth', [
+  ...buildTrack('steward', [
     {
       name: 'Shift Rotation',
       blurb: 'Three watches instead of two. Nothing stands idle between them.',
@@ -682,7 +685,7 @@ const CATALOGUE: readonly ResearchItemSpec[] = [
     {
       name: 'Word of Mouth',
       blurb: "The new ones come on a friend's word, and the friend shows them the drill.",
-      bonus: { kind: 'training_speed', percent: 8 },
+      bonus: { kind: 'muster_speed', percent: 8 },
     },
     {
       name: 'Yield Records',
@@ -722,7 +725,9 @@ const CATALOGUE: readonly ResearchItemSpec[] = [
     {
       name: 'The Growth Curve',
       blurb: 'It compounds. That is the whole trick and it takes a year to see.',
-      bonus: { kind: 'recruit_slots', flat: 1 },
+      // Was an officer slot until research stopped paying them (maintainer, 2026-10-01). The
+      // track's own channel instead, a step up from Second Site below it.
+      bonus: { kind: 'production', percent: 15 },
     },
   ]),
 
@@ -806,7 +811,7 @@ const CATALOGUE: readonly ResearchItemSpec[] = [
     },
   ]),
 
-  ...buildTrack('head_of_research', [
+  ...buildTrack('researcher', [
     {
       name: 'Reading Room',
       blurb: 'Somewhere quiet, with the files in it, and a rule about noise.',
@@ -835,7 +840,9 @@ const CATALOGUE: readonly ResearchItemSpec[] = [
     {
       name: 'Field Debriefs',
       blurb: 'The people who used it tell you what actually happened to it.',
-      bonus: { kind: 'intel', percent: 8 },
+      // Paid 8 spy points until the maintainer took spying off every rung outside the chair's
+      // grade (2026-10-01). What the field teaches now, at the Right Hand's 7 on the same step.
+      bonus: { kind: 'xp_gain', percent: 7 },
     },
     {
       name: 'Long Programmes',
@@ -856,115 +863,6 @@ const CATALOGUE: readonly ResearchItemSpec[] = [
       name: 'The Method',
       blurb: 'Guess, test, discard, write it down. It sounds like nothing at all.',
       bonus: { kind: 'research_speed', percent: 18 },
-    },
-  ]),
-
-  ...buildTrack('wetware_chief', [
-    {
-      name: 'Clean Room',
-      blurb: 'Half of what kills an implant is dust.',
-      bonus: { kind: 'casualty_recovery', percent: 5 },
-    },
-    {
-      name: 'Nerve Mapping',
-      blurb: 'Which wire goes where in this body, not in the manual.',
-      bonus: { kind: 'unit_speed', percent: 5 },
-    },
-    {
-      name: 'Rejection Protocols',
-      blurb: 'The body says no. There is a way to argue with it.',
-      bonus: { kind: 'casualty_recovery', percent: 7 },
-    },
-    {
-      name: 'Reflex Shunts',
-      blurb: 'A shortcut past the brain for the things the brain is slow at.',
-      bonus: { kind: 'unit_tier', tier: 'specialist', stat: 'offense', percent: 8 },
-    },
-    {
-      name: 'Load-Bearing Frames',
-      blurb: 'Bone is not the strongest thing that can be in there.',
-      bonus: { kind: 'unit_tier', tier: 'heavy', stat: 'vitality', percent: 8 },
-    },
-    {
-      name: 'Pain Gating',
-      blurb: 'Not switched off. Turned down, and only on the day.',
-      bonus: { kind: 'unit_morale', flat: 5 },
-    },
-    {
-      name: 'Subdermal Plate',
-      blurb: 'Under the skin, over the parts that matter.',
-      bonus: { kind: 'unit_armor', percent: 6 },
-    },
-    {
-      name: 'Salvage Grafts',
-      blurb: "Somebody else's arm, and it works.",
-      bonus: { kind: 'battle_stims', flat: 1 },
-    },
-    {
-      name: 'Neural Redundancy',
-      blurb: 'Two paths for every signal, so one of them can be cut.',
-      bonus: { kind: 'unit_tier', tier: 'wonder', stat: 'vitality', percent: 12 },
-    },
-    {
-      name: 'The Second Body',
-      blurb: 'By the end there is not much of the first one left.',
-      bonus: { kind: 'unit_kind', unitId: 'juggernauts', stat: 'vitality', percent: 20 },
-    },
-  ]),
-
-  ...buildTrack('fabricator', [
-    {
-      name: 'Jigs and Fixtures',
-      blurb: 'Held the same way every time, so it comes out the same way every time.',
-      bonus: { kind: 'training_cost', percent: 5 },
-    },
-    {
-      name: 'Tool Steel',
-      blurb: 'Harder than the thing it cuts, and it stays that way.',
-      bonus: { kind: 'build_cost', percent: 5 },
-    },
-    {
-      name: 'Batch Runs',
-      blurb: 'Forty of them, then set up for the next thing. Never one at a time.',
-      bonus: { kind: 'training_cost', percent: 7 },
-      unlocks: 'two more build slots, taking the queue from four to six',
-    },
-    {
-      name: 'Standard Parts',
-      blurb: 'One thread, one gauge, one size of bolt. It took two years to agree on.',
-      bonus: { kind: 'refit_discount', percent: 10 },
-      unlocks: 'the Plated Overnight battle boost',
-    },
-    {
-      name: 'Cold Forming',
-      blurb: 'Shaped without heat, which is most of the cost gone.',
-      bonus: { kind: 'build_cost', percent: 9 },
-    },
-    {
-      name: 'Reimagining',
-      blurb: 'Three drawings that suit nothing, read together until a fourth falls out.',
-      bonus: { kind: 'salvage_refund', percent: 8 },
-      unlocks: 'the Reimagining bench on the Blueprints page',
-    },
-    {
-      name: 'Investment Casting',
-      blurb: 'A wax model, a shell around it, and a part with no seam anywhere.',
-      bonus: { kind: 'unit_tier', tier: 'rabble', stat: 'armor', percent: 8 },
-    },
-    {
-      name: 'Hard Chrome',
-      blurb: 'A tenth of a millimetre that triples how long the thing lasts.',
-      bonus: { kind: 'unit_armor', percent: 8 },
-    },
-    {
-      name: 'Numerical Control',
-      blurb: "The machine reads the drawing. Nobody's hand is anywhere in it.",
-      bonus: { kind: 'build_speed', percent: 10 },
-    },
-    {
-      name: 'The Master Pattern',
-      blurb: 'One perfect part, and every other one measured against it.',
-      bonus: { kind: 'unit_kind', unitId: 'ironsides', stat: 'armor', percent: 15 },
     },
   ]),
 
@@ -1008,9 +906,12 @@ const CATALOGUE: readonly ResearchItemSpec[] = [
       bonus: { kind: 'resource_yield', resource: 'scrap', percent: 12 },
     },
     {
-      name: 'Dry Storage',
-      blurb: 'Rain is what turns salvage into rust.',
-      bonus: { kind: 'storage_capacity', percent: 12 },
+      name: 'Reimagining',
+      blurb: 'Three drawings that suit nothing, read together until a fourth falls out.',
+      // Off the Fabricator's track (2026-10-04), with its id, so a save that held it keeps the bench.
+      bonus: { kind: 'salvage_refund', percent: 8 },
+      // Its own tab in the Lab since the Blueprints page moved into research (§I1d).
+      unlocks: 'the Reimagining bench, its own tab in the Lab',
     },
     {
       name: 'Deep Sites',
@@ -1094,12 +995,15 @@ const CATALOGUE: readonly ResearchItemSpec[] = [
       name: 'Field Promotions',
       blurb: 'The good ones move up on the day, not at the quarter.',
       bonus: { kind: 'officer_attribute', attribute: 'leadership', flat: 4 },
-      unlocks: 'chasing one resource: a standing order takes the best return per minute in it',
+      unlocks:
+        'the best job: a standing order takes the best job on the board rather than any at random, or the best return per minute in one resource',
     },
     {
       name: 'Succession Planning',
       blurb: 'Two deep in every chair, including yours.',
-      bonus: { kind: 'recruit_slots', flat: 1 },
+      // Was an officer slot until research stopped paying them (maintainer, 2026-10-01): a deeper
+      // bench of skills instead, a point past Second-in-Command's lift.
+      bonus: { kind: 'officer_group', group: 'social', flat: 3 },
       unlocks: 'battle jobs off the board for a standing order, never a fight on a location',
     },
     {
@@ -1137,9 +1041,10 @@ const CATALOGUE: readonly ResearchItemSpec[] = [
     {
       name: 'Underground Routes',
       blurb: 'The tunnels are on the map now, and so is everybody who uses them.',
-      // Sight of the nearest district until the whole city became visible (2026-09-29). Converted
-      // to intel at the same worth: one district seen was nine points of a `wide` channel.
-      bonus: { kind: 'intel', percent: 9 },
+      // Sight of the nearest district until the whole city became visible (2026-09-29), then 9 spy
+      // points until spying came off every rung outside the chair's grade (maintainer,
+      // 2026-10-01). The tunnels as a road now, priced at the Trader's 8 off the clock on step 5.
+      bonus: { kind: 'travel_speed', percent: 8 },
     },
     {
       name: 'Cache Points',
@@ -1242,137 +1147,16 @@ const CATALOGUE: readonly ResearchItemSpec[] = [
     },
   ]),
 
-  ...buildTrack('security_officer', [
-    {
-      name: 'Pressure Plates',
-      blurb: 'Two boards, a hinge, and a rule about which stairwell nobody uses.',
-      bonus: { kind: 'defense_percent', percent: 5 },
-      unlocks: 'the Pressure Plates trap',
-    },
-    {
-      name: 'Watch Schedules',
-      blurb: 'Somebody awake, always, and never the same somebody.',
-      bonus: { kind: 'intel_resistance', percent: 6 },
-      unlocks: 'the Razor Wire trap',
-    },
-    {
-      name: 'Sally Ports',
-      blurb: 'A door you can come out of, which is not the same as a door.',
-      bonus: { kind: 'unit_tier', tier: 'rabble', stat: 'armor', percent: 6 },
-      unlocks: 'the Fuel Fougasse trap',
-    },
-    {
-      name: 'Shaped Charges',
-      blurb: 'The same explosive, pointed. It is entirely a question of what shape the hole is.',
-      bonus: { kind: 'gate_defense', percent: 10 },
-      unlocks: 'the Buried Shell trap and the Shaped For This boost',
-    },
-    {
-      name: 'Vetting',
-      blurb: 'Who they were before they walked in here.',
-      bonus: { kind: 'intel_resistance', percent: 9 },
-    },
-    {
-      name: 'Standing Orders Under Fire',
-      blurb: 'Every position knows what it does when the one beside it goes quiet.',
-      // The cascade term, cut (`steady_nerve`). The sixth rung of the defence track rather than a
-      // third `defense_percent`: a district that holds because nobody panicked is a different thing
-      // from a district that holds because the wall is thicker, and the track had two walls already.
-      bonus: { kind: 'steady_nerve' },
-    },
-    {
-      name: 'Demolition Doctrine',
-      blurb: 'Every approach surveyed, cut and re-cut, on the assumption it will be needed.',
-      bonus: { kind: 'unit_tier', tier: 'heavy', stat: 'armor', percent: 10 },
-      unlocks: 'the Prepared Collapse trap and The Colossus Walks boost',
-    },
-    {
-      name: 'Layered Defence',
-      blurb: 'The wall is the third thing they hit, not the first.',
-      bonus: { kind: 'gate_defense', percent: 18 },
-      unlocks: 'the Flooded Cellar trap',
-    },
-    {
-      name: 'Counter-Surveillance',
-      blurb: 'Watching the people who are watching.',
-      bonus: { kind: 'intel_resistance', percent: 14 },
-    },
-    {
-      name: 'The Hard District',
-      blurb: 'They go and hit somebody else instead, which is the point.',
-      bonus: { kind: 'whole_district', percent: 20 },
-    },
-  ]),
-
-  ...buildTrack('chief_medic', [
-    {
-      name: 'Field Triage',
-      blurb: 'Deciding fast who can wait is most of the job.',
-      bonus: { kind: 'casualty_recovery', percent: 6 },
-    },
-    {
-      name: 'Clean Water',
-      blurb: 'It is not glamorous and it halves the sick list.',
-      bonus: { kind: 'unit_vitality', percent: 4 },
-    },
-    {
-      name: 'Stretcher Drill',
-      blurb: 'Off the ground and moving in ninety seconds.',
-      bonus: { kind: 'casualty_recovery', percent: 8 },
-    },
-    {
-      name: 'Blood Bank',
-      blurb: 'Cold storage, cross-matched, and everybody on the books is typed.',
-      bonus: { kind: 'battle_stims', flat: 1 },
-    },
-    {
-      name: 'Antiseptics',
-      blurb: 'Boiled instruments, and the surgeon washes first.',
-      bonus: { kind: 'unit_vitality', percent: 6 },
-    },
-    {
-      name: 'Carry Both',
-      blurb: 'The party that brings a body back brings the pack with it.',
-      // The sixth rung of this track rather than a third `casualty_recovery`, on the same argument
-      // `steady_nerve` took on the defence track: the Chief Medic already had three percentages on
-      // how many bodies come back, and what a recovered body is *worth* is a different question
-      // from how many of them there are. A haul is carried by the survivors, and a unit the
-      // Infirmary recovers was dead when the packs were counted, so without this it walks home
-      // empty.
-      bonus: { kind: 'recovered_carry_loot' },
-    },
-    {
-      name: 'Trauma Theatre',
-      blurb: 'A room in the Infirmary that nobody is allowed to use for anything else.',
-      bonus: { kind: 'building_cost', building: 'infirmary', percent: 25 },
-    },
-    {
-      name: 'Convalescence',
-      blurb: 'Back on the line when they are ready, not when they are needed.',
-      bonus: { kind: 'unit_morale', flat: 5 },
-    },
-    {
-      name: 'Prosthetics Bench',
-      blurb: 'A hand that works is a person who stays.',
-      bonus: { kind: 'officer_group', group: 'physical', flat: 2 },
-    },
-    {
-      name: 'Nobody Left',
-      blurb: 'Everybody who can be brought back is brought back.',
-      bonus: { kind: 'casualty_recovery', percent: 20 },
-    },
-  ]),
-
-  ...buildTrack('instructor_of_the_young', [
+  ...buildTrack('veteran', [
     {
       name: 'Drill Yard',
       blurb: 'Flat ground, marked out, used every morning.',
-      bonus: { kind: 'training_speed', percent: 5 },
+      bonus: { kind: 'muster_speed', percent: 5 },
     },
     {
       name: 'Two-Week Basics',
       blurb: 'Everything anybody has to know, in a fortnight.',
-      bonus: { kind: 'training_speed', percent: 7 },
+      bonus: { kind: 'muster_speed', percent: 7 },
     },
     {
       name: 'Live Rounds',
@@ -1380,9 +1164,12 @@ const CATALOGUE: readonly ResearchItemSpec[] = [
       bonus: { kind: 'unit_tier', tier: 'rabble', stat: 'offense', percent: 6 },
     },
     {
-      name: 'Section Leaders',
-      blurb: 'One in eight of them can teach the other seven.',
-      bonus: { kind: 'training_sessions', flat: 1 },
+      name: 'Carry Both',
+      blurb: 'The party that brings a body back brings the pack with it.',
+      // Off the Chief Medic's track (2026-10-04), the one source of this switch, so it moved with its
+      // id. A haul is carried by the survivors, and a unit the Infirmary recovers was dead when the
+      // packs were counted, so without this it walks home empty.
+      bonus: { kind: 'recovered_carry_loot' },
     },
     {
       name: 'Graded Ranges',
@@ -1390,19 +1177,22 @@ const CATALOGUE: readonly ResearchItemSpec[] = [
       bonus: { kind: 'unit_kind', unitId: 'snipers', stat: 'offense', percent: 12 },
     },
     {
-      name: 'Night Exercises',
-      blurb: 'The first time in the dark should not be the real time.',
-      bonus: { kind: 'unit_morale', flat: 4 },
+      name: 'Standing Orders Under Fire',
+      blurb: 'Every position knows what it does when the one beside it goes quiet.',
+      // The cascade term, cut (`steady_nerve`). Kept from the Head of Security's track when the chair
+      // became the Veteran's (2026-10-04): a line that holds because nobody panicked is drill.
+      bonus: { kind: 'steady_nerve' },
     },
     {
       name: 'Cadre System',
-      blurb: 'The veterans train the intake and then go back to their units.',
-      bonus: { kind: 'training_speed', percent: 12 },
+      blurb: 'The veterans see the intake through the Gauntlet, then go back to their units.',
+      bonus: { kind: 'muster_speed', percent: 12 },
     },
     {
       name: 'Standard Syllabus',
       blurb: 'One course, one book, no favourites.',
-      bonus: { kind: 'training_cost', percent: 12 },
+      // Cut from 12 with every general muster cut (maintainer, 2026-10-01).
+      bonus: { kind: 'muster_cost', percent: 5 },
     },
     {
       name: 'Continuation Training',
@@ -1412,7 +1202,9 @@ const CATALOGUE: readonly ResearchItemSpec[] = [
     {
       name: 'The Intake',
       blurb: 'They arrive as recruits and leave six weeks later as soldiers.',
-      bonus: { kind: 'training_sessions', flat: 2 },
+      // Muster speed on the Veteran's track (2026-10-04): it paid the Instructor's officer drill
+      // sessions, which are the Training tab's and not the Gauntlet's.
+      bonus: { kind: 'muster_speed', percent: 16 },
     },
   ]),
 
@@ -1478,69 +1270,6 @@ const CATALOGUE: readonly ResearchItemSpec[] = [
     },
   ]),
 
-  ...buildTrack('consigliere', [
-    {
-      name: 'The Quiet Word',
-      blurb: 'Before it is a problem, rather than after.',
-      bonus: { kind: 'wage_discount', percent: 4 },
-    },
-    {
-      name: 'Deniability',
-      blurb: 'Arranged so that it was never said.',
-      bonus: { kind: 'intel_resistance', percent: 5 },
-    },
-    {
-      /*
-       * Word that the ground was spied (maintainer, 2026-09-22). A job on this crew's ground is
-       * silent by default; from this rung the holder is told a place of theirs was looked at,
-       * and no more than that. `spying/spying.ts` on the server reads it at the settle.
-       */
-      id: SPY_NOTICE_RESEARCH_ID,
-      name: 'Reading the Room',
-      blurb: 'Who is uncomfortable, and about what.',
-      bonus: { kind: 'intel_resistance', percent: 6 },
-      unlocks: 'word when a place you hold has been spied',
-    },
-    {
-      name: 'Favours Owed',
-      blurb: 'A ledger nobody writes down.',
-      bonus: { kind: 'wage_discount', percent: 8 },
-    },
-    {
-      /* The rest of the notice: whose spies, and what they came away with. */
-      id: SPY_TRACE_RESEARCH_ID,
-      name: 'Names and Faces',
-      blurb: 'The stranger at the bar had a name, and the name had a crew.',
-      bonus: { kind: 'intel_resistance', percent: 8 },
-      unlocks: 'who spied on you, and what they learnt',
-    },
-    {
-      name: 'False Traffic',
-      blurb: 'A whole second district that does not exist, chattering away all night.',
-      bonus: { kind: 'intel_resistance', percent: 10 },
-    },
-    {
-      name: 'Terms in Advance',
-      blurb: 'Agreed before anybody is in a position to want more.',
-      bonus: { kind: 'market_discount', percent: 6 },
-    },
-    {
-      name: 'Insulation',
-      blurb: 'Nothing that happens downstairs reaches this floor.',
-      bonus: { kind: 'intel_resistance', percent: 12 },
-    },
-    {
-      name: 'The Long View',
-      blurb: "This year's enemy is next year's supplier.",
-      bonus: { kind: 'officer_group', group: 'social', flat: 3 },
-    },
-    {
-      name: 'Nothing in Writing',
-      blurb: 'There is no document anywhere with your name on it.',
-      bonus: { kind: 'recruit_slots', flat: 1 },
-    },
-  ]),
-
   ...buildTrack('professor', [
     {
       name: 'Reading Lists',
@@ -1550,7 +1279,7 @@ const CATALOGUE: readonly ResearchItemSpec[] = [
     {
       name: 'Lecture Series',
       blurb: 'Two hours a week, and everybody is better at their job.',
-      bonus: { kind: 'training_speed', percent: 5 },
+      bonus: { kind: 'muster_speed', percent: 5 },
     },
     {
       name: 'Marginalia',
@@ -1558,12 +1287,13 @@ const CATALOGUE: readonly ResearchItemSpec[] = [
       bonus: { kind: 'xp_gain', percent: 6 },
     },
     {
-      // The fourth rung, and the only door past the one-bench floor (maintainer, 2026-09-21):
-      // see `TRAINING_BENCHES` in `crew/training.ts`. It replaced Working Papers, a 7% research
+      // The fourth rung, and the only door past the two-drill queue (maintainer, 2026-10-04):
+      // see `TRAINING_QUEUE_SLOTS` in `crew/training.ts`. It replaced Working Papers, a 7% research
       // clock, which the track already pays twice.
       name: 'Second Chair',
-      blurb: 'Two at the bench, one hour. The Professor takes them in turns and nobody waits.',
-      bonus: { kind: 'training_benches', flat: 1 },
+      blurb:
+        'One more name on the list. The Professor takes them in turns, and nobody stands idle.',
+      bonus: { kind: 'training_queue', flat: 1 },
     },
     {
       name: 'Seminar',
@@ -1573,7 +1303,9 @@ const CATALOGUE: readonly ResearchItemSpec[] = [
     {
       name: 'Citation Index',
       blurb: 'Who read what, and what it changed.',
-      bonus: { kind: 'intel', percent: 8 },
+      // Was 8 spy points (maintainer, 2026-10-01: spying off the rungs). Nobody reads the same
+      // dead end twice: 10 off the research clock, between Peer Review's 8 and Long Programmes' 12.
+      bonus: { kind: 'research_speed', percent: 10 },
     },
     {
       name: 'Applied Sections',
@@ -1645,7 +1377,7 @@ export function researchUnlocks(known: readonly string[]): string[] {
  *
  * Folded by the caller into the same struct everything else lands in (`mergeCrewEffects`), so a
  * rung needs no wiring of its own: whatever already reads `buildSpeedPercent`, a tier's armour or
- * the chairs at the Bar gets research's contribution to it for free. Ids the catalogue does not
+ * the crews out at once gets research's contribution to it for free. Ids the catalogue does not
  * know are skipped: a save may carry a rung that was retired.
  */
 export function researchEffects(known: readonly string[]): CrewEffects {
@@ -1653,6 +1385,7 @@ export function researchEffects(known: readonly string[]): CrewEffects {
   for (const id of known) {
     const spec = findResearchItem(id);
     if (spec?.payout.bonus) applyResearchBonus(total, spec.payout.bonus, spec.track);
+    if (spec?.payout.also) applyResearchBonus(total, spec.payout.also, spec.track);
   }
   return total;
 }
@@ -1680,17 +1413,14 @@ export function applyResearchBonus(
     case 'mission_slots':
       into.missionSlotsFlat += bonus.flat;
       return into;
-    case 'recruit_slots':
-      into.recruitSlotsFlat += bonus.flat;
-      return into;
     case 'declarations':
       into.declarationsFlat += bonus.flat;
       return into;
     case 'battle_boosts':
       into.battleBoostsFlat += bonus.flat;
       return into;
-    case 'training_benches':
-      into.trainingBenchesFlat += bonus.flat;
+    case 'training_queue':
+      into.trainingQueueFlat += bonus.flat;
       return into;
     case 'spy_parties':
       into.spyPartiesFlat += bonus.flat;
@@ -1709,23 +1439,23 @@ export function applyResearchBonus(
   }
 }
 
-/** "+1 crew out on a job at once": the three grants in words. Everything else is a perk's line. */
+/** "+1 crew out on a job at once": the grants in words. Everything else is a perk's line. */
 export function describeResearchBonus(bonus: ResearchBonus): string {
   switch (bonus.kind) {
     case 'mission_slots':
       return `+${bonus.flat} ${bonus.flat === 1 ? 'crew' : 'crews'} out on a job at once`;
-    case 'recruit_slots':
-      return `+${bonus.flat} ${bonus.flat === 1 ? 'chair' : 'chairs'} at the Bar`;
     case 'declarations':
       return `+${bonus.flat} ${bonus.flat === 1 ? 'fight' : 'fights'} called at once`;
     case 'battle_boosts':
       return `+${bonus.flat} ${bonus.flat === 1 ? 'name' : 'names'} burned on one fight`;
-    case 'training_benches':
-      return `+${bonus.flat} ${bonus.flat === 1 ? 'person' : 'people'} drilling at the same time`;
+    case 'training_queue':
+      return `+${bonus.flat} ${bonus.flat === 1 ? 'drill' : 'drills'} in the training queue`;
     case 'spy_parties':
       return `+${bonus.flat} spying ${bonus.flat === 1 ? 'party' : 'parties'} out at once`;
     case 'chair_teaches':
-      return `${describeLessons(bonus.attributes)} on every other officer seated and working`;
+      // The condition as well as the lesson: with nobody working the chair there is no teacher,
+      // and a card that left it out promised the lift to a crew whose Whispers was in bed.
+      return `${describeLessons(bonus.attributes)} on every other officer seated and working, while somebody works this chair`;
     case 'recovered_carry_loot':
       return 'the ones the medics get back carry their share of the haul home';
     // Not the perk's "every other officer": a programme is not a person, so the Lab lifts whoever
@@ -1738,6 +1468,10 @@ export function describeResearchBonus(bonus: ResearchBonus): string {
       return `draws ${bonus.percent}% more of the enemy's fire ${leaderWhen(bonus.scope)}`;
     case 'leader_party':
       return `+${bonus.percent}% ${describeStat(bonus.stat)} for every unit ${leaderWhen(bonus.scope)}`;
+    // Agreed once, at signing (`committedWage`), and never re-priced (maintainer, 2026-10-01). A
+    // programme is always working, so the rung's condition is only the signing.
+    case 'wage_discount':
+      return `-${bonus.percent}% off every wage agreed at signing from now on`;
     default:
       return describePerkBonus(bonus);
   }
@@ -1776,51 +1510,46 @@ function describeLeaderSelf(bonus: Extract<LeaderBonus, { kind: 'leader_self' }>
  * `+8% what the district makes`.
  */
 export function describeResearchPayout(spec: ResearchItemSpec): string {
-  const { bonus, unlocks } = spec.payout;
+  const { bonus, also, unlocks } = spec.payout;
   if (bonus === undefined) return `Opens ${unlocks}`;
-  const effect = describeResearchBonus(bonus);
+  const effect =
+    also === undefined
+      ? describeResearchBonus(bonus)
+      : `${describeResearchBonus(bonus)}, and ${describeResearchBonus(also)}`;
   return unlocks === undefined ? effect : `Opens ${unlocks}, and ${effect}`;
 }
 
 /**
- * §C3a: how much of a research clock the Head of Research takes off, as a percentage.
+ * §C3a: how much of a research clock the Researcher takes off, as a percentage: their chair's
+ * passive (`passives.ts`, maintainer 2026-10-04), a straight line from nothing at the floor of the
+ * grades to 50% at a perfect sheet.
  *
- * Reads their **points**, never their mark (§C3b). The scale is the mark scale's own: nothing at
- * the measured floor of 10, and {@link MAX_RESEARCH_TIME_CUT} at the trainable ceiling of 100. So
- * a freshly hired Head sitting around 20 buys 5%, one trained to 50 buys 20%, and one at the
- * ceiling buys 45%.
- *
- * The return is not rounded. A single point in the weakest attribute the chair reads moves this by
- * about four hundredths of a percentage point, which is invisible on screen and is not invisible in
- * the arithmetic: the duration is computed from this number and rounded once, at the end.
+ * Reads their **points**, never their mark (§C3b), and is not rounded: the duration is computed
+ * from this number and rounded once, at the end.
  */
-export const MAX_RESEARCH_TIME_CUT = 45;
-
 export function researchTimeCutPercent(points: number): number {
-  const above = Math.max(0, Math.min(OFFICER_MARK_CEILING, points) - OFFICER_MARK_FLOOR);
-  return (above / (OFFICER_MARK_CEILING - OFFICER_MARK_FLOOR)) * MAX_RESEARCH_TIME_CUT;
+  return chairPassivePercent('research_speed', points);
 }
 
 /**
- * §C1d: what the track's own officer takes off the bill for their own track.
+ * A rung's price with the Lab's cut taken off it (P7-C, 2026-10-02).
  *
- * The second half of "both sheets matter". The Head of Research buys time, the specialist buys
- * price, and both read points rather than marks, so a track is cheaper the better the person
- * running it is and not merely open or shut.
+ * The track's own officer took a share off their track's bill until 2026-10-04, when the
+ * maintainer ruled that no officer cuts the price of a programme: the Researcher cuts time and
+ * nobody cuts cost, the Lab aside.
  */
-export const MAX_RESEARCH_COST_CUT = 30;
-
-export function trackCostCutPercent(points: number): number {
-  const above = Math.max(0, Math.min(OFFICER_MARK_CEILING, points) - OFFICER_MARK_FLOOR);
-  return (above / (OFFICER_MARK_CEILING - OFFICER_MARK_FLOOR)) * MAX_RESEARCH_COST_CUT;
+export function researchItemPrice(spec: ResearchItemSpec, labCostCutPercent = 0): PartialResources {
+  return discounted(spec.cost, labCostCutPercent);
 }
 
-/** A rung's price with the track officer's cut already taken off it. */
-export function researchItemPrice(
-  spec: ResearchItemSpec,
-  costCutPercent: number,
-): PartialResources {
-  return discounted(spec.cost, costCutPercent);
+/**
+ * The Lab level a rung needs: a tier of programmes opens every two levels, so the tenth needs a
+ * Lab at 20 and the ninth a Lab at 18 (maintainer ruling P7-C, 2026-10-02).
+ */
+export const LAB_LEVELS_PER_RESEARCH_TIER = 2;
+
+export function labLevelForStep(step: number): number {
+  return step * LAB_LEVELS_PER_RESEARCH_TIER;
 }
 
 /** Everything that can stop a rung being started, in the order a player can act on. */
@@ -1828,7 +1557,8 @@ export const RESEARCH_ITEM_REFUSALS = [
   'unknown_item',
   'already_known',
   'needs_previous_step',
-  'no_head_of_research',
+  'lab_too_low',
+  'no_researcher',
   'no_track_officer',
   'track_mark_too_low',
   'head_mark_too_low',
@@ -1839,7 +1569,7 @@ export type ResearchItemRefusal = (typeof RESEARCH_ITEM_REFUSALS)[number];
 export interface ChairMarks {
   /** The mark of the officer in the track's own chair, or `null` if the chair is empty. */
   trackMark: OfficerMark | null;
-  /** The Head of Research's mark, or `null` if nobody holds the post. */
+  /** The Researcher's mark, or `null` if nobody holds the post. */
   headMark: OfficerMark | null;
 }
 
@@ -1854,6 +1584,8 @@ export function researchItemRefusal(
   id: string,
   known: readonly string[],
   chairs: ChairMarks,
+  /** The crew's Lab level: a rung's tier needs a Lab at twice it ({@link labLevelForStep}). */
+  labLevel: number,
 ): ResearchItemRefusal | null {
   const spec = findResearchItem(id);
   if (!spec) return 'unknown_item';
@@ -1861,8 +1593,9 @@ export function researchItemRefusal(
 
   const below = itemsInTrack(spec.track).find((other) => other.step === spec.step - 1);
   if (below && !known.includes(below.id)) return 'needs_previous_step';
+  if (labLevel < labLevelForStep(spec.step)) return 'lab_too_low';
 
-  if (chairs.headMark === null) return 'no_head_of_research';
+  if (chairs.headMark === null) return 'no_researcher';
   if (chairs.trackMark === null) return 'no_track_officer';
   if (!markAtLeast(chairs.trackMark, spec.requiresMark)) return 'track_mark_too_low';
   if (spec.requiresHeadMark !== null && !markAtLeast(chairs.headMark, spec.requiresHeadMark)) {
@@ -1885,14 +1618,16 @@ export function describeResearchItemRefusal(
       const below = itemsInTrack(spec.track).find((other) => other.step === spec.step - 1);
       return `Finish ${below?.name ?? 'the rung below'} first`;
     }
-    case 'no_head_of_research':
-      return `Needs a ${OFFICER_ROLE_LABELS.head_of_research}`;
+    case 'lab_too_low':
+      return `Needs the Lab at ${labLevelForStep(spec.step)}`;
+    case 'no_researcher':
+      return `Needs a ${OFFICER_ROLE_LABELS.researcher}`;
     case 'no_track_officer':
       return `Needs a ${OFFICER_ROLE_LABELS[spec.track]}`;
     case 'track_mark_too_low':
       return `Your ${OFFICER_ROLE_LABELS[spec.track]} must be ${spec.requiresMark} or better`;
     case 'head_mark_too_low':
-      return `Your ${OFFICER_ROLE_LABELS.head_of_research} must be ${spec.requiresHeadMark} or better`;
+      return `Your ${OFFICER_ROLE_LABELS.researcher} must be ${spec.requiresHeadMark} or better`;
   }
 }
 

@@ -20,7 +20,7 @@ const endingAt = (offsetSeconds: number, durationSeconds = 60) => ({
 const idle: BaseWork = {
   id: 'crew',
   buildQueue: [],
-  trainingQueue: [],
+  musterQueue: [],
   research: startingResearch(),
   training: startingTraining(NOW.toISOString()),
 };
@@ -42,9 +42,9 @@ describe('workDue', () => {
       'a batch of units',
       (ends: number): BaseWork => ({
         ...idle,
-        trainingQueue: [
+        musterQueue: [
           { id: 't', unitId: 'razors', count: 1, ...endingAt(ends) },
-        ] as unknown as BaseWork['trainingQueue'],
+        ] as unknown as BaseWork['musterQueue'],
       }),
     ],
     [
@@ -89,7 +89,7 @@ describe('listWorkInFlight', () => {
       runMigrations(db);
       const repos = createRepositories(db);
       const at = NOW.toISOString();
-      for (const id of ['idle', 'building', 'training', 'researching', 'drilling']) {
+      for (const id of ['idle', 'building', 'mustering', 'researching', 'drilling']) {
         repos.users.insert({
           id: `u-${id}`,
           username: `u_${id}`,
@@ -102,10 +102,10 @@ describe('listWorkInFlight', () => {
       repos.bases.updateDistrict('building', building.buildings, [
         { id: 'b', kind: 'nexus', level: 2, ...endingAt(0), paid: {}, parts: {} },
       ]);
-      const training = repos.bases.findById('training')!;
-      repos.bases.updateArmy('training', training.army, [
+      const mustering = repos.bases.findById('mustering')!;
+      repos.bases.updateArmy('mustering', mustering.army, [
         { id: 't', unitId: 'razors', count: 1, ...endingAt(0) },
-      ] as unknown as BaseWork['trainingQueue']);
+      ] as unknown as BaseWork['musterQueue']);
       const researching = repos.bases.findById('researching')!;
       repos.bases.updateResearch('researching', {
         ...researching.research,
@@ -132,7 +132,7 @@ describe('listWorkInFlight', () => {
           .listWorkInFlight()
           .map((work) => work.id)
           .sort(),
-      ).toEqual(['building', 'drilling', 'researching', 'training']);
+      ).toEqual(['building', 'drilling', 'mustering', 'researching']);
     } finally {
       db.close();
     }

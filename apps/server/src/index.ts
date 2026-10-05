@@ -142,7 +142,7 @@ async function main(): Promise<void> {
   // Started here rather than in `buildApp` for the same reason the seed is: a test builds an app
   // per case, and a timer writing whole database files to disk every ten minutes is not something a
   // test suite should have to remember to turn off.
-  let stopBackups: () => void = () => undefined;
+  let stopBackups: () => Promise<void> = () => Promise.resolve();
   if (config.backupsEnabled) {
     stopBackups = startBackupSchedule({
       db,
@@ -193,7 +193,8 @@ async function main(): Promise<void> {
   const shutdown = (signal: NodeJS.Signals): void => {
     app.log.info({ signal }, 'shutting down');
     stopClock();
-    stopBackups();
+    // Resolves once a snapshot already being written has landed: the last one below waits for it.
+    const backupsStopped = stopBackups();
     // The client polls on keep-alive sockets, and a close that waits for those to go idle waits
     // for the browser. Dropped first, so the close is the close of a server with nobody on it.
     app.server.closeAllConnections();
@@ -209,11 +210,12 @@ async function main(): Promise<void> {
     const deadline = new Promise<number>((resolve) => {
       setTimeout(resolve, 2_000, 0).unref();
     });
-    void Promise.race([closed, deadline]).then((code) => {
+    void Promise.race([closed, deadline]).then(async (code) => {
       // One last snapshot on the way out, so a clean stop loses nothing a restore would need.
       if (config.backupsEnabled) {
         try {
-          takeBackup(db, config.backupDir, new Date(), config.backupMirrorDir);
+          await backupsStopped;
+          await takeBackup(db, config.backupDir, new Date(), config.backupMirrorDir);
         } catch (error: unknown) {
           console.error(error);
         }

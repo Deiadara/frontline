@@ -6,7 +6,6 @@ import {
   declarationWindow,
   findDistrict,
   findTrap,
-  findTech,
   skirmishOutcome,
   startingHolder,
   type BattlesResponse,
@@ -23,6 +22,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { FastifyInstance } from 'fastify';
 import { afterEach, describe, expect, it } from 'vitest';
+import { armTheAttack } from '../testing/attack.js';
 import { buildApp } from '../app.js';
 import { loadConfig } from '../config.js';
 import { openDatabase, runMigrations, type AppDatabase } from '../db/index.js';
@@ -250,7 +250,7 @@ function bringForward(stack: Stack, battleId: string, at: Date): void {
 /** Sends the attacker's column and lands it, so there is a force for a trap to bite. */
 async function sendAttackers(stack: Stack, battleId: string, army: Record<string, number>) {
   const base = stack.app.repos.bases.findById(stack.attacker.id)!;
-  stack.app.repos.bases.updateArmy(base.id, army, base.trainingQueue);
+  stack.app.repos.bases.updateArmy(base.id, army, base.musterQueue);
   const sent = await stack.app.inject({
     method: 'POST',
     url: '/api/battles/deploy',
@@ -345,6 +345,8 @@ describe('§I4: setting a trap on a fight you are defending', () => {
     const stack = await makeStack();
     const battleId = await declareOn(stack);
     give(stack, stack.defender.id, TRAP_ITEM, 1);
+    // The attack's least commitment, or the lock calls it off (2026-10-05).
+    armTheAttack(stack.app.repos, battleId, stack.attacker.id);
     stack.db
       .prepare('UPDATE scheduled_battles SET scheduled_for = ? WHERE id = ?')
       .run(new Date(Date.now() + 900).toISOString(), battleId);
@@ -386,6 +388,37 @@ describe('§I4: setting a trap on a fight you are defending', () => {
     const second = await setTrap(stack, ally.token, battleId, TRAP.id);
     expect(second.statusCode).toBe(403);
     expect(messageOf(second)).toBe('Somebody on your side has already set one');
+  });
+
+  // Bug pass, 2026-10-02: the ally's picker read only its own row, and offered "Bury it" lit.
+  it('shuts the ally\u2019s picker once the defender has set one, and says whose it is', async () => {
+    const stack = await makeStack();
+    const battleId = await declareOn(stack);
+    const ally = await signUp(stack.app, 'ally3');
+    atTheDefendersTable(stack, ally);
+    give(stack, stack.defender.id, TRAP_ITEM, 1);
+    give(stack, ally.id, TRAP_ITEM, 1);
+    stack.app.repos.sieges.putDeployment({
+      battleId,
+      baseId: ally.id,
+      side: 'defender',
+      army: {},
+      perimeter: {},
+      boostIds: [],
+      officerId: null,
+      trapId: null,
+      vehicles: {},
+      updatedAt: new Date().toISOString(),
+    });
+    expect((await setTrap(stack, stack.defender.token, battleId, TRAP.id)).statusCode).toBe(200);
+
+    const view = (await boardFor(stack, ally.token)).coming.find(
+      (one) => one.battle.id === battleId,
+    )!;
+    const option = view.traps.find((one) => one.trapId === TRAP.id)!;
+    expect(option.available).toBe(false);
+    expect(option.blocker).toContain(TRAP.name);
+    expect(option.blocker).toContain('A side lays one');
   });
 
   it('lets an ally set the one trap when the defender has not', async () => {
@@ -506,7 +539,7 @@ describe('§I4d: the trap goes off at the mark and leaves the bag', () => {
     expect((await setTrap(stack, stack.defender.token, second, TRAP.id)).statusCode).toBe(200);
 
     const base = stack.app.repos.bases.findById(stack.attacker.id)!;
-    stack.app.repos.bases.updateArmy(base.id, { razors: 60 }, base.trainingQueue);
+    stack.app.repos.bases.updateArmy(base.id, { razors: 60 }, base.musterQueue);
     for (const battleId of [first, second]) {
       const sent = await stack.app.inject({
         method: 'POST',
@@ -548,9 +581,8 @@ describe('§I4d: the trap goes off at the mark and leaves the bag', () => {
   });
 });
 
-describe('§I4a/§I4b: the yard cuts one, behind two gates', () => {
+describe('§I4a/§I4b: the yard cuts one off its drawings alone', () => {
   const document = blueprintForTrap(TRAP.id)!;
-  const rung = findTech(TRAP.requiresTech)!;
 
   async function yard(stack: Stack): Promise<ScrapyardResponse> {
     const res = await stack.app.inject({
@@ -609,33 +641,20 @@ describe('§I4a/§I4b: the yard cuts one, behind two gates', () => {
     }
   });
 
-  it('asks for the drawings first, then the Lab, then the bill, and cuts one at the end', async () => {
+  it('asks for the drawings, then the bill, and cuts one at the end', async () => {
     const stack = await makeStack();
     readyToCut(stack);
+    // No research at all: the Lab rung that was a second lock is gone (maintainer, 2026-10-01).
+    const bare = stack.app.repos.bases.findById(stack.defender.id)!;
+    stack.app.repos.bases.updateResearch(bare.id, { ...bare.research, technologies: [] });
 
     // Nothing: the document is what a player collects page by page, so it is named first.
     expect(entryFor(await yard(stack)).blocker).toBe(`Needs the ${document.name}`);
-    let refused = await build(stack);
+    const refused = await build(stack);
     expect(refused.statusCode).toBe(409);
     expect(messageOf(refused)).toBe(`Needs the ${document.name}`);
 
-    // The document alone is not enough: the Lab rung is a separate gate and this proves it exists.
-    give(stack, stack.defender.id, document.id as ItemId, 1);
-    expect(entryFor(await yard(stack)).blocker).toBe(`Needs ${rung.name} from the Lab`);
-    refused = await build(stack);
-    expect(refused.statusCode).toBe(409);
-    expect(messageOf(refused)).toBe(`Needs ${rung.name} from the Lab`);
-
-    // ...and the rung alone is not enough either, which is the other half of the same proof.
-    const withRung = stack.app.repos.bases.findById(stack.defender.id)!;
-    stack.app.repos.bases.updateResearch(withRung.id, {
-      ...withRung.research,
-      technologies: [...withRung.research.technologies, TRAP.requiresTech],
-    });
-    give(stack, stack.defender.id, document.id as ItemId, 0);
-    expect(entryFor(await yard(stack)).blocker).toBe(`Needs the ${document.name}`);
-
-    // Both, and the money: the yard cuts it into the inventory and takes the bill.
+    // The document and the money, and nothing from the Lab: the yard cuts it into the inventory.
     give(stack, stack.defender.id, document.id as ItemId, 1);
     const before = stack.app.repos.bases.findById(stack.defender.id)!.resources;
     expect(entryFor(await yard(stack)).blocker).toBeNull();
@@ -652,15 +671,11 @@ describe('§I4a/§I4b: the yard cuts one, behind two gates', () => {
     expect(entryFor(await yard(stack)).owned).toBe(2);
   });
 
-  it('refuses when the bill cannot be covered, with both gates open', async () => {
+  it('refuses when the bill cannot be covered, with the drawings held', async () => {
     const stack = await makeStack();
     readyToCut(stack);
     give(stack, stack.defender.id, document.id as ItemId, 1);
     const base = stack.app.repos.bases.findById(stack.defender.id)!;
-    stack.app.repos.bases.updateResearch(base.id, {
-      ...base.research,
-      technologies: [...base.research.technologies, TRAP.requiresTech],
-    });
     stack.app.repos.bases.updateResources(base.id, { ...base.resources, scrap: 0 });
 
     expect(entryFor(await yard(stack)).blocker).toBe('You cannot cover that');
@@ -773,11 +788,10 @@ describe('§I4c: migration 0078 on a deployment written before it', () => {
 });
 
 describe('the catalogues that have to agree', () => {
-  it('gives every trap an item, a document and a Lab rung', () => {
+  it('gives every trap an item and a document', () => {
     for (const spec of TRAP_CATALOG) {
       expect(findTrap(spec.id), spec.id).toBeDefined();
       expect(blueprintForTrap(spec.id), `${spec.id} has no blueprint`).toBeDefined();
-      expect(findTech(spec.requiresTech), `${spec.id} names a rung nobody has`).toBeDefined();
     }
   });
 });
@@ -904,6 +918,9 @@ describe('§I1: what a trap is worth on the ledger', () => {
     expect(resolved!.analysis.defender.infamy).toBe(ranHalf);
     expect(tally(ally, 'infamy_earned') - before.allyEarned).toBe(killed);
     expect(tally(ally, 'trap_kills')).toBe(killed);
+    // P11-B: and it went off, for the crew that laid it and nobody else.
+    expect(tally(ally, 'traps_sprung')).toBe(1);
+    expect(tally(stack.defender, 'traps_sprung')).toBe(0);
 
     // The kills go with the infamy.
     expect(tally(ally, 'kills') - before.allyKills, 'the kills went to the principal').toBe(killed);
@@ -941,5 +958,7 @@ describe('§I1: what a trap is worth on the ledger', () => {
     const { speedCut, moraleCut, rounds } = wire.effect;
     expect(input?.attackerSlowed).toEqual({ speedCut, moraleCut, rounds });
     expect(stack.app.repos.feats.tallies(stack.defender.id)['trap_kills'] ?? 0).toBe(0);
+    // Sprung all the same: it went off under the column, and the sprung ladder counts that.
+    expect(stack.app.repos.feats.tallies(stack.defender.id)['traps_sprung'] ?? 0).toBe(1);
   });
 });

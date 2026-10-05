@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { LocationHolderSchema, type LocationHolder } from '../city/control.js';
 import { IdSchema, IsoDateTimeSchema } from '../primitives.js';
 import { FleetSchema } from '../building/vehicles.js';
-import { ArmySchema, type Army } from '../units/training.js';
+import { ArmySchema, type Army } from '../units/muster.js';
 
 /**
  * A declared fight, and the ground it is over (GDD §A4, battle rework).
@@ -52,6 +52,21 @@ export const BattleTargetSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('district'), districtId: IdSchema }),
 ]);
 export type BattleTarget = z.infer<typeof BattleTargetSchema>;
+
+/**
+ * The attacking side's least commitment for a fight to go ahead (maintainer, 2026-10-05).
+ *
+ * Counted in unit slots across the whole side, allies included, at the lock (an hour before the
+ * mark). Under it the fight is called off: units walk home, bets are refunded, and the infamy paid
+ * to call it is kept. It is what stops a call nobody means to fight from being free.
+ */
+export const MIN_ATTACK_UNIT_SLOTS = 20;
+
+/**
+ * How long a crew that called a fight and lost waits before it may call the same place again
+ * (maintainer, 2026-10-05). Only that crew: anybody else may call it at once.
+ */
+export const LOST_CALL_COOLDOWN_HOURS = 24;
 
 /** How long a broken gate stays broken. The board's number, and the whole shape of a siege. */
 export const GATE_BREACH_HOURS = 24;
@@ -214,7 +229,7 @@ export type BattleSide = z.infer<typeof BattleSideSchema>;
  * What one participant has standing on the ground, ahead of the mark.
  *
  * Units here have **left the crew's roster**. They are not a reservation against it: a stack that is
- * deployed cannot also be defending home, cannot be garrisoned somewhere else, and cannot be trained
+ * deployed cannot also be defending home, cannot be garrisoned somewhere else, and cannot be mustered
  * over. Withdrawing puts them back. Modelling it as a booking against the army instead was the first
  * design and it fell over immediately: a crew could declare six fights and promise the same twenty
  * Razors to all of them.

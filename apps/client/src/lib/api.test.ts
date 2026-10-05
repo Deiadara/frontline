@@ -1,7 +1,20 @@
-import type { MeResponse, User } from '@frontline/shared';
-import { TUTORIAL_STEPS, playerLevelGrants } from '@frontline/shared';
+import type { AuthResponse, MeResponse, User } from '@frontline/shared';
+import {
+  CSRF_HEADER,
+  CSRF_HEADER_VALUE,
+  TUTORIAL_STEPS,
+  playerLevelGrants,
+} from '@frontline/shared';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { ApiRequestError, WASTE_DECLINED, barterResources, getMe, register } from './api';
+import {
+  ApiRequestError,
+  WASTE_DECLINED,
+  barterResources,
+  getMe,
+  logoutEverywhere,
+  register,
+  signOut,
+} from './api';
 import { useWasteConfirm } from '../store/wasteConfirm';
 import { useSession } from '../store/session';
 
@@ -47,7 +60,7 @@ const fetchMock = vi.fn();
 beforeEach(() => {
   vi.stubGlobal('fetch', fetchMock);
   fetchMock.mockReset();
-  useSession.setState({ token: null, user: null });
+  useSession.setState({ signedIn: false, user: null });
   localStorage.clear();
 });
 
@@ -61,84 +74,95 @@ describe('apiFetch', () => {
     await expect(getMe()).resolves.toEqual(ME);
   });
 
-  it('attaches the bearer token when a session exists', async () => {
-    useSession.setState({ token: 'secret-token', user: USER });
+  /*
+   * The session is an httpOnly cookie (security pass, 2026-09-30): the page holds no token to send,
+   * so what is left to check is that the cookie goes with the request and that every write carries
+   * the header the server's CSRF guard asks for.
+   */
+  it('sends the cookie and the page’s header, and no token', async () => {
+    useSession.setState({ signedIn: true, user: USER });
     fetchMock.mockResolvedValueOnce(fakeResponse({ ok: true, status: 200, body: ME }));
 
     await getMe();
 
     const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
     const headers = new Headers(init.headers);
-    expect(headers.get('Authorization')).toBe('Bearer secret-token');
+    expect(init.credentials).toBe('same-origin');
+    expect(headers.get(CSRF_HEADER)).toBe(CSRF_HEADER_VALUE);
+    expect(headers.get('Authorization')).toBeNull();
     expect(headers.get('Content-Type')).toBe('application/json');
   });
 
-  /*
-   * A login renews itself while the player plays (`apps/server/src/auth/session.ts`), and a
-   * password change or "log out everywhere" hands this tab its one surviving token in the same
-   * header. Missing it once is a player signed out a day later for no reason they can see.
-   */
-  it('swaps in a renewed session token from any answer', async () => {
-    useSession.setState({ token: 'old-token', user: USER });
-    fetchMock.mockResolvedValueOnce({
-      ...fakeResponse({ ok: true, status: 200, body: ME }),
-      headers: new Headers({ 'x-session-token': 'new-token' }),
-    });
+  it('keeps nothing but the user from a sign-in, and writes no token anywhere', async () => {
+    const body: AuthResponse = { token: 'never-kept', user: USER };
+    fetchMock.mockResolvedValueOnce(fakeResponse({ ok: true, status: 201, body }));
 
-    await getMe();
+    const answer = await register({ username: 'operator', password: 'password123' });
+    useSession.getState().login(answer.user);
 
-    expect(useSession.getState().token).toBe('new-token');
-    expect(useSession.getState().user).toEqual(USER);
+    expect(useSession.getState()).toMatchObject({ signedIn: true, user: USER });
+    expect(JSON.stringify(useSession.getState())).not.toContain('never-kept');
+    expect(JSON.stringify({ ...localStorage })).not.toContain('never-kept');
   });
 
   /*
-   * The race "log out everywhere" opens: a poll sent with the old token lands after this tab was
-   * handed its new one, and comes back 401. It is about the old token, and must not end the new
-   * session.
+   * The race "log out everywhere" opens: a poll sent on the old session lands after this tab was
+   * handed its new one, and comes back 401. It is about the old session, and must not end the new
+   * one.
    */
-  it('ignores a 401 for a token the tab has already replaced', async () => {
-    useSession.setState({ token: 'old-token', user: USER });
+  it('ignores a 401 for a session the tab has since had rotated', async () => {
+    useSession.setState({ signedIn: true, user: USER });
     let answer: (response: Response) => void = () => undefined;
     fetchMock.mockReturnValueOnce(new Promise<Response>((resolve) => (answer = resolve)));
     const inFlight = getMe().catch(() => undefined);
 
-    useSession.getState().setToken('new-token');
-    answer({
-      ...fakeResponse({
+    fetchMock.mockResolvedValueOnce(fakeResponse({ ok: true, status: 200, body: { ok: true } }));
+    await logoutEverywhere();
+    answer(
+      fakeResponse({
         ok: false,
         status: 401,
         body: { error: { code: 'UNAUTHORIZED', message: 'This session has ended' } },
       }),
-      headers: new Headers(),
-    });
+    );
     await inFlight;
 
-    expect(useSession.getState().token).toBe('new-token');
+    expect(useSession.getState().signedIn).toBe(true);
   });
 
-  it('still signs out on a 401 for the token the tab is using', async () => {
-    useSession.setState({ token: 'only-token', user: USER });
-    fetchMock.mockResolvedValueOnce({
-      ...fakeResponse({
+  it('still signs out on a 401 for the session the tab is using', async () => {
+    useSession.setState({ signedIn: true, user: USER });
+    fetchMock.mockResolvedValueOnce(
+      fakeResponse({
         ok: false,
         status: 401,
         body: { error: { code: 'UNAUTHORIZED', message: 'This session has ended' } },
       }),
-      headers: new Headers(),
-    });
+    );
     await getMe().catch(() => undefined);
-    expect(useSession.getState().token).toBeNull();
+    expect(useSession.getState().signedIn).toBe(false);
   });
 
-  it('does not sign a logged-out tab back in from a stray header', async () => {
-    fetchMock.mockResolvedValueOnce({
-      ...fakeResponse({ ok: true, status: 200, body: ME }),
-      headers: new Headers({ 'x-session-token': 'new-token' }),
-    });
+  it('signs out through the server, which is the only side that can drop the cookie', async () => {
+    useSession.setState({ signedIn: true, user: USER });
+    fetchMock.mockResolvedValueOnce(fakeResponse({ ok: true, status: 200, body: { ok: true } }));
 
-    await getMe();
+    await signOut();
 
-    expect(useSession.getState().token).toBeNull();
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe('/api/auth/logout');
+    expect(init.method).toBe('POST');
+    expect(new Headers(init.headers).get(CSRF_HEADER)).toBe(CSRF_HEADER_VALUE);
+    expect(useSession.getState()).toMatchObject({ signedIn: false, user: null });
+  });
+
+  it('signs the page out even when the server does not answer', async () => {
+    useSession.setState({ signedIn: true, user: USER });
+    fetchMock.mockRejectedValueOnce(new TypeError('Failed to fetch'));
+
+    await signOut().catch(() => undefined);
+
+    expect(useSession.getState().signedIn).toBe(false);
   });
 
   it('rejects a malformed 2xx body instead of leaking it', async () => {
@@ -208,7 +232,7 @@ describe('apiFetch', () => {
   });
 
   it('clears the session on a 401', async () => {
-    useSession.setState({ token: 'expired', user: USER });
+    useSession.setState({ signedIn: true, user: USER });
     fetchMock.mockResolvedValueOnce(
       fakeResponse({
         ok: false,
@@ -218,7 +242,7 @@ describe('apiFetch', () => {
     );
 
     await expect(getMe()).rejects.toBeInstanceOf(ApiRequestError);
-    expect(useSession.getState().token).toBeNull();
+    expect(useSession.getState().signedIn).toBe(false);
     expect(useSession.getState().user).toBeNull();
   });
 });
@@ -232,7 +256,7 @@ describe('apiFetch', () => {
  * the player was shown "Unexpected token < in JSON at position 0" and we were shown nothing at all.
  */
 describe('a success that is not JSON', () => {
-  beforeEach(() => useSession.setState({ token: 'tok', user: null }));
+  beforeEach(() => useSession.setState({ signedIn: true, user: null }));
 
   it('is an ApiRequestError naming the status, not a raw SyntaxError', async () => {
     vi.stubGlobal(

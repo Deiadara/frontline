@@ -24,7 +24,7 @@ import {
 import type { Inventory } from '../items/inventory.js';
 import { ITEM_RARITIES, type ItemRarity } from '../items/rarity.js';
 
-const READY = { hasHeadOfResearch: true, hasReimaginingResearch: true };
+const READY = { hasResearcher: true, hasReimaginingResearch: true };
 const ALL_PAGES = BLUEPRINTS.flatMap((spec) => spec.pages.map((page) => page.id));
 
 /** A crew holding `copies` of the first few pages, so there is something to name three times. */
@@ -101,6 +101,37 @@ describe('reimagining a page (§G2, §G3)', () => {
     expect(held(inventory, first), 'a refused trade spent a page').toBe(2);
   });
 
+  /**
+   * Spares only (maintainer ruling P7-B, 2026-10-02). The bench took the single copy of a page a
+   * document still needed and dropped a five-of-six collection to four, with no warning.
+   */
+  it('refuses the only copy of a page a document still needs, and takes nothing', () => {
+    const inventory: Inventory = { [first]: 1, [second]: 2, [third]: 2 };
+    const pages = [first, second, third];
+    expect(reimaginingRefusal({ inventory, context: READY, pages, seed: 's' })).toBe('not_spare');
+    expect(reimagine({ inventory, context: READY, pages, seed: 's' })).toBeNull();
+    expect(held(inventory, first), 'a refused trade spent a page').toBe(1);
+    // A second copy is a spare, and the same three go in.
+    expect(
+      reimaginingRefusal({
+        inventory: { ...inventory, [first]: 2 },
+        context: READY,
+        pages,
+        seed: 's',
+      }),
+    ).toBeNull();
+  });
+
+  it('takes the last copy of a page whose document is already assembled', () => {
+    // Assembling spends a copy of every page, so whatever is left of a finished document is spare.
+    const done = BLUEPRINTS.find((spec) => spec.pages.length >= 3)!;
+    const [a, b, c] = done.pages.map((page) => page.id);
+    const inventory: Inventory = { [done.id]: 1, [a!]: 1, [b!]: 1, [c!]: 1 };
+    expect(
+      reimaginingRefusal({ inventory, context: READY, pages: [a!, b!, c!], seed: 'u' }),
+    ).toBeNull();
+  });
+
   it('refuses a page named more times than it is held', () => {
     // Two copies, named three times. Each name is a page the crew holds; the count is the lie.
     const inventory: Inventory = { [first]: 2 };
@@ -136,13 +167,13 @@ describe('reimagining a page (§G2, §G3)', () => {
     expect(ask([first, second, third])).toBeNull();
   });
 
-  it('refuses without the research or without a Head of Research', () => {
+  it('refuses without the research or without a Researcher', () => {
     const inventory = holding(2, 3);
     const pages = [first, second, third];
     expect(
       reimaginingRefusal({
         inventory,
-        context: { hasHeadOfResearch: true, hasReimaginingResearch: false },
+        context: { hasResearcher: true, hasReimaginingResearch: false },
         pages,
         seed: 'g',
       }),
@@ -150,7 +181,7 @@ describe('reimagining a page (§G2, §G3)', () => {
     expect(
       reimaginingRefusal({
         inventory,
-        context: { hasHeadOfResearch: false, hasReimaginingResearch: true },
+        context: { hasResearcher: false, hasReimaginingResearch: true },
         pages,
         seed: 'g',
       }),
@@ -184,7 +215,8 @@ describe('reimagining a page (§G2, §G3)', () => {
    * three may well be back at zero.
    */
   it('never hands back one of the three that were spent', () => {
-    const inventory: Inventory = { [first]: 1, [second]: 1, [third]: 1 };
+    // Two of each: only spares go in (P7-B), and a held page is out of the pool either way.
+    const inventory: Inventory = { [first]: 2, [second]: 2, [third]: 2 };
     const pages = [first, second, third];
     for (const seed of Array.from({ length: 200 }, (_, index) => `spent-${index}`)) {
       const result = reimagine({ inventory, context: READY, pages, seed });
@@ -263,7 +295,7 @@ describe('reimagining a page (§G2, §G3)', () => {
     const reasons = [
       reimaginingRefusal({
         inventory,
-        context: { hasHeadOfResearch: false, hasReimaginingResearch: false },
+        context: { hasResearcher: false, hasReimaginingResearch: false },
         pages: [],
         seed: 'p',
       }),
@@ -318,7 +350,11 @@ describe('what the three sheets buy (maintainer, 2026-09-18)', () => {
     return (rarity: ItemRarity) => counts.get(rarity)! / SAMPLE;
   }
 
-  /** Three sheets of the named tiers, held one deep each, and nothing else in the bag. */
+  /**
+   * Three sheets of the named tiers, held two deep each so every one is a spare (P7-B), and
+   * nothing else in the bag. A held page is out of the pool however deep, so the odds are as they
+   * were at one deep.
+   */
   function feed(tiers: readonly ItemRarity[]): { inventory: Inventory; pages: string[] } {
     const bag: Record<string, number> = {};
     const pages: string[] = [];
@@ -328,7 +364,7 @@ describe('what the three sheets buy (maintainer, 2026-09-18)', () => {
       taken.set(tier, at + 1);
       const pageId = PAGES_OF(tier)[at]!;
       pages.push(pageId);
-      bag[pageId] = (bag[pageId] ?? 0) + 1;
+      bag[pageId] = (bag[pageId] ?? 0) + 2;
     }
     return { inventory: bag, pages };
   }

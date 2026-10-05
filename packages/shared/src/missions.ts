@@ -3,7 +3,7 @@ import { InventorySchema } from './items/inventory.js';
 import { cancelWindowMs, cancelWindowOpen } from './time/cancel.js';
 import { FleetSchema } from './building/vehicles.js';
 import { OfficerMarkSchema } from './crew/marks.js';
-import { fightLift, gradePay, gradedDurationMinutes, type Grade } from './missions.grade.js';
+import { fightPayFactor, gradePay, gradedDurationMinutes, type Grade } from './missions.grade.js';
 import { MissionLeaningSchema } from './missions.leading.js';
 import { RESOURCE_CAP_VALUE } from './market/offers.js';
 import { CORE_JOBS } from './mission-catalog/core.js';
@@ -15,7 +15,8 @@ import { IdSchema, IsoDateTimeSchema } from './primitives.js';
 import { PartialResourcesSchema, type PartialResources, type ResourceKey } from './resources.js';
 import { ArmySchema } from './units/index.js';
 import { effortScale, EFFORT_BASELINE_MINUTES } from './progression/effort.js';
-import { MAX_MISSION_SPEED_BONUS, roadMinutes } from './time/speed.js';
+import { roadMinutes } from './time/speed.js';
+import { missionSpeedCut } from './economy/soft-bounds.js';
 import { BlueprintCategorySchema, BlueprintPageIdSchema } from './blueprints/catalog.js';
 
 /**
@@ -131,14 +132,14 @@ export const MISSION_TEMPLATES: readonly MissionTemplate[] = [
 /**
  * §A4: what the ground takes off a mission's clock.
  *
- * The Smuggler's Tunnel, essentially: there is a shorter way across the city and you own it. Capped
- * hard, because a mission that lands the moment it is launched is a mission with no decision in it,
- * and floored at a minute for the same reason a build is.
+ * The Smuggler's Tunnel, essentially: there is a shorter way across the city and you own it. Bent
+ * rather than capped since 2026-10-05 (`missionSpeedCut`): a mission that lands the moment it is
+ * launched is a mission with no decision in it, so the bonus closes on 60 and never reaches it, and
+ * the clock is floored at a minute for the same reason a build is.
  */
-export { MAX_MISSION_SPEED_BONUS };
-
 export function hastenedMinutes(minutes: number, speedPercent: number): number {
-  const bonus = Math.min(MAX_MISSION_SPEED_BONUS, Math.max(0, speedPercent));
+  // Bent, not stopped (`missionSpeedCut`, maintainer 2026-10-05).
+  const bonus = missionSpeedCut(speedPercent);
   return Math.max(1, Math.round(minutes / (1 + bonus / 100)));
 }
 
@@ -156,8 +157,10 @@ export function hastenedRoadMinutes(
   speed = 0,
   reductionPercent = 0,
   flatMinutesOff = 0,
+  /** The Cartographer's cut off the road's base (`roadMinutes`). */
+  baseCutPercent = 0,
 ): number {
-  return roadMinutes(minutes, speed, reductionPercent, flatMinutesOff);
+  return roadMinutes(minutes, speed, reductionPercent, flatMinutesOff, baseCutPercent);
 }
 
 /** The minutes a run's pay and XP are priced on: what the card quoted, or the row's own clock. */
@@ -219,12 +222,6 @@ export function templateTimings(
  */
 export const REWARD_BASELINE_MINUTES = EFFORT_BASELINE_MINUTES;
 
-/** Battles pay a premium over standard work for the same time on the clock (§E5). */
-export const KIND_REWARD_MULTIPLIER: Record<MissionKind, number> = {
-  standard: 1,
-  battle: 1.6,
-};
-
 /**
  * What a run that came home empty pays: nothing, either kind (§E5).
  *
@@ -256,15 +253,53 @@ export function spoilsValue(spoils: PartialResources): number {
 }
 
 /**
+ * What a job's kind does to its pay: nothing for plain work, the fight premium for a battle (§E5).
+ * Battles pay more than standard work for the same time on the clock, by more the harder the
+ * grade (`fightPayFactor`, maintainer 2026-09-30).
+ */
+export function kindPayFactor(kind: MissionKind, grade: Grade): number {
+  return kind === 'battle' ? fightPayFactor(grade) : 1;
+}
+
+/**
  * The clock curve, the kind's premium and the grade's pay (maintainer, 2026-09-28).
  *
  * The grade replaced two things: the crew-level pay premium and the fight tier ladder. A grade
  * pays what the level premium paid at the level the grade is most often dealt (`gradePay`), and a
- * fight takes the old ladder's lift at that level on top (`fightLift`).
+ * fight takes its premium over that on top (`kindPayFactor`).
  */
 export function rewardScale(totalMinutes: number, kind: MissionKind, grade: Grade): number {
-  const lift = kind === 'battle' ? fightLift(grade) : 1;
-  return effortScale(totalMinutes) * KIND_REWARD_MULTIPLIER[kind] * gradePay(grade) * lift;
+  return effortScale(totalMinutes) * kindPayFactor(kind, grade) * gradePay(grade);
+}
+
+/**
+ * The share of a job's non-caps worth that is paid in caps instead, by kind (maintainer,
+ * 2026-10-01: "slightly buff the caps missions give so that the loot is more or less the same as
+ * before but with more caps, especially for battles").
+ *
+ * Moved at the market's own valuation (`RESOURCE_CAP_VALUE`), so a mix is worth what it was worth
+ * and only its shape changes. Measured over 40 days of every board at five levels: plain work went
+ * from 23% caps to 31% and fights from 24% to 43%, with the total worth unchanged and the weight
+ * within one percent.
+ */
+export const MISSION_CAPS_TILT: Readonly<Record<MissionKind, number>> = {
+  standard: 0.1,
+  battle: 0.25,
+};
+
+/** A job's authored mix with {@link MISSION_CAPS_TILT} of its non-caps worth moved into caps. */
+export function capsTilted(spoils: PartialResources, kind: MissionKind): PartialResources {
+  const tilt = MISSION_CAPS_TILT[kind];
+  const mix: PartialResources = {};
+  let moved = 0;
+  for (const [key, amount] of Object.entries(spoils) as [ResourceKey, number][]) {
+    if (key === 'caps') continue;
+    mix[key] = amount * (1 - tilt);
+    moved += amount * tilt * RESOURCE_CAP_VALUE[key];
+  }
+  const caps = (spoils.caps ?? 0) + moved / RESOURCE_CAP_VALUE.caps;
+  if (caps > 0) mix.caps = caps;
+  return mix;
 }
 
 /**
@@ -290,12 +325,13 @@ export function missionRewards(
   grade: Grade = template.grades[0],
 ): PartialResources {
   const share = outcome === 'success' ? 1 : FAILURE_REWARD_SHARE[template.kind];
-  const worth = spoilsValue(template.spoils);
+  const mix = capsTilted(template.spoils, template.kind);
+  const worth = spoilsValue(mix);
   const priced = worth > 0 ? BUNDLE_VALUE / worth : 0;
   const factor = rewardScale(totalMinutes, template.kind, grade) * share * priced;
 
   const rewards: PartialResources = {};
-  for (const [key, amount] of Object.entries(template.spoils) as [ResourceKey, number][]) {
+  for (const [key, amount] of Object.entries(mix) as [ResourceKey, number][]) {
     const scaled = Math.round(amount * factor);
     if (scaled > 0) rewards[key] = scaled;
   }
@@ -364,6 +400,16 @@ export const MissionSchema = z.object({
    * to the table entry".
    */
   xp: z.number().int().nonnegative().default(0),
+  /**
+   * What the return actually banked: `xp` above (or a failure's share of it) with the district's
+   * and the crew's XP bonus on top (`boostedXp`). Absent until the run is home, and on any run that
+   * came home before it was kept (bug pass, 2026-10-02), where the report falls back to `xp`.
+   */
+  xpPaid: z.number().int().nonnegative().optional(),
+  /** The infamy the return banked (a battle job's beaten enemy). Absent before 0137 and on plain work. */
+  infamyPaid: z.number().int().nonnegative().optional(),
+  /** The Bone Market's caps for the crew's own dead, as the return banked them. Absent before 0137. */
+  refund: PartialResourcesSchema.optional(),
   /**
    * The units that went (§E, §A5).
    *

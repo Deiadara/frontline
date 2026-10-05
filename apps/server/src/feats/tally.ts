@@ -167,7 +167,10 @@ export function tallyPageReimagined(repos: Repositories, baseId: string, pageId:
   record(repos, baseId, [one('masterpieces_reimagined')]);
 }
 
-/** A party sent by a standing order. Counted at the send, whether or not it comes home with anything. */
+/**
+ * A party a standing order sent, counted when it comes home, whether or not it brought anything. A
+ * party turned round in its first tenth is not counted.
+ */
 export function tallyAutomatedParty(repos: Repositories, baseId: string): void {
   record(repos, baseId, [one('automated_parties')]);
 }
@@ -183,9 +186,29 @@ export function tallyUnitsRouted(repos: Repositories, baseId: string, count: num
   record(repos, baseId, [by('units_routed', count)]);
 }
 
-/** A drill started while another was already running: the second bench, used. */
-export function tallyDrillPaired(repos: Repositories, baseId: string): void {
-  record(repos, baseId, [one('drills_paired')]);
+/**
+ * The crew's dead the medics brought round after a won fight, a declared one or a battle job
+ * (P14-B, 2026-10-02): what the Infirmary, the Joker's seat and the recovery perks are for.
+ */
+export function tallyCasualtiesRecovered(repos: Repositories, baseId: string, count: number): void {
+  if (count <= 0) return;
+  record(repos, baseId, [by('casualties_recovered', count)]);
+}
+
+/** A level of work on held ground, landed (P8-C, 2026-10-02). */
+export function tallyLocationLevelRaised(repos: Repositories, baseId: string): void {
+  record(repos, baseId, [one('location_levels_raised')]);
+}
+
+/** A level on a captured gate, landed (P8-C, 2026-10-02). */
+export function tallyGateLevelRaised(repos: Repositories, baseId: string, levels: number): void {
+  if (levels <= 0) return;
+  record(repos, baseId, [by('gate_levels_raised', levels)]);
+}
+
+/** A drill queued with two already on the list: the Professor's third place, used. */
+export function tallyDrillThirdInLine(repos: Repositories, baseId: string): void {
+  record(repos, baseId, [one('drills_third_in_line')]);
 }
 
 /** Infamy banked, gross. Spending it on the ladder or the back room does not take it back. */
@@ -354,14 +377,34 @@ export function tallyDistrictRaid(
 }
 
 /**
- * What a trap took before contact, counted for the crew that laid it rather than for the side: on
- * the trap ladder and as kills. The side's kills are split by the slots each crew put in the line,
- * and a trap is not in the line, so an ally's trap used to pay its `kills` to the principal (bug
- * pass, 2026-09-29). The settle takes these off the side's figure before it splits it.
+ * A trap that went off, and what it took before contact, counted for the crew that laid it rather
+ * than for the side. The side's kills are split by the slots each crew put in the line, and a trap
+ * is not in the line, so an ally's trap used to pay its `kills` to the principal (bug pass,
+ * 2026-09-29). The settle takes these off the side's figure before it splits it.
+ *
+ * Sprung counts once whatever it killed (P11-B, 2026-10-02): a trap a Wall Breaker walked through
+ * still went off, and the "set" and "laid" rungs are about traps laid under fights, not built.
  */
-export function tallyTrapKills(repos: Repositories, baseId: string, killed: number): void {
-  if (killed <= 0) return;
-  record(repos, baseId, [by('trap_kills', killed), by('kills', killed)]);
+export function tallyTrapSprung(repos: Repositories, baseId: string, killed: number): void {
+  record(repos, baseId, [
+    one('traps_sprung'),
+    ...(killed > 0 ? [by('trap_kills', killed), by('kills', killed)] : []),
+  ]);
+}
+
+/** A bet put down at the Stackhouse (2026-10-05). */
+export function tallyStackhouseBet(repos: Repositories, baseId: string): void {
+  record(repos, baseId, [one('stackhouse_bets')]);
+}
+
+/** A Stackhouse bet that came in. */
+export function tallyStackhouseWin(repos: Repositories, baseId: string): void {
+  record(repos, baseId, [one('stackhouse_wins')]);
+}
+
+/** A name bought with infamy and put on a fight (P11-B, 2026-10-02). */
+export function tallyNameBurned(repos: Repositories, baseId: string): void {
+  record(repos, baseId, [one('names_burned')]);
 }
 
 /** Gate levels a Colossus knocked down, counted for the crew that called the fight. */
@@ -414,9 +457,9 @@ export function tallyGateBreached(repos: Repositories, baseId: string): void {
 }
 
 /** Units out of the drill yard, counted per unit rather than per order. */
-export function tallyUnitsTrained(repos: Repositories, baseId: string, units: number): void {
+export function tallyUnitsMustered(repos: Repositories, baseId: string, units: number): void {
   if (units <= 0) return;
-  record(repos, baseId, [by('units_trained', units)]);
+  record(repos, baseId, [by('units_mustered', units)]);
 }
 
 /**
@@ -531,10 +574,6 @@ export function tallyCourierReport(repos: Repositories, baseId: string): void {
  */
 export function tallyAddonBuilt(repos: Repositories, baseId: string, isTrap: boolean): void {
   record(repos, baseId, [one('addons_built'), ...(isTrap ? [one('traps_built')] : [])]);
-}
-
-export function tallyMessageSent(repos: Repositories, baseId: string): void {
-  record(repos, baseId, [one('messages_sent')]);
 }
 
 /**

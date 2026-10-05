@@ -1,5 +1,4 @@
 import { randomUUID } from 'node:crypto';
-import { tallyMessageSent } from '../feats/tally.js';
 import { MAILBOX_LIMIT, type MessageAudience, type NotificationKind } from '@frontline/shared';
 import type { Repositories } from '../db/repos/index.js';
 import { notify } from './notify.js';
@@ -16,7 +15,12 @@ import { notify } from './notify.js';
  * The fan-out rule lives here with it: one row per recipient, plus one for the sender's own folder.
  */
 export interface Outgoing {
-  sender: { id: string; username: string };
+  /**
+   * Who sent it, and the name the letter is signed with: the name they go by (`displayNameOf`), or
+   * a faction's name on a letter the table sends. Never the address: replies go to the account's
+   * login name as it stands (`MessageSchema.replyTo`).
+   */
+  sender: { id: string; signature: string };
   /** The faction the sender belonged to as they wrote it, or null. A snapshot, not a lookup. */
   senderFaction: string | null;
   /** Already resolved to user ids, and already excluding the sender. */
@@ -47,7 +51,7 @@ export function sendMessage(repos: Repositories, outgoing: Outgoing): void {
   const common = {
     threadId: randomUUID(),
     senderUserId: outgoing.sender.id,
-    senderName: outgoing.sender.username,
+    senderName: outgoing.sender.signature,
     senderFaction: outgoing.senderFaction,
     audience: outgoing.audience,
     addressedTo: outgoing.addressedTo,
@@ -59,6 +63,9 @@ export function sendMessage(repos: Repositories, outgoing: Outgoing): void {
   };
 
   for (const recipientUserId of outgoing.recipients) {
+    // A reader who has blocked the sender never gets the letter, an invitation included
+    // (maintainer, 2026-10-02). The sender's own copy still says it went.
+    if (repos.social.hasBlocked(recipientUserId, outgoing.sender.id)) continue;
     repos.social.putMessage({ ...common, id: randomUUID(), recipientUserId, isSentCopy: false });
     // The oldest goes as the newest lands, the way the bell is trimmed (maintainer, 2026-09-29).
     repos.social.trimMailbox(recipientUserId, MAILBOX_LIMIT);
@@ -80,18 +87,5 @@ export function sendMessage(repos: Repositories, outgoing: Outgoing): void {
       isSentCopy: true,
     });
     repos.social.trimSentFolder(outgoing.sender.id, MAILBOX_LIMIT);
-    /*
-     * Feats: a letter this player wrote.
-     *
-     * Gated on the sent copy rather than counted at the top, because this function is also how the
-     * game itself writes to people: an invitation, a receipt, a notice about a fight. Those have no
-     * sent copy and are nobody's correspondence, and counting them would finish the ladder for a
-     * player who never opened the mailbox.
-     *
-     * Keyed by base because every tally is, and a sender with no district cannot have one: the
-     * lookup is one indexed read and a miss simply counts nothing.
-     */
-    const senderBase = repos.bases.findByOwnerId(outgoing.sender.id);
-    if (senderBase) tallyMessageSent(repos, senderBase.id);
   }
 }

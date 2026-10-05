@@ -77,7 +77,7 @@ const base: Base = {
   addons: { researched: [], built: [FITTED.id, SHELVED.id, GENERATOR_MOD.id] },
   buildQueue: [],
   army: {},
-  trainingQueue: [],
+  musterQueue: [],
   training: startingTraining('2026-08-16T00:00:00.000Z'),
   inventory: {},
   fittedUpgrades: [],
@@ -109,6 +109,7 @@ const me: MeResponse = {
 const scrapyard: ScrapyardResponse = {
   scrapyardLevel: 3,
   discountPercent: 4,
+  salvagerCutPercent: 0,
   resources: STARTING_RESOURCES,
   entries: [],
 };
@@ -156,7 +157,7 @@ function renderYard(path = '/game/scrapyard') {
 beforeEach(() => {
   vi.stubGlobal('fetch', fetchMock);
   fetchMock.mockReset();
-  useSession.setState({ token: 'session-token', user: null });
+  useSession.setState({ signedIn: true, user: null });
 });
 
 afterEach(() => vi.unstubAllGlobals());
@@ -408,10 +409,13 @@ describe('the head of the page', () => {
    * evened a rung naming both benches' cards in full was 103px too wide for it.
    */
   it('counts the next rung in one number on the plate and splits it in the tip', async () => {
-    stubApi();
+    // A yard at 5, whose next rung (6) opens cards on both benches and the Buried Shell: the
+    // traps are spread over the whole yard since P13-A, so not every rung opens one.
+    const atFive = { ...scrapyard, scrapyardLevel: 5, discountPercent: 8 };
+    stubApi(atFive);
     renderYard();
     const next = nextScrapyardUnlock(
-      scrapyard.scrapyardLevel,
+      atFive.scrapyardLevel,
       scrapyardUnlockLadder({
         modifications: MODIFICATIONS,
         upgrades: UNIT_MODIFICATIONS,
@@ -486,13 +490,18 @@ describe('the grade headings say the level their own cards open at', () => {
     expect(nexusGrades.length).toBeGreaterThan(1);
   });
 
-  it('reads each building grade off its cards, which sit on the unit ladder', async () => {
+  it('reads each building grade off its cards, the first of them to open', async () => {
     stubApi(board);
     renderYard('/game/scrapyard?bench=nexus');
     const tray = within(await screen.findByTestId('scrapyard-nexus'));
     for (const rarity of nexusGrades) {
+      // Inside the grade's band since P13-A: the heading names the first of this bench's cards.
+      const first = Math.min(
+        ...NEXUS.filter((spec) => spec.rarity === rarity).map(scrapyardLevelForModification),
+      );
+      expect(first, rarity).toBeGreaterThanOrEqual(SCRAPYARD_LEVEL_FOR_RARITY[rarity]);
       expect(tray.getByTestId(`scrapyard-rarity-${rarity}`), rarity).toHaveTextContent(
-        `opens at yard level ${SCRAPYARD_LEVEL_FOR_RARITY[rarity]}`,
+        `opens at yard level ${first}`,
       );
     }
   });
@@ -513,8 +522,8 @@ describe('the grade headings say the level their own cards open at', () => {
     renderYard();
     const tip = (await screen.findByTestId('scrapyard-level-tip')).getAttribute('data-tip') ?? '';
     expect(tip).toContain('building and unit cards alike');
-    expect(tip).toContain(`INTRICATE at ${SCRAPYARD_LEVEL_FOR_RARITY.intricate}`);
-    expect(tip).toContain(`MASTERPIECE at ${SCRAPYARD_LEVEL_FOR_RARITY.masterpiece}`);
+    expect(tip).toContain(`INTRICATE from ${SCRAPYARD_LEVEL_FOR_RARITY.intricate}`);
+    expect(tip).toContain(`MASTERPIECE from ${SCRAPYARD_LEVEL_FOR_RARITY.masterpiece}`);
     expect(tip).not.toContain('Building cards:');
   });
 });
@@ -752,7 +761,7 @@ describe('bolting a card in from the bench', () => {
     documentHeld: true,
     blocker: null,
     targets: [{ id: 'nexus', name: 'The Nexus', fitted: false, blocker: null }],
-    requirement: ['The Nexus at level 2', 'District level 2', 'Lead Engineer at F+ or better'],
+    requirement: ['The Nexus at level 2', 'District level 2', 'Engineer at F+ or better'],
     ...over,
   });
 
@@ -805,7 +814,7 @@ describe('bolting a card in from the bench', () => {
     renderYard('/game/scrapyard?bench=nexus');
     const requires = within(await screen.findByTestId('addon-requires-nexus_priority_bus'));
     expect(requires.getByText('The Nexus at level 2')).toBeVisible();
-    expect(requires.getByText('Lead Engineer at F+ or better')).toBeVisible();
+    expect(requires.getByText('Engineer at F+ or better')).toBeVisible();
     // ...and the one gate that is actually shut is the sentence under the dead button.
     expect(screen.getByTestId('addon-blocker-nexus_priority_bus')).toHaveTextContent(
       'District level 2',

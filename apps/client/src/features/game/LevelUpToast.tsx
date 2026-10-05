@@ -143,9 +143,9 @@ export function LevelUpToast({ levelUp, onDismiss }: { levelUp: LevelUp; onDismi
           </button>
         </div>
 
-        {/* No recruit-slot line (maintainer, 2026-09-28): the slots run level plus one, far past any
-            crew anybody hires, so the number told a player nothing. What a level opens is the
-            list below. */}
+        {/* No recruit-slot line (maintainer, 2026-09-28): a count on every level told a player
+            nothing. Since the slot ladder (2026-09-30) a level that brings an officer slot says
+            so in the list below, as an unlock like any other. */}
         {unlocks.length > 0 && (
           <ul className="flex flex-col gap-1" data-testid="level-up-toast-unlocks">
             {unlocks.map((unlock) => (

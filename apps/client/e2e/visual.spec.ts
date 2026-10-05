@@ -9,6 +9,7 @@
 import { expect, test, type Page } from '@playwright/test';
 import {
   BUILDING_CATALOG,
+  playerLevelGrants,
   playerXpToNextLevel,
   BUILDING_KINDS,
   CITY_DISTRICTS,
@@ -22,6 +23,7 @@ import {
 } from '@frontline/shared';
 import {
   activeResearch,
+  crewStanding,
   districtWithAddons,
   factionScreen,
   hudExtremes,
@@ -520,7 +522,7 @@ for (const size of VIEWPORTS) {
             levelUp: {
               level: 6,
               levelsGained: 2,
-              grants: { assigneePool: 8, assigneeCapPerOfficer: 3, recruitSlots: 7 },
+              grants: { assigneePool: 8, assigneeCapPerOfficer: 3, recruitSlots: 1 },
             },
           }),
         }),
@@ -727,19 +729,21 @@ for (const size of VIEWPORTS) {
       await page.getByTestId('reports-toggle').click();
       const grantValue = (label: string) =>
         page.locator('dl > div').filter({ hasText: label }).locator('dd');
-      await grantValue('Recruit slots').scrollIntoViewIfNeeded();
+      await grantValue('Officer slots').scrollIntoViewIfNeeded();
       await settleFonts(page);
 
       // Fifteen since 2026-09-19: the Market opens at 15 and the back room at notoriety 3, so the
       // late-game fixture was raised past every door it is meant to be able to walk through. The
-      // readout is off the curve, so it reads whatever level fifteen asks (3,960 since the curve
-      // was retuned on 2026-09-28).
+      // readout is off the curve, so it reads whatever level fifteen asks (2,368 since the curve's
+      // power went to 1.41 on 2026-10-01).
       const needed = playerXpToNextLevel(15);
       await expect(page.getByText('Level 15 → 16')).toBeInViewport({ ratio: 1 });
       await expect(page.getByText(`${needed - 1} / ${needed} XP`)).toBeInViewport({ ratio: 1 });
 
-      // §I2 grants at level 15: §H8 slots 2+14.
-      await expect(grantValue('Recruit slots')).toHaveText('16');
+      // §I2 grants at level 15: §H8 slots, one at the Bar's 5 and another every two levels since.
+      await expect(grantValue('Officer slots')).toHaveText(
+        String(playerLevelGrants(15).recruitSlots),
+      );
 
       await expectNothingClippedHorizontally(page);
       await page.screenshot({ path: `screenshots/visual/progression-${tag}.png` });
@@ -786,7 +790,8 @@ for (const size of VIEWPORTS) {
       // And the three controls standing on the artwork are lit, not buried under something drawn
       // over them. See `expectControlNotDimmed`: this is the one screen where a room's own vignette
       // and a screen's own chrome overlap, so it is the one that catches the z-index escaping.
-      await expectControlNotDimmed(page, 'open-payroll');
+      await expectControlNotDimmed(page, 'payroll-readout');
+      await expectControlNotDimmed(page, 'bar-increase-payroll');
       await expectControlNotDimmed(page, 'open-crew');
       await expectControlNotDimmed(page, 'info-note');
 
@@ -835,13 +840,15 @@ for (const size of VIEWPORTS) {
       await page.screenshot({ path: `screenshots/visual/bar-roster-${tag}.png` });
       await page.keyboard.press('Escape');
 
-      /* The two screens behind the doors on the glass. */
-      await page.getByTestId('open-payroll').click();
-      await expect(page.getByTestId('payroll-book')).toBeVisible();
+      /* The two screens behind the doors on the glass. The first is the window the drawn
+         Increase payroll opens: the Nexus's own (maintainer, 2026-10-01). */
+      await page.getByTestId('bar-increase-payroll').click();
+      await expect(page.getByTestId('payroll-dialog')).toBeVisible();
       await settleFonts(page);
-      const cutPayroll = await clipped();
-      expect(cutPayroll, `cut text in the payroll book: ${cutPayroll.join(' | ')}`).toEqual([]);
-      await page.screenshot({ path: `screenshots/visual/bar-payroll-${tag}.png` });
+      const cutRaise = await clipped();
+      expect(cutRaise, `cut text in the raise window: ${cutRaise.join(' | ')}`).toEqual([]);
+      await expectNothingClippedHorizontally(page);
+      await page.screenshot({ path: `screenshots/visual/bar-raise-${tag}.png` });
       await page.keyboard.press('Escape');
 
       await page.getByTestId('open-crew').click();
@@ -920,7 +927,7 @@ for (const size of VIEWPORTS) {
 
       await expect(seat).toBeInViewport({ ratio: 1 });
       // The two readouts sit on the glass over the room rather than under the nav bar.
-      await expect(page.getByTestId('open-payroll')).toBeInViewport({ ratio: 1 });
+      await expect(page.getByTestId('payroll-left')).toBeInViewport({ ratio: 1 });
       await expect(page.getByTestId('info-note')).toBeInViewport({ ratio: 1 });
 
       // And the note's card opens *over* the room rather than off the bottom of it. The chip
@@ -940,7 +947,7 @@ for (const size of VIEWPORTS) {
        */
       await expect(note).not.toContainText('How it works');
       await expect(note).not.toContainText('Nothing is negotiated');
-      await expect(note).toContainText('midnight the highest signs at what they bid');
+      await expect(note).toContainText('the highest signs at what they bid');
     });
     /*
      * §C/§D/§G2/§I1: the research page, at all three of its tabs.
@@ -1073,7 +1080,7 @@ for (const size of VIEWPORTS) {
        * The card is a fixed frame, and this is the half of it a class list cannot prove.
        *
        * Two things have to hold. The portrait is a real column rather than a thumbnail, and every
-       * card in the grid is the *same* card: same height, and the Train control on the same line.
+       * card in the grid is the *same* card: same height, and the Muster control on the same line.
        * That is the whole reason the roster was rebuilt, and it is exactly the kind of thing that
        * regresses silently the next time somebody adds a line to a card.
        */
@@ -1142,7 +1149,7 @@ for (const size of VIEWPORTS) {
           });
           // ...and nothing pushed out of the card by a band that grew. The price box is `shrink-0`
           // precisely so this can see it: left shrinkable it swallows the overflow and moves the
-          // Train button instead, which is a defect no overflow sweep can find.
+          // Muster button instead, which is a defect no overflow sweep can find.
           const outside = cards.flatMap((card) => {
             const frame = card.getBoundingClientRect();
             return [...card.querySelectorAll('*')]
@@ -1463,8 +1470,12 @@ for (const size of VIEWPORTS) {
       // Both in the same column, left-aligned with each other rather than merely stacked.
       expect(Math.abs(day.x - roster.x)).toBeLessThan(12);
       // The paragraph explaining the rules is gone (maintainer request): it was read once and then sat
-      // at the foot of the rail for good, and the day's own strokes say what it said.
-      await expect(page.getByTestId('info-note')).toHaveCount(0);
+      // at the foot of the rail for good, and the day's own strokes say what it said. The one note
+      // on the tab is Train Faster (2026-10-01), on the quotation's line above the rail.
+      await expect(page.getByTestId('info-note')).toHaveCount(1);
+      await expect(page.getByTestId('info-note')).toHaveText('Train Faster');
+      const note = await box('info-note');
+      expect(note.y + note.height, 'a note crept back into the rail').toBeLessThanOrEqual(roster.y);
 
       // 2. The rail sits beside the sheet, not above it: one row, two columns.
       const sheet = await box('training-sheet');
@@ -1536,28 +1547,28 @@ for (const size of VIEWPORTS) {
     });
 
     /**
-     * §F2: the strip along the foot of the sheet, with the gym full.
+     * §F2: the strip along the foot of the sheet, with the queue full.
      *
      * The maintainer's request on 2026-09-21: "have the officers currently being trained show up
      * in a progress bar at the bottom (no need for a scrolable page though)". The "no scroll" half
-     * is the one worth measuring, because it is the half that fails quietly: a crew can have up to
-     * `TRAININGS_PER_DAY` hours out at once, and a strip that wrapped to a third line would eat a
-     * row of drills off the sheet above it on every screen in the game rather than only on this
-     * fixture.
+     * is the one worth measuring, because it is the half that fails quietly: a full queue is three
+     * people with the Professor's Second Chair (maintainer, 2026-10-04), and a strip that wrapped
+     * would eat a row of drills off the sheet above it on every screen in the game.
      *
-     * So: everyone who is on an hour is drawn, nobody who is idle is, each one has a bar with
-     * pigment in it, none of them is cut, and the whole strip still fits inside the frame.
+     * So: everyone in the queue is drawn, nobody who is idle is, the one running has pigment in
+     * its bar and the two waiting have none, none of them is cut, and the strip fits the frame.
      */
-    test(`the training floor holds a full gym at ${tag}`, async ({ page }) => {
-      await installApi(page, lateGame, { underWay: { floor: 4 } });
+    test(`the training floor holds a full queue at ${tag}`, async ({ page }) => {
+      await installApi(page, lateGame, { underWay: { floor: 3 } });
       await page.goto('/game/training');
       const strip = page.getByTestId('training-underway');
       await expect(strip).toBeVisible();
       await settleFonts(page);
 
-      // One row per person on an hour, and none for the one who is not.
+      // One row per person in the queue, and none for the one who is not.
       const rows = strip.locator('[data-testid^="training-underway-"]');
-      await expect(rows).toHaveCount(4);
+      await expect(rows).toHaveCount(3);
+      await expect(strip.locator('[data-queued]')).toHaveCount(2);
       await expect(strip.getByText('Ada Vasquez')).toHaveCount(0);
 
       const bars = await strip.evaluate((el: HTMLElement) => {
@@ -1568,6 +1579,7 @@ for (const size of VIEWPORTS) {
           fills: [...el.querySelectorAll<HTMLElement>('.paint-fill')].map((fill) => {
             const track = fill.parentElement as HTMLElement;
             return {
+              queued: fill.closest('[data-queued]') !== null,
               fill: fill.getBoundingClientRect().width,
               track: track.getBoundingClientRect().width,
             };
@@ -1576,21 +1588,19 @@ for (const size of VIEWPORTS) {
       });
       expect(bars.spills, 'the strip hangs out of the frame it lives in').toBeLessThan(1);
       expect(bars.scrolls, 'the strip scrolls, which is the one thing it must not do').toBe(false);
-      expect(bars.fills.length, 'no bars in the strip').toBe(4);
+      expect(bars.fills.length, 'no bars in the strip').toBe(3);
       for (const bar of bars.fills) {
         expect(bar.track, 'a bar collapsed to its content').toBeGreaterThan(24);
-        // Pigment in every one, and never the whole track: the fixture staggers the hours, so a
-        // full bar would mean the progress is not being read at all.
-        expect(bar.fill).toBeGreaterThan(0);
         expect(bar.fill).toBeLessThan(bar.track);
+        // Pigment in the running one only: a waiting drill has not begun.
+        if (bar.queued) expect(bar.fill).toBe(0);
+        else expect(bar.fill).toBeGreaterThan(0);
       }
-      // And the four are not all drawn at one length, which a bar wired to a constant would be.
-      expect(new Set(bars.fills.map((bar) => Math.round(bar.fill))).size).toBeGreaterThan(2);
 
       /*
        * Scoped to the frame, and the scope is the point.
        *
-       * This fixture puts five people on the rail against the two the standard one has, and at
+       * This fixture puts four people on the rail against the two the standard one has, and at
        * 1024x768 that rail is a scrolling region with its last entry half above the fold, which
        * is what a scrolling region is *for*. A page-wide sweep reads that as cut text and reds on
        * the roster working correctly. What this test is about is the floor, and the floor does not
@@ -1722,7 +1732,7 @@ for (const size of VIEWPORTS) {
                   durationSeconds: 1200,
                 },
               ],
-              trainingQueue: [],
+              musterQueue: [],
             },
           }),
         }),
@@ -2091,6 +2101,16 @@ for (const size of VIEWPORTS) {
       await expectNothingOverflowsTheScreen(page);
       await expectNothingClippedHorizontally(page);
       await page.screenshot({ path: `screenshots/visual/faction-create-${tag}.png` });
+
+      // A pattern adds the colour row, which pushed Create under the fold of a 720p screen; it
+      // stays in view now (maintainer, 2026-10-02).
+      await page
+        .getByTestId(/^badge-field-(?!plain$|color-)/)
+        .first()
+        .click();
+      await expect(page.getByTestId(/^badge-field-color-/).first()).toBeVisible();
+      await expect(page.getByTestId('found-faction')).toBeInViewport();
+      await page.screenshot({ path: `screenshots/visual/faction-create-pattern-${tag}.png` });
     });
 
     test(`the faction table at ${tag}`, async ({ page }) => {
@@ -2152,7 +2172,7 @@ for (const size of VIEWPORTS) {
     /**
      * §C2/§G: the roster, chairs and bench together.
      *
-     * This page had no screenshot at all, which is how a nineteen-card grid and the screen a
+     * This page had no screenshot at all, which is how a thirteen-card grid and the screen a
      * player spends the most time on went unreviewed. The fixture seats three and benches two, so
      * one run covers a filled chair, an empty one, and the section under them.
      */
@@ -2163,6 +2183,10 @@ for (const size of VIEWPORTS) {
       await settleFonts(page);
 
       await expect(page.getByTestId('crew-bench')).toBeVisible();
+      // §H7: the book on one line under the header (maintainer, 2026-09-30). The expansion moved
+      // to the Bar and the Nexus (2026-10-01).
+      await expect(page.getByTestId('crew-payroll')).toBeInViewport({ ratio: 1 });
+      await expect(page.getByTestId('crew-payroll').getByRole('button')).toHaveCount(0);
       await expectNothingOverflowsTheScreen(page);
       await expectNothingClippedHorizontally(page);
       await page.screenshot({ path: `screenshots/visual/crew-${tag}.png` });
@@ -2435,8 +2459,9 @@ test.describe('the standing bar does not resize itself', () => {
   ];
 
   /*
-   * Swept twice: an admin build carries one more plate at the end of the stockpile (maintainer
-   * ruling, 2026-09-29), and its break sits later by that plate's width.
+   * Swept twice. An admin build carried a plate at the end of the stockpile and broke 150px later
+   * for it; the plate is gone (maintainer, 2026-09-30), so both builds must hold the same bar at
+   * the same breaks, and the admin sweep is what says the plate has not crept back.
    */
   for (const [build, fixture] of [
     ['', hudExtremes],
@@ -2450,11 +2475,17 @@ test.describe('the standing bar does not resize itself', () => {
         await expect(page.getByTestId('infamy-chip')).toBeVisible();
         await settleFonts(page);
         if (fixture.admin) {
-          await expect(page.getByTestId('hud-admin')).toBeVisible();
+          await expect(page.getByTestId('hud-admin')).toHaveCount(0);
           if (width === 1024 || width === 1280) {
             await page.screenshot({ path: `screenshots/visual/hud-admin-${width}.png` });
           }
         }
+        // One break for both builds: the two-tier bar below 1550, one row from there up.
+        const twoTier = await page.evaluate(() => {
+          const rule = document.querySelector('header > span.basis-full');
+          return rule !== null && getComputedStyle(rule).display !== 'none';
+        });
+        expect(twoTier, `the bar's break at ${width}px${build}`).toBe(width < 1550);
 
         /*
          * Every labelled box in the bar against every other, not a hand-listed few.
@@ -2610,4 +2641,30 @@ test.describe('the standing bar does not resize itself', () => {
       expect(cut, `text cut off in the standing bar at ${tag}`).toEqual([]);
     });
   }
+});
+
+/**
+ * The spy channels are not public (maintainer, 2026-10-01: "remove the spy points on every job and
+ * points against their spies since these are not public values"): paid by perks or not, neither is
+ * drawn, and the page has no "Nothing there yet" list to name them in.
+ */
+test('the crew effects page never shows a spy figure, at 1280x720', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await installApi(page, lateGame);
+  await page.route('**/api/overseer/me', (route) =>
+    route.fulfill({
+      json: {
+        ...crewStanding,
+        effects: { ...crewStanding.effects, intelYieldPercent: 17, intelResistancePercent: 15 },
+      },
+    }),
+  );
+  await page.goto('/game/crew/effects');
+  await expect(page.getByTestId('crew-effects')).toBeVisible();
+  await settleFonts(page);
+  await expect(page.getByTestId('channel-intelYieldPercent')).toHaveCount(0);
+  await expect(page.getByTestId('channel-intelResistancePercent')).toHaveCount(0);
+  await expect(page.getByText(/spy points|against their spies|nothing there yet/i)).toHaveCount(0);
+  await expectNothingOverflowsTheScreen(page);
+  await page.screenshot({ path: 'screenshots/visual/crew-effects-no-spies-1280x720.png' });
 });

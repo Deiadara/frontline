@@ -74,13 +74,12 @@ async function stage(): Promise<Stack> {
    * Everything each gated boost asks for *except* the drawings.
    *
    * This is the whole fixture. Without it these tests pass against a build with no blueprint gate
-   * at all, because the same four boosts are also shut for want of the officer or the Lab project
-   * that proposes them: `available: false` would be true for a reason this file is not about.
-   * Seating the proposer and banking the projects leaves the document as the only thing missing.
+   * at all, because a boost an officer proposes is also shut for want of that officer:
+   * `available: false` would be true for a reason this file is not about. Seating the proposer
+   * leaves the document as the only thing missing. The three the Lab used to propose need nothing
+   * but the drawings since 2026-10-01.
    */
   const proposers = GATED.map(({ spec }) => spec.unlock);
-  const base = app.repos.bases.findById(baseId);
-  if (!base) throw new Error('no base');
   app.repos.bases.updateCommanders(
     baseId,
     proposers.flatMap((unlock, index) =>
@@ -89,10 +88,6 @@ async function stage(): Promise<Stack> {
         : [],
     ),
   );
-  app.repos.bases.updateResearch(baseId, {
-    ...base.research,
-    technologies: proposers.flatMap((unlock) => (unlock.kind === 'tech' ? [unlock.techId] : [])),
-  });
 
   // The Steelbelt with one location off the looters, so a fight can be called there. Same fixture
   // the other battle-route tests use: the gate is not what this covers.

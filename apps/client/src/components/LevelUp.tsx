@@ -50,9 +50,12 @@ export function LevelUpBanner({ levelUp }: { levelUp: LevelUp }) {
       )}
       {/* Capped: the banner spans the page on the missions screen, and an uncapped row would fling
           the figure a thousand pixels from the label it belongs to. */}
-      <dl className="mt-2.5 flex max-w-sm flex-col divide-y divide-warning/15 border-t border-warning/15">
-        <GrantRow label="Recruit slots" value={grants.recruitSlots} />
-      </dl>
+      {/* Officer slots open with the Bar at level 5; before that there is nothing to count. */}
+      {grants.recruitSlots > 0 && (
+        <dl className="mt-2.5 flex max-w-sm flex-col divide-y divide-warning/15 border-t border-warning/15">
+          <GrantRow label="Officer slots" value={grants.recruitSlots} />
+        </dl>
+      )}
     </section>
   );
 }

@@ -137,11 +137,13 @@ describe('over HTTP', () => {
 
   it('refuses a flood of sign-in attempts with a 429 and a Retry-After', async () => {
     const app = await makeApp();
+    // A different name each time, so what refuses is the address's budget and not one account's.
+    let attempts = 0;
     const attempt = () =>
       app.inject({
         method: 'POST',
         url: '/api/auth/login',
-        payload: { username: 'nobody', password: 'wrongpassword' },
+        payload: { username: `nobody${(attempts += 1)}`, password: 'wrongpassword' },
       });
 
     let last = await attempt();
@@ -219,12 +221,13 @@ describe('over HTTP', () => {
       payload: { username: 'guesser', password: 'hunter2pass' },
     });
     const token = registered.json<{ token: string }>().token;
+    let attempts = 0;
     const attempt = (headers: Record<string, string>) =>
       app.inject({
         method: 'POST',
         url: '/api/auth/login',
         headers,
-        payload: { username: 'nobody', password: 'wrongpassword' },
+        payload: { username: `nobody${(attempts += 1)}`, password: 'wrongpassword' },
       });
 
     // The registration spent one; the rest of the quota with a token, then one without.

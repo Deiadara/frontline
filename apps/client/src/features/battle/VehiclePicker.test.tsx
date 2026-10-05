@@ -64,7 +64,7 @@ const base: Base = {
   buildings: [],
   buildQueue: [],
   army: { razors: 8 },
-  trainingQueue: [],
+  musterQueue: [],
   training: startingTraining(NOW),
   inventory: {},
   fittedUpgrades: [],
@@ -165,7 +165,7 @@ beforeEach(() => {
     if (path.endsWith('/me')) return reply(me);
     throw new Error(`unstubbed request: ${path}`);
   });
-  useSession.setState({ token: 'session-token', user: null });
+  useSession.setState({ signedIn: true, user: null });
 });
 
 afterEach(() => vi.unstubAllGlobals());
@@ -309,5 +309,31 @@ describe('the officer picker', () => {
     expect(petra).toHaveTextContent('112 min on the road');
     // And not the other's: two officers, two roads, or the figure is the crew's rather than the person's.
     expect(halvard).not.toHaveTextContent('112 min');
+  });
+  // The server refuses an officer who cannot reach the fight before it starts (2026-10-02), so the
+  // picker greys them and says why. Eight hours to the mark here.
+  it('greys an officer whose road is longer than the time left, and says so', async () => {
+    const led: BattlesResponse = {
+      ...battles,
+      coming: [
+        {
+          ...view,
+          leaders: [
+            {
+              officerId: 'off-far',
+              name: 'Petra Voss',
+              role: null,
+              stats: findUnit('razors')!.stats,
+              travelMinutes: 600,
+            },
+          ],
+        },
+      ],
+    };
+    await openPicker(me, led);
+    fireEvent.click(await screen.findByTestId('lead-officer-picker'));
+    const [petra] = await screen.findAllByRole('option');
+    expect(petra).toHaveAttribute('aria-disabled', 'true');
+    expect(petra).toHaveTextContent('600 min on the road, and the fight starts in');
   });
 });

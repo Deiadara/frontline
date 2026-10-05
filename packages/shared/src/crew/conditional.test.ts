@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { effectiveStats } from '../battle/effects.js';
 import { bareBattlefield } from '../battle/battlefield.js';
-import { findUnit } from '../units/catalog.js';
+import { UNIT_CATALOG, findUnit } from '../units/catalog.js';
 import { noCrewEffects, applyPerkBonus, CONDITIONAL_CHANNELS } from './effects.js';
-import { PERK_CATALOG } from './perks.js';
+import { PERK_CATALOG, describePerkBonus, type Perk } from './perks.js';
 
 /**
  * §B7: the perks that pay only when something is true.
@@ -57,7 +57,7 @@ describe('a bonus scoped to one named unit', () => {
     return effectiveStats(
       unit,
       bareBattlefield(),
-      { defending: false, outnumbered: false },
+      { defending: false, outnumbered: 0 },
       { ...noCrewEffects(), unitKindPercent: kindPercent },
     );
   };
@@ -79,7 +79,7 @@ describe('a bonus scoped to one named unit', () => {
     const plain = effectiveStats(
       unit,
       bareBattlefield(),
-      { defending: false, outnumbered: false },
+      { defending: false, outnumbered: 0 },
       {
         ...noCrewEffects(),
       },
@@ -87,7 +87,7 @@ describe('a bonus scoped to one named unit', () => {
     const elsewhere = effectiveStats(
       unit,
       bareBattlefield(),
-      { defending: false, outnumbered: false },
+      { defending: false, outnumbered: 0 },
       { ...noCrewEffects(), unitKindPercent: { [other.unitId]: { [other.stat]: other.percent } } },
     );
     expect(elsewhere[stat]).toBe(plain[stat]);
@@ -124,5 +124,48 @@ describe('the fold', () => {
       threshold: 45,
     });
     expect(effects.officerAttributeAtLeast.logic).toEqual({ flat: 9, threshold: 45 });
+  });
+});
+
+/**
+ * The card has to say the unit the engine pays in (wiring audit, 2026-10-01).
+ *
+ * A tier's and a named unit's armour are added to the rating as points, and the cards printed
+ * them as percentages: `+20% Ironsides armour` was twenty points on a sheet of 64. Measured off
+ * `effectiveStats` rather than read off the stat's name, so a stat that changes unit in the engine
+ * without changing on the card fails here.
+ */
+describe('a scoped unit bonus is written in the unit the engine pays', () => {
+  const scoped = PERK_CATALOG.filter(
+    (entry) => entry.bonus.kind === 'unit_kind' || entry.bonus.kind === 'unit_tier',
+  );
+
+  const measured = (perk: Perk): number => {
+    const bonus = perk.bonus;
+    if (bonus.kind !== 'unit_kind' && bonus.kind !== 'unit_tier') throw new Error('not scoped');
+    const unit =
+      bonus.kind === 'unit_kind'
+        ? findUnit(bonus.unitId)!
+        : UNIT_CATALOG.find((one) => one.tier === bonus.tier)!;
+    const fight = (effects: ReturnType<typeof noCrewEffects>) =>
+      effectiveStats(unit, bareBattlefield(), { defending: false, outnumbered: 0 }, effects);
+    return (
+      fight(applyPerkBonus(noCrewEffects(), bonus))[bonus.stat] - fight(noCrewEffects())[bonus.stat]
+    );
+  };
+
+  it('covers both scopes and all three stats', () => {
+    const kinds = new Set(scoped.map((entry) => `${entry.bonus.kind}`));
+    const stats = new Set(scoped.map((entry) => ('stat' in entry.bonus ? entry.bonus.stat : '')));
+    expect([...kinds].sort()).toEqual(['unit_kind', 'unit_tier']);
+    expect([...stats].sort()).toEqual(['armor', 'offense', 'vitality']);
+  });
+
+  it.each(scoped.map((entry) => [entry.id, entry] as const))('%s', (_, perk) => {
+    const amount = 'percent' in perk.bonus ? perk.bonus.percent : 0;
+    const flat = Math.abs(measured(perk) - amount) < 1e-9;
+    expect(describePerkBonus(perk.bonus).startsWith(flat ? `+${amount} ` : `+${amount}% `)).toBe(
+      true,
+    );
   });
 });

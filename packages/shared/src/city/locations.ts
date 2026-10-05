@@ -1,19 +1,18 @@
+import { missionSpeedCut } from '../economy/soft-bounds.js';
+import { CHAIR_PASSIVE_CAP } from '../crew/passives.js';
 import { z } from 'zod';
 import { ATTRIBUTE_GROUPS, type AttributeGroup } from '../attributes.js';
 import { RESOURCE_KEYS, type PartialResources, type ResourceKey } from '../resources.js';
 import {
   UNIT_TIER_LABELS,
   UNIT_TIER_STAT_LABELS,
+  tierStatAmount,
   type UnitTier,
   type UnitTierStat,
 } from '../units/tiers.js';
 import { envLabel, type EnvLabel, type EnvLabelId } from './labels.js';
 import { UNIT_RULES, type GrantableUnitMark, type UnitRuleId } from '../units/rules.js';
-import {
-  MAX_MISSION_SPEED_BONUS,
-  MAX_TRAINING_SPEED_BONUS,
-  timeSavingPercent,
-} from '../time/speed.js';
+import { timeSavingPercent, musterSpeedAfterTaper } from '../time/speed.js';
 
 /**
  * The things inside a district that are worth taking (GDD §A4).
@@ -129,8 +128,8 @@ export type HoldBonus =
   | { kind: 'defense_percent'; percent: number }
   | { kind: 'research_speed'; percent: number }
   | { kind: 'build_speed'; percent: number }
-  | { kind: 'training_speed'; percent: number }
-  | { kind: 'training_cost'; percent: number }
+  | { kind: 'muster_speed'; percent: number }
+  | { kind: 'muster_cost'; percent: number }
   | { kind: 'unit_offense'; percent: number }
   | { kind: 'unit_vitality'; percent: number }
   | { kind: 'unit_armor'; percent: number }
@@ -359,8 +358,8 @@ export interface LocationSpec {
    * One number rather than a bundle, because the bundle's *shape* is now the same everywhere and
    * only its size is a property of the place. A Pawn Shop opens at 80 and a Construction Site at
    * 460, which is the spread the hand-written bundles already had; every later level scales by
-   * {@link UPGRADE_COST_SCALE}, so the top of the ladder runs from about 2,700 planks to about
-   * 15,500.
+   * {@link UPGRADE_COST_SCALE} and {@link LOCATION_UPGRADE_PRICE_RISE}, so the top of the ladder
+   * runs from about 2,970 planks to about 17,050.
    */
   upgradeCost: number;
   /**
@@ -726,7 +725,9 @@ export const LOCATION_CATALOG: Record<LocationKind, LocationSpec> = {
     blurb: 'Racks, a workbench, and a door that took three people to open the first time.',
     reward: 'Cheaper units, and a bench that will fit anything you can find a part for.',
     bonuses: [
-      { kind: 'training_cost', percent: 12 },
+      // 1 on `LEVEL_SCALE`: 1 at level 1, 3 at 4, 6 at 10. It was 12, so 66 at 10, the outlier
+      // among the general muster cuts (maintainer, 2026-10-01).
+      { kind: 'muster_cost', percent: 1 },
       { kind: 'refit_discount', percent: 20 },
     ],
     baseDefense: 6,
@@ -1082,8 +1083,8 @@ export const LOCATION_CATALOG: Record<LocationKind, LocationSpec> = {
   arcade: {
     label: 'The Arcade',
     blurb: 'Forty cabinets, nine of them working, and a change machine that has never been robbed.',
-    reward: 'Reflex work disguised as an evening off. The drills go quicker.',
-    bonuses: [{ kind: 'training_speed', percent: 12 }],
+    reward: 'Reflex work disguised as an evening off. Recruits come off the bench quicker.',
+    bonuses: [{ kind: 'muster_speed', percent: 12 }],
     baseDefense: 1,
     labels: [L('crammed', 3), L('noisy', 3), L('dark', 2)],
     upgradeCost: 100,
@@ -1264,6 +1265,9 @@ export function clampLevel(level: number): number {
  * bonus at level 1 still moves at level 2: a 3% discount that scales to 4.5 and truncates back to
  * 4 is an upgrade a player paid for and cannot see.
  */
+/** The share of a location's officer group lift that is paid (maintainer, 2026-10-05). */
+export const GROUND_OFFICER_LIFT_SHARE = 0.5;
+
 export function scaledBonus(bonus: HoldBonus, level: number): HoldBonus {
   const at = clampLevel(level);
   const scale = LEVEL_SCALE[at - 1] as number;
@@ -1286,9 +1290,19 @@ export function scaledBonus(bonus: HoldBonus, level: number): HoldBonus {
       return { ...bonus, flat: step(bonus.flat) };
     case 'unit_morale':
     case 'intimidation':
-    case 'officer_group':
     case 'unit_slots':
       return { ...bonus, flat: grow(bonus.flat) };
+    /*
+     * Half, floored, and at least one (maintainer, 2026-10-05). The ground's group lift sits
+     * outside the officers' lift cap now (`liftedOfficerSheet`), so it is paid in full at every
+     * level; at its old size a Chapel at 10 lifted every mental skill of every officer by 28.
+     * Half the level's rounded figure, floored: +2, +4, +5, +6 ... +14 at level 10.
+     */
+    case 'officer_group':
+      return {
+        ...bonus,
+        flat: Math.max(1, Math.floor(grow(bonus.flat) * GROUND_OFFICER_LIFT_SHARE)),
+      };
     case 'road_shortcut':
       return { ...bonus, minutes: grow(bonus.minutes) };
     /*
@@ -1321,11 +1335,22 @@ export function bonusesAt(kind: LocationKind, level: number): HoldBonus[] {
  * are not interchangeable: a Cinema is a projector and a Nuclear Plant is a coolant loop, and
  * charging the same for both would make half the map not worth touching.
  */
-export function upgradeCost(kind: LocationKind, level: number): PartialResources | null {
+/** A tenth dearer than the catalogue's figures, as every structure is (2026-10-04). */
+export const LOCATION_UPGRADE_PRICE_RISE = 1.1;
+
+export function upgradeCost(
+  kind: LocationKind,
+  level: number,
+  /** The Engineer's passive (`passives.ts`, maintainer 2026-10-04): up to half off every line. */
+  engineerPercent = 0,
+): PartialResources | null {
   const from = clampLevel(level);
   if (from >= MAX_LOCATION_LEVEL) return null;
   const scale = UPGRADE_COST_SCALE[from - 1] as number;
-  const planks = LOCATION_CATALOG[kind].upgradeCost * scale;
+  const engineer =
+    1 - Math.max(0, Math.min(CHAIR_PASSIVE_CAP.building_cost, engineerPercent)) / 100;
+  const planks =
+    LOCATION_CATALOG[kind].upgradeCost * scale * LOCATION_UPGRADE_PRICE_RISE * engineer;
   const cost: PartialResources = {};
   for (const [key, share] of Object.entries(UPGRADE_MIX)) {
     // Floored at one. The scarce channel is a tenth of the timber, so the cheapest kind's first
@@ -1398,13 +1423,13 @@ export interface TerritoryEffects {
    *
    * Apart from `defensePercent` because some attackers do not meet it. A Breaching unit's hits land
    * as if it were not there, and a Wall Breaker in the attacking line takes it off the whole fight.
-   * The two are capped together (`MAX_HELD_DEFENSE`), so moving the gate here changed no total.
+   * The two are curved together (`heldDefense`), so moving the gate here changed no total.
    */
   gatePercent: number;
   researchSpeedPercent: number;
   buildSpeedPercent: number;
-  trainingSpeedPercent: number;
-  trainingCostPercent: number;
+  musterSpeedPercent: number;
+  musterCostPercent: number;
   unitOffensePercent: number;
   unitVitalityPercent: number;
   /**
@@ -1494,8 +1519,8 @@ export function noTerritoryEffects(): TerritoryEffects {
     gatePercent: 0,
     researchSpeedPercent: 0,
     buildSpeedPercent: 0,
-    trainingSpeedPercent: 0,
-    trainingCostPercent: 0,
+    musterSpeedPercent: 0,
+    musterCostPercent: 0,
     unitOffensePercent: 0,
     unitVitalityPercent: 0,
     unitArmorPercent: 0,
@@ -1558,11 +1583,11 @@ export function applyHoldBonus(
     case 'build_speed':
       into.buildSpeedPercent += bonus.percent;
       return into;
-    case 'training_speed':
-      into.trainingSpeedPercent += bonus.percent;
+    case 'muster_speed':
+      into.musterSpeedPercent += bonus.percent;
       return into;
-    case 'training_cost':
-      into.trainingCostPercent += bonus.percent;
+    case 'muster_cost':
+      into.musterCostPercent += bonus.percent;
       return into;
     case 'unit_offense':
       into.unitOffensePercent += bonus.percent;
@@ -1701,23 +1726,32 @@ const GROUP_LABELS: Record<AttributeGroup, string> = {
   technical: 'technical',
 };
 
+/**
+ * What the cards on the two curved channels add (`heldDefense`, `cohesionWidening`): the more of it
+ * a crew stacks, the less each point is worth, and there is no point where it stops paying.
+ */
+export const TAPERS = '(tapers, no hard stop)';
+
 /** A bonus in one line, for a location card. Authored `reward` says *why*; this says how much. */
 export function describeHoldBonus(bonus: HoldBonus): string {
   switch (bonus.kind) {
     case 'resource':
       return `+${bonus.perHour} ${RESOURCE_LABELS[bonus.resource]}/h`;
+    // Held ground bends rather than stops (`heldDefense`, maintainer 2026-10-01), and the card
+    // says so, since a player stacking defence is owed the shape of what they are buying.
     case 'defense_percent':
-      return `+${bonus.percent}% defence`;
-    // Every speed channel is spent as `time / (1 + percent/100)`, so the card has to say what
-    // that removes rather than repeating the channel's own number. See `time/speed.ts`.
+      return `+${bonus.percent}% defence ${TAPERS}`;
+    // Research and build speed are points added to the Lab's cards or the Generator's and the
+    // crew's, and the sum is curved (`researchTimeCut`, `buildTimeCut`), so the card says points,
+    // as the crew page does (P7-A, 2026-10-02). Muster speed is still a divisor after its taper.
     case 'research_speed':
-      return `-${timeSavingPercent(bonus.percent)}% research time`;
+      return `+${bonus.percent} points off the research clock`;
     case 'build_speed':
-      return `-${timeSavingPercent(bonus.percent)}% build time`;
-    case 'training_speed':
-      return `-${timeSavingPercent(bonus.percent, MAX_TRAINING_SPEED_BONUS)}% training time`;
-    case 'training_cost':
-      return `-${bonus.percent}% training cost`;
+      return `+${bonus.percent} points off the build clock`;
+    case 'muster_speed':
+      return `-${timeSavingPercent(musterSpeedAfterTaper(bonus.percent))}% muster time`;
+    case 'muster_cost':
+      return `-${bonus.percent}% muster cost`;
     case 'unit_offense':
       return `+${bonus.percent}% unit offense`;
     case 'unit_vitality':
@@ -1735,27 +1769,31 @@ export function describeHoldBonus(bonus: HoldBonus): string {
     case 'travel_speed':
       // A cut off the clock, not a rise in speed: the road is `roadMinutes`, where the ground's
       // percent multiplies what the column's own speed left. Said the way the vehicle discount is.
-      return `-${bonus.percent}% off the road`;
+      return `-${bonus.percent} points off the road ${TAPERS}`;
     case 'infamy_gain':
       return `+${bonus.percent}% infamy earned`;
     case 'resource_yield':
       return `${RESOURCE_LABELS[bonus.resource]} goes ${bonus.percent}% further`;
     case 'mission_speed':
-      return `-${timeSavingPercent(bonus.percent, MAX_MISSION_SPEED_BONUS)}% mission time${bonus.inOwnCity ? ' in this city' : ''}`;
+      // The saving the clock gives for this card alone, through the curve (`missionSpeedCut`).
+      return `-${timeSavingPercent(missionSpeedCut(bonus.percent))}% mission time${bonus.inOwnCity ? ' in this city' : ''} ${TAPERS}`;
+    // Points into the market's curve (`effectiveMarketDiscount`), not a percent off the till: a
+    // level 10 Downtown Market printed "-55%" over a till charging 28.7% less (bug pass, 2026-10-05).
     case 'market_discount':
-      return `-${bonus.percent}% market prices`;
+      return `-${bonus.percent} points off market prices ${TAPERS}`;
     case 'black_market_discount':
-      return `-${bonus.percent}% black-market infamy`;
+      return `-${bonus.percent} points off black-market infamy ${TAPERS}`;
     case 'refit_discount':
-      return `-${bonus.percent}% unit modification cost`;
+      return `-${bonus.percent} points off unit modification cost ${TAPERS}`;
     case 'vehicle_parts':
-      return `-${bonus.percent}% vehicle cost`;
+      return `-${bonus.percent} points off vehicle cost ${TAPERS}`;
     case 'training_sessions':
       return `+${bonus.flat} training session${bonus.flat === 1 ? '' : 's'}/day`;
     case 'battle_stims':
       return `+${bonus.flat} battle stim${bonus.flat === 1 ? '' : 's'}`;
+    // Points into a sum that bends towards 100% (`salvageRefundCut`, 2026-10-05).
     case 'salvage_refund':
-      return `${bonus.percent}% of losses refunded`;
+      return `${bonus.percent}% of losses refunded ${TAPERS}`;
     // Points on the spy contest's scale, not a percentage (bug pass, 2026-09-29).
     case 'intel':
       return `+${bonus.percent} spy points`;
@@ -1764,7 +1802,7 @@ export function describeHoldBonus(bonus: HoldBonus): string {
     case 'unit_armor':
       return `+${bonus.percent} unit armour`;
     case 'unit_tier':
-      return `+${bonus.percent}% ${UNIT_TIER_LABELS[bonus.tier]} ${UNIT_TIER_STAT_LABELS[bonus.stat]}`;
+      return `${tierStatAmount(bonus.stat, bonus.percent)} ${UNIT_TIER_LABELS[bonus.tier]} ${UNIT_TIER_STAT_LABELS[bonus.stat]}`;
     case 'officer_group':
       return `+${bonus.flat} to officer ${GROUP_LABELS[bonus.group]} skills`;
     case 'unit_slots':

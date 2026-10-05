@@ -25,6 +25,7 @@ const reply = (body: unknown) =>
 /** What the page sent to `/admin/knobs` and `/admin/grant`, in order. */
 const knobs: unknown[] = [];
 const grants: unknown[] = [];
+const resets: unknown[] = [];
 
 function renderConsole() {
   fetchMock.mockImplementation((path: string, init?: RequestInit) => {
@@ -38,6 +39,11 @@ function renderConsole() {
       grants.push(JSON.parse(init?.body as string));
       return reply({ admin: F.adminSnapshot });
     }
+    if (url.endsWith('/admin/reset')) {
+      resets.push(JSON.parse(init?.body as string));
+      return reply({ admin: F.adminSnapshot });
+    }
+    if (url.endsWith('/factions')) return reply(F.factionScreen);
     if (url.endsWith('/admin')) return reply(F.adminSnapshot);
     throw new Error(`unstubbed request: ${url}`);
   });
@@ -57,12 +63,27 @@ beforeEach(() => {
   fetchMock.mockReset();
   knobs.splice(0);
   grants.splice(0);
-  useSession.setState({ token: 'session-token', user: null });
+  resets.splice(0);
+  useSession.setState({ signedIn: true, user: null });
 });
 
 afterEach(() => vi.unstubAllGlobals());
 
 describe('the Console', () => {
+  /*
+   * Clean slate walks the old life out of its faction by Leave's door (maintainer, 2026-09-30), so
+   * a leader with people at the table is warned and may name who leads after them. The fixture's
+   * player leads a table of two.
+   */
+  it('lets a leader name a successor before starting over', async () => {
+    renderConsole();
+    fireEvent.click(await screen.findByTestId('admin-reset'));
+    const heir = F.factionScreen.members.find((member) => member.rank !== 'leader')!;
+    fireEvent.click(await screen.findByTestId(`confirm-reset-heir-${heir.username}`));
+    fireEvent.click(screen.getByTestId('confirm-reset-yes'));
+    await waitFor(() => expect(resets).toEqual([{ successorId: heir.userId }]));
+  });
+
   /*
    * The field took any number and the route refused anything past the deepest authored level, so
    * typing 99 answered with a schema message instead of the last stage the bench can set.

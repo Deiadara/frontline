@@ -1,9 +1,9 @@
-import type { BonusLine, TrainingBreakdown, UnitOption } from '@frontline/shared';
+import type { BonusLine, MusterBreakdown, UnitOption } from '@frontline/shared';
 import { DrawnRule } from '../../components/ui/DrawnMarks';
 import { cn } from '../../lib/cn';
 
 /**
- * Everything working on one unit's training, on one page (maintainer, 2026-09-17).
+ * Everything working on one unit's mustering, on one page (maintainer, 2026-09-17).
  *
  * "A little info tag on each unit called Bonuses that analyzes what is given for that particular
  * unit, including the global ones and its private ones."
@@ -24,7 +24,7 @@ export function UnitBonuses({
 }: {
   unit: UnitOption;
   /** The crew-wide lines, or undefined from a server that does not send them. */
-  crew: TrainingBreakdown | undefined;
+  crew: MusterBreakdown | undefined;
 }) {
   /*
    * Named for what they come off, in the player's words (maintainer, 2026-09-17: "what do you mean
@@ -32,7 +32,7 @@ export function UnitBonuses({
    *
    * They were metaphors, and a label somebody has to ask about is a label that failed. The one
    * that actually needed explaining is the middle one, and the note says it rather than implying
-   * it: there are two discounts on a price because they are different discounts. `trainingCost`
+   * it: there are two discounts on a price because they are different discounts. `musterCost`
    * takes the cost cut off every material and then takes the supplies cut off supplies as well, so
    * a Greenhouse is worth something to a crew that already has the price down.
    */
@@ -40,7 +40,7 @@ export function UnitBonuses({
     {
       key: 'cost',
       testId: 'unit-bonuses-total-cost',
-      title: 'Training cost',
+      title: 'Muster cost',
       note: 'Off every material in the price',
       lines: [...(crew?.cost ?? []), ...(unit.homeBonus?.cost ?? [])],
     },
@@ -49,14 +49,18 @@ export function UnitBonuses({
       testId: 'unit-bonuses-total-supplies',
       title: 'Supplies',
       note: 'Off the supplies only, on top of the cost cut',
-      // §B5 is structures and nothing else, so no unit has a private half of it.
-      lines: crew?.supplies ?? [],
+      // §B5 is structures and nothing else, but they taper in the room the cost cut leaves on the
+      // line, so a unit whose own ground raises its cost cut carries one line saying what that
+      // costs here (2026-10-01).
+      lines: [...(crew?.supplies ?? []), ...(unit.homeBonus?.supplies ?? [])],
     },
     {
       key: 'speed',
       testId: 'unit-bonuses-total-speed',
-      title: 'Training time',
-      note: 'Off the clock for every unit you train',
+      // A speed, which the clock is divided by after its taper. The server's lines end on the
+      // taper's own line, so this total is the speed the clock is divided by (2026-10-01).
+      title: 'Muster speed',
+      note: 'How much faster every unit you muster comes off the bench',
       lines: [...(crew?.speed ?? []), ...(unit.homeBonus?.speed ?? [])],
     },
   ];

@@ -16,6 +16,7 @@ import {
 import { Link } from 'react-router-dom';
 import { Button } from '../../components/ui/Button';
 import { Icon, type IconName } from '../../components/ui/Icon';
+import { ResourceIcon } from '../../components/Resources';
 import { Modal } from '../../components/ui/Modal';
 import { cn } from '../../lib/cn';
 import { useMe, useMissions } from '../../lib/queries';
@@ -268,7 +269,9 @@ function HaulRow({
         aria-hidden
         className="icon-tile flex h-8 w-8 shrink-0 items-center justify-center rounded-sm [&_svg]:h-4 [&_svg]:w-4"
       >
-        <Icon name={kind === 'highQualityMetal' ? 'metal' : (kind as IconName)} />
+        {/* The resource's own glyph: `Icon` has no `planks`, and the cast that was here hid that,
+            so the Planks tile was an empty box (bug pass, 2026-10-02). */}
+        <ResourceIcon kind={kind} />
       </span>
       <span className="flex min-w-0 flex-col">
         <span className="truncate font-display text-[10px] uppercase tracking-[0.14em] text-ink-400">

@@ -2,6 +2,7 @@ import {
   MESSAGE_RECIPIENTS_MAX,
   MESSAGE_REFUSAL_TEXT,
   type PlayerStanding,
+  standingName,
 } from '@frontline/shared';
 import { useEffect, useId, useRef, useState, type KeyboardEvent } from 'react';
 import { Icon } from '../../components/ui/Icon';
@@ -231,7 +232,7 @@ export function RecipientPicker({
                     )}
                   </span>
                   <span className="min-w-0 flex-1 truncate font-stamp text-[14px] leading-tight text-ink-100">
-                    {entry.username}
+                    {standingName(entry)}
                   </span>
                   {entry.isBot && (
                     <span className="shrink-0 font-display text-[9px] uppercase tracking-[0.16em] text-ink-400">

@@ -49,12 +49,15 @@ import {
   FACTION_RANK_BLURBS,
   FACTION_RANK_LABELS,
   FACTION_RANKS,
-  findResearchItem,
+  blueprintForTrap,
   ITEM_CATALOG,
   ITEM_KIND_LABELS,
   ITEM_KINDS,
   ITEM_RARITY_LABELS,
+  ADVANCED_MODIFICATION_MAGNITUDE,
   isAdvancedModification,
+  MAX_SCRAPYARD_DISCOUNT,
+  SCRAPYARD_DISCOUNT_PER_LEVEL,
   scrapyardLevelForModification,
   scrapyardLevelForTrap,
   scrapyardLevelForUpgrade,
@@ -314,11 +317,11 @@ function trapsSection(): Section {
     sources: ['packages/shared/src/battle/traps.ts'],
     rows: TRAP_CATALOG.length,
     body: table(
-      ['Id', 'Name', 'Needs', 'Yard level', 'Cost', 'Effect', 'Description'],
+      ['Id', 'Name', 'Blueprint', 'Yard level', 'Cost', 'Effect', 'Description'],
       TRAP_CATALOG.map((spec) => [
         code(spec.id),
         spec.name,
-        code(spec.requiresTech),
+        blueprintForTrap(spec.id)?.name ?? '-',
         String(scrapyardLevelForTrap(spec)),
         money(spec.cost),
         trapEffectLine(spec),
@@ -331,7 +334,6 @@ function trapsSection(): Section {
 /* ---------------------------------------------------------------------- boosts */
 
 function boostsSection(): Section {
-  const techName = (id: string): string => findResearchItem(id)?.name ?? id;
   return {
     title: 'Battle boosts',
     sources: ['packages/shared/src/battle/boosts.ts'],
@@ -343,7 +345,9 @@ function boostsSection(): Section {
         spec.name,
         String(spec.cost),
         describeBoostEffect(spec.effect),
-        describeBoostUnlock(spec.unlock, techName) || 'Anybody',
+        spec.unlock.kind === 'blueprint'
+          ? 'Its blueprint'
+          : describeBoostUnlock(spec.unlock) || 'Anybody',
         clip(spec.description),
       ]),
     ),
@@ -407,6 +411,7 @@ function featsSection(): Section {
       reward.items ? 'items' : '',
       reward.xp ? 'xp' : '',
       reward.boosts ? 'boosts' : '',
+      reward.pages ? 'random pages' : '',
     ]
       .filter((one) => one !== '')
       .join(', ');
@@ -671,7 +676,7 @@ function unitRow(unit: UnitSpec): readonly string[] {
     unit.stats.damageType,
     resistanceLine(unit.stats.resistances),
     money(unit.cost),
-    clock(unit.trainSeconds),
+    clock(unit.musterSeconds),
     unitUnlockClauses(unit).map(describeRequirement).join('; '),
     UNIT_RULE_IDS.filter((id) => unit[id] === true)
       .map((id) => UNIT_RULES[id].label)
@@ -695,7 +700,7 @@ function unitsSection(): Section {
     'Damage type',
     'Answers / dreads',
     'Cost',
-    'Train',
+    'Muster time',
     'Requires',
     'Rules',
     'Modifiers',
@@ -709,7 +714,7 @@ function unitsSection(): Section {
     ].join('\n\n');
   });
   // The regime's own sheets, in a section of their own rather than mixed into the tiers: they are
-  // never trained, so listing them under Rabble beside the Razors would read as an offer.
+  // never mustered, so listing them under Rabble beside the Razors would read as an offer.
   const combine = [
     `#### The Combine (${COMBINE_UNITS.length})`,
     'Met, never held. No price, no clock and no gate: see `UnitSpec.faction`.',
@@ -907,7 +912,7 @@ function modificationsSection(): Section {
     ],
     rows: MODIFICATIONS.length,
     body: [
-      'An advanced modification is one worth 12 points or more: it costs high quality metal on top of the scrap, and it sits behind the structure’s retrofit blueprint. Prices are list prices; the Scrapyard takes 2% off per level above its first, to a cap of 30%, and each entry opens at the yard level shown (`packages/shared/src/building/scrapyard.ts`).',
+      `An advanced modification is one worth ${ADVANCED_MODIFICATION_MAGNITUDE} points or more: it costs high quality metal on top of the scrap, and it sits behind the structure’s retrofit blueprint. Prices are list prices; the Scrapyard takes ${SCRAPYARD_DISCOUNT_PER_LEVEL}% off per level above its first, to a cap of ${MAX_SCRAPYARD_DISCOUNT}%, and each entry opens at the yard level shown (\`packages/shared/src/building/scrapyard.ts\`).`,
       ...groups,
     ].join('\n\n'),
   };
@@ -942,7 +947,7 @@ function researchSection(): Section {
     sources: ['packages/shared/src/research/tracks.ts'],
     rows: RESEARCH_ITEMS.length,
     body: [
-      `${OFFICER_ROLES.length} tracks of ${RESEARCH_TRACK_STEPS} rungs. Cost and minutes come from the rung's depth, not from the row: see \`researchItemCost\` and \`researchItemMinutes\`. Mark is what the chair holding the track needs; head mark is what the Head of Research needs alongside.`,
+      `${OFFICER_ROLES.length} tracks of ${RESEARCH_TRACK_STEPS} rungs. Cost and minutes come from the rung's depth, not from the row: see \`researchItemCost\` and \`researchItemMinutes\`. Mark is what the chair holding the track needs; head mark is what the Researcher needs alongside.`,
       ...groups,
     ].join('\n\n'),
   };

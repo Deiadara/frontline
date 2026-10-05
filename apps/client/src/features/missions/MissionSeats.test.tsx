@@ -83,6 +83,7 @@ function open(): HTMLElement {
       fleet={{ motorcycle: 1, armoured_car: 1 }}
       loadouts={{}}
       bagPercent={0}
+      notoriety={100}
       marks={{}}
       carriersFight={false}
       anyRide={false}

@@ -59,7 +59,7 @@ import {
   ResearchResponseSchema,
   ScrapyardResponseSchema,
   SettingsResponseSchema,
-  TrainUnitsResponseSchema,
+  MusterUnitsResponseSchema,
   TrainingResponseSchema,
   UnitsResponseSchema,
 } from '@frontline/shared';
@@ -109,8 +109,8 @@ export const RESPONSE_SCHEMAS: Readonly<Record<string, ResponseShape>> = {
   'POST /api/base/district-name': RenameDistrictResponseSchema,
 
   'GET /api/units': UnitsResponseSchema,
-  'POST /api/units/train': TrainUnitsResponseSchema,
-  'POST /api/units/cancel': TrainUnitsResponseSchema,
+  'POST /api/units/muster': MusterUnitsResponseSchema,
+  'POST /api/units/cancel': MusterUnitsResponseSchema,
   'POST /api/units/burn': UnitsResponseSchema,
 
   'GET /api/missions': MissionsResponseSchema,

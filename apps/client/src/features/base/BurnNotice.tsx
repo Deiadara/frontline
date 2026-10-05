@@ -27,8 +27,9 @@ export function BurnNotice({ economy, now }: { economy: EconomyState; now: Date 
         The tanks are burning
       </p>
       <p className="font-body text-[12px] leading-snug text-ink-100">
-        Every building upgrade runs {BUILD_BOOST_PERCENT}% faster for another{' '}
-        <span className="tabular-nums">{formatDuration(remainingMs / 1000)}</span>.
+        Any order placed in the next{' '}
+        <span className="tabular-nums">{formatDuration(remainingMs / 1000)}</span> takes{' '}
+        {BUILD_BOOST_PERCENT}% off its clock.
       </p>
     </section>
   );

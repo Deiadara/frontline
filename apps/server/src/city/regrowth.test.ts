@@ -216,7 +216,8 @@ describe('a fight called for last week and settled after the mark', () => {
     });
     repos.sieges.putDeployment({
       ...emptyDeployment('late-fight', crew.id, 'attacker', now),
-      army: { razors: 3 },
+      // The least commitment a fight needs at the lock (2026-10-05), or the tick calls it off.
+      army: { razors: 20 },
     });
     // Worn down over the week.
     repos.city.setGarrison(DOCKS_PLOT, { civic_levy: 2 });

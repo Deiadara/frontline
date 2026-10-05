@@ -1,4 +1,5 @@
 import {
+  HOME_LOCKED_TEXT,
   TRAVEL_BAND_MINUTES,
   LEANING_PROFILES,
   MISSION_LEANING_LABELS,
@@ -124,6 +125,7 @@ const board: MissionsResponse = {
   justResolved: [],
   resources: { caps: 0, supplies: 0, oil: 0, scrap: 0, highQualityMetal: 0, planks: 0 },
   activeLimit: 2,
+  xpBonusPercent: 0,
   areas: [MISC, RUSTYARD],
   army: { razors: 6, scavengers: 4 },
   serverNow: NOW,
@@ -176,13 +178,14 @@ const accepted: LaunchMissionResponse = {
 const fetchMock = vi.fn();
 
 /** A launch refusal in the shared error envelope: what the §G6 gate actually returns. */
-const NEEDS_OFFICER = {
+const RAID_LOCKED = {
   ok: false,
   status: 409,
   body: {
     error: {
-      code: 'MISSION_NEEDS_OFFICER',
-      message: 'That job is too hard to run without an officer leading it',
+      // A real one: the raid lock can start between the board read and the click.
+      code: 'MISSION_REFUSED',
+      message: HOME_LOCKED_TEXT,
     },
   },
 };
@@ -192,9 +195,9 @@ const NEEDS_OFFICER = {
  * came home and crossed a level, and that write is not rolled back with the launch.
  */
 const REFUSED_AFTER_LEVELLING = {
-  ...NEEDS_OFFICER,
+  ...RAID_LOCKED,
   body: {
-    ...NEEDS_OFFICER.body,
+    ...RAID_LOCKED.body,
     levelUp: { level: 4, levelsGained: 1, grants: playerLevelGrants(4) },
   },
 };
@@ -284,7 +287,7 @@ const send = (dialog: HTMLElement) => fireEvent.click(within(dialog).getByTestId
 beforeEach(() => {
   vi.stubGlobal('fetch', fetchMock);
   fetchMock.mockReset();
-  useSession.setState({ token: 'session-token', user: null });
+  useSession.setState({ signedIn: true, user: null });
 });
 
 afterEach(() => {
@@ -485,14 +488,12 @@ describe('a refused launch', () => {
   };
 
   it('tells the player why instead of returning the board to normal', async () => {
-    stubApi({ launch: NEEDS_OFFICER });
+    stubApi({ launch: RAID_LOCKED });
     renderBoard();
     await screen.findByTestId('board-area');
     await sendAnything();
 
-    expect(await screen.findByRole('alert')).toHaveTextContent(
-      'That job is too hard to run without an officer leading it',
-    );
+    expect(await screen.findByRole('alert')).toHaveTextContent(HOME_LOCKED_TEXT);
   });
 
   it('says nothing while every launch is succeeding', async () => {
@@ -516,11 +517,11 @@ describe('a refused launch', () => {
 
     expect(await screen.findByRole('region', { name: 'Level up' })).toHaveTextContent('LEVEL 4');
     // And the refusal itself is still explained: the banner does not replace the reason.
-    expect(screen.getByRole('alert')).toHaveTextContent(/officer leading it/);
+    expect(screen.getByRole('alert')).toHaveTextContent(HOME_LOCKED_TEXT);
   });
 
   it('shows no level-up banner when the refusal banked nothing', async () => {
-    stubApi({ launch: NEEDS_OFFICER });
+    stubApi({ launch: RAID_LOCKED });
     renderBoard();
     await screen.findByTestId('board-area');
     await sendAnything();

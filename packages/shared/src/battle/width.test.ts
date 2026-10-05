@@ -7,6 +7,7 @@ import {
   FRONTAGE_BY_CONTEXT,
 } from './battlefield.js';
 import {
+  AMBUSH_CEILING,
   ambushShare,
   engagedUnits,
   frontageShare,
@@ -275,6 +276,29 @@ describe('the opening strike', () => {
 
     expect(ambushShare(only.attacker, seeing(only.defender, 0))).toBeGreaterThan(0);
     expect(ambushShare(only.attacker, seeing(only.defender, 100))).toBe(0);
+  });
+
+  /**
+   * A fraction of a round, never a whole one (P10-E, 2026-10-02). The worst case the reviewer
+   * found, a hidden line against an enemy that sees nothing, read 1.000; it closes on
+   * `AMBUSH_CEILING` now and still climbs with every point of stealth.
+   */
+  it('never opens with a whole round, however hidden the line', () => {
+    const [only] = run({ ghosts: 12 }, { sparks: 12 }, bareBattlefield(), 1).simulations;
+    expect(only).toBeDefined();
+    if (!only) return;
+    const hidden = (stealth: number) => ({
+      ...only.attacker,
+      stacks: only.attacker.stacks.map((stack) => ({
+        ...stack,
+        unit: { ...stack.unit, modifiers: [...stack.unit.modifiers, 'ambush' as const] },
+        effective: { ...stack.effective, stealth },
+      })),
+    });
+    const blind = seeing(only.defender, 0);
+    expect(ambushShare(hidden(100), blind)).toBeLessThan(AMBUSH_CEILING);
+    expect(ambushShare(hidden(100), blind)).toBeGreaterThan(ambushShare(hidden(90), blind));
+    expect(ambushShare(hidden(90), blind)).toBeGreaterThan(ambushShare(hidden(70), blind));
   });
 
   it('is worth more the wider the stealth gap', () => {

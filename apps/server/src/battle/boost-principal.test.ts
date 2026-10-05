@@ -74,7 +74,7 @@ async function register(
     ...base.economy,
     infamy: DECLARE_INFAMY_COST + OPEN_BOOST!.cost * 4,
   });
-  app.repos.bases.updateArmy(baseId, { razors: 20 }, base.trainingQueue);
+  app.repos.bases.updateArmy(baseId, { razors: 20 }, base.musterQueue);
   // What founding a table asks for: a crew with some standing and a Nexus to run it out of.
   app.repos.bases.updateProgression(baseId, FOUND_FACTION_PLAYER_LEVEL, base.progression);
   app.repos.bases.updateBuildings(

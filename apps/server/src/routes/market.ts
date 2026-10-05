@@ -101,13 +101,15 @@ export function registerMarketRoutes(app: FastifyInstance): void {
 
   app.get('/market', { preHandler: app.authenticate }, (request): MarketResponse => {
     const now = new Date();
-    const base = ownBase(app, request.currentUser.id);
     app.db.transaction(() => sweepExpiredOffers(app.repos, now))();
     // Before the board is drawn: any lot whose visit is over. A player who opens the market five
     // minutes after he packed up is the one who closes it if the world clock has not got there
     // first, and they must see what they won on this very read rather than on the next one.
-    settleVendorAuctions(app.repos, now);
-    const reader = app.repos.bases.findByOwnerId(base.ownerId) ?? base;
+    settleVendorAuctions(app.repos, now, app.config.admin);
+    // Settled, as every write here is: priced off the stored row, the caps, the bid ceiling and
+    // the supply run's `most` left out the unbanked production, and the screen greyed a bid or a
+    // run the server would then have taken.
+    const reader = app.db.transaction(() => settledOwnBase(app, request.currentUser.id, now))();
     const cityId = cityOrRefuse(reader, cityQuery(request.query));
     return board(reader, now, cityId);
   });
@@ -119,7 +121,7 @@ export function registerMarketRoutes(app: FastifyInstance): void {
     const now = new Date();
     // The close first, the way `/bar` does it: a bid landing just after a visit ended belongs to
     // the next one, and the lot it names has to be settled before anything is written against it.
-    settleVendorAuctions(app.repos, now);
+    settleVendorAuctions(app.repos, now, app.config.admin);
     return app.db.transaction(() => {
       const base = settledOwnBase(app, request.currentUser.id, now);
       /*
@@ -138,6 +140,7 @@ export function registerMarketRoutes(app: FastifyInstance): void {
         lineId,
         amount,
         now,
+        admin: app.config.admin,
       });
       if (result.kind === 'refused') refuse(result.reason, result);
       // The barrow the bid landed at, not the crew's own: a bid in Terminus used to answer with
@@ -201,7 +204,7 @@ export function registerMarketRoutes(app: FastifyInstance): void {
       return app.db.transaction(() => {
         const base = ownBase(app, request.currentUser.id);
         const context: ReimaginingContext = {
-          hasHeadOfResearch: workingRoles(base.commanders).includes('head_of_research'),
+          hasResearcher: workingRoles(base.commanders).includes('researcher'),
           hasReimaginingResearch: isReimaginingResearched(base.research.technologies),
         };
         const input = {
@@ -298,6 +301,7 @@ export function registerMarketRoutes(app: FastifyInstance): void {
           trade,
           BARTER_MINIMUM,
           now,
+          app.config.admin,
         );
         if (result.kind === 'refused') refuse(result.reason);
         return { market: board(result.base, now) };
@@ -321,6 +325,7 @@ export function registerMarketRoutes(app: FastifyInstance): void {
           units,
           now,
           acceptWaste,
+          app.config.admin,
         );
         if (result.kind === 'refused') refuse(result.reason);
         return { market: board(result.base, now) };
@@ -330,6 +335,8 @@ export function registerMarketRoutes(app: FastifyInstance): void {
 
   /** Post a listing, or counter somebody else's. */
   app.post('/market/offer', { preHandler: app.authenticate }, (request): MarketMutationResponse => {
+    // The Market's own door first, as the client nests them (`App.tsx`).
+    requireAreaFor(app.repos, request.currentUser.id, 'market');
     requireAreaFor(app.repos, request.currentUser.id, 'offers');
     const { give, want, counterTo, cityId } = parseBody(PostOfferRequestSchema, request.body);
     const now = new Date();
@@ -380,6 +387,7 @@ export function registerMarketRoutes(app: FastifyInstance): void {
     '/market/accept',
     { preHandler: app.authenticate },
     (request): MarketMutationResponse => {
+      requireAreaFor(app.repos, request.currentUser.id, 'market');
       requireAreaFor(app.repos, request.currentUser.id, 'offers');
       const { offerId, acceptWaste } = parseBody(OfferActionRequestSchema, request.body);
       const now = new Date();

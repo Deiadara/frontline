@@ -1,7 +1,8 @@
 import {
   DEFAULT_CITY_ID,
-  MAX_MISSION_SPEED_BONUS,
-  MAX_TRAVEL_SPEED_BONUS,
+  MISSION_SPEED_CEILING,
+  missionSpeedCut,
+  travelSpeedCut,
   MISC_AREA_ID,
   TERMINUS_CITY_ID,
   describeHoldBonus,
@@ -68,8 +69,9 @@ const RAID = findMissionTemplate('foundry-raid') as MissionTemplate;
 const RAZOR_SPEED = findUnit('razors')!.stats.speed;
 
 /** The rule, written out: the pace divides, the percentage comes off what is left, round once. */
+// The road's own arithmetic, the reduction bent as `roadMinutes` bends it (2026-10-05).
 const roadAt = (bandMinutes: number, speed: number, reductionPercent: number): number =>
-  Math.round((bandMinutes / (1 + speed / 100)) * (1 - reductionPercent / 100));
+  Math.round((bandMinutes / (1 + speed / 100)) * (1 - travelSpeedCut(reductionPercent) / 100));
 
 async function world(username: string): Promise<{ repos: Repositories; base: Base }> {
   const config = loadConfig({ DATABASE_PATH: ':memory:', JWT_SECRET: 'test-secret' });
@@ -89,7 +91,7 @@ async function world(username: string): Promise<{ repos: Repositories; base: Bas
   const repos = createRepositories(db);
   const baseId = chosen.json<{ base: { id: string } }>().base.id;
   const base = repos.bases.findById(baseId)!;
-  repos.bases.updateArmy(base.id, { razors: 8 }, base.trainingQueue);
+  repos.bases.updateArmy(base.id, { razors: 8 }, base.musterQueue);
   return { repos, base: repos.bases.findById(baseId)! };
 }
 
@@ -177,7 +179,7 @@ describe('what two Terminus districts are worth to a job', () => {
     expect(roadAt(road, 0, 37)).toBeGreaterThan(roadAt(road, RAZOR_SPEED, 37));
   });
 
-  it('caps the job leg at fifty and the road at sixty', async () => {
+  it('bends the job leg and the road under their ceilings', async () => {
     const { base } = await world('overcapped');
     const stored = launchMission({
       id: 'mission-cap',
@@ -192,20 +194,19 @@ describe('what two Terminus districts are worth to a job', () => {
       // Well past both ceilings, so what comes back is the ceiling and not the figure.
       missionSpeedPercent: 140,
     });
-    expect(MAX_MISSION_SPEED_BONUS).toBe(50);
-    expect(MAX_TRAVEL_SPEED_BONUS).toBe(60);
-    // 60 / 1.5 on the job, and six tenths off the road: two different ceilings applied to two
-    // different arithmetics, which is the thing one figure on a card hides.
-    expect(stored.mission.durationMinutes).toBe(40);
+    // Bent, not stopped (2026-10-05): 140 points are under 60 on the job and under 75 off the road,
+    // two different curves on two different arithmetics, which is what one figure on a card hides.
+    expect(missionSpeedCut(140)).toBeLessThan(MISSION_SPEED_CEILING);
+    expect(stored.mission.durationMinutes).toBe(Math.round(60 / (1 + missionSpeedCut(140) / 100)));
     const road = 20 + missionWalkMinutes(base.districtId, 'blockhouse');
-    expect(stored.mission.travelMinutes).toBe(roadAt(road, RAZOR_SPEED, MAX_TRAVEL_SPEED_BONUS));
+    expect(stored.mission.travelMinutes).toBe(roadAt(road, RAZOR_SPEED, 140));
   });
 });
 
 describe('the Blockhouse’s cut, on the boards', () => {
   it('says "in this city" on the card', () => {
     expect(describeHoldBonus(unifiedBonusFor('blockhouse')!.bonus)).toBe(
-      '-20% mission time in this city',
+      '-20% mission time in this city (tapers, no hard stop)',
     );
     expect(describeHoldBonus(unifiedBonusFor('marshalling-yards')!.bonus)).not.toContain('city');
   });

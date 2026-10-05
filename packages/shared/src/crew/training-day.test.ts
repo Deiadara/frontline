@@ -20,10 +20,10 @@ import {
  * `cancelDrill` took one off `used` whatever day the cancelled hour started on, so a drill charged
  * to yesterday handed its slot back to *today*.
  *
- * Reachable with the Professor's second bench (`training_benches`): a drill started at 23:57 is
- * still inside its cancel window (`CANCEL_WINDOW`, six minutes of the hour) at 00:01, by which
- * time the crew has already spent one of today's five on the other bench. Cancel the old one and
- * the counter goes back to zero with an hour of today's work already running.
+ * Reachable whenever a drill started at 23:57 is still inside its cancel window (`CANCEL_WINDOW`,
+ * six minutes of the hour) at 00:01, by which time the crew has already spent one of today's five
+ * queueing the next. Cancel the old one and the counter goes back to zero with an hour of today's
+ * work already on the list.
  */
 
 /** 23:57 Athens on the 23rd, and 00:01 Athens on the 24th: four minutes apart across midnight. */
@@ -77,5 +77,39 @@ describe('cancelling an hour that was charged to another day', () => {
     expect(trainingsLeft(cancelDrill(today, 'c', TODAY_EARLY), TODAY_EARLY)).toBe(
       TRAININGS_PER_DAY,
     );
+  });
+});
+
+/**
+ * A drill waiting in the queue starts on a later day than it was asked for (2026-10-04), and the
+ * day it is charged to is the day it was *queued*, which `queuedAt` keeps.
+ */
+describe('cancelling a queued drill across midnight', () => {
+  /** 23:30 Athens on the 23rd, and the hour ahead of it ending at 00:20 on the 24th. */
+  const QUEUED_AT = '2026-09-23T20:30:00.000Z';
+  const STARTS_AT = '2026-09-23T21:20:00.000Z';
+  const queued = (): TrainingState =>
+    beginTraining(
+      {
+        ...startingTraining(QUEUED_AT),
+        used: 1,
+        sessions: [session('a', 'overseer', '2026-09-23T20:20:00.000Z')],
+      },
+      { ...session('q', 'off-1', STARTS_AT), queuedAt: QUEUED_AT },
+      QUEUED_AT,
+    );
+
+  it('hands the slot back to the day it was queued on', () => {
+    expect(trainingDay(STARTS_AT)).toBe('2026-09-24');
+    const state = queued();
+    expect(state.used).toBe(2);
+    expect(cancelDrill(state, 'q', '2026-09-23T20:40:00.000Z').used).toBe(1);
+  });
+
+  it('leaves the next day alone once midnight has passed', () => {
+    // One of today's five already spent, so a refund charged to the wrong day would show.
+    const today = beginTraining(queued(), session('t', 'off-2', TODAY_EARLY), TODAY_EARLY);
+    expect(today.used).toBe(1);
+    expect(cancelDrill(today, 'q', TODAY_EARLY).used).toBe(1);
   });
 });

@@ -1,16 +1,19 @@
 import {
+  SPY_DEFENCE_BREAK_EVEN,
   COMBINE_LEADERS,
   SPY_ACCURACY_RESEARCH_ID,
   SPY_ESTIMATE_RESEARCH_ID,
-  SPY_NOTICE_RESEARCH_ID,
   SPY_PAID_TIERS_RESEARCH_ID,
   SPY_QUIET_RESEARCH_ID,
   SPY_SLEEPERS_RESEARCH_ID,
   SPY_TIER_SPECS,
-  SPY_TRACE_RESEARCH_ID,
   SPY_WHOLE_WIRE_RESEARCH_ID,
   SPY_WRITTEN_RESEARCH_ID,
   armySize,
+  counterScore,
+  roughAccuracy,
+  roughUnseen,
+  spyScore,
   unitSlotsUsed,
   createCommander,
   findDistrict,
@@ -18,6 +21,7 @@ import {
   makeAttributes,
   type BattlesResponse,
   type CityMutationResponse,
+  type Commander,
   type DistrictDetailResponse,
   type Notification,
   type SpyTarget,
@@ -29,8 +33,8 @@ import { buildApp } from '../app.js';
 import { loadConfig } from '../config.js';
 import { openDatabase, runMigrations, type AppDatabase } from '../db/index.js';
 import { tickWorld } from '../live/clock.js';
-import { chooseOverseer, pinOverseer } from '../testing/overseer.js';
-import { groundBehind, settleSpying } from './spying.js';
+import { chooseOverseer, overseerSpyGuardAt, pinOverseer } from '../testing/overseer.js';
+import { groundBehind, settleSpying, snapshotSpying, spyStrengthFor } from './spying.js';
 
 /**
  * Spying, end to end (maintainer ruling, 2026-09-22): the refusals, the caps, the clock, the
@@ -81,6 +85,9 @@ async function makeWorld(): Promise<{ me: Stack; rival: Stack }> {
   instances.push({ app, db });
   const me = await register(app, 'watcher');
   const rival = await register(app, 'watched');
+  // The rival's Overseer at the break-even, so their own Signals and Cryptography move no counter
+  // here unless a test sets them (2026-10-04).
+  overseerSpyGuardAt(app, rival.baseId, SPY_DEFENCE_BREAK_EVEN);
   return { me, rival };
 }
 
@@ -112,6 +119,15 @@ function teach(stack: Stack, ...ids: string[]): void {
 function theirPress(me: Stack, rival: Stack, garrison: Record<string, number>): void {
   const press = me.app.repos.city.control('steelbelt-press')!;
   me.app.repos.city.put({ ...press, holder: { kind: 'crew', baseId: rival.baseId }, garrison });
+}
+
+/** The rival seats a Master of Whispers at `rating` on every attribute. */
+function theirWhispers(me: Stack, rival: Stack, rating: number): void {
+  const theirs = me.app.repos.bases.findById(rival.baseId)!;
+  me.app.repos.bases.updateCommanders(rival.baseId, [
+    ...theirs.commanders.filter((officer) => officer.role !== 'master_of_whispers'),
+    createCommander('their-spy', 'Quiet', 'master_of_whispers', makeAttributes(rating), []),
+  ]);
 }
 
 const PRESS: SpyTarget = { kind: 'location', locationId: 'steelbelt-press' };
@@ -154,10 +170,20 @@ describe('sending the runners', () => {
     expect(district.spyRuns).toHaveLength(1);
     expect(district.spyRuns[0]?.placeName).toBe(findLocation('steelbelt-press')!.name);
     expect(district.spyRuns[0]?.tier).toBe('paid_whisper');
-    // One job at a time.
+    // One job at a time: anywhere else waits for the party...
+    const gate = {
+      kind: 'gate',
+      districtId: me.app.repos.bases.findById(rival.baseId)!.districtId,
+    } as const;
+    const elsewhere = await spy(me, gate);
+    expect(elsewhere.statusCode).toBe(400);
+    expect(elsewhere.json<{ error: { message: string } }>().error.message).toMatch(/already out/);
+    // ...and the same place says so (2026-10-05).
     const again = await spy(me, PRESS);
     expect(again.statusCode).toBe(400);
-    expect(again.json<{ error: { message: string } }>().error.message).toMatch(/already out/);
+    expect(again.json<{ error: { message: string } }>().error.message).toMatch(
+      /already on their way there/,
+    );
   });
 
   it('refuses without the chair and without the caps, and asks for nothing else', async () => {
@@ -229,6 +255,47 @@ describe('sending the runners', () => {
     expect(
       groundBehind(me.app.repos, reader(), { kind: 'gate', districtId: reader().districtId }),
     ).toEqual({ kind: 'refused', reason: 'own_ground' });
+  });
+});
+
+/**
+ * The job is clocked on the Master of Whispers' lifted sheet (maintainer, 2026-09-30), the one the
+ * crew screen draws and every officer fights and is graded on. A peer who teaches the physical
+ * group makes them quicker on the road and, with a fuller sheet, quicker on the ground; neither
+ * showed while the clock read the printed card.
+ */
+describe('the clock on a lifted sheet', () => {
+  const quote = async (stack: Stack): Promise<number> => {
+    const seen = (
+      await stack.app.inject({
+        method: 'GET',
+        url: '/api/city/steelbelt',
+        headers: auth(stack.token),
+      })
+    ).json<DistrictDetailResponse>();
+    expect(seen.spyQuote, 'a Master of Whispers is in the chair').not.toBeNull();
+    return seen.spyQuote!.minutes;
+  };
+
+  it('quotes a shorter job once a peer teaches, and freezes the job it quoted', async () => {
+    const { me, rival } = await makeWorld();
+    hire(me, 30);
+    theirPress(me, rival, { razors: 20 });
+    const printed = await quote(me);
+
+    const base = me.app.repos.bases.findById(me.baseId)!;
+    me.app.repos.bases.updateCommanders(base.id, [
+      ...base.commanders,
+      createCommander('teacher', 'Old Hand', 'trader', {}, ['old_instructor']),
+    ]);
+    const lifted = await quote(me);
+    expect(lifted).toBeLessThan(printed);
+
+    const res = await spy(me, PRESS);
+    expect(res.statusCode, res.body.slice(0, 200)).toBe(200);
+    const run = res.json<CityMutationResponse>().district.spyRuns[0]!;
+    const frozen = (Date.parse(run.returnsAt) - Date.parse(run.departedAt)) / 60_000;
+    expect(frozen).toBe(lifted);
   });
 });
 
@@ -310,12 +377,9 @@ describe('the report', () => {
   it('fails under the floor, keeps the caps, and counts only as a job home', async () => {
     const { me, rival } = await makeWorld();
     hire(me, 10);
-    // A strong Consigliere against the worst chair and the cheapest tier: nothing gets through.
-    const theirs = me.app.repos.bases.findById(rival.baseId)!;
-    me.app.repos.bases.updateCommanders(rival.baseId, [
-      ...theirs.commanders,
-      createCommander('c', 'Quiet', 'consigliere', makeAttributes(100), []),
-    ]);
+    // A strong Master of Whispers of theirs against the worst chair and the cheapest tier:
+    // nothing gets through.
+    theirWhispers(me, rival, 100);
     theirPress(me, rival, { razors: 40 });
     // Both readouts on the track, and neither comes home on a failed report: the two together
     // would give back the count the empty list withholds.
@@ -420,7 +484,6 @@ describe('ground that changed while they walked (bug pass, 2026-09-28)', () => {
     hire(me, 100);
     teach(me, SPY_ACCURACY_RESEARCH_ID);
     openTier(me, 'total_intelligence');
-    teach(rival, SPY_NOTICE_RESEARCH_ID);
     theirPress(me, rival, { razors: 50 });
     expect((await spy(me, PRESS, 'total_intelligence')).statusCode).toBe(200);
     // While they walked, the rival took the rest of the district: the Press is behind a gate now.
@@ -444,7 +507,6 @@ describe('ground that changed while they walked (bug pass, 2026-09-28)', () => {
     hire(me, 100);
     teach(me, SPY_ACCURACY_RESEARCH_ID);
     openTier(me, 'total_intelligence');
-    teach(rival, SPY_NOTICE_RESEARCH_ID);
     theirPress(me, rival, { razors: 50 });
     await spy(me, PRESS, 'total_intelligence');
     const press = me.app.repos.city.control('steelbelt-press')!;
@@ -457,6 +519,37 @@ describe('ground that changed while they walked (bug pass, 2026-09-28)', () => {
     expect(report.exposed).toEqual({});
     expect(report.accuracy).toBe(1);
     expect(bell(rival, 'spied_on')).toHaveLength(0);
+  });
+});
+
+/*
+ * The runners read the ground when they reach it, not when they get home (maintainer, 2026-10-02):
+ * a garrison that walks off while they walk back is still on the report, dated when they looked.
+ */
+describe('a read taken at the target', () => {
+  it('keeps what they saw when they got there, whatever moved while they walked home', async () => {
+    const { me, rival } = await makeWorld();
+    hire(me, 100);
+    openTier(me, 'total_intelligence');
+    theirPress(me, rival, { razors: 50 });
+    expect((await spy(me, PRESS, 'total_intelligence')).statusCode).toBe(200);
+    const run = me.app.repos.spying.activeFor(me.baseId)[0]!;
+    // They have just reached the Press.
+    const arrived = Date.now() - 1_000;
+    me.db
+      .prepare('UPDATE spy_runs SET departed_at = ?')
+      .run(new Date(arrived - run.travelMinutes * 60_000).toISOString());
+    expect(snapshotSpying(me.app.repos, new Date())).toBe(1);
+
+    // The garrison walks off while the runners walk home.
+    const press = me.app.repos.city.control('steelbelt-press')!;
+    me.app.repos.city.put({ ...press, garrison: {} });
+    windBack(me);
+    settleSpying(me.app.repos, new Date());
+
+    const report = me.app.repos.spying.reportsFor(me.baseId, 10)[0]!;
+    expect(report.exposed).toEqual({ razors: 50 });
+    expect(Date.parse(report.writtenAt)).toBeLessThanOrEqual(arrived + 1_000);
   });
 });
 
@@ -487,6 +580,213 @@ describe("a Combine district's gate", () => {
   );
 });
 
+/**
+ * The officer side of spying is the chair's grade alone (maintainer, 2026-10-01): "spy bonuses
+ * from the officer should only come based on his grade", and the same rule for defence. A crew of
+ * 90s on every spy skill, the rungs that used to pay spying finished (three of the six, the Head of
+ * Security's, went with the chair rework on 2026-10-04), adds nothing on either side; a perk
+ * still does.
+ */
+describe('spy bonuses from the grade alone', () => {
+  const OLD_SPY_RUNGS = ['tech_field_debriefs', 'tech_underground_routes', 'tech_citation_index'];
+
+  it('reads no rating and no rung on either side, and a perk on both', async () => {
+    const { me, rival } = await makeWorld();
+    hire(me, 90);
+    theirWhispers(me, rival, 90);
+    teach(me, ...OLD_SPY_RUNGS);
+    teach(rival, ...OLD_SPY_RUNGS);
+    theirPress(me, rival, { razors: 20 });
+    const ground = () => {
+      const looked = groundBehind(me.app.repos, me.app.repos.bases.findById(me.baseId)!, PRESS);
+      if (looked.kind !== 'ground' || looked.ground.counter.kind !== 'crew') {
+        throw new Error('a crew holds the Press');
+      }
+      return looked.ground.counter;
+    };
+    const strength = () =>
+      spyStrengthFor(me.app.repos, me.app.repos.bases.findById(me.baseId)!, 'loose_ears');
+    expect(strength().chairPoints).toBeGreaterThan(50);
+    expect(strength().intelPercent).toBe(0);
+    expect(ground().intelResistancePercent).toBe(0);
+
+    // A perk on each chair: Street Ears is 8 spy points, Paper Shredder 15 against.
+    const perk = (stack: Stack, id: string) => {
+      const base = stack.app.repos.bases.findById(stack.baseId)!;
+      stack.app.repos.bases.updateCommanders(
+        base.id,
+        base.commanders.map((officer) =>
+          officer.role === 'master_of_whispers' ? { ...officer, perks: [id] } : officer,
+        ),
+      );
+    };
+    perk(me, 'street_ears');
+    perk(rival, 'paper_shredder');
+    expect(strength().intelPercent).toBe(8);
+    expect(ground().intelResistancePercent).toBe(15);
+  });
+});
+
+/**
+ * The holder's other officers guard its ground a little (maintainer, 2026-10-01): their Signals and
+ * Cryptography, averaged, move the counter score from -10% at 1 to toward +25%, through nothing at
+ * 30. Only officers seated and working, and never the Master of Whispers, whose sheet is their
+ * grade on the other side of the line.
+ */
+describe("the holder's other officers", () => {
+  const officer = (id: string, role: Commander['role'], rating: number): Commander =>
+    createCommander(
+      id,
+      id,
+      role,
+      makeAttributes(50, { signals: rating, cryptography: rating }),
+      [],
+    );
+  const seat = (stack: Stack, me: Stack, officers: Commander[]) => {
+    const theirs = me.app.repos.bases.findById(stack.baseId)!;
+    me.app.repos.bases.updateCommanders(stack.baseId, [
+      ...theirs.commanders.filter((one) => one.role === 'master_of_whispers'),
+      ...officers,
+    ]);
+  };
+  const counterOf = (me: Stack) => {
+    const looked = groundBehind(me.app.repos, me.app.repos.bases.findById(me.baseId)!, PRESS);
+    if (looked.kind !== 'ground' || looked.ground.counter.kind !== 'crew') {
+      throw new Error('a crew holds the Press');
+    }
+    return looked.ground.counter;
+  };
+
+  // The Overseer is in the room for this since 2026-10-04: at the break-even on this fixture.
+  it('reads nothing with nobody but the Master of Whispers and an even Overseer', async () => {
+    const { me, rival } = await makeWorld();
+    hire(me, 60);
+    theirWhispers(me, rival, 5);
+    theirPress(me, rival, { razors: 20 });
+    seat(rival, me, []);
+    expect(counterOf(me).officersPercent).toBe(0);
+  });
+
+  it('counts the Overseer with the officers', async () => {
+    const { me, rival } = await makeWorld();
+    hire(me, 60);
+    theirWhispers(me, rival, 60);
+    theirPress(me, rival, { razors: 20 });
+    seat(rival, me, []);
+    overseerSpyGuardAt(me.app, rival.baseId, 90);
+    expect(counterOf(me).officersPercent).toBeGreaterThan(20);
+    overseerSpyGuardAt(me.app, rival.baseId, 1);
+    expect(counterOf(me).officersPercent).toBeCloseTo(-10, 0);
+  });
+
+  it('takes 10% off a room of 1s and adds toward 25% for a room of 90s', async () => {
+    const { me, rival } = await makeWorld();
+    hire(me, 60);
+    theirWhispers(me, rival, 60);
+    theirPress(me, rival, { razors: 20 });
+    overseerSpyGuardAt(me.app, rival.baseId, 1);
+    seat(rival, me, [officer('a', 'salvager', 1), officer('b', 'veteran', 1)]);
+    const weak = counterOf(me);
+    expect(weak.officersPercent).toBeCloseTo(-10, 0);
+    overseerSpyGuardAt(me.app, rival.baseId, 30);
+    seat(rival, me, [officer('a', 'salvager', 30)]);
+    expect(Math.abs(counterOf(me).officersPercent)).toBeLessThan(1.5);
+    overseerSpyGuardAt(me.app, rival.baseId, 90);
+    seat(rival, me, [officer('a', 'salvager', 90), officer('b', 'veteran', 90)]);
+    const strong = counterOf(me);
+    expect(strong.officersPercent).toBeGreaterThan(20);
+    expect(strong.officersPercent).toBeLessThan(25);
+    // The same chair and gate on both: the people alone moved the score.
+    expect(counterScore(strong)).toBeGreaterThan(counterScore(weak));
+  });
+
+  it('leaves out the bench, the injured and the Master of Whispers', async () => {
+    const { me, rival } = await makeWorld();
+    hire(me, 60);
+    theirWhispers(me, rival, 100);
+    theirPress(me, rival, { razors: 20 });
+    const later = new Date(Date.now() + 86_400_000).toISOString();
+    seat(rival, me, [
+      officer('working', 'salvager', 30),
+      officer('benched', null, 100),
+      { ...officer('hurt', 'veteran', 100), injuredUntil: later },
+    ]);
+    // Only the working Salvager is read: 30 and his lift, so close to nothing, where the
+    // Master of Whispers' 100s, the bench and the bed would have made it +20% and more.
+    expect(counterOf(me).officersPercent).toBeLessThan(5);
+  });
+});
+
+/**
+ * The holder's Master of Whispers defends (maintainer, 2026-10-01): "a master of whispers in
+ * defense with same grade ... cancels out a spying master of whispers with equivalent strength".
+ */
+describe("the holder's Master of Whispers", () => {
+  it('cancels an equal chair exactly, so the cheapest tier reads nothing', async () => {
+    const { me, rival } = await makeWorld();
+    hire(me, 60);
+    theirWhispers(me, rival, 60);
+    theirPress(me, rival, { razors: 20 });
+    const reader = me.app.repos.bases.findById(me.baseId)!;
+    const looked = groundBehind(me.app.repos, reader, PRESS);
+    if (looked.kind !== 'ground') throw new Error(`refused: ${looked.reason}`);
+    const strength = spyStrengthFor(me.app.repos, reader, 'loose_ears');
+    expect(strength.chairPoints).toBeGreaterThan(0);
+    const counter = looked.ground.counter;
+    if (counter.kind !== 'crew') throw new Error('a crew holds the Press');
+    // Chair for chair, so what is left of the budget is the bonuses on each side and nothing else.
+    expect(counter.whispersChairPoints).toBe(strength.chairPoints);
+    expect(spyScore(strength) - counterScore(counter)).toBeCloseTo(
+      strength.intelPercent - counter.intelResistancePercent,
+      9,
+    );
+
+    await spy(me, PRESS, 'loose_ears');
+    windBack(me);
+    settleSpying(me.app.repos, new Date());
+    expect(me.app.repos.spying.reportsFor(me.baseId, 1)[0]!.failed).toBe(true);
+  });
+
+  it('defends nothing from the bench, and the same job reads the place', async () => {
+    const { me, rival } = await makeWorld();
+    hire(me, 60);
+    theirWhispers(me, rival, 60);
+    const theirs = me.app.repos.bases.findById(rival.baseId)!;
+    me.app.repos.bases.updateCommanders(
+      rival.baseId,
+      theirs.commanders.map((officer) =>
+        officer.role === 'master_of_whispers' ? { ...officer, role: null } : officer,
+      ),
+    );
+    theirPress(me, rival, { razors: 20 });
+    await spy(me, PRESS, 'loose_ears');
+    windBack(me);
+    settleSpying(me.app.repos, new Date());
+    expect(me.app.repos.spying.reportsFor(me.baseId, 1)[0]!.failed).toBe(false);
+  });
+});
+
+describe('the printed figures', () => {
+  it('stores the accuracy and the unseen estimate rounded, never the exact count', async () => {
+    const { me, rival } = await makeWorld();
+    hire(me, 60);
+    teach(me, SPY_WRITTEN_RESEARCH_ID, SPY_ACCURACY_RESEARCH_ID, SPY_ESTIMATE_RESEARCH_ID);
+    // Cheap Razors the budget reads and Ghosts it mostly does not, so the read is partial.
+    theirPress(me, rival, { razors: 33, ghosts: 41 });
+    await spy(me, PRESS, 'loose_ears');
+    windBack(me);
+    settleSpying(me.app.repos, new Date());
+
+    const report = me.app.repos.spying.reportsFor(me.baseId, 1)[0]!;
+    expect(report.failed).toBe(false);
+    const seen = armySize(report.exposed);
+    expect(seen).toBeLessThan(74);
+    expect(report.accuracy).toBe(roughAccuracy(seen / 74));
+    expect(report.accuracy).not.toBe(seen / 74);
+    expect(report.unseen).toBe(roughUnseen(74 - seen));
+  });
+});
+
 describe('who is told', () => {
   /** One look at the Press, home and settled. The chair is S+, so with the rung nothing is seen. */
   async function look(me: Stack): Promise<void> {
@@ -504,26 +804,35 @@ describe('who is told', () => {
     const told = bell(rival, 'spied_on');
     expect(told).toHaveLength(1);
     expect(told[0]!.title).toMatch(/watcher/);
-    // No Consigliere rung, so nothing about what they counted.
+    // Who and where, and nothing about what they counted.
     expect(told[0]!.body).not.toMatch(/unit slots/);
     const report = me.app.repos.spying.reportsFor(me.baseId, 1)[0]!;
     expect(report.foundOut).toBe(true);
     expect(me.app.repos.feats.tallies(me.baseId).spy_jobs_unnoticed ?? 0).toBe(0);
   });
 
-  it('adds what they counted when the holder has Names and Faces', async () => {
+  // Review, 2026-10-02: the holder whose ground it was when they looked, whatever happens after.
+  it('tells the crew that held the ground when the runners looked, not whoever holds it later', async () => {
     const { me, rival } = await makeWorld();
     hire(me, 100);
     theirPress(me, rival, { razors: 20 });
-    teach(rival, SPY_NOTICE_RESEARCH_ID, SPY_TRACE_RESEARCH_ID);
-    await look(me);
-    const told = bell(rival, 'spied_on');
-    expect(told).toHaveLength(1);
-    expect(told[0]!.title).toMatch(/watcher/);
-    expect(told[0]!.body).toMatch(/counted 20 unit slots of yours/);
+    await spy(me, PRESS, 'loose_ears');
+    const run = me.app.repos.spying.activeFor(me.baseId)[0]!;
+    me.db
+      .prepare('UPDATE spy_runs SET departed_at = ?')
+      .run(new Date(Date.now() - 1_000 - run.travelMinutes * 60_000).toISOString());
+    expect(snapshotSpying(me.app.repos, new Date())).toBe(1);
+
+    // The rival loses the Press while the runners walk home.
+    const press = me.app.repos.city.control('steelbelt-press')!;
+    me.app.repos.city.put({ ...press, holder: { kind: 'unoccupied' }, garrison: {} });
+    windBack(me);
+    settleSpying(me.app.repos, new Date());
+
+    expect(bell(rival, 'spied_on')).toHaveLength(1);
   });
 
-  it('after Traffic Analysis, an S+ chair is never seen, and only the Consigliere hears anything', async () => {
+  it('after Traffic Analysis, an S+ chair is never seen, and nobody hears anything', async () => {
     const { me, rival } = await makeWorld();
     hire(me, 100);
     teach(me, SPY_QUIET_RESEARCH_ID);
@@ -533,19 +842,6 @@ describe('who is told', () => {
     expect(bell(rival, 'spied_on')).toHaveLength(0);
     expect(me.app.repos.spying.reportsFor(me.baseId, 1)[0]!.foundOut).toBe(false);
     expect(me.app.repos.feats.tallies(me.baseId).spy_jobs_unnoticed).toBe(1);
-
-    teach(rival, SPY_NOTICE_RESEARCH_ID);
-    await look(me);
-    const word = bell(rival, 'spied_on');
-    expect(word).toHaveLength(1);
-    expect(word[0]!.body).toMatch(/caught wind/);
-    expect(word[0]!.title).not.toMatch(/watcher/);
-
-    teach(rival, SPY_TRACE_RESEARCH_ID);
-    await look(me);
-    const named = bell(rival, 'spied_on')[0]!;
-    expect(named.body).toMatch(/20 unit slots of yours/);
-    expect(named.body).toMatch(me.app.repos.bases.findById(me.baseId)!.name);
   });
 
   it('after Traffic Analysis, an F- chair is still seen every time', async () => {
@@ -666,6 +962,27 @@ describe("the chair's track", () => {
     expect(after.find((run) => run.id !== gateRun.id)?.recalledAt).toBeNull();
   });
 
+  /** Maintainer, 2026-10-05: one job per place, whatever parties are free. */
+  it('sends no second party to a place one is already on its way to', async () => {
+    const { me, rival } = await makeWorld();
+    hire(me);
+    teach(me, 'tech_two_sets_of_eyes');
+    theirPress(me, rival, { razors: 20 });
+    expect((await spy(me, PRESS)).statusCode).toBe(200);
+
+    const again = await spy(me, PRESS);
+    expect(again.statusCode).toBe(400);
+    expect(again.body).toContain('Your runners are already on their way there');
+    expect(me.app.repos.spying.activeFor(me.baseId)).toHaveLength(1);
+
+    // The second party is free for anywhere else.
+    const gate = {
+      kind: 'gate',
+      districtId: me.app.repos.bases.findById(rival.baseId)!.districtId,
+    } as const;
+    expect((await spy(me, gate)).statusCode).toBe(200);
+  });
+
   it('counts unit slots and names nobody before Written Reports', async () => {
     const { me, rival } = await makeWorld();
     hire(me, 100);
@@ -697,11 +1014,7 @@ describe("the chair's track", () => {
     const { me, rival } = await makeWorld();
     hire(me, 10);
     teach(me, SPY_ESTIMATE_RESEARCH_ID, SPY_WHOLE_WIRE_RESEARCH_ID, SPY_WRITTEN_RESEARCH_ID);
-    const theirs = me.app.repos.bases.findById(rival.baseId)!;
-    me.app.repos.bases.updateCommanders(rival.baseId, [
-      ...theirs.commanders,
-      createCommander('c', 'Quiet', 'consigliere', makeAttributes(100), []),
-    ]);
+    theirWhispers(me, rival, 100);
     // A Specter is in no report, this figure included.
     theirPress(me, rival, { razors: 40, the_specter: 1 });
     await spy(me, PRESS, 'loose_ears');
@@ -713,5 +1026,129 @@ describe("the chair's track", () => {
     expect(report.exposed).toEqual({});
     expect(report.totalSlots).toBe(unitSlotsUsed({ razors: 40 }));
     expect(report.unseen).toBeNull();
+  });
+});
+
+/**
+ * The Master of Whispers programme, rung by rung (bug pass, 2026-10-01): what the chair has to be
+ * doing for a job to go and to be read, and on whose clock.
+ */
+describe('the chair at work', () => {
+  const HOUR = 3_600_000;
+
+  /** Put `role` in hospital until `until`. */
+  function injure(stack: Stack, role: 'master_of_whispers', until: Date): void {
+    const base = stack.app.repos.bases.findById(stack.baseId)!;
+    stack.app.repos.bases.updateCommanders(
+      base.id,
+      base.commanders.map((officer) =>
+        officer.role === role ? { ...officer, injuredUntil: until.toISOString() } : officer,
+      ),
+    );
+  }
+
+  /** Swap this crew's Master of Whispers for one at `rating` on every attribute. */
+  function reseat(stack: Stack, rating: number): void {
+    const base = stack.app.repos.bases.findById(stack.baseId)!;
+    stack.app.repos.bases.updateCommanders(base.id, [
+      ...base.commanders.filter((officer) => officer.role !== 'master_of_whispers'),
+      createCommander('spy-2', 'Swap', 'master_of_whispers', makeAttributes(rating), []),
+    ]);
+  }
+
+  it('reads the job on the chair as it was at the send, whoever sits there at the settle', async () => {
+    const { me, rival } = await makeWorld();
+    hire(me, 100);
+    // With Traffic Analysis an S+ chair is never seen and an F- one always is: the sharpest
+    // reading of which chair the report was written on.
+    teach(me, SPY_QUIET_RESEARCH_ID);
+    theirPress(me, rival, { razors: 20 });
+    expect((await spy(me, PRESS)).statusCode).toBe(200);
+    // Swapped for the worst officer there is while the runners are out (maintainer, 2026-10-01:
+    // "freeze at send").
+    reseat(me, 0);
+    settleSpying(me.app.repos, new Date(Date.now() + 12 * HOUR));
+
+    const report = me.app.repos.spying.reportsFor(me.baseId, 1)[0]!;
+    expect(report.foundOut, 'the report was read on the chair at the settle').toBe(false);
+    expect(report.exposedSlots).toBe(unitSlotsUsed({ razors: 20 }));
+  });
+
+  it('gives a job sent on a poor chair nothing from a better one seated after it left', async () => {
+    const { me, rival } = await makeWorld();
+    hire(me, 10);
+    // A defender the poor chair cannot read past and the good one reads through.
+    theirWhispers(me, rival, 60);
+    theirPress(me, rival, { razors: 40 });
+    expect((await spy(me, PRESS)).statusCode).toBe(200);
+    reseat(me, 100);
+    settleSpying(me.app.repos, new Date(Date.now() + 12 * HOUR));
+
+    expect(me.app.repos.spying.reportsFor(me.baseId, 1)[0]!.failed).toBe(true);
+  });
+
+  it('reads a run sent before the freeze off the chair at the settle', async () => {
+    const { me, rival } = await makeWorld();
+    hire(me, 100);
+    teach(me, SPY_QUIET_RESEARCH_ID);
+    theirPress(me, rival, { razors: 20 });
+    expect((await spy(me, PRESS)).statusCode).toBe(200);
+    me.db.prepare('UPDATE spy_runs SET chair_points = NULL, intel_percent = NULL').run();
+    reseat(me, 0);
+    settleSpying(me.app.repos, new Date(Date.now() + 12 * HOUR));
+
+    expect(me.app.repos.spying.reportsFor(me.baseId, 1)[0]!.foundOut).toBe(true);
+  });
+
+  it("reads the holder's Master of Whispers at the tick that settles the job", async () => {
+    const { me, rival } = await makeWorld();
+    // A chair that reads forty Razors with nobody against it, and not past their chair at 100.
+    hire(me, 60);
+    theirPress(me, rival, { razors: 40 });
+    theirWhispers(me, rival, 100);
+    expect((await spy(me, PRESS)).statusCode).toBe(200);
+    // In bed now, back at work by the tick, and nothing gets by them.
+    injure(rival, 'master_of_whispers', new Date(Date.now() + HOUR));
+    settleSpying(me.app.repos, new Date(Date.now() + 12 * HOUR));
+
+    expect(me.app.repos.spying.reportsFor(me.baseId, 1)[0]!.failed).toBe(true);
+  });
+
+  it('refuses a hurt chair in words that do not call it empty', async () => {
+    const { me, rival } = await makeWorld();
+    hire(me);
+    theirPress(me, rival, { razors: 20 });
+    injure(me, 'master_of_whispers', new Date(Date.now() + HOUR));
+    const refused = await spy(me, PRESS);
+    expect(refused.statusCode).toBe(409);
+    expect(refused.json<{ error: { message: string } }>().error.message).toMatch(/hurt/);
+  });
+
+  it('turns round the job still inside its tenth when none is named', async () => {
+    const { me, rival } = await makeWorld();
+    hire(me);
+    teach(me, 'tech_two_sets_of_eyes');
+    theirPress(me, rival, { razors: 20 });
+    const gate = {
+      kind: 'gate',
+      districtId: me.app.repos.bases.findById(rival.baseId)!.districtId,
+    } as const;
+    expect((await spy(me, PRESS)).statusCode).toBe(200);
+    // The first job left six hours ago and is past its tenth; the second has just gone.
+    me.db
+      .prepare('UPDATE spy_runs SET departed_at = ?')
+      .run(new Date(Date.now() - 6 * HOUR).toISOString());
+    expect((await spy(me, gate)).statusCode).toBe(200);
+
+    const recalled = await me.app.inject({
+      method: 'POST',
+      url: '/api/city/spy/recall',
+      headers: auth(me.token),
+      payload: {},
+    });
+    expect(recalled.statusCode, recalled.body.slice(0, 200)).toBe(200);
+    const out = me.app.repos.spying.activeFor(me.baseId);
+    expect(out.find((run) => run.target.kind === 'gate')?.recalledAt).not.toBeNull();
+    expect(out.find((run) => run.target.kind === 'location')?.recalledAt).toBeNull();
   });
 });

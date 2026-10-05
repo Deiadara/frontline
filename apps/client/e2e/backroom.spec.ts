@@ -112,12 +112,17 @@ test.describe('the black market', () => {
       // Five slots, always. The refill rule is the reason this number never drops.
       // Five, written as a number. Reading the count off the shared constant would make this
       // assertion agree with whatever the code currently does, which is not an assertion.
-      await expect(page.getByTestId('black-market-shelf').locator('> li')).toHaveCount(5);
+      await expect(page.getByTestId('black-market-shelf').locator('> li')).toHaveCount(6);
       // The infamy box in the corner went at the maintainer's request (2026-09-17): the standing
       // bar across the top of every screen already carries the figure, and what this screen leads
       // with now is the allowance, which is how many lots the crew may actually walk out with.
       await expect(page.getByTestId('black-infamy')).toHaveCount(0);
-      await expect(page.getByTestId('black-allowance')).toContainText('1 to win tonight');
+      // The shelf's own clock took the allowance chip's place (2026-10-05); the count is its hover.
+      await expect(page.getByTestId('black-allowance')).toContainText('Settles in');
+      await expect(page.getByTestId('black-allowance')).toHaveAttribute(
+        'data-tip',
+        /1 to win tonight/,
+      );
 
       expect(await overflowing(page), `something is cut off at ${name}`).toEqual([]);
       await expectSheetNotWashedOut(page);

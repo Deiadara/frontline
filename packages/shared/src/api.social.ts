@@ -1,8 +1,9 @@
 import { z } from 'zod';
-import { ArmySchema } from './units/training.js';
+import { ArmySchema } from './units/muster.js';
 import { IdSchema, IsoDateTimeSchema } from './primitives.js';
 import {
   FactionBlurbSchema,
+  FactionCardSchema,
   FactionInviteSchema,
   FactionMemberSchema,
   FactionNameSchema,
@@ -125,6 +126,23 @@ export const FactionMemberActionRequestSchema = z.object({
 });
 export type FactionMemberActionRequest = z.infer<typeof FactionMemberActionRequestSchema>;
 
+/**
+ * The leader seats a member at a card (maintainer ruling P3-C, 2026-10-02), or clears their seat
+ * back to the deal with `null`. Whoever held that card takes the member's old one.
+ */
+export const SeatFactionMemberRequestSchema = z.object({
+  userId: IdSchema,
+  card: FactionCardSchema.nullable(),
+});
+export type SeatFactionMemberRequest = z.infer<typeof SeatFactionMemberRequestSchema>;
+
+/**
+ * Walking out of a faction. `successorId` is the member a leader hands it to on the way out
+ * (`canNameSuccessor`); without one a leader's leaving disbands it, as it always has.
+ */
+export const LeaveFactionRequestSchema = z.object({ successorId: IdSchema.optional() });
+export type LeaveFactionRequest = z.infer<typeof LeaveFactionRequestSchema>;
+
 /** Sending units to an ally's fight: the same shape as a deployment, against somebody else's battle. */
 export const ReinforceRequestSchema = z.object({
   battleId: IdSchema,
@@ -209,9 +227,18 @@ export const MessagesResponseSchema = z.object({
   unread: z.number().int().nonnegative(),
   /** Whether this player has a faction to write to, so the compose form knows what to offer. */
   hasFaction: z.boolean(),
+  /**
+   * The players whose letters this reader no longer takes (maintainer, 2026-10-02). A blocked
+   * sender's letters and invitations never reach the mailbox. Optional so an older payload parses.
+   */
+  blocked: z.array(z.object({ userId: IdSchema, name: z.string().min(1) })).optional(),
   serverNow: IsoDateTimeSchema,
 });
 export type MessagesResponse = z.infer<typeof MessagesResponseSchema>;
+
+/** Stop, or start again, taking letters from one player. */
+export const BlockSenderRequestSchema = z.object({ userId: IdSchema, blocked: z.boolean() });
+export type BlockSenderRequest = z.infer<typeof BlockSenderRequestSchema>;
 
 export const SendMessageRequestSchema = z.object({
   /**

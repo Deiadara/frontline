@@ -1,5 +1,6 @@
 import {
   BLUEPRINTS,
+  DEFAULT_BADGE,
   FEATS,
   FEAT_MEASURE_SPECS,
   MAX_ATTRIBUTE,
@@ -16,6 +17,7 @@ import {
   startingTraining,
   type Base,
   type LocationHolder,
+  unitSlotsUsed,
 } from '@frontline/shared';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { openDatabase, runMigrations, type AppDatabase } from '../db/index.js';
@@ -63,7 +65,7 @@ function makeBase(): Base {
     buildings: [{ id: 'b-nexus', kind: 'nexus', level: 3, modifications: [] }],
     buildQueue: [],
     army: {},
-    trainingQueue: [],
+    musterQueue: [],
     training: startingTraining(now),
     inventory: {},
     fittedUpgrades: [],
@@ -271,6 +273,82 @@ describe('the numbers a feat can be measured on', () => {
     repos.bases.updateUnitLoadouts(base.id, { razors: ['taped_grips', null, null] });
     expect(read('unit_modifications_fitted')).toBe(1);
     expect(read('masterpieces_fitted')).toBe(0);
+  });
+
+  // Bug pass, 2026-10-02: the gate is the district's own door, so units stood there are at home.
+  it('counts the army at the gate with the army at home', () => {
+    const base = repos.bases.findByOwnerId(OWNER)!;
+    const read = (key: string) => snapshotFor(repos, repos.bases.findByOwnerId(OWNER)!)[key];
+    repos.bases.updateArmy(base.id, { razors: 3 }, []);
+    repos.bases.updateGateArmy(base.id, { razors: 2, sparks: 4 });
+
+    expect(read('army_units')).toBe(9);
+    expect(read('unit_kinds_held')).toBe(2);
+    expect(read('army_unit_slots')).toBe(unitSlotsUsed({ razors: 5, sparks: 4 }));
+  });
+
+  // P3-D, 2026-10-02: a recruit at a table with a long record starts at nought.
+  it("reads the faction ladder off the member's own share, not the table's record", () => {
+    const read = (key: string) => snapshotFor(repos, repos.bases.findByOwnerId(OWNER)!)[key];
+    db.prepare(
+      `INSERT INTO users (id, username, password_hash, created_at) VALUES ('veteran', 'two', 'x', ?)`,
+    ).run(T0.toISOString());
+    repos.factions.insert({
+      id: 'the-table',
+      name: 'The Table',
+      badge: DEFAULT_BADGE,
+      blurb: '',
+      foundedAt: T0.toISOString(),
+    });
+    for (const [userId, rank] of [
+      ['veteran', 'leader'],
+      [OWNER, 'member'],
+    ] as const) {
+      repos.factions.addMember({
+        userId,
+        factionId: 'the-table',
+        rank,
+        joinedAt: T0.toISOString(),
+      });
+    }
+    repos.factions.addInfamyEarned('veteran', 300_000);
+    expect(read('faction_infamy')).toBe(0);
+
+    repos.factions.addInfamyEarned(OWNER, 450);
+    expect(read('faction_infamy')).toBe(450);
+  });
+
+  // P8-C, 2026-10-02: the best-worked holding, and nothing for ground somebody else holds.
+  it('reads the highest level among the locations the crew holds', () => {
+    const base = repos.bases.findByOwnerId(OWNER)!;
+    const read = (key: string) => snapshotFor(repos, repos.bases.findByOwnerId(OWNER)!)[key];
+    const [first, second, third] = [...repos.city.controls().values()];
+    if (!first || !second || !third) throw new Error('fixture: too few control rows');
+    const mine = { kind: 'crew', baseId: base.id } as const;
+    repos.city.put({ ...first, holder: mine, level: 3 });
+    repos.city.put({ ...second, holder: mine, level: 6 });
+    repos.city.put({ ...third, holder: { kind: 'crew', baseId: 'somebody-else' }, level: 9 });
+
+    expect(read('location_level_held')).toBe(6);
+  });
+
+  // P2-A, 2026-10-02: the slot ladder and "kinds held" count every unit on the books; "Twenty at
+  // Home" (`army_units`) stays at home and the gate.
+  it('counts a garrison on held ground for slots and kinds, but not as units at home', () => {
+    const base = repos.bases.findByOwnerId(OWNER)!;
+    const read = (key: string) => snapshotFor(repos, repos.bases.findByOwnerId(OWNER)!)[key];
+    repos.bases.updateArmy(base.id, { razors: 3 }, []);
+    const [held] = [...repos.city.controls().values()];
+    if (!held) throw new Error('fixture: no control rows');
+    repos.city.put({
+      ...held,
+      holder: { kind: 'crew', baseId: base.id },
+      garrison: { wardens: 4 },
+    });
+
+    expect(read('army_units')).toBe(3);
+    expect(read('unit_kinds_held')).toBe(2);
+    expect(read('army_unit_slots')).toBe(unitSlotsUsed({ razors: 3, wardens: 4 }));
   });
 
   /**

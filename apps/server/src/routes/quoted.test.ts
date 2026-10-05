@@ -191,13 +191,9 @@ describe('calling an order off', () => {
     const base = app.repos.bases.findByOwnerId(one.userId)!;
     app.repos.bases.updateResearch(base.id, {
       ...base.research,
-      // Four rungs that all pay into `build_cost`, so the fold is well clear of zero.
-      technologies: [
-        'tech_formwork_reuse',
-        'tech_capital_rationing',
-        'tech_tool_steel',
-        'tech_cold_forming',
-      ],
+      // The one rung left that pays into `build_cost` since the chair rework (2026-10-04): 10 points,
+      // well clear of zero.
+      technologies: ['tech_capital_rationing'],
     });
 
     const me = (
@@ -295,7 +291,7 @@ describe('the drill yard and the lab', () => {
   /**
    * Two more shops with a discount between the card and the till.
    *
-   * A unit's price is cut by the crew's training fold and by its own ground; a research rung's is
+   * A unit's price is cut by the crew's muster fold and by its own ground; a research rung's is
    * cut by the track's own progress. Both are server-side, both are quoted on the card, and both
    * are the shape the Downtown Market bug had.
    */
@@ -309,16 +305,23 @@ describe('the drill yard and the lab', () => {
       [
         { id: 'd-nexus', kind: 'nexus', level: 8, modifications: [] },
         // Beds, or the order has nowhere to put anybody; and the Gauntlet, or nothing is unlocked
-        // to train in the first place.
+        // to muster in the first place.
         { id: 'd-quarters', kind: 'quarters', level: 8, modifications: [] },
         { id: 'd-gauntlet', kind: 'gauntlet', level: 6, modifications: [] },
       ],
       [],
     );
+    // A cut that bites: a finished Unit Costing. It came off the Overseer's Chemistry until skills
+    // stopped reaching the fold (2026-10-04).
+    const researched = app.repos.bases.findById(base.id)!;
+    app.repos.bases.updateResearch(base.id, {
+      ...researched.research,
+      technologies: [...researched.research.technologies, 'tech_unit_costing'],
+    });
 
     /*
      * The unit board ships a raw price and the two reductions separately, and the screen does the
-     * arithmetic (`UnitsPage.tsx` adds `trainingCostReduction` and the row's `homeCostReduction`).
+     * arithmetic (`UnitsPage.tsx` adds `musterCostReduction` and the row's `homeCostReduction`).
      * That is a deliberate split, because the ground's cut is per unit and the crew's is not, so
      * what has to hold is that the till spends the same two numbers the card handed over. The
      * first version of this test multiplied the raw price by the count and found the charge four
@@ -327,7 +330,8 @@ describe('the drill yard and the lab', () => {
     const units = (
       await app.inject({ method: 'GET', url: '/api/units', headers: auth(one.token) })
     ).json<{
-      trainingCostReduction: number;
+      musterCostReduction: number;
+      musterVeteranReduction?: number;
       units: {
         id: string;
         cost: Partial<Resources>;
@@ -336,22 +340,22 @@ describe('the drill yard and the lab', () => {
       }[];
     }>();
     // Whichever unit this crew may actually field, rather than a named one: what a fresh crew is
-    // allowed to train is a content decision, and pinning it here would pin the roster.
+    // allowed to muster is a content decision, and pinning it here would pin the roster.
     const card = units.units.find((unit) => unit.unlocked);
-    expect(card, 'the board must offer something this crew can train').toBeDefined();
+    expect(card, 'the board must offer something this crew can muster').toBeDefined();
 
     const count = 5;
     const before = stockOf(app, one.userId);
     const queued = await app.inject({
       method: 'POST',
-      url: '/api/units/train',
+      url: '/api/units/muster',
       headers: auth(one.token),
       payload: { unitId: card!.id, count },
     });
     expect(queued.statusCode, queued.body).toBe(200);
 
     const charged = spentBetween(before, stockOf(app, one.userId));
-    const cut = units.trainingCostReduction + (card!.homeCostReduction ?? 0);
+    const cut = units.musterCostReduction + (card!.homeCostReduction ?? 0);
     // The precondition: a reduction that is actually biting, or the two readings are one number
     // and this holds whichever the till used.
     expect(cut).toBeGreaterThan(0);
@@ -359,7 +363,9 @@ describe('the drill yard and the lab', () => {
     const expected = Object.fromEntries(
       Object.entries(card!.cost).map(([key, amount]) => [
         key,
-        Math.round((amount ?? 0) * count * (1 - cut / 100)),
+        Math.round(
+          (amount ?? 0) * count * (1 - cut / 100) * (1 - (units.musterVeteranReduction ?? 0) / 100),
+        ),
       ]),
     );
     expect(charged).toEqual(expected);

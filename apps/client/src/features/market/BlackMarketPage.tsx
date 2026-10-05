@@ -7,6 +7,7 @@ import {
   type BlackMarketKind,
   type BlackMarketLot,
   type BlackMarketOffer,
+  MAX_OPEN_LOTS,
 } from '@frontline/shared';
 import { useState, type ReactNode } from 'react';
 import { NavLink } from 'react-router-dom';
@@ -24,6 +25,8 @@ import { formatRemaining } from '../base/format';
 import { PageShell, ScreenLoadSheet } from '../game/PageShell';
 import { useServerClock } from '../missions/useServerClock';
 import { LotBidPanel, LotClock, LotHistory, LotStanding, pastLotCap, standingOf } from './LotParts';
+import { GoodIcon } from './GoodIcon';
+import { StackhousePanel } from './Stackhouse';
 
 /**
  * The Black Market, behind the door at the end of the arcade.
@@ -143,8 +146,8 @@ export function MarketTabs({ active, action }: { active: MarketTab; action?: Rea
  *
  * Everywhere else in the game a category badge picks a colour off the whole chrome ramp. Here they
  * are all tangerine and differ only in weight, because the room's whole read is that it has two
- * colours: a hue per kind would put the market's rainbow back on the wrong side of the door. The
- * glyph is what tells the kinds apart, which is what a glyph is for.
+ * colours: a hue per kind would put the market's rainbow back on the wrong side of the door. Every
+ * good has its own drawn glyph (`GoodIcon`, 2026-10-05), so no two crates on the shelf share one.
  */
 const KIND_TONE: Record<BlackMarketKind, string> = {
   contraband: 'border-tangerine-700 text-tangerine-300/85',
@@ -154,14 +157,6 @@ const KIND_TONE: Record<BlackMarketKind, string> = {
   // §F2: a single sheet, so the lightest weight on the shelf. It is the cheapest thing here and
   // the one a player is most often after.
   blueprint_page: 'border-tangerine-700/70 text-tangerine-300/85',
-};
-
-const KIND_ICON: Record<BlackMarketKind, 'crew' | 'units' | 'research' | 'sword'> = {
-  contraband: 'crew',
-  unit_upgrade: 'units',
-  blueprint: 'research',
-  battle_boost: 'sword',
-  blueprint_page: 'research',
 };
 
 /**
@@ -176,11 +171,14 @@ function SlotCard({
   spec,
   now,
   onBid,
+  rank,
 }: {
   offer: BlackMarketOffer;
   spec: BlackMarketGoodSpec;
   now: Date;
   onBid: () => void;
+  /** The crew's rank, so a crate out of reach on price is not blamed on rank. */
+  rank: number;
 }) {
   const { lot } = offer;
   const standing = lot === null ? 'out' : standingOf(lot);
@@ -191,38 +189,51 @@ function SlotCard({
 
   return (
     <li
-      className="rusted flex min-w-0 flex-col gap-2.5 rounded-sm border border-tangerine-700/70 bg-soot-900/90 p-4"
+      className="rusted relative flex min-w-0 flex-col rounded-sm border border-tangerine-700/70 bg-soot-900/90 p-2 [@media(min-height:1000px)]:p-2.5"
       data-testid={`black-slot-${offer.slot.index}`}
     >
-      <span className="flex items-start gap-3">
+      {/*
+       * The name beside the glyph and the kind under it (maintainer, 2026-10-05). The kind takes a
+       * row of its own starting under the glyph rather than a column under it, so "Blueprint page"
+       * runs on under the name instead of pushing the name across.
+       */}
+      <span className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-x-3 gap-y-1.5">
         {/* Not `icon-tile`: that plate is the palest surface in the game, and a lilac square is
             the one thing that would break this room's read. A struck-orange tile instead. */}
         <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-sm border border-tangerine-500/60 bg-tangerine-700/30">
-          <Icon name={KIND_ICON[spec.kind]} className="h-7 w-7 text-tangerine-100" />
+          <GoodIcon goodId={spec.id} className="h-7 w-7 text-tangerine-100" />
         </span>
-        <span className="min-w-0 flex-1">
-          <span
-            className={cn(
-              'inline-block rounded-sm border px-1.5 py-0.5 font-display text-[10px] uppercase tracking-[0.14em]',
-              KIND_TONE[spec.kind],
-            )}
-          >
-            {BLACK_MARKET_KIND_LABELS[spec.kind]}
-          </span>
-          <span className="mt-1 block font-stamp text-[16px] leading-tight text-tangerine-100">
-            {spec.name}
-          </span>
+        <span className="min-w-0 break-words font-stamp text-[clamp(14px,1.55vh,17px)] leading-tight text-tangerine-100">
+          {spec.name}
+        </span>
+        <span
+          className={cn(
+            'col-span-2 justify-self-start rounded-sm border px-1.5 py-0.5 font-display text-[10px] uppercase tracking-[0.14em]',
+            KIND_TONE[spec.kind],
+          )}
+        >
+          {BLACK_MARKET_KIND_LABELS[spec.kind]}
         </span>
       </span>
 
-      <p className="font-body text-[13px] italic leading-relaxed text-ink-300">
+      {/*
+       * Air that is only spent where the card has it (maintainer, 2026-10-05: "leave more space
+       * between the texts"). Each spacer is the gap: five pixels at least, and up to seventeen out
+       * of the card's slack, so a tall screen gets the room and a short one, where the six cards
+       * barely fit, keeps the old five and does not scroll any further than it must.
+       */}
+      <span aria-hidden className="min-h-[5px] max-h-[17px] flex-1" />
+      <p className="font-body text-[clamp(12px,1.3vh,14px)] italic leading-tight text-ink-300 [@media(min-height:1000px)]:leading-snug">
         {spec.description}
       </p>
+      <span aria-hidden className="min-h-[5px] max-h-[17px] flex-1" />
       {/* The server's line, written from the figures a fight applies. The same in every city since
           2026-09-29, so it matches the stash tab's authored line word for word. */}
-      <p className="font-body text-[13px] leading-snug text-ink-100">{offer.effect}</p>
+      <p className="font-body text-[clamp(12px,1.3vh,14px)] leading-tight text-ink-100 [@media(min-height:1000px)]:leading-snug">
+        {offer.effect}
+      </p>
 
-      <span className="mt-auto flex flex-wrap items-center justify-between gap-2 pt-1">
+      <span className="mt-auto flex flex-wrap items-center justify-between gap-2 pt-[7px]">
         <span
           className={cn(
             'flex items-center gap-1.5 rounded-sm border px-2 py-1',
@@ -237,7 +248,9 @@ function SlotCard({
               ? 'He is not taking offers on this'
               : offer.alreadyKnown
                 ? 'You already have these plans'
-                : beyond && offer.minNotoriety > 0
+                : // Rank only when rank is the reason: a rank 6 crew short of infamy for a rank
+                  // 4 crate was told it was a rank problem (bug pass, 2026-10-02).
+                  beyond && rank < offer.minNotoriety
                   ? `He keeps this for rank ${offer.minNotoriety} and better`
                   : beyond
                     ? 'More than you have to say'
@@ -278,12 +291,14 @@ function SlotCard({
           midnight, so five copies of one countdown would be five things ticking in unison. The
           card carries it only in the last five minutes, when it is the thing to know. */}
       {lot !== null && Date.parse(lot.closesAt) - now.getTime() <= LAST_CALL_ON_A_CARD_MS && (
-        <LotClock
-          closesAt={lot.closesAt}
-          now={now}
-          words={LOT_WORDS}
-          testId={`black-lot-clock-${offer.slot.index}`}
-        />
+        <span className="mt-[5px] block">
+          <LotClock
+            closesAt={lot.closesAt}
+            now={now}
+            words={LOT_WORDS}
+            testId={`black-lot-clock-${offer.slot.index}`}
+          />
+        </span>
       )}
     </li>
   );
@@ -346,7 +361,7 @@ function BlackLotWindow({
           aria-hidden
           className="flex h-9 w-9 shrink-0 items-center justify-center rounded-sm border border-tangerine-500/60 bg-tangerine-700/30 [&_svg]:h-5 [&_svg]:w-5"
         >
-          <Icon name={KIND_ICON[spec.kind]} className="text-tangerine-100" />
+          <GoodIcon goodId={spec.id} className="text-tangerine-100" />
         </span>
         <span className="min-w-0 flex-1">
           <span className="block font-display text-[10px] font-bold uppercase tracking-[0.2em] text-ink-300">
@@ -452,6 +467,7 @@ export function BlackMarketPage() {
   const { city, choose } = useCityRoom();
   const query = useBlackMarket(city);
   const now = useServerClock(query.data?.serverNow, query.dataUpdatedAt);
+  const rank = useMe().data?.base?.economy.notoriety ?? 0;
   /** Which lot's bidding screen is open, if any. */
   const [lotOpen, setLotOpen] = useState<number | null>(null);
 
@@ -476,6 +492,7 @@ export function BlackMarketPage() {
   return (
     <PageShell
       wide
+      stretch
       quote="Caps won't get you far in here."
       action={
         data === undefined ? undefined : (
@@ -485,43 +502,38 @@ export function BlackMarketPage() {
     >
       <MarketTabs active="black" />
 
-      {/* The clock is not a rule, so it does not go behind a hover: it is the one thing on this
-          screen that is changing while the player looks at it, and it is when every lot on the
-          shelf settles as well as when the shelf turns over. */}
-      <div className="flex flex-wrap items-center gap-2">
-        <span className="flex items-center gap-2 rounded-sm border border-brass-500/50 bg-brass-500/10 px-2.5 py-1 font-display text-[11px] font-bold uppercase tracking-[0.14em] text-brass-100">
-          <Icon name="clock" aria-hidden className="h-3.5 w-3.5" />
-          Settles in
-          <span className="tabular-nums text-brass-300" data-testid="black-refresh">
-            {formatRemaining(refreshesIn)}
-          </span>
-        </span>
-      </div>
-
-      {/* The bag used to sit beside the shelf here. Contraband is applied on the battle it is
-          meant for now, so what a crew is carrying is listed under Boosts on that fight's own
-          screen and the shelf has the width to itself. */}
-      <div className="grid items-start gap-5">
+      {/*
+       * Two rooms behind one door (maintainer, 2026-10-05): the shelf on the left half and the
+       * Stackhouse, the book on fights, on the right, each as big as the other. Side by side from
+       * `xl`; under that the halves are too narrow for three cards a row, so they stack.
+       */}
+      <div className="grid flex-1 items-stretch gap-5 xl:grid-cols-2">
         <Panel
-          tone="tangerine"
+          tone="soot"
           title="On the shelf"
           action={
+            /*
+             * The shelf's clock, on the shelf (maintainer, 2026-10-05): every lot here settles at
+             * the same midnight and the shelf turns over then, so it is this panel's fact and not
+             * the room's. It took the allowance chip's place; the allowance is on its hover.
+             */
             <span
-              className={cn(
-                'shrink-0 rounded-sm border px-2 py-1 font-display text-[11px] font-bold uppercase tracking-[0.14em]',
-                left > 0
-                  ? 'border-tangerine-300/70 text-tangerine-100'
-                  : 'border-tangerine-700 text-tangerine-300/60',
-              )}
-              data-tip="Bid on as many as you like. This is how many you can walk out with tonight."
+              className="flex shrink-0 items-center gap-2 rounded-sm border border-tangerine-300/70 px-2 py-1 font-display text-[11px] font-bold uppercase tracking-[0.14em] text-tangerine-100"
+              data-tip={`Every lot settles at midnight and the shelf turns over. ${
+                left > 0 ? `${left} to win tonight` : 'Nothing more to win tonight'
+              }; bid on up to ${MAX_OPEN_LOTS} at once.`}
               data-testid="black-allowance"
             >
-              {left > 0 ? `${left} to win tonight` : 'Come back tomorrow'}
+              <Icon name="clock" aria-hidden className="h-3.5 w-3.5" />
+              Settles in
+              <span className="tabular-nums text-tangerine-300" data-testid="black-refresh">
+                {formatRemaining(refreshesIn)}
+              </span>
             </span>
           }
         >
           <ul
-            className="grid gap-3 p-4 sm:grid-cols-2 2xl:grid-cols-3"
+            className="grid flex-1 auto-rows-fr gap-2 p-2 sm:grid-cols-2 lg:grid-cols-3"
             data-testid="black-market-shelf"
           >
             {data.offers.map((offer) => {
@@ -534,11 +546,13 @@ export function BlackMarketPage() {
                   spec={spec}
                   now={now}
                   onBid={() => setLotOpen(offer.slot.index)}
+                  rank={rank}
                 />
               );
             })}
           </ul>
         </Panel>
+        <StackhousePanel />
       </div>
 
       {open !== undefined && open.lot !== null && openSpec !== undefined && (

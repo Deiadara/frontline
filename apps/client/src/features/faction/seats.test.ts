@@ -1,4 +1,9 @@
-import { MAX_FACTION_MEMBERS, type FactionMember, type FactionRank } from '@frontline/shared';
+import {
+  MAX_FACTION_MEMBERS,
+  dealCards,
+  type FactionMember,
+  type FactionRank,
+} from '@frontline/shared';
 import { describe, expect, it } from 'vitest';
 import {
   NARROWEST_PICTURE_HEIGHT_PX,
@@ -103,6 +108,12 @@ describe('where the five plates hang', () => {
   });
 });
 
+/** The table as the server sends it: each member carrying the card the deal gave them. */
+const dealt = (members: readonly FactionMember[]): FactionMember[] => {
+  const cards = dealCards(members);
+  return members.map((one) => ({ ...one, card: cards.get(one.userId) ?? one.card }));
+};
+
 describe('who is in which seat', () => {
   it('always draws five places, whoever is at the table', () => {
     expect(seated([])).toHaveLength(MAX_FACTION_MEMBERS);
@@ -110,11 +121,13 @@ describe('who is in which seat', () => {
   });
 
   it('puts the leader in the middle, the table outward from there in rank order, and the rest empty', () => {
-    const places = seated([
-      member('Marrow', 'member', 90),
-      member('Sable', 'chief', 10),
-      member('Nikos', 'leader', 1),
-    ]);
+    const places = seated(
+      dealt([
+        member('Marrow', 'member', 90),
+        member('Sable', 'chief', 10),
+        member('Nikos', 'leader', 1),
+      ]),
+    );
     expect(places.map((seat) => seat?.username ?? null)).toEqual([
       null,
       'Sable',
@@ -125,9 +138,25 @@ describe('who is in which seat', () => {
   });
 
   it('says so when there are more people than chairs', () => {
-    const six = Array.from({ length: 6 }, (_, at) => member(`P${at}`, 'member', 10 - at));
+    const six = dealt(Array.from({ length: 6 }, (_, at) => member(`P${at}`, 'member', 10 - at)));
     expect(seated(six).every((seat) => seat !== null)).toBe(true);
     expect(unseated(six).map((seat) => seat.username)).toEqual(['P5']);
     expect(unseated(six.slice(0, 5))).toEqual([]);
+  });
+
+  // P3-C (2026-10-02): the plate is where the server dealt the card, so a seat the leader set is
+  // the seat drawn, whatever the rank order would have said.
+  it('draws each member at the slot of the card they hold', () => {
+    const places = seated([
+      { ...member('Nikos', 'leader', 1), card: 'joker' },
+      { ...member('Sable', 'chief', 10), card: 'ace_spades' },
+    ]);
+    expect(places.map((seat) => seat?.username ?? null)).toEqual([
+      'Nikos',
+      null,
+      'Sable',
+      null,
+      null,
+    ]);
   });
 });

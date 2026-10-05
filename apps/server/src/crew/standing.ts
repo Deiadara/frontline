@@ -20,6 +20,8 @@ import {
   MAX_OVERSEER_LIFT,
   peerLift,
   officerIsWorking,
+  chairIsSettled,
+  chairSettlesAt,
   FACTION_CARD_SPECS,
   cardBonusPercent,
   type AttributeLift,
@@ -27,6 +29,11 @@ import {
   type Commander,
   type LiftSource,
   markFromPoints,
+  seatPoints,
+  overseerLift,
+  describeChairPassive,
+  describeOverseerPassive,
+  OFFICER_ROLES,
   type NumericEffectChannel,
   type OfficerMark,
   type OfficerRole,
@@ -36,7 +43,6 @@ import {
 import type { Repositories } from '../db/repos/index.js';
 import { cardsAtTable } from '../factions/cards.js';
 import { overseerMember, seatedMember } from '../roles/duties.js';
-import { roleFit } from '../roles/requirements.js';
 
 /**
  * Everything a crew currently has going for it: the ground it holds plus the people it has.
@@ -145,24 +151,11 @@ export function crewEffectsFor(
 }
 
 /**
- * One officer's sheet as the crew fields it, with a receipt naming every point that is not theirs.
- *
- * Split out of `crewSheetsFor` because two callers need it and they need different halves: the
- * effects fold wants the attributes, and the crew screen wants the receipt, so that a player
- * looking at a 22 where they hired a 20 can be told which of their people put the 2 there.
- *
- * The sources are passed as a labelled list rather than merged, which is the whole reason a
- * breakdown is possible: a merged fold knows the total and not whose it was. Ground first, then
- * the Overseer, then the officers, then the Lab: at the cap (`MAX_OFFICER_LIFT`) that order
- * decides who gets the last point, and putting the ground and the Overseer first means the scarce
- * room goes to the things a player chose deliberately rather than to whoever happened to be hired.
- */
-/**
  * The room, read once: everything an officer can be lifted by that is not the officer.
  *
  * Built here rather than inside `liftedOfficerSheet` because it is the same for every officer on
  * the books and it costs three reads (the city's control rows, the owner and their character):
- * building it per officer would make opening the crew screen nineteen times the work.
+ * building it per officer would make opening the crew screen thirteen times the work.
  */
 export function officerLiftRoom(repos: Repositories, base: Base, now: Date = new Date()): LiftRoom {
   const owner = repos.users.findById(base.ownerId);
@@ -176,19 +169,32 @@ export function officerLiftRoom(repos: Repositories, base: Base, now: Date = new
    * every other officer's lift includes the Right Hand's, so reading theirs after the room was
    * built would make the answer depend on the order the officers were walked in.
    */
-  const rightHand = fit.find((officer) => officer.role === 'right_hand') ?? null;
+  // Settled in, too: a Right Hand seated in the last few hours lifts nobody yet (`chairSettlesAt`).
+  const rightHand =
+    fit.find((officer) => officer.role === 'right_hand' && chairIsSettled(officer, now)) ?? null;
+  const rightHandPoints = rightHand ? seatPoints(rightHand.attributes, 'right_hand') : null;
   return {
     fit,
     byGroup: territoryEffectsFor(base.id, EVERY_LOCATION, repos.city.controls()).officerGroupFlat,
     fromTheLab: researchEffects(base.research.technologies),
     fromTheOverseer: overseer?.perks ?? [],
     overseerName: overseer?.name ?? 'your Overseer',
-    rightHand: rightHand
-      ? {
-          id: rightHand.id,
-          name: rightHand.name,
-          points: roleFit(rightHand.attributes, 'right_hand'),
-        }
+    rightHand:
+      rightHand && rightHandPoints !== null
+        ? { id: rightHand.id, name: rightHand.name, points: rightHandPoints }
+        : null,
+    /*
+     * The Overseer's grade, read on the sheet the crew fields for them: their own, lifted by the
+     * Right Hand and nothing else (`liftedOverseerSheet`). Read here, once, because every
+     * officer's lift starts with it (maintainer, 2026-10-04).
+     */
+    overseerPoints: overseer
+      ? seatPoints(
+          rightHand && rightHandPoints !== null
+            ? overseerSheetLiftedBy(overseer.attributes, rightHand.name, rightHandPoints)
+            : overseer.attributes,
+          'overseer',
+        )
       : null,
   };
 }
@@ -198,8 +204,10 @@ export interface LiftRoom {
   /**
    * Everybody seated and out of bed. Each officer is filtered out of their own lift.
    *
-   * Somebody on the bench is not here and is still lifted by it: the crew screen draws their sheet
-   * as the room would hand it to them the moment they are seated.
+   * Somebody on the bench is not here and is still lifted by most of it (the ground, the teaching
+   * perks, the Right Hand and the Lab), which is the sheet the crew screen draws for them. The
+   * Overseer's grade lift and the chairs' lessons are for seated officers only, so a benched
+   * officer's sheet gains those when they are seated.
    */
   fit: readonly SeatedOfficer<Commander>[];
   byGroup: TerritoryEffects['officerGroupFlat'];
@@ -208,6 +216,8 @@ export interface LiftRoom {
   overseerName: string;
   /** The seated Right Hand and their fit, or null with the chair empty. See `rightHandLift`. */
   rightHand: { id: string; name: string; points: number } | null;
+  /** The Overseer's seat points (`seatPoints(..., 'overseer')`), or null with no Overseer chosen. */
+  overseerPoints: number | null;
 }
 
 /**
@@ -215,21 +225,72 @@ export interface LiftRoom {
  * else (§C2b). Teachers do not reach the player's own character; the second in command does.
  */
 export function liftedOverseerSheet(own: Attributes, room: LiftRoom): Attributes {
-  if (!room.rightHand) return own;
-  const flat = rightHandLift(room.rightHand.points, MAX_OVERSEER_LIFT);
-  return liftedSheet(own, [
-    {
-      from: room.rightHand.name,
-      groupFlat: { physical: flat, mental: flat, social: flat, technical: flat },
-    },
-  ]).attributes;
+  return liftedOverseerReceipt(own, room).attributes;
 }
 
+/** {@link liftedOverseerSheet} with the receipt, for the crew screen's Overseer card. */
+export function liftedOverseerReceipt(
+  own: Attributes,
+  room: LiftRoom,
+): { attributes: Attributes; lift: AttributeLift[] } {
+  if (!room.rightHand) return { attributes: own, lift: [] };
+  return overseerReceiptLiftedBy(own, room.rightHand.name, room.rightHand.points);
+}
+
+function overseerSheetLiftedBy(own: Attributes, from: string, rightHandPoints: number): Attributes {
+  return overseerReceiptLiftedBy(own, from, rightHandPoints).attributes;
+}
+
+function overseerReceiptLiftedBy(
+  own: Attributes,
+  from: string,
+  rightHandPoints: number,
+): { attributes: Attributes; lift: AttributeLift[] } {
+  const flat = rightHandLift(rightHandPoints, MAX_OVERSEER_LIFT);
+  return liftedSheet(own, [
+    { from, groupFlat: { physical: flat, mental: flat, social: flat, technical: flat } },
+  ]);
+}
+
+/**
+ * One officer's sheet as the crew fields it, with a receipt naming every point that is not theirs.
+ *
+ * Split out of `crewSheetsFor` because two callers need it and they need different halves: the
+ * effects fold wants the attributes, and the crew screen wants the receipt, so that a player
+ * looking at a 22 where they hired a 20 can be told which of their people put the 2 there.
+ *
+ * The sources are passed as a labelled list rather than merged, which is the whole reason a
+ * breakdown is possible: a merged fold knows the total and not whose it was. The Overseer's grade
+ * comes first and sits outside the cap (`uncapped`). After it the ground, the Overseer's teaching
+ * perks, the Right Hand, the other officers, their chairs' lessons and the Lab: at the cap
+ * (`MAX_OFFICER_LIFT`) that order decides who gets the last point, and putting the ground and the
+ * Overseer early means the scarce room goes to the things a player chose deliberately rather than
+ * to whoever happened to be hired.
+ */
 export function liftedOfficerSheet(
   officer: Commander,
   room: LiftRoom,
 ): { attributes: Attributes; lift: AttributeLift[] } {
-  const sources: LiftSource[] = [{ from: 'the ground you hold', groupFlat: room.byGroup }];
+  const sources: LiftSource[] = [];
+  /*
+   * The Overseer's one passive (maintainer, 2026-10-04): points on a seated officer's irreplaceable
+   * and essential skills, one per grade step (`overseerLift`). Outside the cap on lifts
+   * (`MAX_OFFICER_LIFT`, `uncapped`), so the player's own grade and the teachers never squeeze each
+   * other out. Nobody on the bench takes it: the ruling is for officers sitting in a chair.
+   */
+  // Working, like the chair lessons below (bug pass, 2026-10-05): an injured officer still in their
+  // chair is out of the room, and took the grade's points while the lessons skipped them.
+  const working = room.fit.find((one) => one.id === officer.id);
+  if (room.overseerPoints !== null && working !== undefined) {
+    sources.push({
+      from: `${room.overseerName}'s grade`,
+      attributeFlat: overseerLift(room.overseerPoints, working.role, officer.id),
+      uncapped: true,
+    });
+  }
+  // Outside the cap, like the grade (maintainer, 2026-10-05): a Chapel filled the officers' ten
+  // points by level 3 and every level past it, and every teaching perk behind it, bought nothing.
+  sources.push({ from: 'the ground you hold', groupFlat: room.byGroup, uncapped: true });
 
   const overseer = peerLift(room.fromTheOverseer);
   sources.push({
@@ -256,7 +317,7 @@ export function liftedOfficerSheet(
 
   // Per teacher rather than per crew, so the receipt names the person. It costs one `peerLift` per
   // peer instead of one for the room, which is a handful of table lookups over a list that is
-  // capped at nineteen.
+  // capped at thirteen.
   for (const peer of room.fit) {
     if (peer.id === officer.id) continue;
     const taught = peerLift(peer.perks);
@@ -301,20 +362,20 @@ function chairLessonsFor(officer: Commander, room: LiftRoom): LiftSource[] {
 /**
  * How good an officer is in a chair, measured on the sheet they actually have (§B8, §C1b).
  *
- * One reader, because the game had two answers to one question. `roleFit` takes an `Attributes`
+ * One reader, because the game had two answers to one question. `seatPoints` takes an `Attributes`
  * and every caller but one handed it `officer.attributes`, the **printed** sheet: the number on
  * the card before the Overseer, the teaching perks, the ground and the Lab have lifted it. The
  * Scrapyard was the exception and read the lifted sheet, so the same officer was a C+ at the bench
  * and a C on the crew screen, the Lab gated a rung on the lower of the two, and the officer whose
  * mark the yard had just accepted could not start the research their chair is named after.
  *
- * The lift is not a rounding error. `MAX_OFFICER_LIFT` is ten points, `roleFit` is a weighted mean
- * over five attributes and a mark band is 4.29 points wide, so a fully taught officer moves more
- * than two whole marks. That is the whole of what the Overseer's teaching perks and the Chapel
+ * The lift is not a rounding error. `MAX_OFFICER_LIFT` is ten points, `seatPoints` leans on the six
+ * tagged skills and a mark band is 4.29 points wide, so a fully taught officer moves more than two
+ * whole marks. That is the whole of what the Overseer's teaching perks and the Chapel
  * were bought for, and until now none of it reached a gate.
  *
  * Built once per request off {@link officerLiftRoom}, which costs three reads, and then answers
- * every chair from memory: `labResearchItems` asks nineteen times for one page.
+ * every chair from memory: `labResearchItems` asks thirteen times for one page.
  */
 export interface OfficerFitReader {
   /** The mark held by whoever is sitting in `role`, or null when the chair is empty. */
@@ -332,6 +393,11 @@ export interface OfficerFitReader {
    * answering `head: null` on the page and opening the rung underneath it.
    */
   workingIn: (role: OfficerRole) => Commander | undefined;
+  /**
+   * Whether whoever is working `role` has settled into it (`chairSettlesAt`, 2026-10-05): what a
+   * chair's passive waits on. Its gates do not wait; `markFor` and `workingIn` answer at once.
+   */
+  chairSettled: (role: OfficerRole) => boolean;
 }
 
 export function officerFitReader(
@@ -352,7 +418,7 @@ export function officerFitReader(
   };
 
   return {
-    pointsFor: (officer, role) => roleFit(sheetFor(officer), role),
+    pointsFor: (officer, role) => seatPoints(sheetFor(officer), role),
     markFor: (role) => {
       /*
        * §D4: working, not merely seated (maintainer, 2026-09-23).
@@ -365,10 +431,14 @@ export function officerFitReader(
        * and the fold now drop the same person off the same clock.
        */
       const officer = room.fit.find((one) => one.role === role);
-      return officer ? markFromPoints(roleFit(sheetFor(officer), role)) : null;
+      return officer ? markFromPoints(seatPoints(sheetFor(officer), role)) : null;
     },
     workingIn(role) {
       return room.fit.find((one) => one.role === role);
+    },
+    chairSettled(role) {
+      const officer = room.fit.find((one) => one.role === role);
+      return officer !== undefined && chairIsSettled(officer, now);
     },
   };
 }
@@ -406,16 +476,15 @@ export interface CrewRoom {
  */
 export function crewRoomFor(repos: Repositories, base: Base, now: Date = new Date()): CrewRoom {
   /*
-   * §A4/§B7: what everybody else puts on this officer's sheet, before best-of.
+   * §A4/§B7: what everybody else puts on this officer's sheet, before their chair reads it.
    *
    * Two sources, applied per officer by `liftOfficer`, and both are lifts from *other people*.
    *
    * The ground (the Chapel, the Broadcast Station) lifts a whole attribute group for everybody.
-   * Applied to the sheets rather than to the crew's channels afterwards, and the difference
-   * matters: the boost is worth more to a crew whose best person in that group is the one it
-   * lifts, and an officer sitting in a seat that does not use the attribute still contributes only
-   * the off-duty share of the raised figure. Both are what a player would predict from "the chapel
-   * makes your people steadier".
+   * Applied to the sheets rather than to the crew's channels afterwards, because a sheet reaches
+   * the crew only through its chair's grade (maintainer, 2026-10-04): the boost is worth what it
+   * moves that grade, which is what a player would predict from "the chapel makes your people
+   * steadier".
    *
    * The other officers' **perks** are the half that was missing. `officer_group` folded into a
    * channel that nothing on either side of the wire ever read, so eight perks in the catalogue
@@ -446,7 +515,7 @@ export function crewRoomFor(repos: Repositories, base: Base, now: Date = new Dat
    * §D4: an officer in a bed is not in the room, and since 2026-09-28 neither is one on the bench.
    *
    * "Services and bonuses inactive" has to mean *every* way an officer is worth something, and an
-   * officer is worth three separate things: their own ratings through best-of, their perks through
+   * officer is worth three separate things: their own ratings through their chair, their perks through
    * the sum, and the lift their perks put on everybody else's sheet. Dropping them from the list
    * here turns all three off in one place. Filtering them out of `crewEffects` instead would have
    * left the third one running: their peers would still have been reading their teaching perks.
@@ -472,9 +541,11 @@ export function crewRoomFor(repos: Repositories, base: Base, now: Date = new Dat
    */
   // Seated officers only: the bench is not in `fit`, so it puts no rating and no perk in the fold
   // (maintainer, 2026-09-28).
-  const officers: CrewMember[] = fit.map((officer) =>
-    seatedMember(liftedOfficerSheet(officer, room).attributes, officer.role, officer.perks),
-  );
+  // A chair taken in the last few hours gives nothing yet (`chairSettlesAt`); the perks count.
+  const officers: CrewMember[] = fit.map((officer) => ({
+    ...seatedMember(liftedOfficerSheet(officer, room).attributes, officer.role, officer.perks),
+    settling: !chairIsSettled(officer, now),
+  }));
   const names = fit.map((officer) => officer.name);
   // The Overseer is the player, not an employee: no seat, and no discount anywhere.
   return overseer
@@ -504,4 +575,83 @@ export function factionCardBonuses(
     FACTION_CARD_SPECS[held.card].channel,
     cardBonusPercent(held.mark),
   ]);
+}
+
+/**
+ * What one officer's chair gives, in its line, off the points the passive is actually paid on.
+ *
+ * The lifted sheet for every chair but the Right Hand's, whose lift is sized off their printed
+ * sheet (`officerLiftRoom`, so the room cannot depend on the order officers are walked in): their
+ * line reads the same sheet, or it promises more than it pays.
+ */
+export function chairLineFor(
+  officer: Commander,
+  role: OfficerRole,
+  liftedPoints: number,
+  context?: ChairLineContext,
+): string {
+  const points =
+    role === 'right_hand' ? seatPoints(officer.attributes, 'right_hand') : liftedPoints;
+  return describeChairPassive(
+    role,
+    points,
+    context?.marketRates,
+    context?.researchAddsPercent ?? undefined,
+  );
+}
+
+/**
+ * What two of the lines need from the crew beyond the officer (bug pass, 2026-10-04): what the
+ * Researcher adds on the curved research sum, and the market's own rates the Trader moves, which
+ * move with the crew's level and discount. Built by `chairLineContext` in `crew/roster.ts`.
+ */
+export interface ChairLineContext {
+  researchAddsPercent: number | null;
+  marketRates: { worth: number; markup: number };
+}
+
+/** One working chair's line on the crew screen: who, at what grade, and what the chair gives. */
+export interface ChairLine {
+  role: OfficerRole;
+  officerName: string;
+  mark: OfficerMark;
+  passive: string;
+  /** When the chair starts giving, or null when it already does. */
+  chairFrom: string | null;
+}
+
+/**
+ * What every working chair gives the crew, in `OFFICER_ROLES` order, and the Overseer's grade
+ * (maintainer, 2026-10-04). Read on the lifted sheets, the ones every passive is paid on.
+ */
+export function chairLinesFor(
+  repos: Repositories,
+  base: Base,
+  now: Date = new Date(),
+  context?: ChairLineContext,
+): { chairs: ChairLine[]; overseerGrade: { mark: OfficerMark; passive: string } } {
+  const fit = officerFitReader(repos, base, now);
+  const room = officerLiftRoom(repos, base, now);
+  const chairs = OFFICER_ROLES.flatMap((role) => {
+    const officer = fit.workingIn(role);
+    if (!officer) return [];
+    const points = fit.pointsFor(officer, role);
+    return [
+      {
+        role,
+        officerName: officer.name,
+        mark: markFromPoints(points),
+        passive: chairLineFor(officer, role, points, context),
+        chairFrom: chairSettlesAt(officer, now)?.toISOString() ?? null,
+      },
+    ];
+  });
+  const overseerPoints = room.overseerPoints ?? 0;
+  return {
+    chairs,
+    overseerGrade: {
+      mark: markFromPoints(overseerPoints),
+      passive: describeOverseerPassive(overseerPoints),
+    },
+  };
 }

@@ -13,22 +13,17 @@ import { z } from 'zod';
 
 export const OFFICER_ROLES = [
   'master_of_whispers',
-  'lead_engineer',
-  'finance_officer',
-  'head_of_growth',
+  'engineer',
+  'fixer',
+  'steward',
   'field_commander',
-  'head_of_research',
-  'wetware_chief',
-  'fabricator',
+  'researcher',
   'salvager',
   'right_hand',
   'cartographer',
   'trader',
-  'security_officer',
-  'chief_medic',
-  'instructor_of_the_young',
+  'veteran',
   'raid_boss',
-  'consigliere',
   'professor',
 ] as const;
 
@@ -37,22 +32,17 @@ export type OfficerRole = z.infer<typeof OfficerRoleSchema>;
 
 export const OFFICER_ROLE_LABELS: Record<OfficerRole, string> = {
   master_of_whispers: 'Master of Whispers',
-  lead_engineer: 'Lead Engineer',
-  finance_officer: 'Head of Finance',
-  head_of_growth: 'Head of Growth',
+  engineer: 'Engineer',
+  fixer: 'Fixer',
+  steward: 'Steward',
   field_commander: 'Field Commander',
-  head_of_research: 'Head of Research',
-  wetware_chief: 'Wetware Chief',
-  fabricator: 'Fabricator',
+  researcher: 'Researcher',
   salvager: 'Salvager',
   right_hand: 'Right Hand',
   cartographer: 'Cartographer',
   trader: 'Trader',
-  security_officer: 'Head of Security',
-  chief_medic: 'Chief Medic',
-  instructor_of_the_young: 'Instructor of the Young',
+  veteran: 'Veteran',
   raid_boss: 'Raid Boss',
-  consigliere: 'Consigliere',
   professor: 'Professor',
 };
 
@@ -175,8 +165,9 @@ export function officerPortraitId(commanderId: string): string {
  * Hashing each id on its own is not enough and the arithmetic says why: forty-three faces against
  * six officers is the birthday problem, and it collides on **31% of rosters** (it was 38% at the
  * old pool of thirty-three). That is not an unlucky save, it is the common case, and a crew screen
- * showing one woman twice reads as a bug because it is one. At a full nineteen-chair roster the
- * naive pick collides on 99% of them.
+ * showing one woman twice reads as a bug because it is one. At what was then a full nineteen-chair
+ * roster the naive pick collided on 99% of them (both figures measured against the older, smaller
+ * pools; the chairs are thirteen now).
  *
  * So the pick is a property of the roster rather than of the person. Each officer keeps their own
  * probe sequence (double hashing, so two people who want the same face do not then want the same
@@ -193,7 +184,8 @@ export function officerPortraitId(commanderId: string): string {
  * order a caller held the roster in. Officer ids are UUIDs, so a new hire sorts *anywhere* in the
  * list, and when it landed before an existing officer with a colliding probe sequence it took the
  * face first and the incumbent probed on to a different one: measured at 1.8% of hires on a
- * four-officer roster, 4.0% at eight, 5.8% at twelve and 11.2% at a full nineteen chairs. A player
+ * four-officer roster, 4.0% at eight, 5.8% at twelve and 11.2% at what was then a full nineteen chairs (measured before
+ * the chairs went to thirteen). A player
  * who has looked at the same face for a week hires somebody and finds one of their officers is now
  * a different person, which is the exact failure the distinctness rule exists to avoid, arriving
  * from the other side.
@@ -207,7 +199,7 @@ export function officerPortraitId(commanderId: string): string {
  * `officers` array the server projected from it in the same order), and the two sides compute this
  * independently, so a caller that re-sorted would draw different faces from the same roster.
  *
- * The pool is larger than the nineteen seats, so this always terminates with everybody distinct.
+ * The pool is larger than the thirteen seats, so this always terminates with everybody distinct.
  */
 export function officerPortraits(commanderIds: readonly string[]): ReadonlyMap<string, string> {
   const size = ASSIGNABLE_OFFICER_PORTRAIT_IDS.length;
@@ -229,7 +221,7 @@ export function officerPortraits(commanderIds: readonly string[]): ReadonlyMap<s
      * and every stride is coprime with a prime; it is not any more. At the old size of 33 (3 x 11)
      * the same arithmetic left eight full rosters in three thousand with a duplicate, and this
      * line is what stops that. A linear pass over what is left cannot fail while the pool is
-     * larger than the roster, and 162 faces against nineteen chairs is not close.
+     * larger than the roster, and 162 faces against thirteen chairs is not close.
      */
     if (taken.has(pick)) {
       pick = ASSIGNABLE_OFFICER_PORTRAIT_IDS.find((face) => !taken.has(face)) ?? pick;
@@ -279,12 +271,6 @@ export function freePortraits(
   }
   return assigned;
 }
-
-/**
- * C4: reskilling (§G4) is the Professor's job. The reassign-everyone process gates on *this*
- * constant rather than hardcoding its own role check.
- */
-export const RESKILLING_ROLE: OfficerRole = 'professor';
 
 export function isOfficerRole(value: string): value is OfficerRole {
   return (OFFICER_ROLES as readonly string[]).includes(value);

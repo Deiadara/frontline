@@ -22,8 +22,8 @@ import { openDatabase, runMigrations, type AppDatabase } from './index.js';
  *
  * The WAL case is the sharp one. The database runs in WAL mode, so a freshly written row lives in
  * the `-wal` sidecar rather than in the main file: a backup taken by copying `frontline.sqlite`
- * would come back missing it, silently and only under load. `VACUUM INTO` is what avoids that, and
- * the test that would fail without it is the round-trip below.
+ * would come back missing it, silently and only under load. SQLite's backup API reads through the
+ * live connection, WAL included, and the test that would fail without it is the round-trip below.
  */
 
 const scratch: string[] = [];
@@ -48,14 +48,14 @@ function liveDatabase(dir: string): AppDatabase {
 }
 
 describe('a snapshot', () => {
-  it('is a whole database, with everything committed up to the moment it was taken', () => {
+  it('is a whole database, with everything committed up to the moment it was taken', async () => {
     const dir = workspace();
     const db = liveDatabase(dir);
     db.prepare(
       "INSERT INTO users (id, username, password_hash, created_at) VALUES ('u1','operator','x','2026-08-16T00:00:00.000Z')",
     ).run();
 
-    const file = takeBackup(db, path.join(dir, 'backups'));
+    const file = await takeBackup(db, path.join(dir, 'backups'));
 
     const restored = openDatabase(path.join(dir, 'backups', file));
     opened.push(restored);
@@ -70,16 +70,16 @@ describe('a snapshot', () => {
     expect(applied.n).toBeGreaterThan(0);
   });
 
-  it('keeps taking snapshots without disturbing the live database', () => {
+  it('keeps taking snapshots without disturbing the live database', async () => {
     const dir = workspace();
     const db = liveDatabase(dir);
     const backups = path.join(dir, 'backups');
 
-    takeBackup(db, backups, new Date('2026-08-16T10:00:00.000Z'));
+    await takeBackup(db, backups, new Date('2026-08-16T10:00:00.000Z'));
     db.prepare(
       "INSERT INTO users (id, username, password_hash, created_at) VALUES ('u2','later','x','2026-08-16T10:05:00.000Z')",
     ).run();
-    takeBackup(db, backups, new Date('2026-08-16T10:10:00.000Z'));
+    await takeBackup(db, backups, new Date('2026-08-16T10:10:00.000Z'));
 
     const [newest, oldest] = listBackups(backups);
     const first = openDatabase(path.join(backups, oldest!.file));
@@ -101,12 +101,12 @@ describe('a snapshot', () => {
 });
 
 describe('the listing and the sweep', () => {
-  it('reports snapshots newest first and ignores anything that is not one', () => {
+  it('reports snapshots newest first and ignores anything that is not one', async () => {
     const dir = workspace();
     const db = liveDatabase(dir);
     const backups = path.join(dir, 'backups');
-    takeBackup(db, backups, new Date('2026-08-16T10:00:00.000Z'));
-    takeBackup(db, backups, new Date('2026-08-16T10:10:00.000Z'));
+    await takeBackup(db, backups, new Date('2026-08-16T10:00:00.000Z'));
+    await takeBackup(db, backups, new Date('2026-08-16T10:10:00.000Z'));
     writeFileSync(path.join(backups, 'README.txt'), 'not a snapshot');
 
     const listed = listBackups(backups);
@@ -115,11 +115,30 @@ describe('the listing and the sweep', () => {
     expect(listed[0]!.bytes).toBeGreaterThan(0);
   });
 
+  // Bug pass, 2026-10-02: a snapshot cut off mid-write left its `.partial` for ever.
+  it('sweeps the partial of a snapshot that was cut off, and leaves a fresh one alone', async () => {
+    const dir = workspace();
+    const db = liveDatabase(dir);
+    const backups = path.join(dir, 'backups');
+    const now = new Date('2026-09-27T12:00:00.000Z');
+    await takeBackup(db, backups, new Date(now.getTime() - 60_000));
+    const old = `${backupFileName(new Date(now.getTime() - 30 * 60_000))}.partial`;
+    const fresh = `${backupFileName(new Date(now.getTime() - 60_000 + 1))}.partial`;
+    writeFileSync(path.join(backups, old), 'cut off');
+    writeFileSync(path.join(backups, fresh), 'still being written');
+
+    pruneBackups(backups, now);
+    const left = readdirSync(backups);
+    expect(left).not.toContain(old);
+    expect(left).toContain(fresh);
+    expect(listBackups(backups)).toHaveLength(1);
+  });
+
   it('answers with nothing for a directory that does not exist yet', () => {
     expect(listBackups(path.join(workspace(), 'never-made'))).toEqual([]);
   });
 
-  it('prunes by tier, keeping recent, hourly and daily snapshots', () => {
+  it('prunes by tier, keeping recent, hourly and daily snapshots', async () => {
     const dir = workspace();
     const db = liveDatabase(dir);
     const backups = path.join(dir, 'backups');
@@ -127,9 +146,9 @@ describe('the listing and the sweep', () => {
     const minutesAgo = (minutes: number) => new Date(now.getTime() - minutes * 60_000);
     // Two recent, two in the same hour a day ago, two on the same day a week ago, one too old.
     for (const minutes of [2, 60, 24 * 60 + 5, 24 * 60 + 20, 7 * 24 * 60 + 5, 7 * 24 * 60 + 90]) {
-      takeBackup(db, backups, minutesAgo(minutes));
+      await takeBackup(db, backups, minutesAgo(minutes));
     }
-    takeBackup(db, backups, minutesAgo(40 * 24 * 60));
+    await takeBackup(db, backups, minutesAgo(40 * 24 * 60));
 
     pruneBackups(backups, now);
     expect(listBackups(backups).map((backup) => backup.takenAt)).toEqual([
@@ -164,32 +183,41 @@ describe('the listing and the sweep', () => {
 });
 
 describe('a snapshot is checked and copied', () => {
-  it('passes its own integrity check and leaves no partial file behind', () => {
+  it('passes its own integrity check and leaves no partial file behind', async () => {
     const dir = workspace();
     const db = liveDatabase(dir);
     const backups = path.join(dir, 'backups');
-    const file = takeBackup(db, backups);
-    expect(checkSnapshot(path.join(backups, file))).toBe('ok');
+    const file = await takeBackup(db, backups);
+    expect(await checkSnapshot(path.join(backups, file))).toBe('ok');
     expect(readdirSync(backups).some((name) => name.endsWith('.partial'))).toBe(false);
   });
 
-  it('refuses a file that is not a database', () => {
+  it('refuses a file that is not a database', async () => {
     const dir = workspace();
     const bogus = path.join(dir, 'bogus.sqlite');
     writeFileSync(bogus, 'not a database at all, and long enough to have a header');
-    expect(() => checkSnapshot(bogus)).toThrow();
+    await expect(checkSnapshot(bogus)).rejects.toThrow();
   });
 
-  it('lands a copy in the mirror, pruned by the same tiers', () => {
+  it('lands a copy in the mirror, pruned by the same tiers', async () => {
     const dir = workspace();
     const db = liveDatabase(dir);
     const backups = path.join(dir, 'backups');
     const mirror = path.join(dir, 'elsewhere');
-    const file = takeBackup(db, backups, new Date(), mirror);
+    const file = await takeBackup(db, backups, new Date(), mirror);
     expect(listBackups(mirror).map((backup) => backup.file)).toEqual([file]);
-    expect(checkSnapshot(path.join(mirror, file))).toBe('ok');
+    expect(await checkSnapshot(path.join(mirror, file))).toBe('ok');
   });
 });
+
+/** Waits until `done` holds, or fails the test after two seconds. */
+async function until(done: () => boolean): Promise<void> {
+  const deadline = Date.now() + 2_000;
+  while (!done()) {
+    if (Date.now() > deadline) throw new Error('timed out waiting for the schedule');
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+}
 
 describe('the schedule', () => {
   it('takes nothing immediately, then one per interval, and can be stopped', async () => {
@@ -206,12 +234,12 @@ describe('the schedule', () => {
     // A crash-looping server must not fill the window with copies of its broken state, so the
     // first snapshot waits for the first tick.
     expect(taken).toHaveLength(0);
-    await new Promise((resolve) => setTimeout(resolve, 60));
-    stop();
+    await until(() => taken.length > 0);
+    // Resolves only once a snapshot in flight has landed, so the database can close behind it.
+    await stop();
     const afterStop = taken.length;
-    expect(afterStop).toBeGreaterThan(0);
 
-    await new Promise((resolve) => setTimeout(resolve, 40));
+    await new Promise((resolve) => setTimeout(resolve, 60));
     expect(taken).toHaveLength(afterStop);
   });
 
@@ -223,8 +251,8 @@ describe('the schedule', () => {
     // silently did nothing at all here, because optional call syntax never evaluates its argument
     // when the callee is undefined. The work must not live inside the notification.
     const stop = startBackupSchedule({ db, directory: backups, intervalMs: 10 });
-    await new Promise((resolve) => setTimeout(resolve, 60));
-    stop();
+    await until(() => listBackups(backups).length > 0);
+    await stop();
     expect(listBackups(backups).length).toBeGreaterThan(0);
   });
 
@@ -244,8 +272,83 @@ describe('the schedule', () => {
       intervalMs: 10,
       onError: (error) => errors.push(error),
     });
-    await new Promise((resolve) => setTimeout(resolve, 60));
-    stop();
-    expect(errors.length).toBeGreaterThan(0);
+    // More than one failure: the first one did not stop the ticks that follow it.
+    await until(() => errors.length > 1);
+    await stop();
+    expect(errors.length).toBeGreaterThan(1);
+  });
+
+  it('never runs two snapshots at once', async () => {
+    const dir = workspace();
+    const db = liveDatabase(dir);
+    const backups = path.join(dir, 'backups');
+    const taken: string[] = [];
+    // A tick every millisecond against snapshots that take tens of them: without the guard, dozens
+    // would be writing `.partial` files side by side.
+    const stop = startBackupSchedule({
+      db,
+      directory: backups,
+      intervalMs: 1,
+      onBackup: (file) => taken.push(file),
+    });
+    let most = 0;
+    await until(() => {
+      let partials = 0;
+      try {
+        partials = readdirSync(backups).filter((name) => name.endsWith('.partial')).length;
+      } catch {
+        // Not made yet.
+      }
+      most = Math.max(most, partials);
+      return taken.length >= 3;
+    });
+    await stop();
+    expect(most).toBeLessThanOrEqual(1);
+  });
+});
+
+describe('the event loop while a snapshot is written', () => {
+  /*
+   * The reason the snapshot moved to a worker (maintainer, 2026-09-30). On the main connection it
+   * held the loop for its whole duration. Measured by the longest gap between 1 ms ticks while one
+   * is taken.
+   */
+  it('never holds the loop for long, however long the snapshot takes', async () => {
+    const dir = workspace();
+    const db = liveDatabase(dir);
+    db.exec('CREATE TABLE filler (id INTEGER PRIMARY KEY, note TEXT NOT NULL)');
+    const insert = db.prepare('INSERT INTO filler (note) VALUES (?)');
+    db.transaction(() => {
+      for (let i = 0; i < 40_000; i += 1) insert.run(`${i}`.padEnd(500, 'x'));
+    })();
+
+    let last = performance.now();
+    let worstGap = 0;
+    const ticker = setInterval(() => {
+      const now = performance.now();
+      worstGap = Math.max(worstGap, now - last);
+      last = now;
+    }, 1);
+    // The game keeps writing on the main connection throughout, and none of it may be refused.
+    let written = 0;
+    const writer = setInterval(() => {
+      insert.run('written while the snapshot ran');
+      written += 1;
+    }, 2);
+    const started = performance.now();
+    const file = await takeBackup(db, path.join(dir, 'backups'));
+    const took = performance.now() - started;
+    clearInterval(ticker);
+    clearInterval(writer);
+
+    expect(written).toBeGreaterThan(0);
+    const restored = openDatabase(path.join(dir, 'backups', file));
+    opened.push(restored);
+    const rows = restored.prepare('SELECT COUNT(*) AS n FROM filler').get() as { n: number };
+    expect(rows.n).toBeGreaterThanOrEqual(40_000);
+
+    // About 20 MB: the snapshot takes far longer than any one pause it causes.
+    expect(took).toBeGreaterThan(4 * worstGap);
+    expect(worstGap).toBeLessThan(50);
   });
 });

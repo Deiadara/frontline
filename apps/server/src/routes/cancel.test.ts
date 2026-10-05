@@ -78,7 +78,7 @@ function stack(): { repos: Repositories; base: Base } {
     ],
     buildQueue: [],
     army: {},
-    trainingQueue: [],
+    musterQueue: [],
     training: startingTraining(HOUR),
     inventory: {},
     fittedUpgrades: [],
@@ -249,6 +249,8 @@ describe('a spy job', () => {
       returnsAt: at(300).toISOString(),
       travelMinutes: 120,
       recalledAt: null,
+      chairPoints: null,
+      intelPercent: null,
     });
     repos.spying.insert(run('j1', base.id));
     expect(recallSpy(repos, base, at(31))).toEqual({ kind: 'refused', reason: 'window_closed' });
@@ -439,6 +441,27 @@ describe('over the wire', () => {
       payload: { orderId: order.id },
     });
     expect(again.statusCode).toBe(404);
+  });
+
+  // A second tab, or a retried press, names the level its window was quoting. The queue has
+  // already moved on, so it is refused as stale rather than buying the level after (2026-10-02).
+  it('refuses an order for a level that is already on order', async () => {
+    const { app, token, baseId } = await player();
+    const quarters = app.repos.bases.findById(baseId)!.buildings.find((b) => b.kind === 'quarters');
+    const level = (quarters?.level ?? 0) + 1;
+    const order = () =>
+      app.inject({
+        method: 'POST',
+        url: '/api/base/build',
+        headers: { authorization: `Bearer ${token}` },
+        payload: { kind: 'quarters', level },
+      });
+    const first = await order();
+    expect(first.statusCode, first.body.slice(0, 200)).toBe(200);
+    const second = await order();
+    expect(second.statusCode).toBe(409);
+    expect(second.json<{ error: { code: string } }>().error.code).toBe('STALE_STATE');
+    expect(app.repos.bases.findById(baseId)!.buildQueue).toHaveLength(1);
   });
 
   /*

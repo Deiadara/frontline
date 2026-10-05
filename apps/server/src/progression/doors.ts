@@ -22,7 +22,7 @@ export function unlockFactsOf(base: Base): UnlockFacts {
   return {
     level: base.level,
     buildings: base.buildings.map((building) => building.kind),
-    // Seated officers only, as on the client: a door on a Head of Research wants the chair filled.
+    // Seated officers only, as on the client: a door on a Researcher wants the chair filled.
     officers: base.commanders
       .map((officer) => officer.role)
       .filter((role): role is NonNullable<typeof role> => role !== null),

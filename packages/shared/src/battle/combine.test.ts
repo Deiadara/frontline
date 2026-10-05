@@ -136,28 +136,32 @@ describe('the Syndic', () => {
   /**
    * A sweep rather than one seed, and a matchup on the edge on purpose.
    *
-   * Re-measured on these exact seeds after the 2026-09-20 retune, 20 Greycoats holding against:
+   * Re-measured on these exact seeds after the Greycoat's offense went from 122 to 112
+   * (2026-10-01), 20 Greycoats holding against:
    *
    * | Razors | without her | with her |
    * | --- | --- | --- |
-   * | 20 | 79 | 80 |
-   * | 22 | 35 | 80 |
-   * | 24 | 3 | 75 |
-   * | 26 | 0 | 27 |
+   * | 19 | 75 | 80 |
+   * | 20 | 43 | 80 |
+   * | 21 | 21 | 68 |
+   * | 22 | 2 | 35 |
+   * | 24 | 0 | 1 |
    *
-   * 24 is the one to sweep, because it is the only row where **neither** end is against a rail: at
-   * 22 she wins every seed and at 26 the bare defence loses every seed, so either of those would
-   * pin a number that a further retune could move a long way without the assertion noticing.
+   * 21 is the one to sweep, because it is the only row where **neither** end is against a rail: at
+   * 20 she wins every seed and at 22 the bare defence loses nearly every seed, so either of those
+   * would pin a number that a further retune could move a long way without the assertion noticing.
+   * The row moves whenever the Greycoat's sheet does (it was 24 Razors on the 122 sheet).
    *
    * The band moved when the power did. The old +20 penetration, +20 morale and -20 attacker
-   * armour was worth 16 seeds at 22 Razors; +25 penetration and +25 armour on her own line is
-   * worth 72 at 24. That is the retune being a good deal larger than a swap of two numbers, which
-   * is the thing worth writing down rather than the thing worth hiding behind a `toBeGreaterThan`.
+   * armour was worth 16 seeds at 22 Razors; +25 penetration and +25 armour on her own line was
+   * worth 72 at 24 on the old sheet and is worth 47 at 21 on this one. That is the retune being a
+   * good deal larger than a swap of two numbers, which is the thing worth writing down rather than
+   * the thing worth hiding behind a `toBeGreaterThan`.
    */
   it('is worth something to the defence, not only to the sheet', () => {
     const holds = (presence: CombinePower | undefined) =>
       Array.from({ length: 80 }, (_, i) =>
-        fight({ razors: 24 }, { greycoat: 20 }, presence, `syndic-sweep-${i}`),
+        fight({ razors: 21 }, { greycoat: 20 }, presence, `syndic-sweep-${i}`),
       ).filter((sim) => sim.winner === 'defender').length;
     const bare = holds(undefined);
     const backed = holds(SYNDIC);

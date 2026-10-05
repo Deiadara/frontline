@@ -68,9 +68,23 @@ describe('a door the crew has not opened', () => {
       expect(shut.statusCode, shut.body.slice(0, 200)).toBe(403);
       expect(shut.json<{ error: { code: string } }>().error.code).toBe('AREA_LOCKED');
 
-      openDoors(app, token, area);
+      openDoors(app, token, 'market', area);
       const open = await app.inject({ method: 'POST', url, headers, payload });
       expect(open.json<{ error?: { code: string } }>().error?.code).not.toBe('AREA_LOCKED');
+    });
+  }
+
+  // The back room and the offers board sit inside the Market, and the client nests the doors.
+  for (const { area, url, payload } of CASES.filter(
+    (one) => one.area !== 'market' && one.area !== 'training',
+  )) {
+    it(`refuses ${url} while the Market itself is shut, even with the ${area} door open`, async () => {
+      const { app, token } = await freshCrew();
+      const headers = { authorization: `Bearer ${token}` };
+      openDoors(app, token, area);
+      const shut = await app.inject({ method: 'POST', url, headers, payload });
+      expect(shut.statusCode, shut.body.slice(0, 200)).toBe(403);
+      expect(shut.json<{ error: { code: string } }>().error.code).toBe('AREA_LOCKED');
     });
   }
 

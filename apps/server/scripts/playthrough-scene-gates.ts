@@ -1,8 +1,8 @@
 /**
  * The level gates, pushed from a crew that has not earned them.
  *
- * The client draws a locked door over the Bar (level 5), Drills (level 3), the Archive (a Head of
- * Research in the chair), the Market (level 15), District Offers (a research rung) and the Black
+ * The client draws a locked door over the Bar (level 5), Drills (level 3), the Archive (a Researcher
+ * in the chair), the Market (level 15), District Offers (a research rung) and the Black
  * Market (notoriety 3): `AREA_REQUIREMENTS` in `progression/unlocks.ts`, read by `RequireUnlock`.
  * The server has an error code for exactly that refusal, `AREA_LOCKED` ("this crew is not senior
  * enough to be in it"). A hand-written request is not a screen, so each write here is sent by a
@@ -56,7 +56,7 @@ export async function levelGates(h: Harness, cast: Cast): Promise<void> {
     code: 'AREA_LOCKED',
   });
 
-  h.at('level gates: the Archive with nobody in the Head of Research chair');
+  h.at('level gates: the Archive with nobody in the Researcher chair');
   // Every rung wants a mark from the officer in its track's chair, so a crew with nobody on the
   // books has nothing it can start: the door is held by the rungs themselves. Probed only if the
   // screen offers a rung with no blocker.

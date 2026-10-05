@@ -93,13 +93,13 @@ async function makeStack(): Promise<Stack> {
   );
   if (!found) throw new Error('the fixture crew has no base');
   const base: Base = { ...found, army: { scavengers: 6, haulers: 4, razors: 5 } };
-  app.repos.bases.updateArmy(base.id, base.army, base.trainingQueue);
+  app.repos.bases.updateArmy(base.id, base.army, base.musterQueue);
   return { app, base, token };
 }
 
 /**
- * The one exception the rule has, written onto the crew: `carriers_fight` (Yard Discipline, the
- * fifth rung of the Chief Quartermaster's track, and the Scrap Cathedral).
+ * The one exception the rule has, written onto the crew: `carriers_fight` (Everybody Fights, the
+ * first rung of the Field Commander's track, and the Scrap Cathedral).
  *
  * Returns the base as it reads *after* the write, because every door reads the crew back out of
  * the repository and a stale fixture would prove nothing.

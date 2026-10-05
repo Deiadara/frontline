@@ -1,4 +1,4 @@
-import type { FactionResponse } from '@frontline/shared';
+import { memberName, type FactionResponse } from '@frontline/shared';
 import type { IconName } from '../../components/ui/Icon';
 
 /**
@@ -55,7 +55,7 @@ export function ledger(data: FactionResponse): LedgerEntry[] {
       id: `joined-${member.userId}`,
       at: member.joinedAt,
       icon: 'faction',
-      text: `${member.username} came to the table`,
+      text: `${memberName(member)} came to the table`,
     });
   }
 

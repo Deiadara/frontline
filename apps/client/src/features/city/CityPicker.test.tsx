@@ -45,6 +45,8 @@ describe('the city picker', () => {
     fireEvent.click(screen.getByTestId('city-picker-open'));
     const list = screen.getByTestId('city-picker-list');
     expect(list).toHaveTextContent(nameOf(SALTMARCH_CITY_ID));
+    // The name only (maintainer, 2026-10-04): the nickname stays on the city screens.
+    for (const city of CITIES) expect(list).not.toHaveTextContent(city.nickname);
     // The room already open is marked as such rather than left out of its own list.
     expect(screen.getByTestId(`city-choose-${DEFAULT_CITY_ID}`)).toHaveAttribute(
       'aria-pressed',

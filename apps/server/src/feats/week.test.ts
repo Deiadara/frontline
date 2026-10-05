@@ -86,7 +86,7 @@ function crew(over: Partial<Base> = {}): Base {
     buildings: [{ id: 'nexus-1', kind: 'nexus', level: 5, modifications: [] }],
     buildQueue: [],
     army: { razors: 400 },
-    trainingQueue: [],
+    musterQueue: [],
     training: startingTraining(now),
     inventory: {},
     fittedUpgrades: [],

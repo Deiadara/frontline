@@ -1,5 +1,8 @@
 import {
+  AREA_REQUIREMENTS,
+  GATED_AREAS,
   NOTORIETY_BLURBS,
+  areaName,
   NOTORIETY_TIERS,
   describeNotorietyGrant,
   notorietySpentTo,
@@ -46,7 +49,15 @@ function Rung({
   const here = at === rank;
   // The price of *reaching* this rung, which is what the rung below it charges to leave.
   const price = at === 0 ? null : notorietyUpgradeCost(at - 1);
-  const grant = describeNotorietyGrant(at);
+  // The doors this rank opens, beside what it pays: the level ladder names every door at its rung,
+  // and without this the Black Market's own locked sign was the only place that said rank 3.
+  const grant = [
+    ...describeNotorietyGrant(at),
+    ...GATED_AREAS.filter((area) => {
+      const wanted = AREA_REQUIREMENTS[area];
+      return wanted.kind === 'notoriety' && wanted.rank === at;
+    }).map((area) => `Opens ${areaName(area)}`),
+  ];
 
   return (
     <li

@@ -1,5 +1,6 @@
 import {
   ASSIGNABLE_OFFICER_PORTRAIT_IDS,
+  FIRST_OFFICER_SLOT_LEVEL,
   createCommander,
   type BarResponse,
   type Base,
@@ -77,6 +78,8 @@ describe('faces across the city', () => {
     ).get(recruit.id);
     expect(face).toBe(shown.portraitId);
 
+    // At the Bar's level, where the first officer slot comes with the door.
+    app.repos.bases.updateProgression(one.base.id, FIRST_OFFICER_SLOT_LEVEL, one.base.progression);
     const base = app.repos.bases.findById(one.base.id)!;
     const signed = signRecruit(app.repos, {
       base,

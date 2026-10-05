@@ -11,7 +11,7 @@ import { cn } from '../../lib/cn';
  *
  * Red because nothing else on these screens is. Brass is the interface, verdigris is ownership,
  * oxblood is loss; a mark is none of those and needs to be findable at a glance across a grid of
- * nineteen faces.
+ * thirteen faces.
  *
  * Deliberately not a rating bar. The score behind this moves whenever a single attribute is
  * trained, and a bar would invite reading a precision that is not there: the letter is coarse on

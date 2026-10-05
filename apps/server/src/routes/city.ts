@@ -17,6 +17,7 @@ import {
   PlantSleepersRequestSchema,
   RecallSleepersRequestSchema,
   SLEEPER_REFUSAL_TEXT,
+  CELL_LOCKED_TEXT,
 } from '@frontline/shared';
 import type { FastifyInstance } from 'fastify';
 import { plantSleepers, recallSleepers } from '../city/sleepers.js';
@@ -45,13 +46,18 @@ import { settleWorld } from '../world/settle.js';
 const SPY_REFUSAL_ERRORS: Record<SpyRefusal, { code: ErrorCode; message: string }> = {
   no_whispers: {
     code: 'NO_FORCE',
-    message: 'Nobody is in the Master of Whispers chair. Spying is their work',
+    // Empty, benched and hurt alike (`whispersAtWork`): the chair has to be worked, not just held.
+    message: 'Nobody is working the Master of Whispers chair: it is empty, or they are hurt',
   },
   no_road: { code: 'VALIDATION_ERROR', message: 'There is no road to that' },
   cannot_afford: { code: 'INSUFFICIENT_RESOURCES', message: 'You cannot cover the caps' },
   already_out: {
     code: 'VALIDATION_ERROR',
     message: 'Every party of runners you have is already out on a job',
+  },
+  watching_here: {
+    code: 'VALIDATION_ERROR',
+    message: 'Your runners are already on their way there. Call them back or wait for them',
   },
   tier_locked: {
     code: 'VALIDATION_ERROR',
@@ -369,10 +375,7 @@ export function registerCityRoutes(app: FastifyInstance): void {
     const base = settled(app, request.currentUser.id, now);
     const recalled = app.db.transaction(() => recallSleepers(app.repos, base, cellId, now))();
     if (recalled.kind === 'refused' && recalled.reason === 'locked') {
-      throw new AppError(
-        'PLACE_UNAVAILABLE',
-        'A fight lands there within the hour. Nobody leaves the ground now',
-      );
+      throw new AppError('PLACE_UNAVAILABLE', CELL_LOCKED_TEXT);
     }
     if (recalled.kind === 'refused')
       throw new AppError('NOT_FOUND', 'No cell of yours is out there');

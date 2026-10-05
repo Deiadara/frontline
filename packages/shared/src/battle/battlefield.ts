@@ -160,7 +160,7 @@ export function frontageFor(
  * catalogue has always carried: sewers, tunnels, cellars and the graveyard are dark all day, and a
  * street is not dark at any hour.
  *
- * Tier 2, not 1: `Dark I` is a room with bad lighting, and a unit trained to work without light
+ * Tier 2, not 1: `Dark I` is a room with bad lighting, and a unit kitted to work without light
  * should not get its whole bonus for a dim stairwell.
  */
 export const DARK_GROUND_TIER = 2;

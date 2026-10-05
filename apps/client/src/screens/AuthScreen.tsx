@@ -102,7 +102,9 @@ export function AuthScreen() {
   const mutation = useMutation<AuthResponse, Error, void>({
     mutationFn: () =>
       mode === 'login' ? login({ username, password }) : register({ username, password }),
-    onSuccess: (data) => setSession(data.token, data.user),
+    // The session arrived as an httpOnly cookie; `data.token` is for scripted callers and is
+    // deliberately left on the floor (`AuthResponseSchema`).
+    onSuccess: (data) => setSession(data.user),
   });
 
   const switchMode = (next: Mode) => {

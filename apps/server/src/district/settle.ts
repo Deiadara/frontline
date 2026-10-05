@@ -8,10 +8,11 @@ import {
   disruptionPercentAt,
   drillEndsAt,
   findUnit,
+  findVehicle,
   queueCompletesAt,
   researchCompletesAt,
   splitDueQueue,
-  trainingCompletesAt,
+  musterCompletesAt,
   queueEntryXp,
   type Base,
   type Building,
@@ -28,7 +29,7 @@ import { crewEffectsFor, standingEffectsFor } from '../crew/standing.js';
 import { announceDrills, bankTrainingFor } from '../crew/training.js';
 import { awardPlayerXp, settleRetunedCurve } from '../progression/award.js';
 import { settleResearchFor } from '../research/settle.js';
-import { settleTraining } from '../units/training.js';
+import { settleMuster } from '../units/muster.js';
 import { notifyBase } from '../social/notify.js';
 
 /**
@@ -171,9 +172,9 @@ function walk(
 /**
  * The crew and the ground as the production walk prices them at `now`.
  *
- * §F2: Engineering and Chemistry on the line, Logistics on the warehouse. Read once for the whole
- * window rather than per segment: a crew does not change halfway through a settle, and re-reading
- * it inside the walk would cost a database round trip per completed build. Read at the settle's
+ * §F2: the crew's production bonus on the line, its storage bonus on the warehouse. Read once for
+ * the whole window rather than per segment: a crew does not change halfway through a settle, and
+ * re-reading it inside the walk would cost a database round trip per completed build. Read at the settle's
  * own instant, not at the wall clock: both folds are step functions of time (an officer is out of
  * the room until `injuredUntil`, a raid's disruption until it expires), and `now` is the moment
  * this window is being priced at. Defaulting the argument read the clock of whichever process
@@ -208,9 +209,14 @@ function yieldAt(
  * reach the client. Read off {@link yieldAt} and `productionRates`, the same two the walk reads.
  */
 export function productionRatesFor(repos: Repositories, base: Base, now: Date): PartialResources {
-  const { crew, groundPerHour } = yieldAt(repos, base, now);
-  const raidCutPercent = disruptionPercentAt(base.economy.disruption, now);
-  return productionRates(base.buildings, { ...crew, raidCutPercent }, groundPerHour);
+  const { groundPerHour } = yieldAt(repos, base, now);
+  return productionRates(base.buildings, productionYieldFor(repos, base, now), groundPerHour);
+}
+
+/** The crew's half of {@link productionRatesFor}, raid cut included, for a structure's own window. */
+export function productionYieldFor(repos: Repositories, base: Base, now: Date): CrewYield {
+  const { crew } = yieldAt(repos, base, now);
+  return { ...crew, raidCutPercent: disruptionPercentAt(base.economy.disruption, now) };
 }
 
 export function settleDistrict(
@@ -310,7 +316,7 @@ export function settleDistrict(
  * Everything a base owes on a read, in the one order that is correct: **the** entry point for
  * every route that touches a base.
  *
- * The district settles first and training second. There used to be a weekly upkeep pass between
+ * The district settles first and mustering second. There used to be a weekly upkeep pass between
  * the two, and the order mattered because the Greenhouse had to have grown the week's rations
  * before they were eaten; no recurring charge is left in the game, so what is left is production
  * and then the batches it paid for.
@@ -360,7 +366,7 @@ export function settleBasesById(
  * `now`'s own settle.
  *
  * All three move what the district makes (`crewEffectsFor` reads the sheets, the Lab and who is on
- * their feet for Engineering, Chemistry and Logistics), so all three are cuts in the timeline
+ * their feet, and so every chair's passive and every perk), so all three are cuts in the timeline
  * exactly as a finished build is. A recovery already behind the production clock is not one: the
  * stretch it ended has been paid for.
  */
@@ -422,8 +428,8 @@ function settleBaseNow(repos: Repositories, base: Base, now: Date): DistrictSett
   // drills ending ten minutes apart are one "2 hours on the floor", as the receipt promises.
   announceDrills(repos, current, { gains: drilled, finishedAt: drilledUntil });
   const district = { base: current, completed, awards };
-  // Training second: a batch landing does not feed anything else in the settle.
-  const trained = settleTraining(repos, district.base, now);
+  // Mustering second: a batch landing does not feed anything else in the settle.
+  const mustered = settleMuster(repos, district.base, now);
 
   /*
    * The receipts, written once, here.
@@ -448,25 +454,27 @@ function settleBaseNow(repos: Repositories, base: Base, now: Date): DistrictSett
    * And the bench, which had a notification kind and no emitter at all.
    *
    * One per *batch*, not per body: a batch hands its units over one at a time (see
-   * `settleTraining`), so a receipt per delivery would ring every forty-five seconds for an order
+   * `settleMuster`), so a receipt per delivery would ring every forty-five seconds for an order
    * of ten Razors. `finished` is the set that handed over its last one on this read.
    */
-  for (const order of trained.finished) {
-    const unit = findUnit(order.unitId);
+  for (const order of mustered.finished) {
+    // A Garage order shares the bench, and what it makes goes to the yard, not the roster.
+    const machine = findVehicle(order.unitId);
+    const name = findUnit(order.unitId)?.name ?? machine?.name ?? order.unitId;
     notifyBase(repos, base.id, {
-      kind: 'unit_trained',
-      title: `${order.count} ${unit?.name ?? order.unitId} off the bench`,
-      body: 'They are on the roster.',
-      link: '/game/units',
+      kind: 'unit_mustered',
+      title: `${order.count} ${name} off the bench`,
+      body: machine ? 'In the yard.' : 'They are on the roster.',
+      link: machine ? '/game/units?tab=vehicles' : '/game/units',
       subjectId: order.unitId,
       // When the last of the batch walked off the bench.
-      at: trainingCompletesAt(order),
+      at: musterCompletesAt(order),
     });
   }
 
   return {
-    base: trained.base,
+    base: mustered.base,
     completed: district.completed,
-    awards: [...district.awards, ...trained.awards],
+    awards: [...district.awards, ...mustered.awards],
   };
 }

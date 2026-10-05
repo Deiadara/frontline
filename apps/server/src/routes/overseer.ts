@@ -12,6 +12,7 @@ import {
   cityHomeOffers,
   DEFAULT_CITY_ID,
   findCity,
+  homePlots,
   freeHomePlots,
   pickHomePlot,
   STARTER_DISTRICT_ID,
@@ -115,7 +116,7 @@ function newHome(repos: Repositories, cityId: string | undefined, seed: string):
     if (plot === null) {
       throw new AppError(
         'CITY_FULL',
-        `${findCity(cityId)?.name ?? cityId} is full. Four crews already live there, so pick somewhere else.`,
+        `${findCity(cityId)?.name ?? cityId} is full. ${homePlots(cityId).length} crews already live there, so pick somewhere else.`,
       );
     }
     return plot;
@@ -373,8 +374,8 @@ export function registerOverseerRoutes(app: FastifyInstance): void {
          * ...and the feats board's first rung is finished before the player has seen it.
          *
          * `overseer_taken` is what the opening feat measures, and it pays the five Scavengers a
-         * new crew needs to send anybody anywhere: the Nexus can train them and nothing else in a
-         * fresh district can train anything (`units/catalog.ts`). Counted here rather than at the
+         * new crew needs to send anybody anywhere: the Nexus can muster them and nothing else in a
+         * fresh district can muster anything (`units/catalog.ts`). Counted here rather than at the
          * top of the handler because a tally is keyed by base, and until this transaction the
          * base may not exist.
          */

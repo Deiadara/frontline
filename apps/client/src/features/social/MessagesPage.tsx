@@ -17,6 +17,7 @@ import { Icon } from '../../components/ui/Icon';
 import { Modal } from '../../components/ui/Modal';
 import { cn } from '../../lib/cn';
 import {
+  useBlockSender,
   useDeleteMessage,
   useLeaderboard,
   useMe,
@@ -90,6 +91,7 @@ export function MessagesPage() {
   const read = useReadMessage();
   const readAll = useReadAllMessages();
   const remove = useDeleteMessage();
+  const block = useBlockSender();
 
   const [folder, setFolder] = useState<FolderId>('inbox');
   const [open, setOpen] = useState<Opened | null>(null);
@@ -189,7 +191,7 @@ export function MessagesPage() {
    * A refused send is said inside the composer, where the reader is looking; the page behind it
    * only carries what the page did (reading, throwing away).
    */
-  const error = read.error ?? remove.error ?? null;
+  const error = read.error ?? remove.error ?? block.error ?? null;
   /*
    * The invitation as the latest read has it, not as it was when the letter was opened (bug pass,
    * 2026-09-27). `open` is a snapshot, so an answered invitation kept its live Join and Decline
@@ -259,6 +261,36 @@ export function MessagesPage() {
               ))}
             </ul>
           </div>
+
+          {/* Only when somebody is blocked, so an ordinary mailbox draws exactly what it did. */}
+          {(data.blocked?.length ?? 0) > 0 && (
+            <div
+              className="ink-frame card-paper washed rivets flex flex-col gap-1.5 p-3"
+              data-testid="blocked-senders"
+            >
+              <span className="font-display text-[10px] uppercase tracking-[0.16em] text-ink-400">
+                Not taking letters from
+              </span>
+              <ul className="flex flex-col gap-1">
+                {data.blocked?.map((entry) => (
+                  <li key={entry.userId} className="flex min-w-0 items-center gap-2">
+                    <span className="min-w-0 flex-1 truncate font-body text-[13px] text-ink-200">
+                      {entry.name}
+                    </span>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      disabled={block.isPending}
+                      data-testid={`unblock-${entry.userId}`}
+                      onClick={() => block.mutate({ userId: entry.userId, blocked: false })}
+                    >
+                      Unblock
+                    </Button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
 
           <div className="flex flex-col gap-2">
             <Button data-testid="compose" onClick={() => setComposing(true)}>
@@ -429,6 +461,22 @@ export function MessagesPage() {
                       onClick={() => startReply(open.message, replyTo)}
                     >
                       Reply
+                    </Button>
+                  )}
+                  {/* Only a letter a player wrote: the game's own letters have nobody to block. */}
+                  {replyTo !== null && (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      data-testid="block-sender"
+                      data-tip={`Nothing more from ${open.message.senderName} reaches you`}
+                      disabled={block.isPending}
+                      onClick={() => {
+                        block.mutate({ userId: open.message.senderUserId, blocked: true });
+                        setOpen(null);
+                      }}
+                    >
+                      Block this sender
                     </Button>
                   )}
                   <Button

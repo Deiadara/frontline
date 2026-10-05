@@ -29,10 +29,14 @@ test.use({ viewport: { width: 1280, height: 800 } });
 const RANGE_CARDS = 'pg_snipers_range_cards';
 const SLAB_ARMOUR = 'pg_juggernauts_slab_armour';
 
-/** A stack to draw down, a single sheet beside it, and enough else to make the tray a real tray. */
+/**
+ * A stack to draw down, a single spare sheet beside it, and enough else to make the tray a real
+ * tray. Only spares go on the tray (P7-B, 2026-10-02), and both documents are still being collected,
+ * so each holds one copy more than the tray offers: three spare Slab Armours and one Range Card.
+ */
 const INVENTORY: Inventory = {
-  [SLAB_ARMOUR]: 3,
-  [RANGE_CARDS]: 1,
+  [SLAB_ARMOUR]: 4,
+  [RANGE_CARDS]: 2,
   pg_colossus_hull_sections: 1,
   pg_colossus_reactor_housing: 1,
   pg_garage_pit_layout: 1,
@@ -75,21 +79,19 @@ test('draws a locked bench with one sentence saying what is missing', async ({ p
       json: {
         ...market,
         inventory: INVENTORY,
-        reimagining: { hasHeadOfResearch: false, hasReimaginingResearch: true },
+        reimagining: { hasResearcher: false, hasReimaginingResearch: true },
       },
     });
   });
 
   await page.goto('/game/research/reimagining');
   const locked = page.getByTestId('reimagining-locked');
-  await expect(locked).toContainText('Nobody is sitting in the Head of Research chair');
+  await expect(locked).toContainText('Nobody is sitting in the Researcher chair');
   await expect(page.getByTestId('reimagine-machine')).toHaveCount(0);
   await expect(page.getByTestId('reimagine-tray')).toHaveCount(0);
   // The way out of it, which is the half a sentence cannot do: chairs are filled at the Bar and
   // there is nothing on this screen that would tell a player so.
-  await expect(page.getByTestId('reimagining-door')).toContainText(
-    'Hire a Head of Research at the Bar',
-  );
+  await expect(page.getByTestId('reimagining-door')).toContainText('Hire a Researcher at the Bar');
   await settleFonts(page);
   await expectNothingOverflowsTheScreen(page);
   await expectNothingClippedVertically(page);
@@ -100,7 +102,7 @@ test('draws a locked bench with one sentence saying what is missing', async ({ p
  * The second door, walked through rather than read.
  *
  * A link's text and its href are the cheap half: what a player needs is to arrive at the rung. The
- * Reimagining rung is the sixth on the *Fabricator's* track, which nobody guesses, so the press has
+ * Reimagining rung is the sixth on the *Salvager's* track, which nobody guesses, so the press has
  * to land on that rail with that trade open. Before the URL carried the trade the archive always
  * opened on the first of nineteen, and a door reading "research it on the track" dropped a player
  * on the Master of Whispers with the rung nine rows away and no clue which.
@@ -112,7 +114,7 @@ test('walks a crew with the chair but not the rung to the rung own track', async
       json: {
         ...market,
         inventory: INVENTORY,
-        reimagining: { hasHeadOfResearch: true, hasReimaginingResearch: false },
+        reimagining: { hasResearcher: true, hasReimaginingResearch: false },
       },
     });
   });
@@ -122,21 +124,18 @@ test('walks a crew with the chair but not the rung to the rung own track', async
     'The Lab has not worked Reimagining out yet',
   );
   const door = page.getByTestId('reimagining-door');
-  await expect(door).toContainText("Research it on the Fabricator's track");
+  await expect(door).toContainText("Research it on the Salvager's track");
   await settleFonts(page);
   await expectNothingOverflowsTheScreen(page);
   await expectNothingClippedVertically(page);
   await page.screenshot({ path: 'e2e-out/reimagining-door.png', fullPage: true });
 
   await door.click();
-  await expect(page).toHaveURL(/\/game\/research\?track=fabricator$/);
-  // The Programmes tab, open on the Fabricator, with its rung on the rail.
+  await expect(page).toHaveURL(/\/game\/research\?track=salvager$/);
+  // The Programmes tab, open on the Salvager, with its rung on the rail.
   await expect(page.getByTestId('research-tab-programmes')).toHaveAttribute('aria-current', 'page');
-  await expect(page.getByTestId('tech-track-fabricator')).toBeVisible();
-  await expect(page.getByTestId('research-track-fabricator')).toHaveAttribute(
-    'aria-pressed',
-    'true',
-  );
+  await expect(page.getByTestId('tech-track-salvager')).toBeVisible();
+  await expect(page.getByTestId('research-track-salvager')).toHaveAttribute('aria-pressed', 'true');
   await expect(page.getByTestId('tech-tech_reimagining')).toBeVisible();
   // The strip has finished fading. `transition-colors` is 150ms, so the shot taken the frame after
   // the press showed Reimagining still wearing the gold it had a moment ago while Programmes was
@@ -237,10 +236,11 @@ for (const size of SIZES) {
       await expect(slot(page, index)).toHaveAttribute('data-filled', 'no');
     }
 
-    // The tray moved: the sheet that went in whole is gone and the new one is on it.
+    // The tray moved: the last spare Range Card is gone, and the new page is the only copy its
+    // document has, so it is not a spare and stays off the tray.
     await expect(page.getByTestId(`tray-${RANGE_CARDS}`)).toHaveCount(0);
     await expect(page.getByTestId(`tray-${SLAB_ARMOUR}`)).toHaveAttribute('data-left', '1');
-    await expect(page.getByTestId(`tray-${gained ?? ''}`)).toBeVisible();
+    await expect(page.getByTestId(`tray-${gained ?? ''}`)).toHaveCount(0);
 
     await settleFonts(page);
     await growPastTheFold(page);

@@ -55,7 +55,7 @@ function crew(repos: Repositories, officers: Commander[], technologies: string[]
     buildings: [],
     buildQueue: [],
     army: {},
-    trainingQueue: [],
+    musterQueue: [],
     training: startingTraining(HOUR),
     inventory: {},
     fittedUpgrades: [],

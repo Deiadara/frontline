@@ -4,3 +4,5 @@ export * from './offers.js';
 export * from './supply.js';
 export * from './discount.js';
 export * from './blackmarket.js';
+export * from './contraband.js';
+export * from './stackhouse.js';

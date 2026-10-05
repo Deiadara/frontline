@@ -6,6 +6,7 @@ import {
   holdPlot,
   makeWorld,
   register,
+  aDayAfter,
   runTheFight,
   type Crew,
   type World,
@@ -67,9 +68,12 @@ async function twoFights(
   const holder = await register(world, 'holder');
   holdPlot(world, holder, { razors: 5 });
   before(world, holder);
-  runTheFight(world, await declare(world, caller));
+  const firstFight = await declare(world, caller);
+  runTheFight(world, firstFight);
   const first = world.seen().defenderTerritory!.defensePercent;
   between(world, holder);
+  // A day on, or the caller who lost could not call the plot again (2026-10-05).
+  aDayAfter(world, firstFight);
   runTheFight(world, await declare(world, caller));
   return [first, world.seen().defenderTerritory!.defensePercent];
 }
@@ -78,7 +82,8 @@ const nothing = (): void => undefined;
 
 describe('the whole-district defence', () => {
   it('has rungs to test', () => {
-    expect(RUNGS).toHaveLength(2);
+    // The Right Hand's; the Head of Security's went with the chair rework (2026-10-04).
+    expect(RUNGS).toHaveLength(1);
     expect(RUNG_PERCENT).toBeGreaterThan(0);
   });
 

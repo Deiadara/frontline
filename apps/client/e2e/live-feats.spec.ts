@@ -101,26 +101,15 @@ test.describe.serial('the real server, over the new screens', () => {
     await arrive(page);
 
     /*
-     * The letter feat, driven the way a player would drive it.
-     *
-     * `letters_1` wants one message sent, which is the only feat in the catalogue a crew can
-     * finish in its first minute without waiting on a clock. What is under test is the whole
-     * chain: the composer writes through the real route, the hook increments the real counter, the
-     * board re-reads it, and CLAIM pays through the real transaction.
+     * The Overseer feat, finished by the arrival itself: picking the person the district answers
+     * to is the one feat a crew completes in its first minute without waiting on a clock, now the
+     * letters ladder is gone (maintainer, 2026-10-02). What is under test is the whole chain: the
+     * real choice bumps the real counter, the board reads it, and CLAIM pays through the real
+     * transaction.
      */
-    await page.goto('/game/messages?to=Sable_Ninth');
-    const form = page.getByTestId('compose-form');
-    await expect(form).toBeVisible();
-    await expect(form.getByTestId('compose-recipient-Sable_Ninth')).toBeVisible();
-    await form.getByTestId('compose-subject').fill('A word');
-    await form.getByTestId('compose-body').fill('About the ground on Ninth Street.');
-    await form.getByRole('button', { name: 'Send it' }).click();
-
     await page.goto('/game/feats');
-    // The board opens on the first ladder in the catalogue, so the letters one has to be opened
-    // from the index down the left before its rung is on screen (maintainer, 2026-09-17).
-    await page.getByTestId('feats-tab-letters').click();
-    const claim = page.getByTestId('feat-claim-letters_1');
+    await page.getByTestId('feats-tab-overseer_taken').click();
+    const claim = page.getByTestId('feat-claim-overseer_taken');
     await expect(claim).toBeVisible();
 
     // The badge on the bottom bar is a second reading of the same question and must agree.
@@ -128,7 +117,7 @@ test.describe.serial('the real server, over the new screens', () => {
 
     await claim.click();
     // Collected, and the button is gone rather than merely disabled.
-    await expect(page.getByTestId('feat-claim-letters_1')).toHaveCount(0);
+    await expect(page.getByTestId('feat-claim-overseer_taken')).toHaveCount(0);
     await expect(page.getByTestId('feats-ledger')).toContainText('1');
   });
 
@@ -140,7 +129,7 @@ test.describe.serial('the real server, over the new screens', () => {
     await expect(page.getByTestId('leaderboard')).toBeVisible();
     // The seeder puts three non-playing crews in the world. They are ordinary rows and the board
     // reads them off real districts, so any of them missing is a projection that dropped somebody.
-    for (const crew of ['Vex_Combine', 'Sable_Ninth', 'Sollen_Tam']) {
+    for (const crew of ['Vex_Holdings', 'Sable_Ninth', 'Sollen_Tam']) {
       await expect(page.getByTestId(`standing-${crew}`)).toBeVisible();
     }
   });
@@ -158,14 +147,14 @@ test.describe.serial('the real server, over the new screens', () => {
      */
     await page.goto('/game/leaderboard');
     await expect(page.getByTestId('leaderboard')).toBeVisible();
-    const door = page.getByTestId('standing-faction-Vex_Combine');
+    const door = page.getByTestId('standing-faction-Vex_Holdings');
     await expect(door).toBeVisible();
     await door.click();
 
     await expect(page.getByTestId('faction-profile-members')).toBeVisible();
     // Both seeded members, their ranks, and a way to write to each of them.
-    await expect(page.getByTestId('faction-member-Vex_Combine')).toBeVisible();
+    await expect(page.getByTestId('faction-member-Vex_Holdings')).toBeVisible();
     await expect(page.getByTestId('faction-member-Sollen_Tam')).toBeVisible();
-    await expect(page.getByTestId('faction-member-message-Vex_Combine')).toBeVisible();
+    await expect(page.getByTestId('faction-member-message-Vex_Holdings')).toBeVisible();
   });
 });

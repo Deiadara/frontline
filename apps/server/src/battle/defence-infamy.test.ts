@@ -173,7 +173,7 @@ describe('what a successful defence pays', () => {
     // Enough at home on both sides: a line for the attacker, a ring for the defender.
     for (const crew of [attacker, defender]) {
       const home = app.repos.bases.findById(crew.baseId)!;
-      app.repos.bases.updateArmy(home.id, { razors: 12 }, home.trainingQueue);
+      app.repos.bases.updateArmy(home.id, { razors: 12 }, home.musterQueue);
     }
 
     const target: BattleTarget = {

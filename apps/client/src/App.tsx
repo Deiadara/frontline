@@ -66,13 +66,13 @@ function BootMessage({ text, tone = 'muted' }: { text: string; tone?: 'muted' | 
 
 /** Holds the boot loader open until the persisted session's `GET /api/me` resolves. */
 export function BootGate({ children }: { children: ReactNode }) {
-  const token = useSession((s) => s.token);
+  const signedIn = useSession((s) => s.signedIn);
   const me = useMe();
-  if (token !== null && me.isLoading) return <BootMessage text="Establishing uplink…" />;
+  if (signedIn && me.isLoading) return <BootMessage text="Establishing uplink…" />;
   // A failed *first* read only. A background poll that fails keeps the data it had, and TanStack
   // still reports `isError` for it: gating on that alone replaced the whole game with this line on
   // any one 502 during a restart, losing every open dialog and draft.
-  if (token !== null && me.isError && me.data === undefined) {
+  if (signedIn && me.isError && me.data === undefined) {
     return <BootMessage text="Uplink failed. Reload to try again." tone="error" />;
   }
   return <>{children}</>;

@@ -1,16 +1,23 @@
 import {
+  CARD_BY_SLOT,
   FACTION_CARD_SPECS,
+  canAdminister,
   describeCardBonus,
   describeCardReads,
   FACTION_RANK_LABELS,
   canKick,
   canSetRank,
   leavingDisbands,
+  type FactionCard,
   type FactionMember,
   type FactionResponse,
+  memberName,
+  dayInZone,
 } from '@frontline/shared';
 import { useState } from 'react';
+import { LeaveDialog } from '../../components/LeaveDialog';
 import { Button } from '../../components/ui/Button';
+import { Dropdown } from '../../components/ui/Dropdown';
 import { Confirm } from '../../components/ui/Confirm';
 import { Modal } from '../../components/ui/Modal';
 import { MarkStamp } from '../../components/ui/MarkStamp';
@@ -18,6 +25,7 @@ import { CardGlyph } from './CardGlyph';
 import { MemberFace } from './MemberFace';
 import { RankStamp } from './RankStamp';
 import { ArmyTags, Heading, WindowHead } from './parts';
+import { usePlayerZone } from '../settings/usePlayerZone';
 
 /**
  * One person's file, opened from their seat at the table.
@@ -39,6 +47,7 @@ export function MemberWindow({
   isSelf,
   pending,
   onAction,
+  onSeat,
   onLeave,
   onClose,
 }: {
@@ -47,14 +56,20 @@ export function MemberWindow({
   isSelf: boolean;
   pending: boolean;
   onAction: (action: 'kick' | 'promote' | 'demote' | 'hand_over') => void;
-  onLeave: () => void;
+  /** The leader seats this member at a card (P3-C, 2026-10-02). */
+  onSeat: (card: FactionCard) => void;
+  /** Leaving, with the member a leader named to lead after them, if they named one. */
+  onLeave: (successorId: string | undefined) => void;
   onClose: () => void;
 }) {
   // Both questions are asked of the domain rather than re-derived here, so a greyed-out button and
   // the refusal behind it can never disagree about who may do what.
   const rank = data.rank;
+  const zone = usePlayerZone();
   const mayKick = rank !== null && !isSelf && canKick(rank, member.rank);
   const mayRank = rank !== null && !isSelf && canSetRank(rank) && member.rank !== 'leader';
+  // The leader seats everybody at the table, themselves included (P3-C, 2026-10-02).
+  const maySeat = rank !== null && canAdminister(rank);
   const [asking, setAsking] = useState<'kick' | 'hand_over' | 'leave' | null>(null);
   const theirArmy = data.armies.find((entry) => entry.memberUserId === member.userId);
   const takesItWithYou = isSelf && rank !== null && leavingDisbands(rank, data.members.length);
@@ -66,7 +81,7 @@ export function MemberWindow({
     ['Unit Slots', member.unitSlotsUsed.toLocaleString()],
     ['Infamy', Math.round(member.infamy).toLocaleString()],
     ['Earned here', Math.round(member.infamyEarned).toLocaleString()],
-    ['At the table since', member.joinedAt.slice(0, 10)],
+    ['At the table since', dayInZone(new Date(member.joinedAt), zone)],
   ];
 
   return (
@@ -76,7 +91,7 @@ export function MemberWindow({
       size="wide"
       data-testid={`member-window-${member.username}`}
     >
-      <WindowHead id="member-window-title" title={member.username} onClose={onClose}>
+      <WindowHead id="member-window-title" title={memberName(member)} onClose={onClose}>
         <div className="h-10 w-10 shrink-0">
           <MemberFace member={member} size="sm" />
         </div>
@@ -161,9 +176,31 @@ export function MemberWindow({
           )}
         </section>
 
+        {maySeat && (
+          <section className="flex flex-col gap-2" data-testid="member-seat">
+            <Heading>Their seat</Heading>
+            <Dropdown
+              label={`Which card ${memberName(member)} sits at`}
+              value={member.card}
+              disabled={pending}
+              onChange={(value) => {
+                if (value !== member.card) onSeat(value);
+              }}
+              options={CARD_BY_SLOT.map((card) => ({
+                value: card,
+                label: FACTION_CARD_SPECS[card].name,
+                hint: FACTION_CARD_SPECS[card].aspect,
+              }))}
+              data-testid={`seat-${member.username}`}
+            />
+            <p className="font-body text-[12px] leading-snug text-ink-400">
+              Whoever holds that card now takes this seat&rsquo;s card instead.
+            </p>
+          </section>
+        )}
+
         {(mayRank || mayKick) && (
-          <section className="flex flex-col gap-2">
-            <Heading>What your rank carries here</Heading>
+          <section className="flex flex-col gap-2" data-testid="member-rank-actions">
             <div className="flex flex-wrap gap-2">
               {mayRank && (
                 <Button
@@ -208,9 +245,9 @@ export function MemberWindow({
             <p className="font-body text-[13px] leading-relaxed text-ink-300">
               {takesItWithYou
                 ? data.members.length > 1
-                  ? 'You lead this faction, so leaving ends it for everybody at the table. Hand it to somebody first if you want it to carry on without you.'
+                  ? 'You lead this faction, so leaving ends it for everybody at the table, unless you name somebody to lead it on your way out.'
                   : 'You are the only one here, so leaving ends it.'
-                : 'You can walk out whenever you like. What you have sent to a fight already in flight stays sent.'}
+                : 'You can walk out whenever you like. Units you sent to a table-mate\u2019s fight will not fight for them once you have gone: they sit it out and walk home. Units posted on their ground start for home at once.'}
             </p>
             <Button
               variant="danger"
@@ -226,26 +263,36 @@ export function MemberWindow({
       </div>
 
       {asking === 'leave' && (
-        <Confirm
+        <LeaveDialog
+          faction={data}
+          selfId={member.userId}
           title={takesItWithYou ? 'This ends the faction' : 'Leave the faction?'}
           body={
             takesItWithYou
-              ? `${factionName} is disbanded the moment you go, for all ${data.members.length} of you. This cannot be undone.`
+              ? data.members.length > 1
+                ? `${factionName} is disbanded the moment you go, for all ${data.members.length} of you, unless you name somebody to lead it. A disbanding cannot be undone.`
+                : `You are the only one at ${factionName}, so it ends when you go. This cannot be undone.`
               : `You leave ${factionName}. Its fights stop showing up on your screen.`
           }
-          confirm={takesItWithYou ? 'Leave and disband it' : 'Leave'}
+          confirm={(heir) =>
+            heir
+              ? `Leave it to ${memberName(heir)}`
+              : takesItWithYou
+                ? 'Leave and disband it'
+                : 'Leave'
+          }
           testId="confirm-leave"
           onCancel={() => setAsking(null)}
-          onConfirm={() => {
+          onConfirm={(successorId) => {
             setAsking(null);
-            onLeave();
+            onLeave(successorId);
           }}
         />
       )}
 
       {asking === 'kick' && (
         <Confirm
-          title={`Remove ${member.username}?`}
+          title={`Remove ${memberName(member)}?`}
           body="They leave the table and everything of theirs goes with them. Getting back in takes a fresh invitation."
           confirm="Remove them"
           testId="confirm-kick"
@@ -259,7 +306,7 @@ export function MemberWindow({
 
       {asking === 'hand_over' && (
         <Confirm
-          title={`Hand the faction to ${member.username}?`}
+          title={`Hand the faction to ${memberName(member)}?`}
           body="They become the leader and you step down to chief. Only they can hand it back, and only if they choose to."
           confirm="Hand it over"
           testId="confirm-hand-over"

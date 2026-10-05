@@ -59,7 +59,7 @@ function stack(rightHandRating: number | null): { repos: Repositories; base: Bas
     buildings: [{ id: 'nexus-1', kind: 'nexus', level: 5, modifications: [] }],
     buildQueue: [],
     army: {},
-    trainingQueue: [],
+    musterQueue: [],
     training: startingTraining(now),
     inventory: {},
     fittedUpgrades: [],

@@ -73,7 +73,7 @@ async function crewAt(
   const token = registered.json<{ token: string }>().token;
   const baseId = (await chooseOverseer(app, token)).json<{ base: { id: string } }>().base.id;
   const base = app.repos.bases.findById(baseId)!;
-  app.repos.bases.updateArmy(baseId, { razors: 10 }, base.trainingQueue);
+  app.repos.bases.updateArmy(baseId, { razors: 10 }, base.musterQueue);
   // Seated: the bench leads nothing (maintainer, 2026-09-28).
   app.repos.bases.updateCommanders(baseId, [
     createCommander('off-1', 'Halvard Nyx', 'field_commander'),

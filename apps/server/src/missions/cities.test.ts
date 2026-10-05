@@ -77,7 +77,7 @@ async function makeStack(username = 'linewalker'): Promise<Stack> {
   const repos = createRepositories(db);
   const base = repos.bases.findByOwnerId(user.id);
   if (!base) throw new Error('overseer creation did not mint a base');
-  repos.bases.updateArmy(base.id, { razors: 20 }, base.trainingQueue);
+  repos.bases.updateArmy(base.id, { razors: 20 }, base.musterQueue);
   // Holding ground in Terminus is the rule under test and it is granted one test at a time.
   return { app, repos, baseId: base.id, token, overseerId };
 }

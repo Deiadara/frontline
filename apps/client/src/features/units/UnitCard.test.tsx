@@ -48,7 +48,7 @@ function optionFor(spec: UnitSpec): UnitOption {
     name: spec.name,
     tier: spec.tier,
     blurb: spec.blurb,
-    trainedAt: spec.trainedAt,
+    musteredAt: spec.musteredAt,
     unique: spec.unique,
     stats: spec.stats,
     modifiers: spec.modifiers.map((id) => ({
@@ -75,7 +75,7 @@ function optionFor(spec: UnitSpec): UnitOption {
       ];
     }),
     cost: spec.cost,
-    trainSeconds: spec.trainSeconds,
+    musterSeconds: spec.musterSeconds,
     unitSlots: spec.unitSlots,
     unlocked: true,
     missing: [],
@@ -196,14 +196,15 @@ describe('walksAlways', () => {
  * hidden, and cannot cut a word in half. The whole list is still on the hover.
  */
 describe('a locked unit on the roster', () => {
-  const training = {
+  const muster = {
     resources: { caps: 0, supplies: 0, oil: 0, scrap: 0, highQualityMetal: 0, planks: 0 },
     spare: 10,
     discountPercent: 0,
+    veteranPercent: 0,
     suppliesPercent: 0,
     speedPercent: 0,
     pending: false,
-    onTrain: () => {},
+    onMuster: () => {},
   };
 
   const shut = (missing: readonly string[]): UnitOption => ({
@@ -219,7 +220,7 @@ describe('a locked unit on the roster', () => {
       'The Infirmary at level 12',
       "hold the Mad Scientist's Notes",
     ];
-    draw(<UnitCard unit={shut(clauses)} garrisoned={0} abroad={0} training={training} />);
+    draw(<UnitCard unit={shut(clauses)} garrisoned={0} abroad={0} muster={muster} />);
 
     const box = screen.getByTestId(`action-${(colossus as UnitSpec).id}`);
     expect(box.textContent).toContain(clauses[0]);
@@ -237,7 +238,7 @@ describe('a locked unit on the roster', () => {
 
         garrisoned={0}
         abroad={0}
-        training={training}
+        muster={muster}
       />,
     );
 
@@ -275,7 +276,7 @@ describe('a Combine sheet', () => {
     expect(dossier).not.toHaveTextContent(/unit slots?/i);
   });
 
-  it('keeps both on a sheet the player can train', () => {
+  it('keeps both on a sheet the player can muster', () => {
     const unit = optionFor(ironsides!);
     draw(<UnitCard unit={unit} garrisoned={0} abroad={0} />);
     const card = screen.getByTestId(`unit-${unit.id}`);

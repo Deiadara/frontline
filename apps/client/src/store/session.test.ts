@@ -1,9 +1,10 @@
 /**
  * Boot survives whatever is in `localStorage`.
  *
- * The token is the one piece of client state that outlives a reload, so it is the one piece that
- * can be *wrong* when the app starts: half-written by a tab that was closed mid-save, left behind
- * by an older shape of this store, hand-edited, or truncated by a browser reclaiming space. A
+ * Whether this browser is signed in is the one piece of client state that outlives a reload, so it
+ * is the one piece that can be *wrong* when the app starts: half-written by a tab that was closed
+ * mid-save, left behind by an older shape of this store, hand-edited, or truncated by a browser
+ * reclaiming space. A
  * `JSON.parse` on the boot path with no answer for that is the difference between a stale login and
  * an app that shows a blank page and never recovers, because clearing the bad value requires
  * devtools the player does not have.
@@ -16,7 +17,7 @@
  * evaluation, so a shared import would read whatever the first case happened to write.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { TOKEN_STORAGE_KEY, type useSession as UseSession } from './session';
+import { SESSION_STORAGE_KEY, type useSession as UseSession } from './session';
 
 /** A store that hydrates *now*, from whatever the case has just put in storage. */
 const freshStore = async (): Promise<{ useSession: typeof UseSession }> => {
@@ -24,28 +25,39 @@ const freshStore = async (): Promise<{ useSession: typeof UseSession }> => {
   return import('./session');
 };
 
+const USER = { id: 'u1', username: 'operator' } as never;
+
 beforeEach(() => localStorage.clear());
 
 describe('rehydrating the session', () => {
-  it('brings back a token written by a previous visit', async () => {
+  it('remembers a sign-in from a previous visit', async () => {
     localStorage.setItem(
-      TOKEN_STORAGE_KEY,
-      JSON.stringify({ state: { token: 'a-real-token' }, version: 0 }),
+      SESSION_STORAGE_KEY,
+      JSON.stringify({ state: { signedIn: true }, version: 0 }),
     );
     const { useSession } = await freshStore();
-    expect(useSession.getState().token).toBe('a-real-token');
+    expect(useSession.getState().signedIn).toBe(true);
   });
 
   it('starts logged out rather than throwing when the stored value is not JSON', async () => {
-    localStorage.setItem(TOKEN_STORAGE_KEY, 'not json at all {{{');
+    localStorage.setItem(SESSION_STORAGE_KEY, 'not json at all {{{');
     const { useSession } = await freshStore();
-    expect(useSession.getState().token).toBeNull();
+    expect(useSession.getState().signedIn).toBe(false);
   });
 
   it('starts logged out when the stored value is JSON of the wrong shape', async () => {
-    localStorage.setItem(TOKEN_STORAGE_KEY, JSON.stringify(['an', 'array']));
+    localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(['an', 'array']));
     const { useSession } = await freshStore();
-    expect(useSession.getState().token).toBeNull();
+    expect(useSession.getState().signedIn).toBe(false);
+  });
+
+  it('starts logged out on anything but a real true', async () => {
+    localStorage.setItem(
+      SESSION_STORAGE_KEY,
+      JSON.stringify({ state: { signedIn: 'yes' }, version: 0 }),
+    );
+    const { useSession } = await freshStore();
+    expect(useSession.getState().signedIn).toBe(false);
   });
 
   /**
@@ -59,12 +71,33 @@ describe('rehydrating the session', () => {
     });
     try {
       const { useSession } = await freshStore();
-      expect(useSession.getState().token).toBeNull();
+      expect(useSession.getState().signedIn).toBe(false);
       // And the store is still usable: a session in memory is better than no app.
-      useSession.getState().login('in-memory', { id: 'u1', email: 'a@b.c' } as never);
-      expect(useSession.getState().token).toBe('in-memory');
+      useSession.getState().login(USER);
+      expect(useSession.getState().signedIn).toBe(true);
     } finally {
       blocked.mockRestore();
     }
+  });
+});
+
+/** The token lives in an httpOnly cookie now (security pass, 2026-09-30), and nowhere else. */
+describe('what the browser keeps', () => {
+  it('writes whether it is signed in, and nothing else', async () => {
+    const { useSession } = await freshStore();
+    useSession.getState().login(USER);
+    expect(JSON.parse(localStorage.getItem(SESSION_STORAGE_KEY)!)).toEqual({
+      state: { signedIn: true },
+      version: 0,
+    });
+  });
+
+  it('clears a token an older build left in storage', async () => {
+    localStorage.setItem(
+      'frontline.token',
+      JSON.stringify({ state: { token: 'a-real-token' }, version: 0 }),
+    );
+    await freshStore();
+    expect(localStorage.getItem('frontline.token')).toBeNull();
   });
 });

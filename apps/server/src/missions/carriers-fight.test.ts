@@ -54,7 +54,7 @@ async function aCrewOfPorters(username: string, research: readonly string[]) {
   const token = registered.json<{ token: string }>().token;
   const baseId = (await chooseOverseer(app, token)).json<{ base: { id: string } }>().base.id;
   const base = app.repos.bases.findById(baseId)!;
-  app.repos.bases.updateArmy(baseId, { haulers: 30 }, base.trainingQueue);
+  app.repos.bases.updateArmy(baseId, { haulers: 30 }, base.musterQueue);
   app.repos.bases.updateCommanders(baseId, [
     createCommander('off-1', 'Halvard Nyx', 'field_commander'),
   ]);

@@ -40,13 +40,13 @@ export function startingProgression(): ProgressionState {
  * Four sources paid XP while the level curve was quadratic and uncapped, and three of them were
  * things a player does a handful of times a session. That is a curve nobody climbs. The board's
  * words were "battles, quests and a lot of stuff really", so the rule now is: **anything with a
- * clock on it pays when the clock runs out.** Research, a batch off the training bench and signing
+ * clock on it pays when the clock runs out.** Research, a batch off the muster bench and signing
  * somebody all take real time and all now pay, which turns levelling into a consequence of playing
  * rather than a separate errand.
  *
  * The new figures are priced against `missionCompleted` by how long the thing takes and how much of
  * it a player can have running at once: research is the longest single commitment in the game and
- * pays the most; a training batch is cheap and frequent and pays least.
+ * pays the most; a muster batch is cheap and frequent and pays least.
  */
 export const PLAYER_XP_AWARDS = {
   missionCompleted: 120,
@@ -57,7 +57,7 @@ export const PLAYER_XP_AWARDS = {
   /** A project off the Archive board. The longest clock in the game, and one at a time. */
   researchCompleted: 150,
   /** A batch off the bench. Small and frequent: the roster is meant to pay in a trickle. */
-  unitTrained: 20,
+  unitMustered: 20,
   /** Signing somebody out of the Bar. Once a day at most, so it can be worth something. */
   officerHired: 70,
   /**
@@ -110,6 +110,16 @@ export interface PlayerXpAward {
 }
 
 /**
+ * An XP figure with the crew's percentage points on it, rounded the one way the award rounds.
+ *
+ * Exported so a screen quoting a job's XP and the report printing what it paid say the number the
+ * award banks, rather than the figure before the district and the crew had their say.
+ */
+export function boostedXp(base: number, bonusPercent: number): number {
+  return Math.round(base * (1 + Math.max(0, bonusPercent) / 100));
+}
+
+/**
  * Resolves one XP award end to end. Pure: the caller decides whether to persist it.
  *
  * This is the only place that turns an XP *source* into a level change, so a caller never has to
@@ -139,7 +149,7 @@ export function resolvePlayerXpAward(
   amount?: number,
 ): PlayerXpAward {
   const base = amount ?? PLAYER_XP_AWARDS[source];
-  const xpGained = Math.round(base * (1 + Math.max(0, bonusPercent) / 100));
+  const xpGained = boostedXp(base, bonusPercent);
   const advance = applyPlayerXp(current, xpGained);
   return {
     source,

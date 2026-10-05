@@ -14,11 +14,11 @@ import { capRating, UNIT_FIGURE_KEYS, UNIT_STAT_KEYS, type UnitStats } from './s
 /**
  * What the Scrapyard's unit bench does to a roster (GDD §A5).
  *
- * Training gives you *more* of a unit. A modification card gives you a *better* one, and it is
+ * Mustering gives you *more* of a unit. A modification card gives you a *better* one, and it is
  * the sink that makes scrap matter past the early game. The cards themselves live in
  * `modifications.ts`; this module is the two rules every door onto them shares: whether the yard
- * will cut one ({@link upgradeRefusal}) and what a fitted set does to a sheet ({@link
- * upgradedStats}).
+ * will cut one and bolt it onto a unit ({@link boltOntoUnitRefusal}, which `district/scrapyard.ts`
+ * asks) and what a fitted set does to a sheet ({@link upgradedStats}).
  *
  * ## History
  *
@@ -61,7 +61,7 @@ export const UPGRADE_REFUSALS = [
    * one mechanic as of 2026-09-16: a card is cut for a named unit and bolted straight onto it.
    */
   'does_not_fit',
-  'cannot_train',
+  'cannot_muster',
   'gauntlet_too_low',
   'crew_too_low',
   /** §D7: the street has not heard enough about this crew for the good drawings. */
@@ -81,50 +81,6 @@ export type UpgradeRefusal = (typeof UPGRADE_REFUSALS)[number];
 export type UpgradeBlueprintGate = UnitModificationBlueprintGate;
 
 /**
- * The order the checks run in is the order a player wants to hear them.
- *
- * "You need the blueprint" is more useful than "you cannot afford it" when both are true, because
- * one of them is a thing you can go and do something about today and the other is a number that
- * will fix itself. Cheapest-to-check-first would put them the other way round. Money is last for
- * the same reason, behind the parts: a missing part is an errand and a missing pile of scrap is a
- * wait.
- *
- * ## The order is the Scrapyard's, because the Scrapyard asks this
- *
- * It was not, for a while. The yard had its own copy of these gates and this one had no idea the
- * yard has a level, so the two answered differently and nothing noticed: `upgradeRefusal`'s only
- * caller was its own test file, so every assertion here was checking a function the game did not
- * run. `district/scrapyard.ts` now words this function's answer rather than deciding it, and
- * `scrapyard.test.ts` holds the two together across the whole catalogue.
- *
- * Arguments in a bag rather than in a row, because a call site reading
- * `upgradeRefusal(id, [], 4, gate, afford, parts)` cannot be checked by eye.
- */
-export function upgradeRefusal(input: {
-  id: string;
-  fitted: FittedUpgrades;
-  /** The Scrapyard's own level, which gates the dearer rarities before anything else does. */
-  yardLevel: number;
-  requiredYardLevel: (spec: UnitModificationSpec) => number;
-  blueprintUnlocked: UpgradeBlueprintGate;
-  affordable: (spec: UnitModificationSpec) => boolean;
-  hasParts: (parts: ItemCost) => boolean;
-}): UpgradeRefusal | null {
-  const { id, fitted, yardLevel, requiredYardLevel, blueprintUnlocked, affordable, hasParts } =
-    input;
-
-  const spec = findUnitModification(id);
-  if (!spec) return 'unknown_upgrade';
-  if (fitted.includes(id)) return 'already_fitted';
-  // The yard's own level, before the document: a crew four pages short of the drawings and three
-  // levels short of the yard has to raise the yard first either way.
-  if (yardLevel < requiredYardLevel(spec)) return 'yard_too_low';
-  if (!unitModificationBlueprintMet(spec, blueprintUnlocked)) return 'needs_blueprint';
-  if (!hasParts(spec.parts)) return 'missing_parts';
-  return affordable(spec) ? null : 'cannot_afford';
-}
-
-/**
  * Everything between pressing Bolt It On and the card being on the unit (maintainer rule, 2026-09-16).
  *
  * The unit bench is the structure bench with units down the left, so this is `boltInRefusal` with
@@ -132,7 +88,7 @@ export function upgradeRefusal(input: {
  *
  * - the level gate reads the **Gauntlet**, which is where a unit's kit belongs the way a
  *   production card belongs to the Greenhouse;
- * - the unit has to be one the crew **could train today** (`cannot_train`). Not whether they can
+ * - the unit has to be one the crew **could muster today** (`cannot_muster`). Not whether they can
  *   afford one: whether the roster is open to them at all, which is the blueprint, the location and
  *   the Gauntlet's own level. Bolting a plate onto a sheet the crew cannot field is a card spent
  *   on nothing.
@@ -140,8 +96,8 @@ export function upgradeRefusal(input: {
 export function boltOntoUnitRefusal(input: {
   id: string;
   unitId: string;
-  /** Whether this crew could put one of these on the training queue today, money aside. */
-  trainable: boolean;
+  /** Whether this crew could put one of these on the muster queue today, money aside. */
+  musterable: boolean;
   fitsUnit: (spec: UnitModificationSpec, unitId: string) => boolean;
   /** This unit's three brackets, as the loadout has them. */
   slots: readonly (string | null)[];
@@ -166,7 +122,7 @@ export function boltOntoUnitRefusal(input: {
    * same ordering the bracket rule has always had, and for the same reason.
    */
   if (!input.fitsUnit(spec, input.unitId)) return 'does_not_fit';
-  if (!input.trainable) return 'cannot_train';
+  if (!input.musterable) return 'cannot_muster';
   if (input.yardLevel < input.requiredYardLevel(spec)) return 'yard_too_low';
   if (!unitModificationBlueprintMet(spec, input.blueprintUnlocked)) return 'needs_blueprint';
 
@@ -191,7 +147,7 @@ export function boltOntoUnitRefusal(input: {
  * Every fitted card, folded onto a unit's sheet.
  *
  * Applied at read time rather than written into the roster, so a card bolted on today improves
- * the units trained last week, which is what "the yard refits everyone" means, and the only
+ * the units mustered last week, which is what "the yard refits everyone" means, and the only
  * version a player will not find infuriating. Clamped to each stat's own range on the way out.
  */
 export function upgradedStats(base: UnitStats, fitted: FittedUpgrades): UnitStats {

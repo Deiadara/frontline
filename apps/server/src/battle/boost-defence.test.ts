@@ -119,7 +119,7 @@ async function makeStack(): Promise<Stack> {
 
   const base = app.repos.bases.findById(baseId);
   if (!base) throw new Error('fixture error: no base');
-  app.repos.bases.updateArmy(baseId, { ...base.army, [SENT]: SQUAD }, base.trainingQueue);
+  app.repos.bases.updateArmy(baseId, { ...base.army, [SENT]: SQUAD }, base.musterQueue);
   // Enough of a name to burn one. Written straight onto the economy: earning 200 infamy is a
   // dozen fights and none of them are what this file is about.
   app.repos.bases.updateEconomy(baseId, {
@@ -202,7 +202,7 @@ function attackingVitality(input: SkirmishInput | undefined): number {
     throw new Error('the attacker must have reached the engine with a fold');
   // The squad has to be standing there, or a `force` boost covers nothing and this measures nothing.
   expect(input.attacking[SENT], 'the column must have landed').toBe(SQUAD);
-  return effectiveStats(unit, ground, { defending: false, outnumbered: false }, territory).vitality;
+  return effectiveStats(unit, ground, { defending: false, outnumbered: 0 }, territory).vitality;
 }
 
 describe('a defence name burned by the attacker', () => {

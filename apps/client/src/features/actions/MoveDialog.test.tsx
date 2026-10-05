@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as F from '../../../e2e/fixtures';
 import { useSession } from '../../store/session';
@@ -33,7 +33,7 @@ beforeEach(() => {
   fetchMock.mockImplementation((path: string) => {
     throw new Error(`unstubbed request: ${String(path)}`);
   });
-  useSession.setState({ token: 'session-token', user: null });
+  useSession.setState({ signedIn: true, user: null });
 });
 
 afterEach(() => vi.unstubAllGlobals());
@@ -48,5 +48,39 @@ describe('the Move dialog opened from a location', () => {
   it('keeps its old default without one: from home to the gate', () => {
     draw();
     expect(screen.getByTestId('move-to')).toHaveTextContent('Your Gate');
+  });
+});
+
+// Bug pass, 2026-10-02: a refused quote left "Working it out" on screen for ever, Send still live.
+describe('a move the server will not quote', () => {
+  it('says why on the time line and holds the send', async () => {
+    fetchMock.mockImplementation((path: string) => {
+      if (String(path).endsWith('/actions/move/quote')) {
+        return Promise.resolve({
+          headers: new Headers(),
+          ok: false,
+          status: 409,
+          statusText: '',
+          json: () =>
+            Promise.resolve({
+              error: { code: 'MOVE_REFUSED', message: 'There is no road to that' },
+            }),
+        } as Response);
+      }
+      throw new Error(`unstubbed request: ${String(path)}`);
+    });
+    draw();
+    const unit = Object.keys(F.unitsResponse.army).find(
+      (id) => (F.unitsResponse.army[id] ?? 0) > 0,
+    )!;
+    const field =
+      screen.getByTestId(`move-count-${unit}`).querySelector('input') ??
+      screen.getByTestId(`move-count-${unit}`);
+    fireEvent.change(field, { target: { value: '1' } });
+
+    await waitFor(() =>
+      expect(screen.getByTestId('move-time')).toHaveTextContent('There is no road to that'),
+    );
+    expect(screen.getByTestId('move-confirm')).toBeDisabled();
   });
 });

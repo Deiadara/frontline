@@ -5,6 +5,7 @@ import {
   createCommander,
   dayInZone,
   makeAttributes,
+  type Commander,
   type Notification,
   type SpyTarget,
 } from '@frontline/shared';
@@ -69,14 +70,26 @@ function teach(stack: Stack, ...ids: string[]): void {
   });
 }
 
-/** The rival holds the Press, behind a Consigliere no job at Loose Ears would read past. */
+/**
+ * A Master of Whispers in the chair and fit to work: the courier reports to them, and comes only
+ * while somebody is working it (bug pass, 2026-10-01).
+ */
+function seatWhispers(stack: Stack, officer: Partial<Commander> = {}): void {
+  const base = stack.app.repos.bases.findById(stack.baseId)!;
+  stack.app.repos.bases.updateCommanders(base.id, [
+    ...base.commanders.filter((one) => one.id !== 'spy'),
+    { ...createCommander('spy', 'Wire', 'master_of_whispers', makeAttributes(40), []), ...officer },
+  ]);
+}
+
+/** The rival holds the Press, behind a Master of Whispers of theirs no job at Loose Ears would read past. */
 function guardedPress(me: Stack, rival: Stack, garrison: Record<string, number>): void {
   const press = me.app.repos.city.control('steelbelt-press')!;
   me.app.repos.city.put({ ...press, holder: { kind: 'crew', baseId: rival.baseId }, garrison });
   const theirs = me.app.repos.bases.findById(rival.baseId)!;
   me.app.repos.bases.updateCommanders(rival.baseId, [
     ...theirs.commanders,
-    createCommander('c', 'Quiet', 'consigliere', makeAttributes(100), []),
+    createCommander('c', 'Quiet', 'master_of_whispers', makeAttributes(100), []),
   ]);
 }
 
@@ -89,6 +102,7 @@ const NEXT_DAY = new Date('2026-09-29T09:00:00.000Z');
 describe('the Turned Runners courier', () => {
   it('files one full report a day, on a rival, whatever their counter-intelligence', async () => {
     const { me, rival } = await makeWorld();
+    seatWhispers(me);
     teach(me, SPY_COURIER_RESEARCH_ID, SPY_WRITTEN_RESEARCH_ID);
     // The same force at the Press and at their gate, so whichever the courier picks, the report
     // has to be all of it.
@@ -114,6 +128,7 @@ describe('the Turned Runners courier', () => {
 
   it('files it once a day however many times the clock ticks, and again the next day', async () => {
     const { me, rival } = await makeWorld();
+    seatWhispers(me);
     teach(me, SPY_COURIER_RESEARCH_ID);
     guardedPress(me, rival, { razors: 30 });
 
@@ -126,9 +141,32 @@ describe('the Turned Runners courier', () => {
 
   it('brings nothing to a crew without the rung', async () => {
     const { me, rival } = await makeWorld();
+    seatWhispers(me);
     guardedPress(me, rival, { razors: 30 });
     expect(settleCouriers(me.app.repos, NOON)).toBe(0);
     expect(me.app.repos.spying.reportsFor(me.baseId, 10)).toHaveLength(0);
+  });
+
+  it('comes only while somebody is working the chair, and not for the days it was not', async () => {
+    const { me, rival } = await makeWorld();
+    teach(me, SPY_COURIER_RESEARCH_ID);
+    guardedPress(me, rival, { razors: 30 });
+    const later = new Date(NOON.getTime() + 3_600_000);
+
+    // Empty, benched, and in a hospital bed past the tick: nothing each time.
+    expect(settleCouriers(me.app.repos, NOON), 'an empty chair').toBe(0);
+    seatWhispers(me, { role: null });
+    expect(settleCouriers(me.app.repos, NOON), 'a benched officer').toBe(0);
+    seatWhispers(me, { injuredUntil: later.toISOString() });
+    expect(settleCouriers(me.app.repos, NOON), 'an officer in bed').toBe(0);
+    expect(me.app.repos.spying.reportsFor(me.baseId, 10)).toHaveLength(0);
+
+    // Out of bed later the same day: that day's report, once.
+    expect(settleCouriers(me.app.repos, later)).toBe(1);
+    expect(settleCouriers(me.app.repos, later)).toBe(0);
+    expect(me.app.repos.spying.reportsFor(me.baseId, 10)[0]!.id).toBe(
+      courierReportId(me.baseId, dayInZone(NOON)),
+    );
   });
 
   it("reads a rival's locations and home gate, and never looter, Combine or its own ground", async () => {

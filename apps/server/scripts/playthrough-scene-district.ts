@@ -4,7 +4,7 @@
 import {
   UNCLAIMED_DISTRICT_NAME,
   findUnit,
-  trainingCost,
+  musterCost,
   buildBoostOilCost,
   cancelRefund,
   type BaseDetailResponse,
@@ -13,7 +13,7 @@ import {
   type MeResponse,
   type PartialResources,
   type RenameDistrictResponse,
-  type TrainUnitsResponse,
+  type MusterUnitsResponse,
   type UnitsResponse,
 } from '@frontline/shared';
 import type { Harness, Player } from './playthrough-harness.js';
@@ -357,53 +357,53 @@ async function fillTheQueue(h: Harness, d: Player): Promise<void> {
 
 /** The first units off the bench, and one batch called back. */
 async function openingUnits(h: Harness, crew: Player): Promise<void> {
-  h.at(`district: ${crew.label} trains the first units`);
+  h.at(`district: ${crew.label} musters the first units`);
   const roster = await h.ok<UnitsResponse>({ as: crew, method: 'GET', route: '/api/units' });
   if (!roster?.units) return;
   const open = roster.units.find((unit) => unit.unlocked && unit.owned >= 0);
   const locked = roster.units.find((unit) => !unit.unlocked && !unit.unique);
   if (!open) {
-    h.check(false, `${crew.label} has no unit it can train`);
+    h.check(false, `${crew.label} has no unit it can muster`);
     return;
   }
   const before = await baseOf(h, crew);
-  const trained = await h.ok<TrainUnitsResponse>({
+  const mustered = await h.ok<MusterUnitsResponse>({
     as: crew,
     method: 'POST',
-    route: '/api/units/train',
+    route: '/api/units/muster',
     body: { unitId: open.id, count: 2 },
   });
-  if (!trained?.base) return;
-  const order = trained.queue.find((one) => one.unitId === open.id);
+  if (!mustered?.base) return;
+  const order = mustered.queue.find((one) => one.unitId === open.id);
   h.check(order?.count === 2, `the order for two ${open.id} is not on the bench`);
   // The price the route charges: the catalogue's, less the crew-wide cut and this unit's own ground.
   const spec = findUnit(open.id);
   const twice: PartialResources = spec
-    ? trainingCost(
+    ? musterCost(
         spec,
         2,
-        roster.trainingCostReduction + (open.homeCostReduction ?? 0),
-        roster.trainingSuppliesReduction ?? 0,
+        roster.musterCostReduction + (open.homeCostReduction ?? 0),
+        roster.musterSuppliesReduction ?? 0,
       )
     : {};
   expectDelta(
     h,
     before.resources,
-    trained.base.resources,
+    mustered.base.resources,
     negate(twice),
-    `${crew.label} training two ${open.id}`,
+    `${crew.label} mustering two ${open.id}`,
   );
 
   // A second batch, called straight off for ninety percent.
-  const second = await h.ok<TrainUnitsResponse>({
+  const second = await h.ok<MusterUnitsResponse>({
     as: crew,
     method: 'POST',
-    route: '/api/units/train',
+    route: '/api/units/muster',
     body: { unitId: open.id, count: 1 },
   });
   const extra = second?.queue.find((one) => one.id !== order?.id);
   if (second?.base && extra) {
-    const cancelled = await h.ok<TrainUnitsResponse>({
+    const cancelled = await h.ok<MusterUnitsResponse>({
       as: crew,
       method: 'POST',
       route: '/api/units/cancel',
@@ -428,11 +428,11 @@ async function openingUnits(h: Harness, crew: Player): Promise<void> {
     });
   }
 
-  h.at(`district: ${crew.label} training refusals`);
+  h.at(`district: ${crew.label} muster refusals`);
   await h.refuse({
     as: crew,
     method: 'POST',
-    route: '/api/units/train',
+    route: '/api/units/muster',
     body: { unitId: 'no_such_unit', count: 1 },
     expect: 404,
     code: 'NOT_FOUND',
@@ -440,7 +440,7 @@ async function openingUnits(h: Harness, crew: Player): Promise<void> {
   await h.refuse({
     as: crew,
     method: 'POST',
-    route: '/api/units/train',
+    route: '/api/units/muster',
     body: { unitId: 'directive_xero', count: 1 },
     expect: 404,
     code: 'NOT_FOUND',
@@ -448,7 +448,7 @@ async function openingUnits(h: Harness, crew: Player): Promise<void> {
   await h.refuse({
     as: crew,
     method: 'POST',
-    route: '/api/units/train',
+    route: '/api/units/muster',
     body: { unitId: open.id, count: 0 },
     expect: 400,
     code: 'VALIDATION_ERROR',
@@ -456,18 +456,18 @@ async function openingUnits(h: Harness, crew: Player): Promise<void> {
   await h.refuse({
     as: crew,
     method: 'POST',
-    route: '/api/units/train',
+    route: '/api/units/muster',
     body: { unitId: open.id, count: 51 },
     expect: 400,
     code: 'VALIDATION_ERROR',
   });
-  await h.refuseMalformed(crew, '/api/units/train', { unitId: open.id, count: '2' });
+  await h.refuseMalformed(crew, '/api/units/muster', { unitId: open.id, count: '2' });
   await h.refuseMalformed(crew, '/api/units/cancel', { orderId: null });
   if (locked) {
     await h.refuse({
       as: crew,
       method: 'POST',
-      route: '/api/units/train',
+      route: '/api/units/muster',
       body: { unitId: locked.id, count: 1 },
       expect: 409,
       code: 'UNIT_LOCKED',
@@ -476,7 +476,7 @@ async function openingUnits(h: Harness, crew: Player): Promise<void> {
   const units = await h.ok<UnitsResponse>({ as: crew, method: 'GET', route: '/api/units' });
   h.check(
     (units?.army[open.id] ?? 0) === (before.army[open.id] ?? 0),
-    `${open.id} joined the army before its training finished`,
+    `${open.id} joined the army before its muster finished`,
   );
   // The units land once their clock has run.
   const seconds = order?.durationSeconds ?? 0;
@@ -485,7 +485,7 @@ async function openingUnits(h: Harness, crew: Player): Promise<void> {
     const home = await baseOf(h, crew);
     h.check(
       (home.army[open.id] ?? 0) === (before.army[open.id] ?? 0) + 2,
-      `${crew.label}: two ${open.id} trained, the army went from ${before.army[open.id] ?? 0} to ${home.army[open.id] ?? 0}`,
+      `${crew.label}: two ${open.id} mustered, the army went from ${before.army[open.id] ?? 0} to ${home.army[open.id] ?? 0}`,
     );
   }
   void HOUR;

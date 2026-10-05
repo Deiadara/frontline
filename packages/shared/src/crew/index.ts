@@ -5,3 +5,5 @@ export * from './leading.js';
 export * from './importance.js';
 export * from './training.js';
 export * from './marks.js';
+export * from './passives.js';
+export * from './passive-lines.js';

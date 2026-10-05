@@ -20,7 +20,7 @@ import { tickWorld } from '../src/live/clock.js';
 import { reportTickFailuresTo, type TickFailure } from '../src/world/guard.js';
 import { ruleFor } from '../src/limits/rules.js';
 import { settleBase } from '../src/district/settle.js';
-import { settleTraining } from '../src/units/training.js';
+import { settleMuster } from '../src/units/muster.js';
 import { settleTrainingFor } from '../src/crew/training.js';
 import { resolveDueMissions } from '../src/missions/resolve.js';
 import { sweepExpiredOffers } from '../src/market/board.js';
@@ -279,8 +279,8 @@ export class Harness {
       if (!base) continue;
       this.repos.tx(() => resolveDueMissions(this.repos, base, now));
       const settled = settleBase(this.repos, this.repos.bases.findById(base.id) ?? base, now).base;
-      const trained = settleTraining(this.repos, settled, now).base;
-      this.db.transaction(() => settleTrainingFor(this.repos, trained, now.toISOString()))();
+      const mustered = settleMuster(this.repos, settled, now).base;
+      this.db.transaction(() => settleTrainingFor(this.repos, mustered, now.toISOString()))();
     }
   }
 

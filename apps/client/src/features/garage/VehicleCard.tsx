@@ -114,9 +114,10 @@ export function VehicleCard({
           // walking home both carry them (`vehiclesAbroad`), so the words name all three the way
           // the unit card's do.
           data-tip={
-            vehicle.out > 0
+            (vehicle.out > 0
               ? `${vehicle.owned} in the yard, ${vehicle.out} out: at a fight, on a job or on the road`
-              : `${vehicle.owned} in the yard`
+              : `${vehicle.owned} in the yard`) +
+            ((vehicle.onBench ?? 0) > 0 ? `. ${vehicle.onBench} more on the bench` : '')
           }
         >
           {vehicle.owned + vehicle.out}

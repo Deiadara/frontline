@@ -8,7 +8,7 @@ import { cn } from '../../lib/cn';
  * `bg-soot-900` and the base `bg-surface-800/70` would both land and the stylesheet's order would
  * silently pick the winner. Same reason `Modal` takes a `size`.
  */
-export type PanelTone = 'brass' | 'tangerine' | 'paper';
+export type PanelTone = 'brass' | 'tangerine' | 'paper' | 'soot';
 
 const TONE: Record<PanelTone, { body: string; head: string; heading: string }> = {
   brass: {
@@ -38,7 +38,19 @@ const TONE: Record<PanelTone, { body: string; head: string; heading: string }> =
     head: '',
     heading: 'text-brass-300',
   },
+  /**
+   * The paper menu in the Black Market's colours (maintainer, 2026-10-05): the same drawn edge and
+   * ruled head as `paper`, inked in tangerine on a soot sheet. The shelf and the Stackhouse.
+   */
+  soot: {
+    body: 'ink-frame ink-frame-tangerine card-soot washed grain',
+    head: '',
+    heading: 'text-tangerine-300',
+  },
 };
+
+/** The drawn tones keep their heading in from the frame, which sits inside the box. */
+const DRAWN: ReadonlySet<PanelTone> = new Set(['paper', 'soot']);
 
 interface PanelProps extends Omit<HTMLAttributes<HTMLDivElement>, 'title'> {
   /** Optional header label rendered in the display font. */
@@ -104,7 +116,7 @@ export function Panel({
             'relative flex items-center justify-between gap-2',
             // Paper keeps its title in from the frayed edge rather than out to the panel's own,
             // because the drawn border is inside the box where a painted one is on it.
-            tone === 'paper' ? 'px-3' : 'px-4',
+            DRAWN.has(tone) ? 'px-3' : 'px-4',
             dense ? 'py-1.5' : 'py-3',
             TONE[tone].head,
           )}
@@ -128,7 +140,8 @@ export function Panel({
               aria-hidden
               className={cn(
                 'ink-rule absolute -bottom-[2px]',
-                tone === 'paper' ? 'inset-x-3' : 'inset-x-0',
+                DRAWN.has(tone) ? 'inset-x-3' : 'inset-x-0',
+                tone === 'soot' && 'ink-rule-tangerine',
               )}
             />
           )}

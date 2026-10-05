@@ -14,6 +14,7 @@ import {
   missingRequirements,
   type Army,
   type Base,
+  type BonusLine,
   type UnitOption,
   type UnitsResponse,
   upgradedStats,
@@ -23,7 +24,7 @@ import {
   fittedFor,
   findUnitModification,
   modificationsForUnit,
-  homeTrainingSource,
+  homeMusterSource,
   theLocation,
   slotsFor,
   ENV_LABEL_CATALOG,
@@ -32,8 +33,8 @@ import {
   type UnitSpec,
 } from '@frontline/shared';
 import type { Repositories } from '../db/repos/index.js';
-import { trainingBreakdownFor } from './breakdown.js';
-import { trainingRatesFor, unlockContextFor } from './training.js';
+import { benchFigure, homeOnTopOf, homeSuppliesLines, musterBreakdownFor } from './breakdown.js';
+import { musterRatesFor, unlockContextFor } from './muster.js';
 import { mergeArmies, removeForce } from '../battle/forces.js';
 import { moveDestinationsFor, postedUnits } from '../moves/moves.js';
 import { standingEffectsFor } from '../crew/standing.js';
@@ -154,13 +155,32 @@ function describeSlot(upgradeId: string | null): FittedSlot {
   };
 }
 
+type HomeLines = Record<'cost' | 'speed', { percent: number; lines: BonusLine[] }>;
+
+/**
+ * A unit's own Bonuses lines: its ground on the cost cut and the clock, and, when that ground
+ * moves its cost cut, what the move does to the supplies line beside it (`homeSuppliesLines`).
+ */
+function homeBonusLines(
+  home: HomeLines,
+  crewCost: number,
+  supplies: number,
+): NonNullable<UnitOption['homeBonus']> {
+  const onSupplies = homeSuppliesLines(crewCost, home.cost.percent, supplies);
+  return {
+    cost: home.cost.lines,
+    speed: home.speed.lines,
+    ...(onSupplies.length === 0 ? {} : { supplies: onSupplies }),
+  };
+}
+
 export function projectUnits(repos: Repositories, base: Base, now: Date): UnitsResponse {
   const context = unlockContextFor(repos, base);
   // The crew's own fold, for the marks its ground and its people have granted (`unit_mark`).
   const effects = standingEffectsFor(repos, base, now);
   // The instant the roster is being drawn at, so a disrupted crew's price and its breakdown
   // agree about whether the raid is still biting.
-  const rates = trainingRatesFor(repos, base, now);
+  const rates = musterRatesFor(repos, base, now);
   /*
    * Held ground: the crew's own garrisons and its postings on a faction ally's (2026-09-22).
    *
@@ -174,22 +194,42 @@ export function projectUnits(repos: Repositories, base: Base, now: Date): UnitsR
   const garrisoned = mergeArmies(held, posted);
   const abroad = removeForce(unitsAbroad(repos, base), posted);
   const slots = districtUnitSlots(repos, base, held);
+  // The crew-wide cost cut as the bench charges it, which is what its chip prints and what a
+  // unit's own ground is added to. The speed ships raw: `musterSecondsFor` tapers the crew's figure
+  // and the ground's together, so the two halves have to reach it as sums (`benchFigure`).
+  const crewCost = benchFigure('cost', rates.costPercent);
+  const crewSpeed = rates.speedPercent;
 
   // The player's roster: the Combine's sheets are met, never offered (`UnitSpec.faction`).
   const units: UnitOption[] = PLAYER_UNITS.map((unit) => {
-    // §A4: what the ground that trains this one takes off it, on top of the crew-wide figures.
-    const home = homeTrainingSource(unit, rates.locationLevels);
+    // §A4: what the ground that musters this one takes off it, on top of the crew-wide figures.
+    const source = homeMusterSource(unit, rates.locationLevels);
+    const home =
+      source === null
+        ? null
+        : {
+            cost: homeOnTopOf('cost', crewCost, {
+              source: theLocation(source.kind),
+              note: `Level ${source.level}, its own ground`,
+              percent: source.costPercent,
+            }),
+            speed: homeOnTopOf('speed', crewSpeed, {
+              source: theLocation(source.kind),
+              note: `Level ${source.level}, its own ground`,
+              percent: source.speedPercent,
+            }),
+          };
     return {
       id: unit.id,
       name: unit.name,
       tier: unit.tier,
       blurb: unit.blurb,
-      trainedAt: unit.trainedAt,
+      musteredAt: unit.musteredAt,
       unique: unit.unique,
       // The cards in this unit's brackets, folded in at read time.
       //
       // Not written into the roster when a card is built: folding here is what makes a card reach
-      // the units trained last week as well as the ones trained tomorrow, which is what "the yard
+      // the units mustered last week as well as the ones mustered tomorrow, which is what "the yard
       // refits everybody" has to mean for a player not to find it maddening.
       stats: upgradedStats(unit.stats, fittedFor(base.unitLoadouts, unit.id)),
       modifiers: unit.modifiers.map((id) => ({
@@ -212,12 +252,12 @@ export function projectUnits(repos: Repositories, base: Base, now: Date): UnitsR
       rules: rulesThisCrewCarries(unit, effects),
       affinities: groundAffinities(unit),
       cost: unit.cost,
-      trainSeconds: unit.trainSeconds,
+      musterSeconds: unit.musterSeconds,
       unitSlots: unit.unitSlots,
-      homeCostReduction: home?.costPercent ?? 0,
-      homeSpeedBonus: home?.speedPercent ?? 0,
+      homeCostReduction: home?.cost.percent ?? 0,
+      homeSpeedBonus: home?.speed.percent ?? 0,
       /*
-       * The same two figures as a named line each, for this unit's own Bonuses page.
+       * The same two figures as named lines, for this unit's own Bonuses page.
        *
        * Spread rather than assigned, because `exactOptionalPropertyTypes` and because absent is
        * the ordinary case: a crew holding none of a unit's home ground, or holding it at level one,
@@ -225,24 +265,7 @@ export function projectUnits(repos: Repositories, base: Base, now: Date): UnitsR
        */
       ...(home === null
         ? {}
-        : {
-            homeBonus: {
-              cost: [
-                {
-                  source: theLocation(home.kind),
-                  note: `Level ${home.level}, its own ground`,
-                  percent: home.costPercent,
-                },
-              ],
-              speed: [
-                {
-                  source: theLocation(home.kind),
-                  note: `Level ${home.level}, its own ground`,
-                  percent: home.speedPercent,
-                },
-              ],
-            },
-          }),
+        : { homeBonus: homeBonusLines(home, crewCost, rates.suppliesPercent) }),
       unlocked: isUnitUnlocked(unit, context),
       missing: missingRequirements(unit, context).map(describeRequirement),
       owned: base.army[unit.id] ?? 0,
@@ -277,7 +300,7 @@ export function projectUnits(repos: Repositories, base: Base, now: Date): UnitsR
      *
      * `used` is the whole draw, not the army alone: the garrisons, the bench, the officers and the
      * yard are all somebody this crew houses. Leaving any of them out is a real defect rather than
-     * a rounding one, because `unitSlotsCap - unitSlotsUsed` is exactly what Max offers and the training
+     * a rounding one, because `unitSlotsCap - unitSlotsUsed` is exactly what Max offers and the muster
      * route subtracts the same figure before it decides: a difference is Max proposing a batch the
      * route then refuses. Sending it as `slots.total` against `slots.capacity` keeps the
      * two subtracting to `districtUnitSlots`'s own `spare` by construction rather than by
@@ -285,12 +308,15 @@ export function projectUnits(repos: Repositories, base: Base, now: Date): UnitsR
      */
     unitSlotsUsed: slots.total,
     unitSlotsCap: slots.capacity,
-    queue: base.trainingQueue,
+    queue: base.musterQueue,
     resources: base.resources,
     // §B5/§B6: the same three figures the route charges and clocks with, so the page's quoted
-    // price and its **Max** button cannot offer a batch the route then refuses.
-    trainingCostReduction: rates.costPercent,
-    trainingSuppliesReduction: rates.suppliesPercent,
+    // price and its **Max** button cannot offer a batch the route then refuses. The cost cut is
+    // stopped at the floor price here; the supplies cut and the speed ship as sums, which
+    // `musterCost` and `musterSecondsFor` taper, and the chips print the tapered figure.
+    musterCostReduction: crewCost,
+    musterSuppliesReduction: rates.suppliesPercent,
+    musterVeteranReduction: rates.veteranPercent,
     built: base.fittedUpgrades
       .map((id) => findUnitModification(id))
       .filter((spec): spec is UnitModificationSpec => spec !== undefined)
@@ -307,13 +333,14 @@ export function projectUnits(repos: Repositories, base: Base, now: Date): UnitsR
           fittedToName: wearing.map((id) => findUnit(id)?.name ?? id).join(', '),
         };
       }),
-    trainingSpeedBonus: rates.speedPercent,
+    musterSpeedBonus: crewSpeed,
     // §A5's one exception, so a screen can ask whether this crew's porters may be sent.
     carriersFight: effects.carriersFight,
     // ...and the other switch that lifts a rule off a unit sheet (`any_ride`). Both doors that
     // spend seats already read it; until now no screen that quotes seats could.
     anyRide: effects.anyRide,
+    unitSpeedPercent: effects.unitSpeedPercent,
     // The same three figures again, as the lines that make them up, for the chips' hover pages.
-    trainingBreakdown: trainingBreakdownFor(repos, base, now),
+    musterBreakdown: musterBreakdownFor(repos, base, now),
   };
 }

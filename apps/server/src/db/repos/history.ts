@@ -21,6 +21,7 @@ export type EventKind =
   | 'account.password_changed'
   | 'account.sessions_revoked'
   | 'blackmarket.bid'
+  | 'stackhouse.bet'
   | 'blackmarket.taken'
   | 'automation.saved'
   | 'admin.knobs'

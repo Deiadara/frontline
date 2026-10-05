@@ -57,11 +57,13 @@ export const NOTIFICATION_KINDS = [
   'building_done',
   'research_done',
   'training_done',
-  'unit_trained',
+  'unit_mustered',
   'district_attacked',
   'market_won',
   'market_outbid',
   'market_claim',
+  'market_countered',
+  'stackhouse_settled',
   'page_found',
   'spy_report',
   'spied_on',
@@ -140,10 +142,10 @@ export const NOTIFICATION_KIND_SPECS: Readonly<Record<NotificationKind, Notifica
     blurb: 'Somebody has finished an hour on the floor.',
     icon: 'training',
   },
-  unit_trained: {
+  unit_mustered: {
     group: 'district',
     label: 'Units off the bench',
-    blurb: 'A batch has finished training.',
+    blurb: 'A batch has finished mustering.',
     icon: 'units',
   },
   officer_hired: {
@@ -200,6 +202,18 @@ export const NOTIFICATION_KIND_SPECS: Readonly<Record<NotificationKind, Notifica
     blurb: `A listing of yours was taken, ran out, or the one you countered closed. ${CLAIM_WINDOW_HOURS} hours to claim.`,
     icon: 'market',
   },
+  market_countered: {
+    group: 'district',
+    label: 'Counters to your listings',
+    blurb: 'Somebody answered a listing of yours with an offer of their own.',
+    icon: 'market',
+  },
+  stackhouse_settled: {
+    group: 'district',
+    label: 'The Stackhouse',
+    blurb: 'A bet you placed on a fight has come in, or has not.',
+    icon: 'caps',
+  },
   page_found: {
     group: 'district',
     label: 'Pages found',
@@ -216,8 +230,7 @@ export const NOTIFICATION_KIND_SPECS: Readonly<Record<NotificationKind, Notifica
   spied_on: {
     group: 'district',
     label: 'Spies on your ground',
-    blurb:
-      'Somebody has been looking at a place you hold: their runners were seen, or your Consigliere noticed.',
+    blurb: 'Somebody has been looking at a place you hold, and their runners were seen.',
     icon: 'shield',
   },
 };

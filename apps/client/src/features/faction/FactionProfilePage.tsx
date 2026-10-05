@@ -183,8 +183,8 @@ export function FactionProfilePage() {
                 {Math.round(faction.infamyEarned).toLocaleString()}
               </p>
               <p className="min-w-0 flex-1 font-body text-[12px] leading-snug text-ink-300">
-                Every fight won while wearing it, whoever won it and whether or not they are still
-                at the table. Nothing takes any of it back.
+                Every declared fight won while wearing it, whoever won it and whether or not they
+                are still at the table. Jobs do not add to it, and nothing takes any of it back.
               </p>
             </div>
             <dl className="mt-1 grid grid-cols-2 gap-2 sm:grid-cols-3">

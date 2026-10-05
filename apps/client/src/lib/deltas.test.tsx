@@ -270,28 +270,28 @@ describe('xpBehind', () => {
   });
 
   it('adds every threshold the crew has already cleared', () => {
-    // 52 to clear level 1 and 158 to clear level 2, and 200 into the third.
+    // 52 to clear level 1 and 138 to clear level 2, and 200 into the third.
     expect(playerXpToNextLevel(1)).toBe(52);
-    expect(playerXpToNextLevel(2)).toBe(158);
-    expect(xpBehind(3, 200)).toBe(410);
+    expect(playerXpToNextLevel(2)).toBe(138);
+    expect(xpBehind(3, 200)).toBe(390);
   });
 
   /**
    * The figure the chip has to throw when an award crosses a threshold: what was left of the
-   * level, plus what the next one opened with. 302 to clear level 3, 200 already in it, 20 in the
-   * new one, so the award was 122.
+   * level, plus what the next one opened with. 245 to clear level 3, 200 already in it, 20 in the
+   * new one, so the award was 65.
    *
    * Control: diff `xpIntoLevel` directly (20 - 200) and this reads -180, which is the red minus
    * the chip used to be one wiring away from throwing at a level-up.
    */
   it('turns a level crossing into the award that paid for it', () => {
-    expect(playerXpToNextLevel(3)).toBe(302);
-    expect(xpBehind(4, 20) - xpBehind(3, 200)).toBe(122);
+    expect(playerXpToNextLevel(3)).toBe(245);
+    expect(xpBehind(4, 20) - xpBehind(3, 200)).toBe(65);
   });
 
-  /** And a double crossing pays the whole thing: 102 left of level 3, all of level 4, then 10. */
+  /** And a double crossing pays the whole thing: 45 left of level 3, all of level 4, then 10. */
   it('adds the levels an award skipped straight past', () => {
-    expect(xpBehind(5, 10) - xpBehind(3, 200)).toBe(102 + playerXpToNextLevel(4) + 10);
+    expect(xpBehind(5, 10) - xpBehind(3, 200)).toBe(45 + playerXpToNextLevel(4) + 10);
   });
 
   /** A malformed row never throws on a read path: the level is clamped, the progress floored. */
@@ -322,7 +322,7 @@ describe('the level chip receipt', () => {
     const { rerender } = render(<XpProbe level={3} xpIntoLevel={200} />);
     rerender(<XpProbe level={4} xpIntoLevel={20} />);
     const figure = screen.getByTestId('delta-gain');
-    expect(figure).toHaveAttribute('data-amount', '122');
+    expect(figure).toHaveAttribute('data-amount', '65');
     expect(screen.queryByTestId('delta-spend')).toBeNull();
   });
 

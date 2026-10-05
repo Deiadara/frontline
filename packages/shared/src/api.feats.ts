@@ -37,7 +37,7 @@ export const FeatsResponseSchema = z.object({
    * actually discarded. This is what the dialog is drawn from; that is what the receipt says.
    *
    * Computed server-side and never on the client: the ceilings come off the district's buildings
-   * and the crew's Logistics, and a client that guessed would be quoting a figure the till does
+   * and the crew's storage bonus, and a client that guessed would be quoting a figure the till does
    * not agree with.
    */
   waste: z.record(z.string(), FeatWasteSchema).default({}),

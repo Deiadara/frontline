@@ -41,7 +41,14 @@ export const LEADERBOARD_LIMIT = 100;
 export const PlayerStandingSchema = z.object({
   rank: z.number().int().positive(),
   userId: IdSchema,
+  /** The login name: what a letter is addressed to and the board's tie-break. */
   username: z.string().min(1),
+  /**
+   * The name they go by (`displayNameOf`), which the board prints and the search also matches
+   * (bug pass, 2026-10-02). Optional so a fixture without it parses; screens fall back to
+   * `username` through {@link standingName}.
+   */
+  displayName: z.string().min(1).optional(),
   districtId: z.string().min(1),
   /** Which city they are in: the scope the board filters on. */
   cityId: z.string().min(1),
@@ -67,6 +74,11 @@ export const PlayerStandingSchema = z.object({
   isBot: z.boolean(),
 });
 export type PlayerStanding = z.infer<typeof PlayerStandingSchema>;
+
+/** The name a row on the board is printed under. */
+export function standingName(entry: Pick<PlayerStanding, 'username' | 'displayName'>): string {
+  return entry.displayName ?? entry.username;
+}
 
 export const FactionStandingSchema = z.object({
   rank: z.number().int().positive(),

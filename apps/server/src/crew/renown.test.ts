@@ -46,7 +46,7 @@ function baseAt(notoriety: number): Base {
     buildings: [],
     buildQueue: [],
     army: {},
-    trainingQueue: [],
+    musterQueue: [],
     training: startingTraining(NOW.toISOString()),
     inventory: {},
     fittedUpgrades: [],

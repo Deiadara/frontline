@@ -121,7 +121,7 @@ describe('what a name lets you field (§D7)', () => {
   /**
    * Both halves, because the gate is no longer the tier alone (see `NOTORIETY_HEAVY_UNIT_SLOTS`).
    *
-   * Breakers are in the Heavy tier and are still ungated: they are a Gauntlet 4 unit a crew trains
+   * Breakers are in the Heavy tier and are still ungated: they are a Gauntlet 4 unit a crew musters
    * in its first session, and a rank on the tier locked them behind a reputation nobody has yet.
    */
   it('lets anybody put rabble and the cheap end of the armour on the street', () => {

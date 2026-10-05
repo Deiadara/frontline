@@ -18,10 +18,9 @@ import {
   armySize,
   type UnitLoadouts,
   combineLeaderOf,
-  estimatedForce,
   findUnit,
-  forecast,
   type CombinePower,
+  dayInZone,
 } from '@frontline/shared';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
@@ -53,6 +52,7 @@ import {
 import { formatDuration, formatRemaining } from '../base/format';
 import { useServerClock } from '../missions/useServerClock';
 import { heldToLine, readColumn } from './column';
+import { yourOdds, sideAtTheMark } from './odds';
 import { Characteristics } from '../../components/ui/LabelChip';
 import { locationKindOf, whenItHolds } from '../city/characteristics';
 import { BoostStash } from './BoostStash';
@@ -64,6 +64,7 @@ import { UnitChip } from '../units/UnitChip';
 import { EffectiveCard } from './EffectiveCard';
 import { Tutorial } from '../tutorial/Tutorial';
 import { ErrorNote } from '../../components/ui/ErrorNote';
+import { usePlayerZone } from '../settings/usePlayerZone';
 
 /**
  * The Battles page (GDD §A4, battle rework).
@@ -392,6 +393,7 @@ export function BattlePage() {
       {deploying !== null && deployingView !== null && (
         <DeployDialog
           view={deployingView}
+          walking={columnsTo(road.data?.movements, deployingView.battle.id)}
           army={army}
           loadouts={loadouts}
           bagPercent={standing.data?.haulPercent ?? 0}
@@ -764,7 +766,7 @@ function BattleDetail({
         )}
       </section>
 
-      {view.side !== null && <LeadPicker view={view} />}
+      {view.side !== null && <LeadPicker view={view} now={now} />}
       {/* §C3: a machine shortens a road. A crew holding its own district has no road to this
           fight, so the picker would only be a way to put the yard where a wipe can wreck it. */}
       {view.side !== null &&
@@ -818,7 +820,9 @@ function VehiclePicker({
    * cache by the time anybody is standing on this page (`usePrefetchScreens`), and `?? false` is
    * the reading before it lands.
    */
-  const anyRide = useUnits().data?.anyRide ?? false;
+  const units = useUnits().data;
+  const anyRide = units?.anyRide ?? false;
+  const unitSpeedPercent = units?.unitSpeedPercent ?? 0;
   const shut = !view.deploymentOpen;
   const owned = mergeFleets(view.yard, view.vehicles);
   /*
@@ -843,7 +847,7 @@ function VehiclePicker({
     (total, spec) => total + spec.capacity * (view.vehicles[spec.id] ?? 0),
     0,
   );
-  const column = readColumn(view.vehicles, army, loadouts, anyRide);
+  const column = readColumn(view.vehicles, army, loadouts, anyRide, unitSpeedPercent);
   const minutes =
     homeDistrictId === null
       ? null
@@ -901,7 +905,8 @@ function VehiclePicker({
                       <Button
                         size="sm"
                         variant="ghost"
-                        disabled={shut || taking === 0 || take.isPending}
+                        // Machines stay for the fight in its last hour, as the units do.
+                        disabled={shut || !view.withdrawalOpen || taking === 0 || take.isPending}
                         onClick={() => set(spec.id, taking - 1)}
                         data-testid={`take-less-${spec.id}`}
                       >
@@ -937,15 +942,20 @@ function VehiclePicker({
  *
  * A drop-down for the same reason the boost is one: it is at most one choice out of a list of
  * comparable things, and the interesting part is the comparison. What is on each line is what the
- * officer would *fight* as, because that is the decision: a Head of Security with a Strength of 70
- * is a unit worth putting in the line and a Head of Finance is not.
+ * officer would *fight* as, because that is the decision: a Veteran with a Strength of 70
+ * is a unit worth putting in the line and a Fixer is not.
  *
  * Free, and free to change up to the mark. What it costs is on the card under it, and it is worth
  * spelling out: a fight that goes badly can take an officer out of the crew for a day, and it takes
  * this side's report with them.
  */
-function LeadPicker({ view }: { view: BattleView }) {
+function LeadPicker({ view, now }: { view: BattleView; now: number }) {
   const lead = useLeadBattle();
+  // Minutes until the fight starts: an officer with a longer road cannot be named (2026-10-02).
+  const minutesLeft = Math.max(
+    0,
+    Math.floor((Date.parse(view.battle.scheduledFor) - now) / 60_000),
+  );
   const chosen = view.leaders.find((leader) => leader.officerId === view.officerId) ?? null;
   const shut = !view.deploymentOpen;
 
@@ -1001,7 +1011,12 @@ function LeadPicker({ view }: { view: BattleView }) {
             // The road beside the sheet (maintainer request, 2026-09-15): the server prices each
             // officer's own walk or ride to this ground, and a picker that printed the sheet alone
             // was offering a choice between two sheets when the choice is a sheet against a road.
-            hint: `${leader.stats.offense} damage · ${leader.stats.vitality} vitality · ${leader.stats.armor} armour · ${leader.travelMinutes} min on the road`,
+            hint:
+              leader.travelMinutes > minutesLeft
+                ? `${leader.travelMinutes} min on the road, and the fight starts in ${minutesLeft}`
+                : `${leader.stats.offense} damage · ${leader.stats.vitality} vitality · ${leader.stats.armor} armour · ${leader.travelMinutes} min on the road`,
+            // The server refuses an officer who cannot get there before the mark.
+            disabled: leader.travelMinutes > minutesLeft,
           }))}
           onChange={(officerId) => lead.mutate({ battleId: view.battle.id, officerId })}
           data-testid="lead-officer-picker"
@@ -1155,9 +1170,11 @@ function Odds({ view, loadouts }: { view: BattleView; loadouts: UnitLoadouts }) 
   // The presence is in the key as well as in the setup: it arrives one request after the rest of
   // the plan (see {@link usePresenceOver}), so a key without it would hold the leaderless reading
   // on screen for as long as the fight is open.
+  const fielded = sideAtTheMark(view.muster);
   const plan = JSON.stringify([
-    view.muster?.army ?? {},
+    fielded,
     facing,
+    view.enemyArmy ?? null,
     view.battlefield,
     defending,
     presence ?? null,
@@ -1166,9 +1183,10 @@ function Odds({ view, loadouts }: { view: BattleView; loadouts: UnitLoadouts }) 
     loadouts,
   ]);
   const read = useMemo(() => {
-    const [sending, size, ground, holding, shadow, fitted] = JSON.parse(plan) as [
+    const [sending, size, army, ground, holding, shadow, fitted] = JSON.parse(plan) as [
       Record<string, number>,
       number | null,
+      Record<string, number> | null,
       BattleView['battlefield'],
       boolean,
       CombinePower | null,
@@ -1176,20 +1194,7 @@ function Odds({ view, loadouts }: { view: BattleView; loadouts: UnitLoadouts }) 
     ];
     const units = Object.values(sending).reduce((total, count) => total + count, 0);
     if (size === null || units === 0) return null;
-    return forecast({
-      seed: plan,
-      battlefield: ground,
-      attacker: { name: 'you', army: sending, defending: holding, upgrades: fitted },
-      defender: {
-        name: 'them',
-        army: estimatedForce(size),
-        defending: !holding,
-        // Defender-only by construction, and the gate above is `defender.kind === 'government'`:
-        // the one side a Combine legendary ever stands behind is the Combine's, which is the same
-        // reading `battle/resolve.ts` takes at the settle.
-        ...(shadow === null ? {} : { presence: shadow }),
-      },
-    });
+    return yourOdds({ seed: plan, ground, sending, fitted, size, army, holding, shadow });
   }, [plan]);
 
   if (view.side === null) return null;
@@ -1211,13 +1216,13 @@ function Odds({ view, loadouts }: { view: BattleView; loadouts: UnitLoadouts }) 
       ) : (
         <div className="mt-2 flex flex-wrap items-baseline gap-x-5 gap-y-1">
           <span className="font-display text-lg font-bold tabular-nums text-brass-300">
-            {Math.round(read.winChance * 100)}%
+            {Math.round(read.chance * 100)}%
           </span>
           <span className="font-body text-[12px] text-ink-200">
-            you take it, in {read.runs} runs of the real thing
+            you {defending ? 'hold' : 'take'} it, in {read.runs} runs of the real thing
           </span>
           <span className="font-body text-[12px] text-ink-300">
-            about {Math.round(read.attackerSurvival * 100)}% of yours walk out
+            about {Math.round(read.kept * 100)}% of yours walk out
           </span>
         </div>
       )}
@@ -1403,7 +1408,13 @@ function NameBuys({ view, infamy }: { view: BattleView; infamy: number }) {
       <div className="flex flex-col gap-2.5" data-testid="name-buys">
         <PanelSection
           label={view.boostSlots === 1 ? 'Running' : `Running (${taken.length}/${view.boostSlots})`}
-          note={taken.length > 0 ? undefined : 'One per fight'}
+          note={
+            taken.length > 0
+              ? undefined
+              : view.boostSlots === 1
+                ? 'One per fight'
+                : `${view.boostSlots} per fight`
+          }
           data-testid="boost-bought"
         >
           {taken.length > 0 ? (
@@ -1567,8 +1578,9 @@ function TrapPicker({ view }: { view: BattleView }) {
               </p>
               <TrapEffect option={chosen} testId="trap-set-effect" />
               <p className="mt-0.5 font-body text-[12px] leading-snug text-ink-100">
-                It goes off before anybody is in contact, and it never turns an attack back. Nothing
-                leaves the bag until then, so moving it to another fight costs you nothing.
+                It goes off before anybody is in contact. It always takes at least one, so a column
+                of one can be stopped by it. Nothing leaves the bag until then, so moving it to
+                another fight costs you nothing.
               </p>
               {/* The count is on the panel rather than only inside the picker: what a player wants
                   to know before naming the same shell on a second fight is how many they have. */}
@@ -1741,6 +1753,7 @@ function SpyReports({
   reports: readonly SpyReport[];
   onRead: (report: SpyReport) => void;
 }) {
+  const zone = usePlayerZone();
   if (reports.length === 0) {
     return (
       <Empty>
@@ -1789,7 +1802,7 @@ function SpyReports({
                   <Insignia holder={report.holder.kind} className="mr-1 h-3 w-3 align-[-2px]" />
                   {report.holder.name}
                   {report.holder.faction ? ` · ${report.holder.faction}` : ''} ·{' '}
-                  {spyReportSource(report)} · {report.writtenAt.slice(0, 10)}
+                  {spyReportSource(report)} · {dayInZone(new Date(report.writtenAt), zone)}
                 </span>
               </span>
               <Icon name="chevron-down" className="h-4 w-4 shrink-0 -rotate-90 text-ink-300" />
@@ -1837,17 +1850,9 @@ function Defences({ structures }: { structures: readonly StructureDefence[] }) {
                     +{Math.round(gate.defensePercent ?? 0)}%
                   </dd>
                 </div>
-                <div className="flex items-baseline justify-between gap-2">
-                  <dt className="font-display text-[10px] uppercase tracking-[0.16em] text-ink-300">
-                    Against spies
-                  </dt>
-                  <dd className="font-display text-[13px] font-bold tabular-nums text-ink-100">
-                    +{Math.round(gate.intelResistancePercent ?? 0)} points
-                  </dd>
-                </div>
               </dl>
               <p className="font-body text-[11px] leading-snug text-ink-300">
-                Every level is worth more of both, and there is nothing else to buy on it.
+                Every level is worth more, and there is nothing else to buy on it.
               </p>
             </div>
           )}

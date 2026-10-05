@@ -87,6 +87,10 @@ async function makeWorld(army: Record<string, number> = { sleepers: 6 }): Promis
   const location = findLocation('chrome-row-coinop');
   if (!location) throw new Error('Coin-Op Row is not on the map');
   const districtId = location.districtId;
+  // Nobody may call a fight on empty ground (maintainer, 2026-10-04), so somebody has to hold it.
+  // Looters, so the plot has a holder and still no garrison and the district still has a seam.
+  const control = app.repos.city.control(location.id)!;
+  app.repos.city.put({ ...control, holder: { kind: 'looters' } });
 
   app.repos.bases.updateArmy(baseId, army, []);
   const base = app.repos.bases.findById(baseId)!;
@@ -212,7 +216,7 @@ describe('planting a cell', () => {
  *
  * Found by reading `unitsAbroad`'s own comment, which says exactly this about missions: a force
  * that leaves `base.army` and is counted nowhere makes the unit-slot cap dodgeable. Plant the
- * army, watch the draw fall, train a second one into the room, and be over the ceiling the day
+ * army, watch the draw fall, muster a second one into the room, and be over the ceiling the day
  * the first lot walks home. A cell did precisely that until this.
  */
 /**

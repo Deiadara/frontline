@@ -1,5 +1,6 @@
 import { z } from 'zod';
-import { ATTRIBUTE_NAMES, type Attributes } from '../attributes.js';
+import { ATTRIBUTE_NAMES, SPY_DEFENCE_ATTRIBUTES, type Attributes } from '../attributes.js';
+import { softCap } from '../battle/soft-cap.js';
 import { OFFICER_MARKS, markFromPoints, markIndex } from '../crew/marks.js';
 import { IdSchema, IsoDateTimeSchema } from '../primitives.js';
 import {
@@ -30,15 +31,20 @@ import { cancelWindowMs, cancelWindowOpen, turnaroundMs } from '../time/cancel.j
  * in it (maintainer, 2026-09-22).
  *
  * The spying side is the Master of Whispers' fit for their chair (10..100 points), plus every
- * intel bonus the crew holds (`intelYieldPercent`, read as points: perks and ground, since no rung
- * on the chair's own track pays any, maintainer 2026-09-28), and the whole of that is then
+ * intel bonus the crew holds (`intelYieldPercent`, read as points), and the whole of that is then
  * raised by the **tier** of the job, as a share of the points rather than a flat sum: the tiers
  * are priced so that caps are worth more to a crew that already has a good chair, which is what
  * makes hiring one the first move rather than the last.
  *
- * The other side is whoever holds the place. A crew's Consigliere, their fit for *that* chair,
- * plus their counter-intel bonuses, plus the gate on a player's district or on a district they
- * hold whole. Looter and Combine ground carry no chair, so they carry flat points off the district's
+ * The officer side of it is the grade and nothing else (maintainer, 2026-10-01: "spy bonuses from
+ * the officer should only come based on his grade", and the same rule for defence). No other
+ * officer's ratings and no rung pay either bonus: what is left is perks and held ground on the
+ * spying side, and perks on the other, beside the gate and the counter-intelligence cards.
+ *
+ * The other side is whoever holds the place. A crew's own Master of Whispers, their fit for the
+ * chair read exactly as it is read when they send a job, so two equal chairs cancel and the tier,
+ * the bonuses and the gate decide (maintainer, 2026-10-01); plus their counter-intel bonuses, plus
+ * the gate on a player's district or on a district they hold whole. Looter and Combine ground carry no chair, so they carry flat points off the district's
  * difficulty and the location's own defence instead, and the Combine's a good deal more of both.
  *
  * ## The report
@@ -87,6 +93,16 @@ export interface SpyTierSpec {
   opensWith: string | null;
 }
 
+/*
+ * The three middle boosts were 0.4, 1.2 and 1.6 until the maintainer took the spy bonuses off
+ * every rating and rung (2026-10-01) and then asked for the cheap tiers back where they were: "a
+ * mid-game crew spying an equal crew" at about 40% on Paid Whisper and 90% or more on Bought Eyes,
+ * with the officers' Signals and Cryptography in. Measured on a modelled mid crew whose other
+ * officers average 30 to 45 on the two: Paid Whisper reads 47% to 37%, Bought Eyes 98% to 92%.
+ * Network Compromise went to 2.1 so it is clearly worth its 5,000 caps over Bought Eyes' 2,000
+ * (maintainer, 2026-10-01: "about 2.1"); it was 1.8 for a few hours, just over the climb, and a B+
+ * chair reads the good rival of the anchors at 97% on it now, where it read about 80%.
+ */
 export const SPY_TIER_SPECS: Readonly<Record<SpyTier, SpyTierSpec>> = {
   loose_ears: {
     label: 'Loose Ears',
@@ -98,32 +114,33 @@ export const SPY_TIER_SPECS: Readonly<Record<SpyTier, SpyTierSpec>> = {
   paid_whisper: {
     label: 'Paid Whisper',
     caps: 500,
-    boost: 0.4,
+    boost: 0.8,
     blurb: 'One person on the inside, paid to say what they see.',
     opensWith: SPY_PAID_TIERS_RESEARCH_ID,
   },
   bought_eyes: {
     label: 'Bought Eyes',
     caps: 2000,
-    boost: 1.2,
+    boost: 1.7,
     blurb: 'A watcher on the roof opposite for as long as it takes.',
     opensWith: SPY_PAID_TIERS_RESEARCH_ID,
   },
   network_compromise: {
     label: 'Network Compromise',
     caps: 5000,
-    boost: 1.6,
+    boost: 2.1,
     blurb: 'Their own runners carrying your questions along with their messages.',
     opensWith: SPY_SLEEPERS_RESEARCH_ID,
   },
   /*
    * Half as strong again as it was, for a fifth more (maintainer, 2026-09-28: "about 50% stronger
-   * ... for a 20% extra cost"): the boost was 2.6 on 10,000 caps.
+   * ... for a 20% extra cost"): the boost was 2.6 on 10,000 caps. Half as strong again on the
+   * job's score, not on the boost (maintainer, 2026-10-01): 1 + 4.4 is 1.5 times 1 + 2.6.
    */
   total_intelligence: {
     label: 'Total Intelligence',
     caps: 12000,
-    boost: 3.9,
+    boost: 4.4,
     blurb: 'Everyone who can be bought, bought at once. There is nothing left to hide behind.',
     opensWith: SPY_WHOLE_WIRE_RESEARCH_ID,
   },
@@ -189,7 +206,57 @@ export const SPY_STEALTH_COST_PER_POINT = 1 / 36;
 export const SPY_GATE_POINTS_PER_LEVEL = 10;
 
 /**
- * Looter and Combine ground carry no Consigliere. They carry the district's difficulty and the
+ * The rest of the room's guard against spies (maintainer, 2026-10-01): "when being spied, a small
+ * percent is affected by the defending officers' signals and cryptography ... That is the case for
+ * all non master of whispers officers", and the Overseer with them since 2026-10-04.
+ *
+ * Read as the mean of these two over every officer seated and working, the Master of Whispers
+ * left out (their whole sheet is already on the other side of the contest as their grade), off the
+ * sheet the room lifts them to. It moves the holder's whole counter score by a percentage.
+ */
+export { SPY_DEFENCE_ATTRIBUTES };
+
+/** The mean at which the officers neither help nor hurt: "about break even at 30". */
+export const SPY_DEFENCE_BREAK_EVEN = 30;
+
+/** At a mean of 1: "at worst making it about 10% easier if they were both 1". */
+export const SPY_DEFENCE_FLOOR_PERCENT = -10;
+
+/**
+ * What the officers can add, closed on and never reached: "up to roughly 25%". About 20 at a mean
+ * of 70 and 23.5 at 100 (`softCap` with no knee, so the first point past 30 pays a whole one).
+ */
+export const SPY_DEFENCE_CEILING_PERCENT = 25;
+
+/**
+ * The officers' mean over the two skills, or null with nobody but the Master of Whispers working.
+ * Takes the sheets of the officers it counts; the caller decides who those are.
+ */
+export function spyDefenceMean(sheets: readonly Attributes[]): number | null {
+  if (sheets.length === 0) return null;
+  const total = sheets.reduce(
+    (sum, sheet) => sum + SPY_DEFENCE_ATTRIBUTES.reduce((pair, name) => pair + sheet[name], 0),
+    0,
+  );
+  return total / (sheets.length * SPY_DEFENCE_ATTRIBUTES.length);
+}
+
+/**
+ * The percentage the officers move the holder's counter score by: linear from -10 at a mean of 1
+ * to nothing at 30, then up and tapering toward +25. Nothing for a room with no officer to read.
+ */
+export function spyDefencePercent(mean: number | null): number {
+  if (mean === null) return 0;
+  if (mean <= SPY_DEFENCE_BREAK_EVEN) {
+    const below = SPY_DEFENCE_BREAK_EVEN - Math.max(1, mean);
+    // A plain nought at the break-even, not the floor times nothing, which is -0.
+    return below === 0 ? 0 : (SPY_DEFENCE_FLOOR_PERCENT * below) / (SPY_DEFENCE_BREAK_EVEN - 1);
+  }
+  return softCap(mean - SPY_DEFENCE_BREAK_EVEN, 0, SPY_DEFENCE_CEILING_PERCENT);
+}
+
+/**
+ * Looter and Combine ground carry no Master of Whispers. They carry the district's difficulty and the
  * location's own defence instead, and the Combine's regime a good deal more of both: a Combine
  * district is meant to be an event to read, the way it is an event to enter.
  */
@@ -200,7 +267,7 @@ export const SPY_NPC_DEFENSE_SHARE = { looters: 0.15, government: 0.3 } as const
 export interface SpyStrength {
   /** The Master of Whispers' fit for the chair, as points: 10..100. */
   chairPoints: number;
-  /** Every intel bonus the crew holds, as points. */
+  /** Every intel bonus the crew holds, as points: perks and held ground, never a rating. */
   intelPercent: number;
   tier: SpyTier;
 }
@@ -213,12 +280,20 @@ export function spyScore({ chairPoints, intelPercent, tier }: SpyStrength): numb
 export type CounterStrength =
   | {
       kind: 'crew';
-      /** Their Consigliere's fit for that chair, or null with nobody in it. */
-      consigliereChairPoints: number | null;
-      /** Their counter-intel bonuses, as points. */
+      /**
+       * Their Master of Whispers' fit for the chair, or null with nobody working it. The same figure
+       * `SpyStrength.chairPoints` is on their own jobs, so an equal chair on each side cancels.
+       */
+      whispersChairPoints: number | null;
+      /** Their counter-intel perks and the district's counter-intel cards, as points. */
       intelResistancePercent: number;
       /** The gate over the place: their district's own, or the captured gate on ground held whole. */
       gateLevel: number;
+      /**
+       * Their other officers' Signals and Cryptography, as a percentage on the whole of the above
+       * ({@link spyDefencePercent}): -10 to toward +25.
+       */
+      officersPercent: number;
     }
   | {
       kind: 'looters' | 'government';
@@ -230,11 +305,12 @@ export type CounterStrength =
 
 export function counterScore(counter: CounterStrength): number {
   if (counter.kind === 'crew') {
-    return (
-      Math.max(0, counter.consigliereChairPoints ?? 0) +
+    const summed =
+      Math.max(0, counter.whispersChairPoints ?? 0) +
       Math.max(0, counter.intelResistancePercent) +
-      Math.max(0, counter.gateLevel) * SPY_GATE_POINTS_PER_LEVEL
-    );
+      Math.max(0, counter.gateLevel) * SPY_GATE_POINTS_PER_LEVEL;
+    // After everything else is summed (maintainer, 2026-10-01): the officers move the whole guard.
+    return summed * (1 + counter.officersPercent / 100);
   }
   return (
     SPY_NPC_BASE_POINTS[counter.kind] +
@@ -248,11 +324,20 @@ export function bodyCost(stealth: number): number {
   return SPY_BODY_COST + Math.max(0, stealth) * SPY_STEALTH_COST_PER_POINT;
 }
 
-export interface ExposureInput {
-  /** Who is there. */
+/**
+ * One owner's units on the ground, read at that owner's stealth (maintainer, 2026-10-01): a
+ * faction ally's posting or a third crew's Sleepers carry their own cards and ground, not the
+ * holder's.
+ */
+export interface SpiedForce {
   army: Army;
-  /** The unit's stealth as it stands on that ground, bonuses in. */
+  /** The unit's stealth as its owner fields it, bonuses in. */
   stealthOf: (unitId: string) => number;
+}
+
+export interface ExposureInput {
+  /** Who is there, one entry per owner. */
+  forces: readonly SpiedForce[];
   /** Whether a spy can ever see this unit: false for a Specter, and for a Sleeper without the rung. */
   visible: (unitId: string) => boolean;
   budget: number;
@@ -264,7 +349,11 @@ export interface Exposure {
   exposedBodies: number;
   /** The bodies a spy could ever have counted: what is there, less the unspyable. */
   countable: number;
-  /** `exposedBodies / countable`, 0..1. One on empty ground: there was nothing to miss. */
+  /**
+   * `exposedBodies / countable`, 0..1. On empty ground, one when the spy beat the counter and zero
+   * when it did not (bug pass, 2026-10-02): an empty gate always read, so a failed report alone
+   * told the spy somebody was standing there, which is what the counter is paid to hide.
+   */
   accuracy: number;
   /**
    * How much of the countable force was *not* seen, for the estimate a late rung prints. Zero
@@ -276,23 +365,29 @@ export interface Exposure {
 /**
  * Spend the budget on bodies, cheapest first.
  *
- * Whole units in a stack are taken in stealth order, then id order, so the walk is deterministic
- * and two reports on the same ground with the same budget read the same. A stack the budget runs
- * out inside is reported as far as it reached: seeing six of ten Razors is a fact, not a guess.
+ * Every owner's stack is priced at that owner's stealth, then all of them are taken in stealth
+ * order, then id order, then the order the forces were given in, so the walk is deterministic and
+ * two reports on the same ground with the same budget read the same. What is seen is merged by
+ * unit id: the report names units, not whose they are. A stack the budget runs out inside is
+ * reported as far as it reached: seeing six of ten Razors is a fact, not a guess.
  */
-export function expose({ army, stealthOf, visible, budget }: ExposureInput): Exposure {
-  const stacks = Object.entries(army)
-    .filter((entry): entry is [string, number] => (entry[1] ?? 0) > 0 && visible(entry[0]))
-    .sort(([a], [b]) => stealthOf(a) - stealthOf(b) || a.localeCompare(b));
-  const countable = stacks.reduce((total, [, count]) => total + count, 0);
+export function expose({ forces, visible, budget }: ExposureInput): Exposure {
+  const stacks = forces
+    .flatMap((force, order) =>
+      Object.entries(force.army)
+        .filter((entry): entry is [string, number] => (entry[1] ?? 0) > 0 && visible(entry[0]))
+        .map(([unitId, count]) => ({ unitId, count, order, stealth: force.stealthOf(unitId) })),
+    )
+    .sort((a, b) => a.stealth - b.stealth || a.unitId.localeCompare(b.unitId) || a.order - b.order);
+  const countable = stacks.reduce((total, stack) => total + stack.count, 0);
   const exposed: Army = {};
   let exposedBodies = 0;
   let left = Math.max(0, budget);
-  for (const [unitId, count] of stacks) {
-    const cost = bodyCost(stealthOf(unitId));
+  for (const { unitId, count, stealth } of stacks) {
+    const cost = bodyCost(stealth);
     const seen = Math.min(count, Math.floor(left / cost + 1e-9));
     if (seen <= 0) break;
-    exposed[unitId] = seen;
+    exposed[unitId] = (exposed[unitId] ?? 0) + seen;
     exposedBodies += seen;
     left -= seen * cost;
   }
@@ -300,9 +395,31 @@ export function expose({ army, stealthOf, visible, budget }: ExposureInput): Exp
     exposed,
     exposedBodies,
     countable,
-    accuracy: countable === 0 ? 1 : exposedBodies / countable,
+    accuracy: countable === 0 ? (budget > 0 ? 1 : 0) : exposedBodies / countable,
     unseen: countable - exposedBodies,
   };
+}
+
+/**
+ * The accuracy as a report prints it: to the nearest tenth, and never a full hundred unless nothing
+ * was missed (maintainer, 2026-10-01). Exact, it gave the whole count back: `exposed` divided by it
+ * is the figure The Whole Wire is sold for.
+ */
+export function roughAccuracy(accuracy: number): number {
+  if (accuracy >= 1) return 1;
+  return Math.min(0.9, Math.round(accuracy * 10) / 10);
+}
+
+/**
+ * The bodies missed as a report prints them: a guess, not a count (maintainer, 2026-10-01). A
+ * handful reads as five, a few more as ten, then the nearest ten, and past a hundred the nearest
+ * fifty. Nothing missed stays nothing.
+ */
+export function roughUnseen(unseen: number): number {
+  if (unseen <= 0) return 0;
+  if (unseen < 8) return 5;
+  if (unseen < 100) return Math.max(10, Math.round(unseen / 10) * 10);
+  return Math.round(unseen / 50) * 50;
 }
 
 /** Whether a report at this accuracy is a report at all. */
@@ -371,6 +488,13 @@ export const SpyTargetSchema = z.discriminatedUnion('kind', [
 ]);
 export type SpyTarget = z.infer<typeof SpyTargetSchema>;
 
+/** Whether two spy jobs look at the same place: one location, or one district's gate. */
+export function sameSpyTarget(a: SpyTarget, b: SpyTarget): boolean {
+  if (a.kind === 'location' && b.kind === 'location') return a.locationId === b.locationId;
+  if (a.kind === 'gate' && b.kind === 'gate') return a.districtId === b.districtId;
+  return false;
+}
+
 export const SPY_REFUSALS = [
   /**
    * Nobody in the Master of Whispers' chair, which is the whole of the entry price.
@@ -383,6 +507,11 @@ export const SPY_REFUSALS = [
   'cannot_afford',
   /** Every party the crew may have out is out (one, or two with Two Sets of Eyes). */
   'already_out',
+  /**
+   * Runners of this crew are already on their way to this place (maintainer, 2026-10-05): one job
+   * per place at a time. Call it off or wait for it to come home.
+   */
+  'watching_here',
   /** The tier needs a rung the crew has not finished (`SpyTierSpec.opensWith`). */
   'tier_locked',
   /** Nothing to look at: nobody holds it, or it is the crew's own. */
@@ -413,6 +542,13 @@ export const SpyRunSchema = z.object({
   /** The way out, frozen at the send: the leg a recall is measured against. */
   travelMinutes: z.number().int().nonnegative(),
   recalledAt: IsoDateTimeSchema.nullable().default(null),
+  /**
+   * The spying side of the contest, frozen at the send (maintainer, 2026-10-01): benching or
+   * swapping the Master of Whispers while the runners are out changes nothing about this job. Null
+   * on a run sent before the freeze, which is read off the chair at the settle.
+   */
+  chairPoints: z.number().nonnegative().nullable().default(null),
+  intelPercent: z.number().nullable().default(null),
 });
 export type SpyRun = z.infer<typeof SpyRunSchema>;
 
@@ -495,13 +631,14 @@ export const SpyReportSchema = z.object({
    */
   foundOut: z.boolean().default(false),
   /**
-   * `exposedBodies / countable`, 0..1. Null where the reader's track does not print it, and on a
-   * failed report. Null rather than merely hidden by the screen: `exposed` divided by it is the
-   * whole count standing there, which is the one thing the report is not meant to say.
+   * `exposedBodies / countable`, 0..1, rounded by {@link roughAccuracy}. Null where the reader's
+   * track does not print it, and on a failed report. Rounded and null rather than exact and merely
+   * hidden by the screen: `exposed` divided by the exact figure is the whole count standing there,
+   * which is the one thing the report is not meant to say.
    */
   accuracy: z.number().min(0).max(1).nullable(),
   /**
-   * The bodies not seen, for the estimate. Null where the reader's track does not print one, and on
+   * The bodies not seen, as the estimate prints them ({@link roughUnseen}). Null where the reader's track does not print one, and on
    * a failed report, where it and the accuracy together would give back what `exposed` withholds.
    * Null from The Whole Wire too, where `totalSlots` says exactly what an estimate would guess at.
    * Frozen at writing time so a rung finished later does not retroactively sharpen an old report.
@@ -509,6 +646,12 @@ export const SpyReportSchema = z.object({
   unseen: z.number().int().nonnegative().nullable(),
   /** Whether the accuracy figure is printed, frozen the same way. */
   accuracyShown: z.boolean(),
+  /**
+   * A captured gate held by a crew that lives elsewhere (maintainer, 2026-10-02): nobody stands at
+   * it between fights, because the holder brings what they send. The report says that, with no
+   * accuracy or estimate, and the battle board quotes no count off it.
+   */
+  heldFromAway: z.boolean().optional(),
 });
 export type SpyReport = z.infer<typeof SpyReportSchema>;
 
@@ -517,8 +660,9 @@ export type SpyReport = z.infer<typeof SpyReportSchema>;
  * "18 unit slots seen" before Written Reports, when the slots are all it has.
  */
 export function spyReportSummary(
-  report: Pick<SpyReport, 'unitsShown' | 'exposed' | 'exposedSlots'>,
+  report: Pick<SpyReport, 'unitsShown' | 'exposed' | 'exposedSlots' | 'heldFromAway'>,
 ): string {
+  if (report.heldFromAway === true) return 'nobody standing there now';
   return report.unitsShown
     ? `${armySize(report.exposed)} seen`
     : `${report.exposedSlots} unit slots seen`;

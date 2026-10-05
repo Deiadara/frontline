@@ -1,6 +1,9 @@
 import {
-  crewSheet,
   ATTRIBUTE_NAMES,
+  chairPassiveOf,
+  overseerLift,
+  seatPoints,
+  type OfficerRole,
   ATTRIBUTES_BY_GROUP,
   PERK_CATALOG,
   RESEARCH_ITEMS,
@@ -10,7 +13,7 @@ import {
   OVERSEER_SUBJECT,
   RESOURCE_KEYS,
   STARTING_RESOURCES,
-  TRAINING_BENCHES,
+  TRAINING_QUEUE_SLOTS,
   TRAINING_GAIN,
   TRAINING_SECONDS,
   TRAININGS_PER_DAY,
@@ -151,7 +154,9 @@ describe('the Training tab over HTTP', () => {
     expect(view.sessionsLeft).toBe(TRAININGS_PER_DAY - 1);
     const overseer = view.subjects.find((subject) => subject.id === OVERSEER_SUBJECT);
     expect(overseer?.session?.attribute).toBe('cryptography');
-    expect(overseer?.session?.durationSeconds).toBe(TRAINING_SECONDS);
+    // Their own hour, shortened by their Speed, Resolve and Organization (2026-10-01).
+    expect(overseer?.session?.durationSeconds).toBe(overseer?.sessionSeconds);
+    expect(overseer?.session?.durationSeconds).toBeLessThan(TRAINING_SECONDS);
   });
 
   it('will not put one person in two sessions at once', async () => {
@@ -167,10 +172,65 @@ describe('the Training tab over HTTP', () => {
   });
 
   /**
-   * One bench on the floor (maintainer, 2026-09-21). A second person is refused while the first
-   * is still drilling, and the Professor's fourth rung is what opens the second bench.
+   * The floor is a queue of two (maintainer, 2026-10-04): the second drill waits for the first to
+   * end rather than running beside it, a third is refused, and the Professor's fourth rung is
+   * what opens a third place.
    */
-  it('takes one person at a time until the Professor’s Second Chair', async () => {
+  it('queues drills one after another, two deep until the Professor’s Second Chair', async () => {
+    const app = await makeApp();
+    const token = await signIn(app);
+    const base = app.repos.bases.findByOwnerId(
+      app.repos.users.findByUsername('driller')?.id ?? '',
+    )!;
+    const pupil = createCommander('pupil', 'Pupil', 'professor', makeAttributes(20), []);
+    const other = createCommander('other', 'Other', 'trader', makeAttributes(20), []);
+    app.repos.bases.updateTraining(base.id, base.training, [...base.commanders, pupil, other]);
+    const message = (res: Awaited<ReturnType<typeof train>>) =>
+      res.json<{ error: { message: string } }>().error.message;
+
+    expect((await board(app, token)).queueSlots).toBe(TRAINING_QUEUE_SLOTS);
+    await train(app, token, OVERSEER_SUBJECT, 'cryptography');
+    const queued = await train(app, token, 'pupil', 'logic');
+    expect(queued.statusCode).toBe(200);
+    const sessions = queued
+      .json<TrainingResponse>()
+      .subjects.flatMap((one) => (one.session ? [one.session] : []));
+    const first = sessions.find((one) => one.subjectId === OVERSEER_SUBJECT)!;
+    const second = sessions.find((one) => one.subjectId === 'pupil')!;
+    // Behind the first, not beside it.
+    expect(Date.parse(second.startedAt)).toBe(
+      Date.parse(first.startedAt) + first.durationSeconds * 1000,
+    );
+
+    const full = await train(app, token, 'other', 'logic');
+    expect(full.statusCode).toBe(409);
+    expect(message(full)).toBe('The queue is full');
+    // One place per person, running or waiting.
+    expect(message(await train(app, token, 'pupil', 'stamina'))).toBe('Already in the queue');
+
+    const chair = RESEARCH_ITEMS.find(
+      (item) => item.track === 'professor' && item.payout.bonus?.kind === 'training_queue',
+    );
+    expect(chair, 'the Professor has no rung that adds a place in the queue').toBeDefined();
+    app.repos.bases.updateResearch(base.id, {
+      ...base.research,
+      technologies: [...base.research.technologies, chair!.id],
+    });
+    expect((await board(app, token)).queueSlots).toBe(TRAINING_QUEUE_SLOTS + 1);
+    const admitted = await train(app, token, 'other', 'logic');
+    expect(admitted.statusCode).toBe(200);
+    const third = admitted
+      .json<TrainingResponse>()
+      .subjects.find((one) => one.id === 'other')!.session!;
+    expect(Date.parse(third.startedAt)).toBe(
+      Date.parse(second.startedAt) + second.durationSeconds * 1000,
+    );
+    // The feat's number moved: a drill queued with two already on the list.
+    expect(app.repos.feats.tallies(base.id)['drills_third_in_line']).toBe(1);
+  });
+
+  /** Calling off the running drill brings the one waiting behind it forward to now. */
+  it('closes the queue up when the running drill is called off', async () => {
     const app = await makeApp();
     const token = await signIn(app);
     const base = app.repos.bases.findByOwnerId(
@@ -178,27 +238,25 @@ describe('the Training tab over HTTP', () => {
     )!;
     const pupil = createCommander('pupil', 'Pupil', 'professor', makeAttributes(20), []);
     app.repos.bases.updateTraining(base.id, base.training, [...base.commanders, pupil]);
+    const running = (await train(app, token, OVERSEER_SUBJECT, 'cryptography'))
+      .json<TrainingResponse>()
+      .subjects.find((one) => one.id === OVERSEER_SUBJECT)!.session!;
+    await train(app, token, 'pupil', 'logic');
 
-    expect((await board(app, token)).benches).toBe(TRAINING_BENCHES);
-    await train(app, token, OVERSEER_SUBJECT, 'cryptography');
-    const second = await train(app, token, 'pupil', 'logic');
-    expect(second.statusCode).toBe(409);
-    expect(second.json<{ error: { message: string } }>().error.message).toBe('The floor is taken');
-
-    const chair = RESEARCH_ITEMS.find(
-      (item) => item.track === 'professor' && item.payout.bonus?.kind === 'training_benches',
-    );
-    expect(chair, 'the Professor has no rung that adds a bench').toBeDefined();
-    app.repos.bases.updateResearch(base.id, {
-      ...base.research,
-      technologies: [...base.research.technologies, chair!.id],
+    const before = Date.now();
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/training/cancel',
+      headers: auth(token),
+      payload: { sessionId: running.id },
     });
-    expect((await board(app, token)).benches).toBe(TRAINING_BENCHES + 1);
-    const admitted = await train(app, token, 'pupil', 'logic');
-    expect(admitted.statusCode).toBe(200);
-    expect(admitted.json<TrainingResponse>().subjects.filter((one) => one.session).length).toBe(2);
-    // The feat's number moved: a drill started beside a running one.
-    expect(app.repos.feats.tallies(base.id)['drills_paired']).toBe(1);
+    expect(res.statusCode).toBe(200);
+    const view = res.json<TrainingResponse>();
+    expect(view.subjects.find((one) => one.id === OVERSEER_SUBJECT)?.session).toBeNull();
+    const moved = view.subjects.find((one) => one.id === 'pupil')!.session!;
+    expect(Date.parse(moved.startedAt)).toBeGreaterThanOrEqual(before - 1000);
+    expect(Date.parse(moved.startedAt)).toBeLessThanOrEqual(Date.now());
+    expect(view.sessionsLeft).toBe(TRAININGS_PER_DAY - 1);
   });
 
   it('refuses a subject nobody on the books answers to', async () => {
@@ -361,7 +419,7 @@ describe('the Training tab over HTTP', () => {
     // Seated: a perk on the bench pays nothing (maintainer, 2026-09-28), so a benched carrier
     // would read zero here whether or not the channel reached the response.
     app.repos.bases.updateCommanders(base.id, [
-      createCommander('officer-1', 'Ada Vance', 'finance_officer', {}, ['ledger_hand'], 0),
+      createCommander('officer-1', 'Ada Vance', 'fixer', {}, ['ledger_hand'], 0),
     ]);
 
     const res = await app.inject({ method: 'GET', url: '/api/overseer/me', headers: auth(token) });
@@ -375,7 +433,7 @@ describe('the Training tab over HTTP', () => {
    *
    * `effects` is `crewEffectsFor`, the people-only fold, and that is right for what reads it:
    * `CrewEffectsPage` calls itself a ledger of what the people are worth, so folding the district
-   * into it would credit nineteen officers with the Pawn Shop.
+   * into it would credit thirteen officers with the Pawn Shop.
    *
    * But the board and the deployment screen quote a haul, and `missions/resolve.ts` pays that
    * haul off `standingEffectsFor`. A held Pawn Shop is 15% of bag through `territoryEffectsFor`,
@@ -453,7 +511,9 @@ describe('the Training tab over HTTP', () => {
 });
 
 describe("the Overseer's own page", () => {
-  it('answers with the crew sheet and what every channel is currently worth', async () => {
+  // No crew sheet since the chair rework (2026-10-04): what the page reads is each working chair's
+  // passive and the Overseer's own grade, and the people fold pays nothing off anybody's skills.
+  it("answers with the Overseer's grade, the chairs, and what every channel is worth", async () => {
     const app = await makeApp();
     const token = await signIn(app);
     const res = await app.inject({
@@ -464,15 +524,17 @@ describe("the Overseer's own page", () => {
     expect(res.statusCode).toBe(200);
     const body = res.json<{
       overseer: { name: string };
-      crewSheet: Record<string, number>;
+      chairs: unknown[];
+      overseerGrade: { mark: string; passive: string };
       effects: Record<string, number>;
     }>();
     expect(body.overseer.name).toContain('Kane');
-    // The enforcer preset's Intimidation is its highest number, and it is one person, so the crew
-    // sheet is their sheet.
-    expect(body.crewSheet.intimidation).toBe(34);
-    expect(body.effects.intimidationFlat).toBeGreaterThan(0);
-    // Nothing leaks that the player could not already read off their own sheet.
+    expect(body).not.toHaveProperty('crewSheet');
+    // Nobody hired yet, so no chair gives anything; the Overseer is graded all the same.
+    expect(body.chairs).toEqual([]);
+    expect(body.overseerGrade.passive).toMatch(/^Lifts every seated officer by \d+ points?/);
+    // The enforcer preset's Intimidation is its highest number, and it no longer reaches the fold.
+    expect(body.effects.intimidationFlat).toBe(0);
     expect(body.effects).not.toHaveProperty('roleFit');
   });
 });
@@ -508,7 +570,7 @@ describe('an attribute changes an outcome', () => {
       buildings: [{ id: 'n', kind: 'nexus', level: 3, modifications: [] }],
       buildQueue: [],
       army: {},
-      trainingQueue: [],
+      musterQueue: [],
       training: startingTraining(HOUR),
       inventory: {},
       fittedUpgrades: [],
@@ -559,7 +621,9 @@ describe('an attribute changes an outcome', () => {
     );
   });
 
-  it('takes time off a build for Organization and Dexterity', () => {
+  // Dexterity on a Master of Whispers bought build speed through the best-of sheet until the chair
+  // rework (2026-10-04); a skill reaches the crew through its own chair's passive now, or not at all.
+  it('takes no time off a build for Dexterity in a chair that does not build', () => {
     const plain = openStack();
     const skilled = openStack();
     const plainBase = seed(plain, {});
@@ -569,47 +633,45 @@ describe('an attribute changes an outcome', () => {
       id: 'q1',
       now: new Date(HOUR),
     });
-    const quick = queueBuild(skilled, {
-      base: seed(skilled, { organization: 80, dexterity: 80 }),
+    const same = queueBuild(skilled, {
+      base: seed(skilled, { dexterity: 80 }),
       structure: 'quarters',
       id: 'q2',
       now: new Date(HOUR),
     });
-    if (flat.kind !== 'queued' || quick.kind !== 'queued') throw new Error('both should queue');
-
+    if (flat.kind !== 'queued' || same.kind !== 'queued') throw new Error('both should queue');
     // A crew with nothing pays the catalogue clock exactly, discount from the Nexus included.
     expect(flat.entry.durationSeconds).toBe(
       buildingBuildSeconds('quarters', 1, plainBase.buildings),
     );
-    expect(quick.entry.durationSeconds).toBeLessThan(flat.entry.durationSeconds);
+    expect(same.entry.durationSeconds).toBe(flat.entry.durationSeconds);
   });
 
-  it('takes caps off a build for Craft', () => {
+  it("takes caps off a build for the Engineer's passive, and none for Craft elsewhere", () => {
     const plain = openStack();
-    const maker = openStack();
+    const crafty = openStack();
+    const engineered = openStack();
     const plainBase = seed(plain, {});
-    const full = queueBuild(plain, {
-      base: plainBase,
-      structure: 'quarters',
-      id: 'q1',
-      now: new Date(HOUR),
-    });
-    const cheap = queueBuild(maker, {
-      base: seed(maker, { craft: 80 }),
-      structure: 'quarters',
-      id: 'q2',
-      now: new Date(HOUR),
-    });
-    if (full.kind !== 'queued' || cheap.kind !== 'queued') throw new Error('both should queue');
-
+    const queue = (repos: Repositories, base: Base) => {
+      const queued = queueBuild(repos, {
+        base,
+        structure: 'quarters',
+        id: 'q',
+        now: new Date(HOUR),
+      });
+      if (queued.kind !== 'queued') throw new Error('should queue');
+      return 50_000 - queued.base.resources.scrap;
+    };
     const listed = buildingCost('quarters', 1, plainBase.buildings);
-    const spent = (before: number, after: number) => before - after;
-    const paidFull = spent(50_000, full.base.resources.scrap);
-    const paidCheap = spent(50_000, cheap.base.resources.scrap);
+    const paidFull = queue(plain, plainBase);
     expect(paidFull).toBe(listed.scrap ?? 0);
-    expect(paidCheap).toBeLessThan(paidFull);
-    // Never free, whatever the crew.
-    expect(paidCheap).toBeGreaterThan(0);
+    // Craft on the Master of Whispers: nothing.
+    expect(queue(crafty, seed(crafty, { craft: 80 }))).toBe(paidFull);
+    // An Engineer flat at 80 is a perfect enough sheet for a real cut, and never free.
+    const engineer = createCommander('e1', 'Wright', 'engineer', makeAttributes(80));
+    const paidEngineered = queue(engineered, seed(engineered, {}, [], [engineer]));
+    expect(paidEngineered).toBeLessThan(paidFull);
+    expect(paidEngineered).toBeGreaterThan(0);
   });
 
   it('takes caps off what an officer asks for, for Authority and Negotiation', () => {
@@ -638,15 +700,23 @@ describe('an attribute changes an outcome', () => {
     expect(recoverCasualties({ razors: 10 }, 500).razors).toBeGreaterThan(5);
   });
 
-  it('reads the same effects whether the specialist is the Overseer or an officer', () => {
+  // Strength reached unit offence through the best-of sheet until the chair rework (2026-10-04).
+  // A perk still does, which is the control that the fold is read at all.
+  it('pays no channel for Strength, while a perk on the same officer still does', () => {
     const repos = openStack();
-    const base = seed(repos, { cryptography: 80 });
+    const strong = crewEffectsFor(repos, seed(repos, { strength: 80 }));
+    expect(strong.unitOffensePercent).toBe(0);
+    const drilled = openStack();
+    const withPerk = crewEffectsFor(drilled, seed(drilled, { strength: 80 }, ['drill_sergeant']));
+    expect(withPerk.unitOffensePercent).toBe(4);
+  });
+
+  it('puts no Cryptography or Signals into either spy channel, Overseer or officer', () => {
+    const repos = openStack();
+    const base = seed(repos, { cryptography: 80, deception: 80, signals: 80, logic: 80 });
     const effects = crewEffectsFor(repos, base);
-    expect(effects.intelResistancePercent).toBeGreaterThan(0);
-    // And the territory fold carries the crew's contribution through untouched.
-    expect(standingEffectsFor(repos, base).intelResistancePercent).toBe(
-      effects.intelResistancePercent,
-    );
+    expect(effects.intelResistancePercent).toBe(0);
+    expect(effects.intelYieldPercent).toBe(0);
   });
 
   it('holds every resource key it was given', () => {
@@ -689,7 +759,7 @@ describe('a perk that lifts the other officers', () => {
       buildings: [],
       buildQueue: [],
       army: {},
-      trainingQueue: [],
+      musterQueue: [],
       training: startingTraining(HOUR),
       inventory: {},
       fittedUpgrades: [],
@@ -851,7 +921,7 @@ describe("the Overseer's teaching perk", () => {
       buildings: [],
       buildQueue: [],
       army: {},
-      trainingQueue: [],
+      musterQueue: [],
       training: startingTraining(HOUR),
       inventory: {},
       fittedUpgrades: [],
@@ -864,18 +934,28 @@ describe("the Overseer's teaching perk", () => {
     return base;
   }
 
+  /** What the Overseer's own grade puts on an officer in `role` (`overseerLift`, 2026-10-04). */
+  function gradeLiftOn(repos: Repositories, role: OfficerRole, officerId: string) {
+    const overseer = repos.overseers.findById('o')!;
+    return overseerLift(seatPoints(overseer.attributes, 'overseer'), role, officerId);
+  }
+
   it('raises every social attribute on an officer who has never met another officer', () => {
     const repos = openStack();
     const base = yardWithOverseer(repos, [
       createCommander('alone', 'Alone', 'master_of_whispers', makeAttributes(20), []),
     ]);
 
-    // Sheet order is the Overseer, then the officers.
+    // Sheet order is the Overseer, then the officers. The Overseer's grade lifts the officer's
+    // irreplaceable and essential skills on top (2026-10-04), so it is counted in by name.
     const sheet = crewSheetsFor(repos, base)[1]!;
+    const grade = gradeLiftOn(repos, 'master_of_whispers', 'alone');
     for (const name of ATTRIBUTES_BY_GROUP.social) {
-      expect(sheet.attributes[name], name).toBe(25);
+      expect(sheet.attributes[name], name).toBe(25 + (grade[name] ?? 0));
     }
-    const elsewhere = ATTRIBUTE_NAMES.find((name) => !ATTRIBUTES_BY_GROUP.social.includes(name))!;
+    const elsewhere = ATTRIBUTE_NAMES.find(
+      (name) => !ATTRIBUTES_BY_GROUP.social.includes(name) && grade[name] === undefined,
+    )!;
     expect(sheet.attributes[elsewhere]).toBe(20);
   });
 
@@ -904,8 +984,9 @@ describe("the Overseer's teaching perk", () => {
     ]);
 
     const pupil = crewSheetsFor(repos, base)[2]!;
+    const grade = gradeLiftOn(repos, 'trader', 'pupil');
     for (const name of ATTRIBUTES_BY_GROUP.social) {
-      expect(pupil.attributes[name], name).toBe(28);
+      expect(pupil.attributes[name], name).toBe(28 + (grade[name] ?? 0));
     }
   });
 
@@ -1005,7 +1086,7 @@ describe('the bench', () => {
       buildings: [],
       buildQueue: [],
       army: {},
-      trainingQueue: [],
+      musterQueue: [],
       training: startingTraining(HOUR),
       inventory: {},
       fittedUpgrades: [],
@@ -1021,32 +1102,25 @@ describe('the bench', () => {
   /**
    * The bench is worth nothing (maintainer, 2026-09-28).
    *
-   * It used to pay a quarter of every rating (`BENCH_SHARE`), on the grounds that an officer in
-   * the room still knows what they know. The ruling is that an officer is unusable until seated,
-   * so the fold leaves them out entirely. Asserted through `crewSheet`, which is where a share
-   * would be applied, with the same person seated as the positive control: without it an empty
-   * sheet would pass for a fold that had stopped reading anybody.
+   * An officer is unusable until seated, so the fold leaves them out entirely. Asserted through
+   * the chair's passive (2026-10-04), with the same person seated as the positive control: without
+   * it an empty fold would pass for one that had stopped reading anybody.
    */
   it('pays somebody with no chair nothing, and the same person seated something', () => {
     const benchRepos = openStack();
-    const benched = crewSheet(
-      crewSheetsFor(
-        benchRepos,
-        roster(benchRepos, [createCommander('x', 'X', null, makeAttributes(40), [])]),
-      ),
+    const benched = crewEffectsFor(
+      benchRepos,
+      roster(benchRepos, [createCommander('x', 'X', null, makeAttributes(40), [])]),
     );
     const seatRepos = openStack();
-    const seated = crewSheet(
-      crewSheetsFor(
-        seatRepos,
-        roster(seatRepos, [
-          createCommander('x', 'X', 'master_of_whispers', makeAttributes(40), []),
-        ]),
-      ),
+    const seated = crewEffectsFor(
+      seatRepos,
+      roster(seatRepos, [createCommander('x', 'X', 'fixer', makeAttributes(40), [])]),
     );
 
-    expect(ATTRIBUTE_NAMES.every((name) => benched[name] === 0)).toBe(true);
-    expect(ATTRIBUTE_NAMES.some((name) => seated[name] > 0)).toBe(true);
+    expect(benched.chairPoints).toEqual({});
+    expect(chairPassiveOf(benched, 'fixer', 'payroll')).toBe(0);
+    expect(chairPassiveOf(seated, 'fixer', 'payroll')).toBeGreaterThan(0);
   });
 
   /**
@@ -1097,7 +1171,7 @@ describe('the bench', () => {
     )[0]!.attributes;
 
     expect(whisperSheet(null)[attribute]).toBe(unlifted[attribute]);
-    expect(whisperSheet('fabricator')[attribute]).toBe(unlifted[attribute] + flat);
+    expect(whisperSheet('salvager')[attribute]).toBe(unlifted[attribute] + flat);
   });
 
   /** A chair holds one person. The bench holds everybody you have not placed. */
@@ -1149,7 +1223,7 @@ describe('the Gate, from the district into a fight', () => {
       buildings: level === 0 ? [] : [{ id: 'g', kind: 'gate', level, modifications: [] }],
       buildQueue: [],
       army: {},
-      trainingQueue: [],
+      musterQueue: [],
       training: startingTraining(HOUR),
       inventory: {},
       fittedUpgrades: [],

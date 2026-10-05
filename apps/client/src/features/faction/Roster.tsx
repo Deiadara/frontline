@@ -4,6 +4,8 @@ import {
   describeCardBonus,
   describeCardReads,
   type FactionMember,
+  memberName,
+  dayInZone,
 } from '@frontline/shared';
 import { HoverCard } from '../../components/ui/HoverCard';
 import { Icon } from '../../components/ui/Icon';
@@ -12,6 +14,7 @@ import { cn } from '../../lib/cn';
 import { MemberFace } from './MemberFace';
 import { seatOrder } from './order';
 import { releaseHover } from './parts';
+import { usePlayerZone } from '../settings/usePlayerZone';
 
 /**
  * The table as a list, behind the Members door.
@@ -21,8 +24,8 @@ import { releaseHover } from './parts';
  * and cannot carry a district name, a level and a unit count per person without turning into five
  * spreadsheets standing at a bar.
  *
- * The rows are in `seatOrder`, the same order the seats are filled in, so the third row and the
- * third figure are the same person. Each row carries the holder's face, what their seat is for,
+ * The rows are in `seatOrder`: rank, then who joined first. The seats are the cards the leader
+ * set or the deal gave (`seats.ts`), so a row and a figure need not line up. Each row carries the holder's face, what their seat is for,
  * what it reads off them, and their mark on it: the same grammar the crew screen uses for an
  * officer in a chair, because a seat at this table is a chair with a job.
  */
@@ -61,10 +64,11 @@ function MemberRow({
   onOpen: () => void;
 }) {
   const spec = FACTION_CARD_SPECS[member.card];
+  const zone = usePlayerZone();
   return (
     <HoverCard
       className="w-full"
-      label={`${member.username}: open their file`}
+      label={`${memberName(member)}: open their file`}
       onActivate={() => {
         releaseHover();
         onOpen();
@@ -87,7 +91,7 @@ function MemberRow({
             <dt className="text-ink-400">Unit slots</dt>
             <dd className="tabular-nums">{member.unitSlotsUsed.toLocaleString()}</dd>
             <dt className="text-ink-400">Since</dt>
-            <dd className="tabular-nums">{member.joinedAt.slice(0, 10)}</dd>
+            <dd className="tabular-nums">{dayInZone(new Date(member.joinedAt), zone)}</dd>
           </dl>
           <p className="mt-2 font-body text-[11px] italic text-ink-400">
             Press for their file, and what you may do about them.
@@ -117,7 +121,7 @@ function MemberRow({
 
         <span className="flex min-w-0 flex-1 flex-col leading-tight">
           <span className="truncate font-stamp text-[13px] text-ink-100">
-            {member.username}
+            {memberName(member)}
             {isSelf && <span className="ml-1 text-[10px] text-brass-300">you</span>}
             <span className="ml-1.5 font-display text-[9.5px] uppercase tracking-[0.14em] text-ink-400">
               {FACTION_RANK_LABELS[member.rank]}

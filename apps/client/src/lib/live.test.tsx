@@ -40,7 +40,7 @@ let client: QueryClient;
 
 beforeEach(() => {
   client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  useSession.setState({ token: 'a-token' });
+  useSession.setState({ signedIn: true });
 });
 
 afterEach(() => {
@@ -49,7 +49,7 @@ afterEach(() => {
 });
 
 describe('the live channel', () => {
-  it('opens the stream with the session token in a header, not a query string', async () => {
+  it('opens the stream on the session cookie, with no token anywhere in the request', async () => {
     const stream = fakeStream();
     const fetchMock = vi
       .spyOn(globalThis, 'fetch')
@@ -63,10 +63,9 @@ describe('the live channel', () => {
     // those is "[object Object]", which would make the assertion below quietly untrue.
     expect(typeof url).toBe('string');
     expect(url as string).toBe('/api/events');
-    expect(url as string).not.toContain('a-token');
-    expect((init as RequestInit & { headers: Record<string, string> }).headers.Authorization).toBe(
-      'Bearer a-token',
-    );
+    const request = init as RequestInit & { headers: Headers };
+    expect(request.credentials).toBe('same-origin');
+    expect(request.headers.get('Authorization')).toBeNull();
   });
 
   it('reports itself live once the stream is open', async () => {
@@ -343,7 +342,7 @@ describe('the live channel', () => {
   });
 
   it('does not open a channel with no session to open it for', async () => {
-    useSession.setState({ token: null });
+    useSession.setState({ signedIn: false });
     const fetchMock = vi.spyOn(globalThis, 'fetch');
 
     const { result } = renderHook(() => useLiveEvents(), { wrapper: wrapper(client) });

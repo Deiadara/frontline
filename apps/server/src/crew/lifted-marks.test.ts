@@ -1,9 +1,11 @@
 import {
   OFFICER_MARK_BAND,
   createCommander,
+  ATTRIBUTES_BY_GROUP,
   makeAttributes,
   markFromPoints,
   markIndex,
+  seatPoints,
   startingEconomy,
   startingProgression,
   startingResearch,
@@ -15,7 +17,6 @@ import { describe, expect, it } from 'vitest';
 import { projectCrewOfficer } from './roster.js';
 import { officerFitReader, liftedOfficerSheet, officerLiftRoom } from './standing.js';
 import { chairMarksFor, researchHead, trackStatuses } from '../research/tracks.js';
-import { roleFit } from '../roles/requirements.js';
 
 /**
  * One sheet, one mark (§B7, §C1b).
@@ -29,27 +30,34 @@ import { roleFit } from '../roles/requirements.js';
  * promoted.
  *
  * The lift is not small enough to ignore. A mark band is `OFFICER_MARK_BAND` points wide, a single
- * `officer_group` perk is worth five points to a whole group, and `roleFit` is a weighted mean, so
- * one teacher moves a Head of Research most of a band on their own.
+ * `officer_group` perk is worth five points to a whole group, and a Researcher's seat leans on
+ * analysis and intuition, both mental, so one teacher moves them most of a band on their own.
  *
  * ## The fixture
  *
- * A flat sheet at `RAW`, which scores exactly `RAW` in any chair, and one peer carrying
- * `war_college`: +5 to every mental attribute. `head_of_research` weighs analysis 5, intuition 3
- * and composure 2 (all mental) against encyclopedia 2 and chemistry 1 (technical), so the lifted
- * score is `RAW + 5 * 10 / 13`, and `RAW` is chosen so that lands on the far side of a band edge.
+ * A flat sheet at `RAW` and one peer carrying `war_college`: +5 to every mental attribute. The
+ * Researcher's irreplaceable analysis, essential intuition and useful logic are all mental,
+ * so the lifted sheet scores `TAUGHT`, and `RAW` is chosen so that lands on the far side of a band
+ * edge (E- to E).
  */
 
 const NOW = new Date('2026-09-16T09:00:00.000Z');
 
-/** Flat at 24: `markFromPoints(24)` is one band below `markFromPoints(27.8)`. */
+/** Flat at 24, which a Researcher's seat reads as 24.97 points: an E-. */
 const RAW = 24;
+const RAW_POINTS = seatPoints(makeAttributes(RAW), 'researcher');
 
-/** What one `officer_group` teacher is worth to a Head of Research. See the fixture note. */
-const TAUGHT = RAW + (5 * 10) / 13;
+/** What one `officer_group` teacher is worth to a Researcher: 27.88 points, an E. */
+const TAUGHT = seatPoints(
+  makeAttributes(
+    RAW,
+    Object.fromEntries(ATTRIBUTES_BY_GROUP.mental.map((name) => [name, RAW + 5])),
+  ),
+  'researcher',
+);
 
-const head: Commander = createCommander('h', 'Officer h', 'head_of_research', makeAttributes(RAW));
-const medic: Commander = createCommander('m', 'Officer m', 'chief_medic', makeAttributes(RAW));
+const head: Commander = createCommander('h', 'Officer h', 'researcher', makeAttributes(RAW));
+const medic: Commander = createCommander('m', 'Officer m', 'veteran', makeAttributes(RAW));
 const teacher: Commander = {
   ...createCommander('t', 'Officer t', 'field_commander', makeAttributes(RAW)),
   perks: ['war_college'],
@@ -74,10 +82,12 @@ function makeBase(commanders: Commander[]): Base {
     economy: startingEconomy(NOW.toISOString()),
     progression: startingProgression(),
     research: startingResearch(),
-    buildings: [],
+    // A Lab at its top, so the tier gate (P7-C, 2026-10-02) opens every rung and the chairs are
+    // what these tests measure.
+    buildings: [{ id: 'lab', kind: 'lab', level: 20, modifications: [] }],
     buildQueue: [],
     army: {},
-    trainingQueue: [],
+    musterQueue: [],
     training: startingTraining(NOW.toISOString()),
     inventory: {},
     fittedUpgrades: [],
@@ -94,6 +104,10 @@ function fakeRepos() {
     city: { controls: () => new Map() },
     users: { findById: () => undefined },
     overseers: { findById: () => undefined },
+    // The research clock folds the crew's standing for the Head's figure (P7-C): at no table,
+    // and with no gate standing to be breached.
+    factions: { membershipOf: () => undefined },
+    sieges: { gate: () => undefined },
   } as unknown as Parameters<typeof officerFitReader>[0];
 }
 
@@ -110,19 +124,19 @@ describe('the sheet a mark is measured on', () => {
     const room = officerLiftRoom(fakeRepos(), makeBase([head, teacher]), NOW);
     const { attributes } = liftedOfficerSheet(head, room);
 
-    expect(roleFit(attributes, 'head_of_research')).toBeCloseTo(TAUGHT, 6);
-    expect(roleFit(head.attributes, 'head_of_research')).toBe(RAW);
-    expect(TAUGHT - RAW).toBeLessThan(OFFICER_MARK_BAND);
-    expect(markIndex(markFromPoints(TAUGHT))).toBe(markIndex(markFromPoints(RAW)) + 1);
+    expect(seatPoints(attributes, 'researcher')).toBeCloseTo(TAUGHT, 6);
+    expect(seatPoints(head.attributes, 'researcher')).toBe(RAW_POINTS);
+    expect(TAUGHT - RAW_POINTS).toBeLessThan(OFFICER_MARK_BAND);
+    expect(markIndex(markFromPoints(TAUGHT))).toBe(markIndex(markFromPoints(RAW_POINTS)) + 1);
   });
 
   it('reads the chair off the lifted sheet, not the printed one', () => {
     const alone = officerFitReader(fakeRepos(), makeBase([head]), NOW);
     const taught = officerFitReader(fakeRepos(), makeBase([head, teacher]), NOW);
 
-    expect(alone.markFor('head_of_research')).toBe(markFromPoints(RAW));
-    expect(taught.markFor('head_of_research')).toBe(markFromPoints(TAUGHT));
-    expect(taught.pointsFor(head, 'head_of_research')).toBeCloseTo(TAUGHT, 6);
+    expect(alone.markFor('researcher')).toBe(markFromPoints(RAW_POINTS));
+    expect(taught.markFor('researcher')).toBe(markFromPoints(TAUGHT));
+    expect(taught.pointsFor(head, 'researcher')).toBeCloseTo(TAUGHT, 6);
   });
 
   /**
@@ -135,10 +149,10 @@ describe('the sheet a mark is measured on', () => {
     const room = officerLiftRoom(fakeRepos(), makeBase([head, teacher]), NOW);
     const card = projectCrewOfficer(head, liftedOfficerSheet(head, room));
 
-    expect(card.mark).toBe(markFromPoints(roleFit(card.lifted, 'head_of_research')));
+    expect(card.mark).toBe(markFromPoints(seatPoints(card.lifted, 'researcher')));
     expect(card.mark).toBe(markFromPoints(TAUGHT));
     // The control: the printed sheet is still on the card, and it is a different mark.
-    expect(markFromPoints(roleFit(card.attributes, 'head_of_research'))).not.toBe(card.mark);
+    expect(markFromPoints(seatPoints(card.attributes, 'researcher'))).not.toBe(card.mark);
   });
 
   /**
@@ -151,11 +165,11 @@ describe('the sheet a mark is measured on', () => {
     const alone = makeBase([head, medic]);
     const taught = makeBase([head, medic, teacher]);
 
-    expect(chairMarksFor('head_of_research', officerFitReader(fakeRepos(), alone, NOW))).toEqual({
-      trackMark: markFromPoints(RAW),
-      headMark: markFromPoints(RAW),
+    expect(chairMarksFor('researcher', officerFitReader(fakeRepos(), alone, NOW))).toEqual({
+      trackMark: markFromPoints(RAW_POINTS),
+      headMark: markFromPoints(RAW_POINTS),
     });
-    expect(chairMarksFor('head_of_research', officerFitReader(fakeRepos(), taught, NOW))).toEqual({
+    expect(chairMarksFor('researcher', officerFitReader(fakeRepos(), taught, NOW))).toEqual({
       trackMark: markFromPoints(TAUGHT),
       headMark: markFromPoints(TAUGHT),
     });
@@ -170,11 +184,16 @@ describe('the sheet a mark is measured on', () => {
    */
   it('shortens the clock and the bill by the lifted score', () => {
     const alone = researchHead(
+      fakeRepos(),
       makeBase([head]),
       officerFitReader(fakeRepos(), makeBase([head]), NOW),
     );
     const taughtBase = makeBase([head, teacher]);
-    const taught = researchHead(taughtBase, officerFitReader(fakeRepos(), taughtBase, NOW));
+    const taught = researchHead(
+      fakeRepos(),
+      taughtBase,
+      officerFitReader(fakeRepos(), taughtBase, NOW),
+    );
 
     expect(taught?.mark).toBe(markFromPoints(TAUGHT));
     expect(taught?.timeCutPercent ?? 0).toBeGreaterThan(alone?.timeCutPercent ?? 0);
@@ -182,15 +201,17 @@ describe('the sheet a mark is measured on', () => {
     const medicAlone = makeBase([medic]);
     const medicTaught = makeBase([medic, teacher]);
     const cutAlone = trackStatuses(medicAlone, officerFitReader(fakeRepos(), medicAlone, NOW)).find(
-      (entry) => entry.role === 'chief_medic',
+      (entry) => entry.role === 'veteran',
     );
     const cutTaught = trackStatuses(
       medicTaught,
       officerFitReader(fakeRepos(), medicTaught, NOW),
-    ).find((entry) => entry.role === 'chief_medic');
+    ).find((entry) => entry.role === 'veteran');
 
-    // The Chief Medic weighs composure 3 and intuition 1 out of 13, both mental, so a smaller lift
-    // than the Head gets and still a real one.
-    expect(cutTaught?.costCutPercent ?? 0).toBeGreaterThan(cutAlone?.costCutPercent ?? 0);
+    // What the chair gives moves with the lift too: the Veteran's muster cut, read off the line the
+    // Lab prints for the track (2026-10-04, when no officer cut a programme's price any more).
+    const percentOf = (line: string | null | undefined): number =>
+      Number(/([\d.]+)%/.exec(line ?? '')?.[1] ?? Number.NaN);
+    expect(percentOf(cutTaught?.passive)).toBeGreaterThan(percentOf(cutAlone?.passive));
   });
 });

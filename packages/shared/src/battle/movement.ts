@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { CANCEL_WINDOW } from '../time/cancel.js';
 import { IdSchema, IsoDateTimeSchema } from '../primitives.js';
-import { ArmySchema } from '../units/training.js';
+import { ArmySchema } from '../units/muster.js';
 import { BattleSideSchema } from './scheduled.js';
 
 /**
@@ -54,7 +54,7 @@ export type Movement = z.infer<typeof MovementSchema>;
 /**
  * How long a column may be turned around, as a share of its own walk.
  *
- * The same tenth the training bench uses, and for the same reason: long enough to undo a misclick,
+ * The same tenth the muster bench uses, and for the same reason: long enough to undo a misclick,
  * short enough that it is not a way to keep an army in superposition while you wait to see what
  * the other side does.
  */

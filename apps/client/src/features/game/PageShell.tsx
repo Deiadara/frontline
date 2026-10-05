@@ -91,6 +91,12 @@ interface PageShellProps {
    * screen to do it.
    */
   fills?: boolean;
+  /**
+   * The page's last child may grow to the foot of the sheet, and the sheet still scrolls when the
+   * page is taller (maintainer, 2026-10-05: the Black Market's two halves run down to a gap as wide
+   * as the one at their sides). Unlike `fills`, nothing is clipped on a short screen.
+   */
+  stretch?: boolean;
   /** Give the sheet the wider measure. For screens carrying art rather than paragraphs. */
   wide?: boolean;
   children: ReactNode;
@@ -129,6 +135,7 @@ export function PageShell({
   action,
   wide = false,
   fills = false,
+  stretch = false,
   children,
 }: PageShellProps) {
   /**
@@ -197,7 +204,13 @@ export function PageShell({
               fills ? 'flex flex-col overflow-hidden py-4' : 'overflow-y-auto py-5',
             )}
           >
-            <div className={cn('flex flex-col', fills ? 'min-h-0 flex-1 gap-3' : 'gap-5')}>
+            <div
+              className={cn(
+                'flex flex-col',
+                fills ? 'min-h-0 flex-1 gap-3' : 'gap-5',
+                stretch && !fills && 'min-h-full',
+              )}
+            >
               {/* Inside the scrolling body rather than in the pinned header: a quotation is read
                   once on arrival, and a pinned one would keep a line of poetry on screen for the
                   whole time a player is working three screens down a roster. */}

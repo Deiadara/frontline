@@ -1,8 +1,7 @@
 import type { ChairLead } from './leading.js';
 import {
-  ATTRIBUTE_NAMES,
   ATTRIBUTES_BY_GROUP,
-  MAX_ATTRIBUTE,
+  SPY_DEFENCE_ATTRIBUTES,
   clampAttribute,
   type AttributeGroup,
   type AttributeName,
@@ -12,13 +11,15 @@ import { applyHoldBonus, noTerritoryEffects, type TerritoryEffects } from '../ci
 import { perksOf, type PerkBonus } from './perks.js';
 import type { UnitTier, UnitTierStat } from '../units/tiers.js';
 import type { BuildingKind } from '../building/kinds.js';
-import type { OfficerRole } from '../roles.js';
+import { OFFICER_ROLE_LABELS, type OfficerRole } from '../roles.js';
 import {
-  IMPORTANCE_WEIGHT,
+  SEATS,
   importanceOf,
-  officerScore,
+  seatPoints,
   type AttributeImportance,
+  type Seat,
 } from './importance.js';
+import { seatedPassivePercent, type ChairPassive } from './passives.js';
 import { RESOURCE_KEYS, type PartialResources } from '../resources.js';
 import { softCap } from '../battle/soft-cap.js';
 
@@ -39,39 +40,34 @@ import { softCap } from '../battle/soft-cap.js';
  * call chain. A second parallel bonus system would have to be plumbed into each consumer by hand,
  * and the plumbing is exactly where a bonus quietly stops applying.
  *
- * ## Best-of, not the sum and not the mean
+ * ## Chairs, not the best person in the room
  *
- * A crew's rating in an attribute is its **highest** among the Overseer and the officers. One
- * specialist is enough: you do not need every person in the room to read cipher traffic, you need
- * the one who can. A sum would make hiring anybody strictly better and turn the officer slots into
- * a headcount; a mean would make hiring a good engineer *worse* because they drag the crew's
- * Medicine average down. Best-of is the only one of the three where the interesting sentence
- * ("who is your best X?") is the sentence the rule asks.
- *
- * ## Magnitude
- *
- * One number, {@link EFFECT_SCALE}, converts a rating into its channel's units. At the recruitment
- * mean (15) an attribute is worth about 4; at the recruitment ceiling (40) about 10; at a fully
- * developed 100 it is 25. Nothing here is a multiplier on a multiplier, so a crew cannot stack
- * itself into absurdity, and the ceiling on any single channel is legible from the table below.
+ * Until 2026-10-04 a crew's rating in each attribute was its highest anywhere in the room, and
+ * every attribute pushed a channel here. The maintainer replaced that: an officer gives only what
+ * their chair gives (`passives.ts`), sized by how well they fill it, and the only skills still read
+ * across the whole room are Signals and Cryptography, which guard the crew against spies
+ * (`spying/spying.ts`). What lands here from people is their perks, which sum: two people who each
+ * know a foundry manager know two of them.
  */
 
-/** Percent (or flat, for the flat channels) per point of the driving attribute. */
-export const EFFECT_SCALE = 0.25;
-
 /**
- * The channels an attribute can push on.
+ * The channels an attribute can push on, and the two spy channels, which none does.
  *
  * The first fifteen are `TerritoryEffects` fields: attributes and captured ground push the same
  * levers, which is why holding a Fight Pit and hiring a brawler feel like the same kind of gain.
  * The rest are crew-only: they describe things a piece of ground cannot do for you.
+ *
+ * `intelYieldPercent` and `intelResistancePercent` have had no attribute behind them since the
+ * maintainer ruled that the officer side of spying is the Master of Whispers' grade alone
+ * (2026-10-01). Perks and held ground still pay them, so they stay on the list; the crew effects
+ * page leaves them out, since how hard a crew is to read is not a public figure (the same day).
  */
 export const EFFECT_CHANNELS = [
   'defensePercent',
   'researchSpeedPercent',
   'buildSpeedPercent',
-  'trainingSpeedPercent',
-  'trainingCostPercent',
+  'musterSpeedPercent',
+  'musterCostPercent',
   'unitOffensePercent',
   'unitVitalityPercent',
   'unitMoraleFlat',
@@ -92,6 +88,16 @@ export const EFFECT_CHANNELS = [
 export type EffectChannel = (typeof EFFECT_CHANNELS)[number];
 
 /**
+ * The channels no browser is sent (maintainer, 2026-10-01: "these are not public values"). How hard
+ * a crew is to read, either way round, stays on the server, which still spends both in the spy
+ * contest; the crew's standing leaves them out of the map it sends, and no screen draws them.
+ */
+export const PRIVATE_CHANNELS: ReadonlySet<string> = new Set<EffectChannel>([
+  'intelYieldPercent',
+  'intelResistancePercent',
+]);
+
+/**
  * What a channel is called on a screen, and its unit.
  *
  * `flat` channels are added to a number the player already sees; the rest are percentages. Held
@@ -105,26 +111,34 @@ export interface ChannelLabel {
 
 export const CHANNEL_LABELS: Readonly<Record<EffectChannel, ChannelLabel>> = {
   defensePercent: { label: 'Holding your ground', unit: 'percent' },
-  researchSpeedPercent: { label: 'Research speed', unit: 'percent' },
-  buildSpeedPercent: { label: 'Build speed', unit: 'percent' },
-  trainingSpeedPercent: { label: 'Training speed', unit: 'percent' },
-  trainingCostPercent: { label: 'Off the cost of a unit', unit: 'percent' },
+  // Points off the clock, added to the cards' and the Generator's (2026-10-01), and
+  // printed as points (maintainer ruling P7-A, 2026-10-02): the sum is joined with the
+  // structure's and curved, so "+153% off the research clock" was more than the whole clock.
+  researchSpeedPercent: { label: 'Points off the research clock', unit: 'flat' },
+  buildSpeedPercent: { label: 'Points off the build clock', unit: 'flat' },
+  musterSpeedPercent: { label: 'Muster speed', unit: 'percent' },
+  musterCostPercent: { label: 'Off the cost of a unit', unit: 'percent' },
   unitOffensePercent: { label: 'What your people hit for', unit: 'percent' },
   unitVitalityPercent: { label: 'What they can take', unit: 'percent' },
   unitMoraleFlat: { label: 'Whether they hold', unit: 'flat' },
   unitSpeedPercent: { label: 'How fast they move', unit: 'percent' },
   unitStealthPercent: { label: 'Going unnoticed', unit: 'percent' },
   lootCapacityPercent: { label: 'What comes back on the truck', unit: 'percent' },
-  intimidationFlat: { label: 'Being handed it instead', unit: 'flat' },
-  travelSpeedPercent: { label: 'Time on the road', unit: 'percent' },
+  // What the engine does with it (`intimidate`): the shakiest of the other side freeze and never
+  // fire. It said "being handed it instead", and nothing in the game hands anything over.
+  intimidationFlat: { label: 'Their line freezing', unit: 'flat' },
+  // Taken off the clock (`roadMinutes`), so the card's `+9%` has to read as time saved.
+  travelSpeedPercent: { label: 'Off the time on the road', unit: 'percent' },
   productionPercent: { label: 'What the district makes', unit: 'percent' },
   storageCapacityPercent: { label: 'Room to keep it', unit: 'percent' },
-  buildCostPercent: { label: 'Off the cost of a build', unit: 'percent' },
-  wageDiscountPercent: { label: 'Off what an officer asks for', unit: 'percent' },
+  buildCostPercent: { label: 'Points off the cost of a build', unit: 'flat' },
+  // Once, at signing (`committedWage`); a running contract is never re-priced.
+  wageDiscountPercent: { label: 'Off wages agreed at signing', unit: 'percent' },
   // Spy points and medic points, not percentages: the spy contest adds the first two to a chair's
   // fit (`spying/spying.ts`), and the medics' points go through a curve (`casualtyRecoveryShare`).
-  intelYieldPercent: { label: 'What your spies bring back', unit: 'flat' },
-  intelResistancePercent: { label: 'What theirs does not', unit: 'flat' },
+  // Named as the points the perk cards print, since a perk or a held place is all that pays them.
+  intelYieldPercent: { label: 'Spy points on every job', unit: 'flat' },
+  intelResistancePercent: { label: 'Points against their spies', unit: 'flat' },
   casualtyRecoveryPercent: { label: 'Medic points (who walks home)', unit: 'flat' },
   cohesionPercent: { label: 'Getting numbers to count', unit: 'percent' },
 };
@@ -141,9 +155,11 @@ export interface CrewOnlyEffects {
   wageDiscountPercent: number;
   /** Taken off what the next `Increase Payroll` step costs. */
   payrollStepDiscountPercent: number;
+  /** More of a job's pay in caps, applied when the run comes home (`withMissionCaps`). */
+  missionCapsPercent: number;
   // `intelYieldPercent` used to live here. It is a `TerritoryEffects` channel now, because a
-  // Watchtower and a Master of Whispers with a Logic of 80 buy the same thing and should land in one place.
-  /** How much of *your* ground a rival's spies fail to bring home. */
+  // Watchtower and a spy perk buy the same thing and should land in one place.
+  /** Points a rival's spies must beat: perks only since 2026-10-01, never an attribute. */
   intelResistancePercent: number;
   /** How much faster the wounded come back after a fight instead of staying dead. */
   casualtyRecoveryPercent: number;
@@ -152,7 +168,7 @@ export interface CrewOnlyEffects {
    *
    * What comes home is carried by the units that **survived** the fight, and a unit the medics
    * recover was dead at the moment the packs were counted, so by default it carries nothing. The
-   * Chief Medic's `recovered_carry_loot` rung is the one thing that turns this on: the party that
+   * Veteran's `recovered_carry_loot` rung (Carry Both) is the one thing that turns this on: the party that
    * brings a body back brings the pack with it.
    *
    * A switch rather than a percentage, and crew-only: no piece of ground grants it, so it is not a
@@ -187,16 +203,15 @@ export interface CrewOnlyEffects {
   unitEvasionFlat: number;
   /**
    * The whole-number grants research can make (`research/tracks.ts`), on top of what a level
-   * gives: another crew out on a job at once, another chair at the Bar, another fight called at
-   * once. Flat and small, because each one is a door rather than a dial.
+   * gives: another crew out on a job at once, another fight called at once. Flat and small,
+   * because each one is a door rather than a dial.
    */
   missionSlotsFlat: number;
-  recruitSlotsFlat: number;
   declarationsFlat: number;
   /** §D7: names a crew may burn on one fight, on top of the one everybody gets. */
   battleBoostsFlat: number;
-  /** Benches on the training floor, on top of `TRAINING_BENCHES` (`crew/training.ts`). */
-  trainingBenchesFlat: number;
+  /** Places in the training queue, on top of `TRAINING_QUEUE_SLOTS` (`crew/training.ts`). */
+  trainingQueueFlat: number;
   /** Spy jobs out at once, on top of `SPY_BASE_PARTIES` (`spying/spying.ts`). */
   spyPartiesFlat: number;
 }
@@ -274,6 +289,15 @@ export interface ConditionalCrewEffects {
    * `liftedOfficerSheet` on the server spends it, per officer.
    */
   chairTeaches: ChairTeaching[];
+  /**
+   * The seat's points of whoever is working each chair, on their lifted sheet (2026-10-04).
+   *
+   * What every chair's passive is sized by (`passives.ts`), read where the passive is spent: the
+   * payroll book, the unit slots, the road, the market, the Scrapyard and the rest. Absent for an
+   * empty chair, which pays nothing. Only the people fold writes it, so a merge with any other
+   * fold leaves it as it was.
+   */
+  chairPoints: Partial<Record<OfficerRole, number>>;
 }
 
 /** One rung's lesson, filed under the chair whose track it sits on. */
@@ -306,6 +330,7 @@ export function noCrewEffects(): CrewEffects {
     buildCostPercent: 0,
     wageDiscountPercent: 0,
     payrollStepDiscountPercent: 0,
+    missionCapsPercent: 0,
     intelResistancePercent: 0,
     casualtyRecoveryPercent: 0,
     recoveredCarryLoot: false,
@@ -320,10 +345,9 @@ export function noCrewEffects(): CrewEffects {
     xpGainPercent: 0,
     officerAttributeFlat: {},
     missionSlotsFlat: 0,
-    recruitSlotsFlat: 0,
     declarationsFlat: 0,
     battleBoostsFlat: 0,
-    trainingBenchesFlat: 0,
+    trainingQueueFlat: 0,
     spyPartiesFlat: 0,
     officerAttributeAtLeast: {},
     leadOffensePercent: 0,
@@ -334,6 +358,7 @@ export function noCrewEffects(): CrewEffects {
     leadArrivalPercent: 0,
     chairLeads: [],
     chairTeaches: [],
+    chairPoints: {},
   };
 }
 
@@ -405,400 +430,212 @@ export const CONDITIONAL_CHANNEL_LABELS: Readonly<
   },
   leadLootPercent: {
     label: 'What comes back off the ground',
-    when: 'Only in a fight one of your officers is leading',
+    when: 'Only on a fight or a run one of your officers is leading',
   },
   leadArrivalPercent: {
-    label: 'Time on the road',
+    label: 'Off the time on the road',
     when: 'Only when one of your officers is leading the column',
   },
 };
 
+/** What an attribute is, in one sentence of the player's language. */
 export interface AttributeEffect {
-  /** Where this attribute lands. */
-  channel: EffectChannel;
   /**
-   * One sentence, in the player's language, about what having it does. Not a formula: the
-   * magnitude is on the screen next to it, and a sentence that restates the number teaches nothing.
+   * One sentence about what having it is like. Not a formula: since 2026-10-04 a skill reaches the
+   * crew only through the grade of a chair that weighs it ({@link attributeUse} names them).
    */
   summary: string;
 }
 
-/**
- * Every attribute, and the thing it changes.
- *
- * Exactly one channel each, on purpose. An attribute that pushed four levers a little would be
- * impossible to feel and impossible to shop for; an attribute that pushes one lever hard is a
- * reason to hire a specific person. Several attributes share a channel. That is fine and it is
- * how a channel gets deep: Resolve and Composure and Leadership all hold a line, and a crew with
- * all three holds it through anything.
- */
+/** Every attribute, and the line the training board and the Bar print for it. */
 export const ATTRIBUTE_EFFECTS: Readonly<Record<AttributeName, AttributeEffect>> = {
-  // Physical: what a unit does when the plan stops working.
   strength: {
-    channel: 'unitOffensePercent',
     summary: 'Doors, walls and people give way faster when somebody strong is leaning on them.',
   },
   stamina: {
-    channel: 'travelSpeedPercent',
     summary: 'A crew that does not need to stop gets there while the road is still empty.',
   },
   dexterity: {
-    channel: 'buildSpeedPercent',
     summary: 'Good hands finish the fiddly half of a build, which is most of a build.',
   },
-  // Note: `organization` used to sit on this channel and now drives cohesion. Build speed keeps
-  // `dexterity` and the Lab's Critical Path; a crew that wants faster builds hires hands.
   speed: {
-    channel: 'unitSpeedPercent',
     summary: 'First to the ground, first off it. Half of surviving a raid is arriving early.',
   },
   reflexes: {
-    channel: 'unitOffensePercent',
     summary: 'The half second before anyone has decided anything is the one that decides it.',
   },
   toughness: {
-    channel: 'unitVitalityPercent',
     summary: 'Takes what the fight gives and is still standing when it is handed back.',
   },
   stealth: {
-    channel: 'unitStealthPercent',
     summary: 'Nobody logs a raid they never noticed. Nobody sends anyone after it either.',
   },
-
-  // Mental: the difference between a plan and a hope.
   organization: {
-    channel: 'cohesionPercent',
     summary: 'Everyone knows where they are meant to be, so a big push arrives as one thing.',
   },
   analysis: {
-    channel: 'researchSpeedPercent',
     summary: 'Reads the failure and knows which part of it was the interesting part.',
   },
   improvisation: {
-    channel: 'researchSpeedPercent',
     summary: 'Gets a result out of the wrong equipment, which is the only equipment there is.',
   },
   logic: {
-    channel: 'intelYieldPercent',
-    summary: 'Takes three unrelated facts off a spy report and turns them into one answer.',
+    summary:
+      'In the Master of Whispers\u2019 chair, takes three unrelated facts off a spy report and turns them into one answer.',
   },
   composure: {
-    channel: 'unitMoraleFlat',
     summary: 'Somebody in the line is not panicking, and it spreads the same way panic does.',
   },
   resolve: {
-    channel: 'unitMoraleFlat',
     summary: 'The crew does not back off the first time it goes badly. Or the second.',
   },
   intuition: {
-    channel: 'intelYieldPercent',
-    summary: 'Knows which of the things the runners brought back is the one that matters.',
+    summary:
+      'In the Master of Whispers\u2019 chair, knows which of the things the runners brought back is the one that matters.',
   },
   strategy: {
-    channel: 'defensePercent',
     summary:
       'Picks the ground that was already held before anyone walked onto it. Mined, cratered and awkward, and attacking it is a decision.',
   },
   authority: {
-    channel: 'wageDiscountPercent',
-    summary: 'People take less to work under someone they would rather not disappoint.',
+    summary: 'People do the work for someone they would rather not disappoint.',
   },
-
-  // Social: the crew is people, and people are a system.
   leadership: {
-    channel: 'cohesionPercent',
     summary: 'Four hundred people doing one thing, because somebody is telling them what it is.',
   },
   charisma: {
-    // Not morale, though §F3 names it: morale is capped at 100 and composure and resolve already
-    // take a maxed crew to +50 on it, where the maintainer halved the boosts on 2026-09-29.
-    channel: 'trainingSpeedPercent',
     summary: 'Recruits work harder when somebody they want to impress is watching.',
   },
   communication: {
-    channel: 'cohesionPercent',
     summary: 'The far side of the fight hears about it while it still matters.',
   },
   intimidation: {
-    channel: 'intimidationFlat',
-    summary: 'Some places hand it over rather than find out. That is a saved fight.',
+    summary:
+      'The shakiest people on the other side freeze before the first shot, and stay frozen. Every one is a gun not pointed at you.',
   },
   negotiation: {
-    channel: 'wageDiscountPercent',
     summary: 'Every wage is an opening number to somebody who has done this before.',
   },
   deception: {
-    channel: 'intelResistancePercent',
-    summary: 'A rival spy comes back with a full report of things that are not true.',
+    summary:
+      'In the Master of Whispers\u2019 chair, sends a rival spy home with a full report of things that are not true.',
   },
   empathy: {
-    // Shared with `negotiation`, which the module doc says is how a channel gets deep. It used to
-    // drive the §H5 alignment hold; that mechanic is gone, and what empathy was actually buying
-    // there (knowing what somebody wants before they say it) is the same thing that gets a wage
-    // agreed below the asking price.
-    channel: 'wageDiscountPercent',
     summary: 'Hears what somebody actually wants, which is rarely the number they opened with.',
   },
   diplomacy: {
-    channel: 'buildCostPercent',
-    summary:
-      'Talks to the crews you are not fighting, and their yards sell to yours at a neighbour\u2019s price.',
+    summary: 'Talks to the crews you are not fighting, and keeps them talking.',
   },
-
-  // Technical: the district runs on somebody knowing how it works.
   engineering: {
-    channel: 'productionPercent',
     summary: 'The line runs at the rate it was rated for instead of the rate it settled into.',
   },
   signals: {
-    channel: 'intelYieldPercent',
     summary:
-      'Runs the net, and reads the traffic on everybody else\u2019s. The Combine keeps better records about a place than anyone standing in it.',
+      'Runs the net, so a rival listening in hears static; in the Master of Whispers\u2019 chair, reads the traffic on everybody else\u2019s.',
   },
   craft: {
-    channel: 'buildCostPercent',
-    summary:
-      'Makes the part rather than buying it, and mends the one that broke. The stockpile notices.',
+    summary: 'Makes the part rather than buying it, and mends the one that broke.',
   },
   medicine: {
-    channel: 'casualtyRecoveryPercent',
-    summary: 'Some of the people you were going to lose come back to work instead.',
+    summary: 'Knows which of the people on the floor can still be saved, and saves them.',
   },
   cybernetics: {
-    channel: 'trainingSpeedPercent',
     summary: 'A shunt and a good afternoon do what a fortnight of drilling used to.',
   },
   salvage: {
-    channel: 'lootCapacityPercent',
     summary: 'Knows what in the wreck is worth the trip back, and gets it on the truck.',
   },
   encyclopedia: {
-    channel: 'researchSpeedPercent',
     summary:
       'Has read about this before, in something that was about something else. Knows which of the dead ends is not one.',
   },
   navigation: {
-    channel: 'travelSpeedPercent',
     summary: 'There is always a shorter way through the undergrid and they already know it.',
   },
   chemistry: {
-    channel: 'trainingCostPercent',
-    summary: 'Propellant, stims and patch kits made in-house. A recruit costs less to field.',
+    summary:
+      'Propellant, stims and patch kits made in-house, by somebody who knows what they are mixing.',
   },
   logistics: {
-    channel: 'storageCapacityPercent',
     summary: 'Finds room in a full warehouse. Twice.',
   },
   cryptography: {
-    channel: 'intelResistancePercent',
     summary: 'Your traffic reads as noise, so a rival spying on you learns the weather.',
   },
 };
 
-/** Which attributes drive a channel. Derived: the table above is the only place they are paired. */
-export function attributesDriving(channel: EffectChannel): AttributeName[] {
-  return ATTRIBUTE_NAMES.filter((name) => ATTRIBUTE_EFFECTS[name].channel === channel);
-}
-
-/** What one rating is worth on its channel, rounded to whole units. */
-export function contributionOf(rating: number): number {
-  return Math.round(rating * EFFECT_SCALE);
+/** The seats that weigh an attribute, irreplaceable first, so a hover names who wants it most. */
+export function seatsWeighing(name: AttributeName): Seat[] {
+  const order: AttributeImportance[] = ['irreplaceable', 'essential', 'useful'];
+  return order.flatMap((tag) => SEATS.filter((seat) => importanceOf(seat, name) === tag));
 }
 
 /**
- * How much of an attribute a person contributes when their seat does not use it.
+ * One short line on what an attribute is good for, the same on every screen that lists one: the
+ * Training tab, the crew's sheets, the officer window and the Bar.
  *
- * Not zero, deliberately. An officer is in the room and people talk: a chemist working the books
- * still notices the smell. Zero would also make one bad assignment catastrophic in a way the
- * player cannot see coming, and the point of the rule is to reward good assignment, not to punish
- * an early mistake into unrecoverability.
+ * Since 2026-10-04 a skill does two things at most: it grades the chairs that weigh it, and
+ * Signals and Cryptography, on anybody in the room, guard the crew against spies.
  */
-export const OFF_DUTY_SHARE = 0.35;
+export function attributeUse(name: AttributeName): string {
+  const seats = seatsWeighing(name).map((seat) =>
+    seat === 'overseer' ? 'the Overseer' : `the ${OFFICER_ROLE_LABELS[seat]}`,
+  );
+  const grades =
+    seats.length === 0
+      ? 'No chair grades it.'
+      : `Grades ${seats.length === 1 ? seats[0] : `${seats.slice(0, -1).join(', ')} and ${seats.at(-1)}`}.`;
+  // The two skills everybody in the room still gives, chair or no chair (`spying/spying.ts`).
+  const guards = (SPY_DEFENCE_ATTRIBUTES as readonly AttributeName[]).includes(name);
+  return guards ? `Guards your crew against spies. ${grades}` : grades;
+}
 
 /**
- * What share of a rating a seat actually puts to work, by how much that seat cares about the skill.
+ * One person in the room: their sheet, the perks they brought, and their chair.
  *
- * The four weights of `IMPORTANCE_WEIGHT` over the top of the ladder, so an irreplaceable skill is
- * worth its whole rating and an insignificant one a quarter of it. This *is* the "these contribute
- * more towards the bonuses" rule: it is applied per skill, before best-of, so an officer in the
- * right chair beats a better officer in the wrong one.
- */
-export const IMPORTANCE_SHARE: Readonly<Record<AttributeImportance, number>> = {
-  insignificant: IMPORTANCE_WEIGHT.insignificant / IMPORTANCE_WEIGHT.irreplaceable,
-  useful: IMPORTANCE_WEIGHT.useful / IMPORTANCE_WEIGHT.irreplaceable,
-  essential: IMPORTANCE_WEIGHT.essential / IMPORTANCE_WEIGHT.irreplaceable,
-  irreplaceable: 1,
-};
-
-/**
- * How far the band bonuses may lift what an officer is worth.
- *
- * The score has two halves and they are cashed in two different places, which is the whole reason
- * this is not double counting. The **base** half (rating times weight) is already spent, per skill,
- * as {@link IMPORTANCE_SHARE} above: paying it again here would be charging the same points twice.
- * The **bonus** half is the part nothing else expresses, and what it says is that a peak is worth
- * more than its linear value, so it is spent as an uplift on everything that officer contributes.
- *
- * Capped, because the bonus table is steep by design: a sheet of 100s in a well-chosen chair scores
- * several hundred bonus points, and an uncapped ratio would let one officer out-produce the rest of
- * the crew put together.
- */
-export const MAX_PEAK_UPLIFT = 0.6;
-
-/**
- * One person in the room, and which of their skills the seat they are in actually uses.
- *
- * `duties` is `null` for the Overseer, who is the player: they are not sitting in one of the
- * nineteen seats and everything they know is available to the crew all the time.
- *
- * Note what this is **not**: a role. Which attributes a seat uses is a server-side table for the
- * same reason the fit table is (§B8a): it overlaps what a role wants closely enough that
- * publishing it would be publishing half the hidden table. The mechanism lives here; the content
- * is passed in.
+ * `role` is `null` for the Overseer, who is the player and sits in no chair. An officer on the
+ * bench is never a `CrewMember` at all (maintainer, 2026-09-28): the server leaves them out of the
+ * room (`officerIsWorking`).
  */
 export interface CrewMember {
   attributes: Attributes;
   /**
-   * The perk ids this person brought with them (`crew/perks.ts`), nought to three.
-   *
-   * **Required, not optional**, and that is deliberate. It was optional so that a caller who only
-   * cared about attributes could leave it out, and the cost of that convenience was immediate: the
-   * server's `crewSheetsFor` built every officer without perks, the whole book silently applied to
-   * nobody, and it compiled. An empty list has to be written down.
+   * The perk ids this person brought with them (`crew/perks.ts`), nought to three. Required, so a
+   * caller that built the room without them cannot compile.
    */
   perks: readonly string[];
-  /**
-   * The chair they are in, or `null` for the Overseer.
-   *
-   * The Overseer is the player: not one of the nineteen seats, so every skill they have counts in
-   * full. An officer on the bench is never a `CrewMember` at all (maintainer, 2026-09-28): the
-   * server leaves them out of the room (`officerIsWorking`), so no chair here means the player.
-   */
   role: OfficerRole | null;
-}
-
-/**
- * The crew's effective sheet: the best rating anybody in the room has *in the job they are doing*.
- *
- * The Overseer is one of the people in the room, not a separate term. A player who has developed
- * their own Cryptography and hired nobody is as protected as one who hired a cryptographer, which
- * is what makes the Training tab worth opening.
- *
- * ## Where you put somebody is the decision
- *
- * An officer contributes their full rating in the attributes their seat actually uses
- * (`ROLE_DUTIES`) and {@link OFF_DUTY_SHARE} of it everywhere else. That one clause is what turns
- * nineteen role slots from a filing system into a puzzle: hiring a cryptographer is half the move,
- * and sitting them as Master of Whispers rather than as Fabricator is the other half. Before it, the two
- * assignments produced literally identical numbers and the §G screen was decoration.
- *
- * Best-of rather than a sum, for the reason at the top of this file, but best-of *after* the
- * discount, so a brilliant person in the wrong chair can genuinely be beaten by an ordinary one in
- * the right chair, which is the sentence the whole rule exists to make true.
- */
-export function crewSheet(crew: readonly CrewMember[]): Attributes {
-  const sources = crewSheetSources(crew);
-  return Object.fromEntries(
-    ATTRIBUTE_NAMES.map((name) => [name, sources[name].rating]),
-  ) as Attributes;
-}
-
-/** Who is carrying one rating on the crew's sheet, and what it came out at. */
-export interface SheetSource {
-  rating: number;
   /**
-   * Where in the crew the winner sits, or `null` when nobody rates above zero.
-   *
-   * An index rather than a name, because a `CrewMember` is attributes, perks and a chair: the
-   * people it was built from are the caller's, and only the caller can put a name to one.
+   * Seated within the last `CHAIR_SETTLE_HOURS` (`passives.ts`): their perks count and their
+   * chair's passive does not yet. Absent reads as settled.
    */
-  at: number | null;
+  settling?: boolean;
 }
 
 /**
- * The same best-of as {@link crewSheet}, keeping who won each line.
+ * What the people in the room put on the crew's channels: every perk, summed.
  *
- * Split out rather than measured a second time (maintainer, 2026-09-17: the roster's chips should
- * say where their percentages come from, "20% from X officer"). Naming the officer behind a
- * contribution needs exactly the arithmetic below, and a second copy of it is a copy that disagrees
- * with the sheet the game actually uses the first time somebody retunes a share.
- */
-export function crewSheetSources(crew: readonly CrewMember[]): Record<AttributeName, SheetSource> {
-  const best = Object.fromEntries(
-    ATTRIBUTE_NAMES.map((name) => [name, { rating: 0, at: null }]),
-  ) as Record<AttributeName, SheetSource>;
-  for (const [index, member] of crew.entries()) {
-    const uplift = peakUplift(member);
-    for (const name of ATTRIBUTE_NAMES) {
-      // A seated officer is paid by how much their chair cares about the skill; the Overseer is
-      // paid in full because they have no chair to be a poor fit for.
-      const share = member.role === null ? 1 : IMPORTANCE_SHARE[importanceOf(member.role, name)];
-      /*
-       * Rounded and clamped, because this is an `Attributes` and that type is integers 0..100.
-       *
-       * Both halves are load-bearing and the rounding was a latent bug before any of this: the
-       * off-duty discount produced fractions too, and the only reason nothing ever broke is that
-       * the Overseer's own integer ratings usually won the best-of and hid them. `crewStanding`
-       * puts this sheet on the wire, `AttributesSchema` rejects a non-integer, and the client's
-       * query simply never resolves: the Overseer's own file sat on "Reading the file…" for ever
-       * with no error in the console to say why.
-       *
-       * The clamp is the ceiling: the peak uplift is absorbed for a skill already at 100 and does
-       * real work everywhere below it, which is almost the whole game, since the Bar's recruits
-       * top out around 40 and a fully drilled 100 is the end of a long project.
-       */
-      const rating = Math.round(Math.min(MAX_ATTRIBUTE, member.attributes[name] * share * uplift));
-      if (rating > best[name].rating) best[name] = { rating, at: index };
-    }
-  }
-  return best;
-}
-
-/**
- * What this officer's peaks are worth, as a multiplier on everything they contribute.
- *
- * See {@link MAX_PEAK_UPLIFT}: the band half of `officerScore` and nothing else, expressed against
- * the base half so it reads as "how much more than linear is this person worth". The Overseer gets
- * nothing, because they have no chair to be a good fit for.
- */
-export function peakUplift(member: CrewMember): number {
-  // No chair, no fit to be good at: the Overseer.
-  if (member.role === null) return 1;
-  const { base, bonus } = officerScore(member.attributes, member.role);
-  if (base <= 0) return 1;
-  return 1 + Math.min(MAX_PEAK_UPLIFT, bonus / base);
-}
-
-/**
- * What a sheet is worth, as effects.
- *
- * Every channel reads "more is better", including the two that are reductions:
- * `trainingCostPercent` and `buildCostPercent` are how many percent comes *off* a price, so a
- * positive contribution is a saving on both. A channel that meant the opposite of its neighbours
- * would be a sign error waiting to be written, and a sign error here reads as a working feature.
- */
-export function effectsOfSheet(sheet: Attributes): CrewEffects {
-  const effects = noCrewEffects();
-  for (const name of ATTRIBUTE_NAMES) {
-    const channel = ATTRIBUTE_EFFECTS[name].channel;
-    effects[channel] += contributionOf(sheet[name]);
-  }
-  return effects;
-}
-
-/**
- * The crew's effects: best-of on the attribute sheet, plus every perk in the room.
- *
- * The two halves compose differently and that is the design. Attributes are **best-of**, because a
- * rating is something the crew has and one specialist is enough. Perks **sum**, because a perk is
- * something a person brought and two people who each know a foundry manager know two of them.
+ * Attributes used to land here too, best-of across the room, and stopped on 2026-10-04: a chair's
+ * work is its passive (`passives.ts`), read where it is spent off `chairPoints`.
  */
 export function crewEffects(crew: readonly CrewMember[]): CrewEffects {
-  const total = effectsOfSheet(crewSheet(crew));
+  const total = noCrewEffects();
   for (const member of crew) {
     for (const perk of perksOf(member.perks)) applyPerkBonus(total, perk.bonus);
+    if (member.role !== null && member.settling !== true) {
+      total.chairPoints[member.role] = seatPoints(member.attributes, member.role);
+    }
   }
   return total;
+}
+
+/** A chair's passive off a fold, nothing when nobody is working the chair (`passives.ts`). */
+export function chairPassiveOf(
+  effects: Pick<CrewEffects, 'chairPoints'>,
+  role: OfficerRole,
+  passive: Exclude<ChairPassive, 'market_rates'>,
+): number {
+  return seatedPassivePercent(passive, effects.chairPoints[role] ?? null);
 }
 
 /**
@@ -824,6 +661,9 @@ export function applyPerkBonus(into: CrewEffects, bonus: PerkBonus): CrewEffects
       return into;
     case 'payroll_step_discount':
       into.payrollStepDiscountPercent += bonus.percent;
+      return into;
+    case 'mission_caps':
+      into.missionCapsPercent += bonus.percent;
       return into;
     case 'intel_resistance':
       into.intelResistancePercent += bonus.percent;
@@ -1041,6 +881,12 @@ export interface LiftSource {
   groupFlat?: Partial<Record<AttributeGroup, number>>;
   attributeFlat?: Partial<Record<AttributeName, number>>;
   attributeAtLeast?: Partial<Record<AttributeName, { threshold: number; flat: number }>>;
+  /**
+   * Outside {@link MAX_OFFICER_LIFT}, and spending none of it: the Overseer's grade lift
+   * (`overseerLift`, 2026-10-04). It is the player's own passive, so it neither eats the room the
+   * teachers, the ground and the Lab share nor is cut by them. Still clamped at the scale's top.
+   */
+  uncapped?: boolean;
 }
 
 /** One line of the breakdown the officer card shows when a bar is hovered. */
@@ -1075,25 +921,27 @@ export function liftedSheet(
   // Per attribute, so the ceiling is on what the person gained rather than on any one teacher.
   const spent: Partial<Record<AttributeName, number>> = {};
 
-  const add = (name: AttributeName, flat: number, from: string): void => {
+  const add = (name: AttributeName, flat: number, from: string, uncapped = false): void => {
     if (flat <= 0) return;
-    const room = Math.min(flat, MAX_OFFICER_LIFT - (spent[name] ?? 0));
+    const room = uncapped ? flat : Math.min(flat, MAX_OFFICER_LIFT - (spent[name] ?? 0));
     if (room <= 0) return;
     const before = attributes[name];
     attributes[name] = clampAttribute(before + room);
     const gained = attributes[name] - before;
     if (gained <= 0) return;
-    spent[name] = (spent[name] ?? 0) + gained;
+    if (!uncapped) spent[name] = (spent[name] ?? 0) + gained;
     lift.push({ attribute: name, from, amount: gained });
   };
 
   for (const source of sources) {
     for (const [group, flat] of Object.entries(source.groupFlat ?? {})) {
       if (!flat) continue;
-      for (const name of ATTRIBUTES_BY_GROUP[group as AttributeGroup]) add(name, flat, source.from);
+      for (const name of ATTRIBUTES_BY_GROUP[group as AttributeGroup]) {
+        add(name, flat, source.from, source.uncapped === true);
+      }
     }
     for (const [name, flat] of Object.entries(source.attributeFlat ?? {})) {
-      if (flat) add(name as AttributeName, flat, source.from);
+      if (flat) add(name as AttributeName, flat, source.from, source.uncapped === true);
     }
     for (const [name, rule] of Object.entries(source.attributeAtLeast ?? {})) {
       if (!rule) continue;
@@ -1242,8 +1090,13 @@ export const MAX_CREW_DISCOUNT = 60;
  * turns a structure into a free action, and a player who can raise a Nexus for nothing has no
  * economy left to play.
  */
-export function discounted(cost: PartialResources, percent: number): PartialResources {
-  const off = Math.min(MAX_CREW_DISCOUNT, Math.max(0, percent)) / 100;
+export function discounted(
+  cost: PartialResources,
+  percent: number,
+  /** The most it may take off: the crew's 60 unless the caller has bent the figure already. */
+  cap: number = MAX_CREW_DISCOUNT,
+): PartialResources {
+  const off = Math.min(cap, Math.max(0, percent)) / 100;
   return Object.fromEntries(
     RESOURCE_KEYS.flatMap((key) => {
       const amount = cost[key];
@@ -1256,22 +1109,24 @@ export function discounted(cost: PartialResources, percent: number): PartialReso
 /**
  * §F2: the ones the medics get back.
  *
- * A share of a force's dead come off the casualty list before it is applied. Whole units only,
- * rounded down, so a chief medic on a small skirmish saves nobody and on a real fight saves a
- * squad, which is roughly how a field hospital works.
+ * A share of a force's dead come off the casualty list before it is applied. Whole units only, and
+ * counted over the whole fight's dead rather than per kind, so a squad-sized loss brings back close
+ * to the share the Infirmary quotes.
  *
  * ## Diminishing, never capped (maintainer ruling, 2026-09-29)
  *
- * Every source pays **medic points**: the crew's Medicine, the Lab's rungs, the Joker's card and the
- * Infirmary's four a level, added. The share of the dead that walks home is
+ * Every source pays **medic points**: the crew's perks, the Joker's card and the Infirmary's four a
+ * level, added. No skill and no Lab rung pays any since 2026-10-04. The share of the dead that walks home is
  * `CASUALTY_RECOVERY_CEILING x (1 - e^(-points / CASUALTY_RECOVERY_CEILING))`, which is `softCap`
  * with no knee: nearly one for one at first, a little less for every point after, and never half,
  * because medicine changes how bad a loss is and is not allowed to make a fight free.
  *
  * It replaced a flat 40% ceiling that a level 10 Infirmary reached on its own, so the medics' ten
- * rungs (46 points) paid nothing to a crew that had built one. Calibrated on that ceiling: both
- * medic tracks with a level 10 Infirmary are 86 points and 41%, a level 5 Infirmary with the
- * tracks 36.6%, and a medic with Medicine 40 on top 42.7%. Every point still adds something.
+ * rungs (46 points) paid nothing to a crew that had built one. Calibrated on that ceiling, when the
+ * Lab still had the Chief Medic's and the Wetware Chief's tracks and Medicine still paid points:
+ * both tracks with a level 10 Infirmary were 86 points and 41%, a level 5 Infirmary with the
+ * tracks 36.6%, and a medic with Medicine 40 on top 42.7%. Those sources went with the chair
+ * rework (2026-10-04); every point that is left still adds something.
  */
 export const CASUALTY_RECOVERY_CEILING = 50;
 
@@ -1284,11 +1139,38 @@ export function recoverCasualties(
   losses: Readonly<Record<string, number>>,
   /** Medic points, every source added. See {@link casualtyRecoveryShare}. */
   recoveryPoints: number,
+  /**
+   * How big each unit is, in unit slots, for who gets the leftover: the biggest first. One for
+   * everybody when the caller does not say, which breaks ties by id.
+   */
+  sizeOf: (unitId: string) => number = () => 1,
 ): Record<string, number> {
   const share = casualtyRecoveryShare(recoveryPoints) / 100;
   if (share === 0) return { ...losses };
+  /*
+   * Over the whole fight's dead, not per unit type (maintainer, 2026-10-02). Rounded down per type,
+   * a win that lost one or two of each kind brought back nobody: 300 wins with a level 10 Infirmary
+   * quoting 28% lost 562 and got 1 back. The fight's share is rounded down once, each type takes
+   * its own whole part, and what is left goes one at a time to the biggest units still dead.
+   */
+  const dead = Object.entries(losses).filter(([, count]) => count > 0);
+  const total = dead.reduce((sum, [, count]) => sum + count, 0);
+  let left = Math.floor(total * share);
+  const back = new Map<string, number>();
+  for (const [unitId, count] of dead) {
+    const own = Math.floor(count * share);
+    back.set(unitId, own);
+    left -= own;
+  }
+  const biggestFirst = [...dead].sort(([a], [b]) => sizeOf(b) - sizeOf(a) || a.localeCompare(b));
+  while (left > 0) {
+    const next = biggestFirst.find(([unitId, count]) => (back.get(unitId) ?? 0) < count);
+    if (!next) break;
+    back.set(next[0], (back.get(next[0]) ?? 0) + 1);
+    left -= 1;
+  }
   return Object.fromEntries(
-    Object.entries(losses).map(([unitId, dead]) => [unitId, dead - Math.floor(dead * share)]),
+    Object.entries(losses).map(([unitId, count]) => [unitId, count - (back.get(unitId) ?? 0)]),
   );
 }
 
@@ -1296,7 +1178,7 @@ export function recoverCasualties(
  * Two crew folds added together, channel by channel.
  *
  * `combineEffects` adds ground to people and only walks the ground's channels. Research pays into
- * crew-only channels too (a unit's own kind, a structure's cost, another chair at the Bar), so it
+ * crew-only channels too (a unit's own kind, a structure's cost, another crew out at once), so it
  * needs a merge that walks the whole crew struct. Numbers add, every record-valued channel is
  * merged key by key, and a rule table (`officerAttributeAtLeast`) is overlaid, since two rules on
  * one attribute do not add.

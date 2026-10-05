@@ -6,17 +6,17 @@ import { IdSchema, IsoDateTimeSchema } from '../primitives.js';
 /**
  * Research projects (GDD §C): the one thing the crew can put time into.
  *
- * The Lab has one bench and one kind of work on it, a rung of one of the eighteen role tracks.
+ * The Lab has one bench and one kind of work on it, a rung of one of the thirteen role tracks.
  * It runs on the real clock and settles lazily on read, exactly like missions (§E2) and payroll
  * (§H7): there is no scheduler to keep alive, and a crew nobody looks at owes the same result
  * whenever it is next opened.
  */
 
 /**
- * §C: one rung of one of the eighteen role tracks (`tracks.ts`).
+ * §C: one rung of one of the thirteen role tracks (`tracks.ts`).
  *
  * A rung is a project rather than an outright purchase, which is what §C3a needs: a programme that
- * landed the moment it was paid for has no time for the Head of Research's points to cut. What it
+ * landed the moment it was paid for has no time for the Researcher's points to cut. What it
  * costs and how long it takes are per rung and come from the catalogue, so neither is here.
  */
 export const TechnologyProjectSchema = z.object({

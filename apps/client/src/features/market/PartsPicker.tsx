@@ -31,8 +31,10 @@ export function PartsPicker({
   label,
   chosen,
   held,
+  owned = held,
   onChange,
   testId,
+  kind = 'component',
 }: {
   /** The side this belongs to, for the labels a screen reader reads. */
   label: string;
@@ -40,8 +42,19 @@ export function PartsPicker({
   chosen: Inventory;
   /** What the crew is holding, which is what may be put in. */
   held: Inventory;
+  /**
+   * What the crew really has, for the "held" line. The same as `held` on the give side; the want
+   * side passes the whole catalogue as `held`, and printed that as "99 held" on every part.
+   */
+  owned?: Inventory;
   onChange: (next: Inventory) => void;
   testId: string;
+  /**
+   * Parts, or blueprint pages (maintainer, 2026-10-02): the board took pages and the picker had no
+   * way to put one on either side. The pages list is whatever `held` names, so each side decides
+   * which pages are on offer.
+   */
+  kind?: 'component' | 'page';
 }) {
   const [open, setOpen] = useState(false);
   const box = useRef<HTMLDivElement>(null);
@@ -76,7 +89,13 @@ export function PartsPicker({
     return () => window.removeEventListener('pointerdown', away);
   }, [open]);
 
-  const parts = ITEM_IDS.filter((one) => ITEM_CATALOG[one].kind === 'component');
+  const parts: ItemId[] =
+    kind === 'page'
+      ? (Object.keys(held) as ItemId[])
+          .filter((one) => ITEM_CATALOG[one]?.kind === 'page')
+          .sort((a, b) => ITEM_CATALOG[a].name.localeCompare(ITEM_CATALOG[b].name))
+      : ITEM_IDS.filter((one) => ITEM_CATALOG[one].kind === 'component');
+  const noun = kind === 'page' ? 'Pages' : 'Parts';
   const inBin = parts.filter((one) => (held[one] ?? 0) > 0);
   const count = parts.reduce((sum, one) => sum + (chosen[one] ?? 0), 0);
 
@@ -103,7 +122,7 @@ export function PartsPicker({
         onClick={() => setOpen((was) => !was)}
         aria-expanded={open}
         aria-haspopup="dialog"
-        aria-label={`Parts into ${label}`}
+        aria-label={`${noun} into ${label}`}
         data-testid={testId}
         data-sound="click"
         className={cn(
@@ -112,8 +131,8 @@ export function PartsPicker({
           count > 0 ? 'text-brass-100' : 'text-brass-300 hover:text-brass-100',
         )}
       >
-        <Icon name="inventory" aria-hidden className="h-4 w-4" />
-        Parts
+        <Icon name={kind === 'page' ? 'research' : 'inventory'} aria-hidden className="h-4 w-4" />
+        {noun}
         {count > 0 && (
           <span
             className="rounded-sm bg-brass-500/30 px-1.5 py-px font-display text-[11px] font-bold tabular-nums"
@@ -128,7 +147,7 @@ export function PartsPicker({
         <div
           ref={menu}
           role="dialog"
-          aria-label={`Parts into ${label}`}
+          aria-label={`${noun} into ${label}`}
           data-testid={`${testId}-menu`}
           /*
            * Below the door, on an opaque ground.
@@ -159,7 +178,9 @@ export function PartsPicker({
           style={{ backgroundColor: 'rgb(23 19 32)' }}
         >
           <header className="relative flex items-baseline justify-between gap-2 px-3 pb-2 pt-2.5">
-            <h4 className="font-stamp text-[14px] leading-none text-brass-300">The parts bin</h4>
+            <h4 className="font-stamp text-[14px] leading-none text-brass-300">
+              {kind === 'page' ? 'The pages' : 'The parts bin'}
+            </h4>
             <span className="font-display text-[9px] font-bold uppercase tracking-[0.16em] text-ink-400">
               {label}
             </span>
@@ -171,10 +192,12 @@ export function PartsPicker({
               className="px-3 py-5 text-center font-body text-[12.5px] italic leading-snug text-ink-300"
               data-testid={`${testId}-empty`}
             >
-              Nothing in the bin. Parts turn up on long jobs and on the Runner&rsquo;s barrow.
+              {kind === 'page'
+                ? 'No pages to put here. Pages come from jobs, the barrow and the Lab, and a blueprint you have started lists the ones it is missing.'
+                : 'Nothing in the bin. Parts turn up on long jobs and on the Runner\u2019s barrow.'}
             </p>
           ) : (
-            <ul className="flex flex-col p-2">
+            <ul className={cn('flex flex-col p-2', kind === 'page' && 'max-h-72 overflow-y-auto')}>
               {inBin.map((part) => {
                 const spec = ITEM_CATALOG[part];
                 const taking = chosen[part] ?? 0;
@@ -196,7 +219,7 @@ export function PartsPicker({
                           RARITY_TEXT[spec.rarity],
                         )}
                       >
-                        {stock} held
+                        {owned[part] ?? 0} held
                       </span>
                     </span>
 

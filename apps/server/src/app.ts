@@ -38,8 +38,15 @@ import { registerAdminRoutes } from './routes/admin.js';
 import { registerScrapyardRoutes } from './routes/scrapyard.js';
 import { registerGarageRoutes } from './garage/routes.js';
 import { registerLiveRoutes } from './live/routes.js';
+import type { RateLimiter } from './limits/bucket.js';
 import { registerRateLimits } from './limits/plugin.js';
-import { SESSION_HEADER, renewIfDue, sessionIsCurrent } from './auth/session.js';
+import { registerCsrfGuard } from './auth/csrf.js';
+import {
+  presentedSession,
+  renewIfDue,
+  sessionIsCurrent,
+  type SessionTransport,
+} from './auth/session.js';
 import { clockIsStale, vitals } from './world/vitals.js';
 import type { JwtPayload } from './types.js';
 
@@ -49,11 +56,15 @@ declare module 'fastify' {
     db: AppDatabase;
     repos: Repositories;
     skirmishEngine: SkirmishEngine;
+    /** The request limiter, for the routes that count something finer than a request. */
+    rateLimiter: RateLimiter;
     authenticate: (request: FastifyRequest, reply: FastifyReply) => Promise<void>;
   }
   interface FastifyRequest {
     /** The authenticated user, populated by the `authenticate` preHandler. */
     currentUser: User;
+    /** How this request presented its session, so a rotated one goes back the same way. */
+    sessionVia: SessionTransport;
   }
 }
 
@@ -126,23 +137,28 @@ export async function buildApp({
   configurePagePrizeSalt(config.jwtSecret);
   app.decorate('skirmishEngine', skirmishEngine);
 
-  // The renewed token rides a response header, and a browser hides every header CORS does not name.
-  await app.register(cors, { origin: config.corsOrigin, exposedHeaders: [SESSION_HEADER] });
+  await app.register(cors, { origin: config.corsOrigin });
   await app.register(jwt, { secret: config.jwtSecret });
 
   // After `jwt`, because the limiter buckets by account where there is one and needs `app.jwt` to
   // read it. Before every route, because the whole value of a limit is refusing work early.
-  registerRateLimits(app);
+  app.decorate('rateLimiter', registerRateLimits(app));
+  // After the limiter, so a refused write is still counted against its caller.
+  registerCsrfGuard(app);
 
   app.decorate(
     'authenticate',
     async (request: FastifyRequest, reply: FastifyReply): Promise<void> => {
+      const presented = presentedSession(request);
       let payload: JwtPayload;
       try {
-        payload = await request.jwtVerify<JwtPayload>();
+        if (!presented) throw new Error('no session');
+        payload = app.jwt.verify<JwtPayload>(presented.token);
       } catch {
         throw new AppError('UNAUTHORIZED', 'Missing or invalid authentication token');
       }
+      request.user = payload;
+      request.sessionVia = presented.via;
       const record = app.repos.users.findById(payload.sub);
       if (!record) {
         throw new AppError('UNAUTHORIZED', 'Authenticated user no longer exists');
@@ -150,7 +166,7 @@ export async function buildApp({
       if (!sessionIsCurrent(payload, app.repos.users.sessionVersion(record.id))) {
         throw new AppError('UNAUTHORIZED', 'This session has ended. Sign in again');
       }
-      renewIfDue(app, reply, payload);
+      renewIfDue(app, reply, payload, presented.via);
       request.currentUser = UserSchema.parse(record); // strips passwordHash
     },
   );

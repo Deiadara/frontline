@@ -22,9 +22,17 @@ import type { BarBid, BarResult } from '../db/repos/bar.js';
 import { settleBase } from '../district/settle.js';
 import { districtUnitSlots } from '../district/unit-slots.js';
 import type { Repositories } from '../db/repos/index.js';
+import { mayEnter } from '../city/stakes.js';
 import { awardPlayerXp } from '../progression/award.js';
 import { notify } from '../social/notify.js';
-import { assessAgainst, factionInfamyOf, ledgerFor, recruitSlotsFor, signRecruit } from './hire.js';
+import {
+  assessAgainst,
+  factionInfamyOf,
+  ledgerFor,
+  recruitSlotsFor,
+  signRecruit,
+  type HireRefusal,
+} from './hire.js';
 import {
   barDay,
   cityOfRecruit,
@@ -36,6 +44,7 @@ import {
 import { barRoomOf } from './room.js';
 import { rosterFaces } from '../crew/faces.js';
 import { settleEach } from '../world/guard.js';
+import { shownNameOf } from '../social/names.js';
 
 /**
  * The Bar's daily auction (GDD §H7a), server side.
@@ -164,7 +173,9 @@ function tableRefusal(
     return 'not_interested';
   }
   if (base.commanders.some((officer) => officer.id === recruit.id)) return 'already_hired';
-  if (base.commanders.length >= recruitSlotsFor(repos, base) && !adminWaives('no_slots', admin)) {
+  // `>=`, so a crew over its slots (a save from before the 2026-09-30 ladder) is refused a table
+  // until it is back under, and keeps everyone it already holds.
+  if (base.commanders.length >= recruitSlotsFor(base) && !adminWaives('no_slots', admin)) {
     return 'no_slots';
   }
   // An officer takes a bed (2026-09-29). Asked here as well as at the close, so a crew with the
@@ -187,11 +198,49 @@ function tableRefusal(
  * negotiators (`committedWage`). The close applies the same discount, so a gate on the raw bid
  * would refuse offers the crew could comfortably hold.
  */
-function payrollRefuses(repos: Repositories, base: Base, amount: number, admin: boolean): boolean {
+function payrollRefuses(
+  repos: Repositories,
+  request: BidRequest,
+  amount: number,
+  day: string,
+): boolean {
+  const { base, userId, recruit, admin } = request;
   const effects = crewEffectsFor(repos, base);
-  const ledger = ledgerFor(base, effects.payrollStepDiscountPercent);
+  const ledger = ledgerFor(base, effects);
   const wage = committedWage(amount, effects.wageDiscountPercent);
-  return !payrollFits(ledger, wage) && !adminWaives('no_payroll', admin);
+  const reserved = wagesHeldByBids(repos, userId, day, recruit.id, effects.wageDiscountPercent);
+  return !payrollFits(ledger, wage + reserved) && !adminWaives('no_payroll', admin);
+}
+
+/**
+ * The wages this crew's other bids tonight hold against its payroll book (maintainer, 2026-10-04).
+ *
+ * Every bid holds its wage for the day, won or lost: "if you have bid, that is temporarily taken
+ * out of payroll whether you win or not, and bids cannot be taken back. At the end of the day you
+ * get back the payroll you did not end up using." One table counts once, at the crew's highest bid
+ * there, open or sealed: raising a bid replaces the lower one rather than adding to it. Counted at
+ * the talked-down wage, the figure the close commits, across every city: the book is one book.
+ *
+ * Only tonight's tables, so the hold lifts at the close by itself: the winner's wage becomes a
+ * commitment on the book, and what the crew did not win is free again the next day. Because every
+ * bid was checked against the book with all the others held, every table the crew wins at midnight
+ * fits, whichever order the tables settle in and whichever bidder a table falls back to.
+ *
+ * It held only the tables the crew led or had sealed until then (2026-10-02), so a crew second at
+ * one table could still sign it at the close after the leader was refused and leave its payroll
+ * short for a table it was leading.
+ */
+export function wagesHeldByBids(
+  repos: Repositories,
+  userId: string,
+  day: string,
+  exceptRecruitId: string | null,
+  wageDiscountPercent: number,
+): number {
+  return repos.bar
+    .bidsBy(userId, day)
+    .filter((bid) => bid.recruitId !== exceptRecruitId)
+    .reduce((held, bid) => held + committedWage(finalOf(bid), wageDiscountPercent), 0);
 }
 
 /**
@@ -203,7 +252,7 @@ function payrollRefuses(repos: Repositories, base: Base, amount: number, admin: 
  * is the one place this model is friendlier than a real room.
  */
 export function placeBid(repos: Repositories, request: BidRequest): BidResult {
-  const { base, userId, recruit, now, admin } = request;
+  const { base, userId, recruit, now } = request;
   const amount = Math.round(request.amount);
   const window = auctionWindow(now);
   const bids = repos.bar.bidsFor(window.day, recruit.id);
@@ -218,7 +267,7 @@ export function placeBid(repos: Repositories, request: BidRequest): BidResult {
   if (ineligible) return refuse(ineligible);
   if (leader?.userId === userId) return refuse('outbid_yourself');
   if (amount < minimum) return refuse('too_low');
-  if (payrollRefuses(repos, base, amount, admin)) return refuse('no_payroll');
+  if (payrollRefuses(repos, request, amount, window.day)) return refuse('no_payroll');
 
   repos.bar.placeOpenBid({
     day: window.day,
@@ -243,7 +292,7 @@ export function placeBid(repos: Repositories, request: BidRequest): BidResult {
  * will spend the last half hour of the day believing in.
  */
 export function sealBid(repos: Repositories, request: BidRequest): BidResult {
-  const { base, userId, recruit, now, admin } = request;
+  const { base, userId, recruit, now } = request;
   const amount = Math.round(request.amount);
   const window = auctionWindow(now);
   const bids = repos.bar.bidsFor(window.day, recruit.id);
@@ -258,7 +307,7 @@ export function sealBid(repos: Repositories, request: BidRequest): BidResult {
   if (ineligible) return refuse(ineligible);
   if (mine?.sealed != null) return refuse('already_sealed');
   if (amount < minimum) return refuse('too_low');
-  if (payrollRefuses(repos, base, amount, admin)) return refuse('no_payroll');
+  if (payrollRefuses(repos, request, amount, window.day)) return refuse('no_payroll');
 
   repos.bar.sealBid({
     day: window.day,
@@ -387,9 +436,9 @@ function closeTable(repos: Repositories, table: TableClose): void {
   // An id that names no seat cannot be signed by anybody, and leaving it due would settle it again
   // on every read for ever. It goes down as an empty table.
   const name = recruit?.name ?? 'Somebody';
-  const { winner, ranked } = recruit
+  const { winner, ranked, refused } = recruit
     ? award(repos, table, recruit, bids)
-    : { winner: null, ranked: [] };
+    : { winner: null, ranked: [], refused: new Map<string, PassedOver>() };
 
   repos.bar.recordResult({
     day,
@@ -400,19 +449,50 @@ function closeTable(repos: Repositories, table: TableClose): void {
     settledAt: now.toISOString(),
   });
   // Dated at the table's close, the end of its day (`auctionWindow`), not at the tick that got to it.
-  tellTheTable(repos, { name, recruitId, bids, ranked, winner, at: instantAtHourInZone(day, 24) });
+  tellTheTable(repos, {
+    name,
+    recruitId,
+    bids,
+    ranked,
+    winner,
+    refused,
+    at: instantAtHourInZone(day, 24),
+  });
 }
 
 interface Winner {
   userId: string;
   price: number;
+  /** What their book committed after their wage cut (`committedWage`). Their bell alone says it. */
+  wage: number;
 }
 
 /** Who took a table, and the ranking the close walked to find them, which the bells read. */
 interface Award {
   winner: Winner | null;
   ranked: readonly { userId: string }[];
+  /** Why each crew ranked above the winner could not take them, for its bell. */
+  refused: ReadonlyMap<string, PassedOver>;
 }
+
+/** Why a bidder was passed over at the close: a hire refusal, or the city shut behind them. */
+type PassedOver = HireRefusal | 'city_shut';
+
+/**
+ * Why a crew was passed over at the close, as a clause on its bell (bug pass, 2026-10-02). The bell
+ * said only "You could not take them", and a crew that had out-bid the room could not tell which of
+ * six doors had shut.
+ */
+const PASSED_BECAUSE: Readonly<Record<PassedOver, string>> = {
+  already_hired: 'they already worked for you',
+  no_slots: 'every officer slot was taken',
+  no_unit_slots: 'there was no free bed in the district',
+  requirement: 'your crew no longer met what they asked',
+  infamy: 'your infamy had fallen below what they asked',
+  faction: 'your faction had not earned enough for them',
+  no_payroll: 'the payroll book would not stretch that far',
+  city_shut: 'you no longer hold ground in that city',
+};
 
 /**
  * Walks the ranking and signs the first crew that can actually take them.
@@ -444,6 +524,7 @@ function award(
 ): Award {
   const positions = bids.map((bid) => ({ userId: bid.userId, open: bid.open, sealed: bid.sealed }));
   const { ranked } = rankBids(positions, reserveFor(recruit), `${day}:${recruit.id}`);
+  const refused = new Map<string, PassedOver>();
 
   for (const entry of ranked) {
     const bid = bids.find((row) => row.userId === entry.userId);
@@ -453,6 +534,16 @@ function award(
     // clock runs this without settling anybody, so a Quarters rung or a research chair that landed
     // before midnight was not on the crew yet, and the winner was passed over for a bed they had.
     const base = settleBase(repos, bidder, now).base;
+    /*
+     * The room's door, again at the close (maintainer, 2026-10-02): a crew that lost its last
+     * ground in the city after bidding cannot open that Bar to raise, seal or read the result, so
+     * it does not sign there either. The table passes to the next bidder and the crew is told why.
+     */
+    const room = cityOfRecruit(recruit.id);
+    if (room !== null && !mayEnter(repos, base, room)) {
+      refused.set(entry.userId, 'city_shut');
+      continue;
+    }
 
     const face = faceFor(repos, day, recruit);
     const signed = signRecruit(repos, {
@@ -464,7 +555,10 @@ function award(
       admin,
       ...(face === undefined ? {} : { portraitId: face }),
     });
-    if (signed.kind === 'refused') continue;
+    if (signed.kind === 'refused') {
+      refused.set(entry.userId, signed.reason);
+      continue;
+    }
 
     // §I1: signing somebody is one of the few things in a session that takes a real decision, and
     // it still pays when the decision was made hours ago at a table.
@@ -474,9 +568,13 @@ function award(
     // anybody who bids rather than pays the asking price.
     // The **price**, not `signed.wage`: what goes on the result row and into everybody's bell is
     // the number the table closed at. What their negotiators talked it down to is their business.
-    return { winner: { userId: entry.userId, price: entry.final }, ranked };
+    return {
+      winner: { userId: entry.userId, price: entry.final, wage: signed.wage },
+      ranked,
+      refused,
+    };
   }
-  return { winner: null, ranked };
+  return { winner: null, ranked, refused };
 }
 
 function tellTheTable(
@@ -487,24 +585,28 @@ function tellTheTable(
     bids: readonly BarBid[];
     ranked: readonly { userId: string }[];
     winner: Winner | null;
+    refused: ReadonlyMap<string, PassedOver>;
     at: Date;
   },
 ): void {
-  const { name, recruitId, bids, ranked, winner, at } = table;
+  const { name, recruitId, bids, ranked, winner, refused, at } = table;
   if (winner) {
     notify(repos, {
       userId: winner.userId,
       kind: 'officer_hired',
-      title: `${name} signed with you at ${winner.price} a week`,
+      // The wage on the book too, when their negotiators took something off it: the Crew page and
+      // the dismissal fee read that figure, not the bid (bug pass, 2026-10-02).
+      title:
+        winner.wage === winner.price
+          ? `${name} signed with you at ${winner.price.toLocaleString('en')} caps`
+          : `${name} signed with you: won at ${winner.price.toLocaleString('en')}, on the books at ${winner.wage.toLocaleString('en')} caps`,
       link: '/game/bar',
       subjectId: recruitId,
       at,
     });
   }
 
-  const winnerName = winner
-    ? (repos.users.findById(winner.userId)?.username ?? 'another crew')
-    : '';
+  const winnerName = winner ? shownNameOf(repos, winner.userId, 'another crew') : '';
   for (const bid of bids) {
     if (bid.userId === winner?.userId) continue;
     if (finalOf(bid) <= 0) continue;
@@ -514,8 +616,13 @@ function tellTheTable(
       title: missedLotTitle({
         name,
         passed: outcomeAgainst(ranked, winner?.userId ?? null, bid.userId) === 'passed',
-        winner: winner ? { name: winnerName, price: String(winner.price) } : null,
+        winner: winner
+          ? { name: winnerName, price: `${winner.price.toLocaleString('en')} caps` }
+          : null,
         nobody: 'went unsigned',
+        because: ((reason) => (reason ? PASSED_BECAUSE[reason] : undefined))(
+          refused.get(bid.userId),
+        ),
       }),
       link: '/game/bar',
       subjectId: recruitId,
@@ -556,9 +663,7 @@ export function resultsFor(
         name: result.recruitName,
         outcome: outcomeFor(repos, result, userId),
         price: result.price,
-        winner: result.winnerUserId
-          ? (repos.users.findById(result.winnerUserId)?.username ?? null)
-          : null,
+        winner: result.winnerUserId ? shownNameOf(repos, result.winnerUserId, null) : null,
         yourFinal,
       },
     ];
@@ -647,12 +752,15 @@ export function missedLotTitle(lot: {
   winner: { name: string; price: string } | null;
   /** How the lot ended with nobody taking it, in this door's words: "went unsigned". */
   nobody: string;
+  /** Why this reader could not take it, when the door knows: "every officer slot was taken". */
+  because?: string | undefined;
 }): string {
-  const { name, passed, winner, nobody } = lot;
+  const { name, passed, winner, nobody, because } = lot;
   if (passed) {
+    const why = because === undefined ? '' : ` (${because})`;
     return winner
-      ? `You could not take ${name} at the close, so ${winner.name} did at ${winner.price}`
-      : `You could not take ${name} at the close, and nobody else could either`;
+      ? `You could not take ${name} at the close${why}, so ${winner.name} did at ${winner.price}`
+      : `You could not take ${name} at the close${why}, and nobody else could either`;
   }
   return winner ? `${name} went to ${winner.name} for ${winner.price}` : `${name} ${nobody}`;
 }

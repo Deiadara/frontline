@@ -19,6 +19,7 @@ import {
   type MovementView,
   type SleeperCellView,
   type Fleet,
+  CELL_LOCKED_TEXT,
 } from '@frontline/shared';
 import { useState } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
@@ -53,7 +54,7 @@ import { InProgressPage } from './InProgressPage';
 import { Row, Section } from './rows';
 import { AutomationsPage } from './AutomationsPage';
 import { HomeMark, OutMark, OrdersMark, WorkMark } from './CensusMarks';
-import { fightPhase, onTheRoad, roadCounts, roadIsEmpty, type Road } from './road';
+import { fightPhase, onTheRoad, ownAt, roadCounts, roadIsEmpty, roadRows, type Road } from './road';
 import { ErrorNote } from '../../components/ui/ErrorNote';
 
 /**
@@ -114,18 +115,6 @@ const MONITOR_PAGES = [
 ];
 
 type MonitorPage = (typeof MONITOR_PAGES)[number]['id'];
-
-/**
- * How many things the road tab is listing, for the badge on it.
- *
- * Rows rather than `roadCounts().unitSlots`: the badge sits beside the word "on the road", and a
- * player reads it as "how many entries am I about to look at". The slot figure is the header's
- * job on the page itself, where it has the room to say which currency it is in.
- */
-function roadRows(road: Road): number {
-  const counts = roadCounts(road);
-  return counts.columns + counts.jobs + counts.fights + counts.cells + counts.stationed;
-}
 
 /**
  * One tab, drawn rather than struck.
@@ -371,6 +360,7 @@ export function ActionsPage() {
                     now={now}
                     pending={recallJob.isPending}
                     onRecall={() => recallJob.mutate({ missionId: mission.id })}
+                    xpBonusPercent={missions.data?.xpBonusPercent ?? 0}
                   />
                 ))}
               </ul>
@@ -500,7 +490,15 @@ function Cell({
           : `${formatRemaining(left)} to go`}
       </p>
       <Force army={cell.army} testPrefix={`cell-${cell.cellId}`} />
-      {cell.phase !== 'returning' && (
+      {cell.phase !== 'returning' && cell.locked === true && (
+        <p
+          className="border-t border-surface-700/70 pt-2.5 font-body text-[12px] text-ink-300"
+          data-testid={`cell-locked-${cell.cellId}`}
+        >
+          {CELL_LOCKED_TEXT}.
+        </p>
+      )}
+      {cell.phase !== 'returning' && cell.locked !== true && (
         <div className="border-t border-surface-700/70 pt-2.5">
           <Button
             size="sm"
@@ -636,6 +634,7 @@ function Column({
 function Fight({ view, now }: { view: BattleView; now: Date }) {
   const phase = fightPhase(view, now);
   const left = Math.max(0, Date.parse(view.battle.scheduledFor) - now.getTime());
+  const mine = ownAt(view);
   return (
     <Row
       testId={`fight-${view.battle.id}`}
@@ -654,9 +653,10 @@ function Fight({ view, now }: { view: BattleView; now: Date }) {
         to={view.opponentName}
         remaining={phase === 'fighting' ? 'settling' : formatRemaining(left)}
       />
-      {view.muster && (
+      {/* Your own row: an ally's reinforcement is on the battle page, not on your road. */}
+      {mine && (
         <div className="flex flex-wrap items-center gap-1.5">
-          <Force army={view.muster.army} perimeter={view.muster.perimeter} testPrefix="posted" />
+          <Force army={mine.army} perimeter={mine.perimeter} testPrefix="posted" />
           <Rides fleet={view.vehicles} testPrefix="posted" />
         </div>
       )}
@@ -677,11 +677,14 @@ function Job({
   now,
   pending,
   onRecall,
+  xpBonusPercent,
 }: {
   mission: Mission;
   now: Date;
   pending: boolean;
   onRecall: () => void;
+  /** What the return adds to the frozen XP, so the card says what it will pay. */
+  xpBonusPercent: number;
 }) {
   const template = findMissionTemplate(mission.templateId);
   const name = template?.name ?? mission.templateId;
@@ -694,7 +697,7 @@ function Job({
    * (`offerOfMission`), with no crew to send, which is the one thing the board's card has that
    * this one must not.
    */
-  const card = template ? offerOfMission(mission, template) : null;
+  const card = template ? offerOfMission(mission, template, xpBonusPercent) : null;
   const [pinned, setPinned] = useState(false);
   return (
     <Row
@@ -748,8 +751,10 @@ function Job({
       )}
       {card !== null && (
         <div className="flex flex-col gap-1" data-testid={`job-worth-${mission.id}`}>
+          {/* The job's whole pay, before what the party can carry and, on a fight, what survives
+              to carry it: a ceiling (maintainer, 2026-10-02). */}
           <span className="font-display text-[10px] uppercase tracking-[0.16em] text-ink-300">
-            If it comes off
+            If it comes off, at most
           </span>
           <RewardLine rewards={card.rewards} />
           <span className="font-display text-[11px] font-bold tabular-nums text-hextech-100">

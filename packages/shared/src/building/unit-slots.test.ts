@@ -136,7 +136,7 @@ describe('who is drawing on it', () => {
   const crew = {
     commanders: [{ id: 'o1' }, { id: 'o2' }],
     army: { razors: 6, juggernauts: 2 },
-    trainingQueue: [],
+    musterQueue: [],
     fleet: {},
   };
 
@@ -151,7 +151,7 @@ describe('who is drawing on it', () => {
     const draw = unitSlotDraw(crew);
     expect(draw.officers).toBe(2);
     expect(draw.army).toBe(6 * unitSlotCostOf('razors') + 2 * unitSlotCostOf('juggernauts'));
-    expect(draw.total).toBe(draw.officers + draw.army + draw.training + draw.fleet);
+    expect(draw.total).toBe(draw.officers + draw.army + draw.mustering + draw.fleet);
   });
 
   /** One bed each, whoever they are: an officer is one person whatever their sheet says. */
@@ -209,19 +209,19 @@ describe('a machine on the bench', () => {
     const queued = unitSlotDraw({
       commanders: [],
       army: {},
-      trainingQueue: [order('motorcycle', 1, 0)],
+      musterQueue: [order('motorcycle', 1, 0)],
       fleet: {},
     });
-    expect(queued.training).toBe(1);
+    expect(queued.mustering).toBe(1);
     expect(queued.fleet).toBe(0);
 
     const landed = unitSlotDraw({
       commanders: [],
       army: {},
-      trainingQueue: [],
+      musterQueue: [],
       fleet: { motorcycle: 1 },
     });
-    expect(landed.training).toBe(0);
+    expect(landed.mustering).toBe(0);
     expect(landed.fleet).toBe(1);
     expect(landed.total).toBe(queued.total);
   });
@@ -238,10 +238,10 @@ describe('a machine on the bench', () => {
     const draw = unitSlotDraw({
       commanders: [],
       army: {},
-      trainingQueue: [order('motorcycle', 4, 1)],
+      musterQueue: [order('motorcycle', 4, 1)],
       fleet: { motorcycle: 1 },
     });
-    expect(draw.training, 'three still owed').toBe(3);
+    expect(draw.mustering, 'three still owed').toBe(3);
     expect(draw.fleet, 'one handed over').toBe(1);
     expect(draw.total, 'four beds for four machines, not five').toBe(4);
   });
@@ -253,10 +253,10 @@ describe('a machine on the bench', () => {
     const draw = unitSlotDraw({
       commanders: [],
       army: {},
-      trainingQueue: [order('razors', 4, 0), order('scrap_car', 1, 0)],
+      musterQueue: [order('razors', 4, 0), order('scrap_car', 1, 0)],
       fleet: {},
     });
-    expect(draw.training).toBe(4 * razors.unitSlots + 1);
+    expect(draw.mustering).toBe(4 * razors.unitSlots + 1);
   });
 });
 
@@ -295,13 +295,13 @@ describe('what a unit costs against the pool (§A1)', () => {
 /**
  * A batch that is halfway home is counted once, not twice.
  *
- * `splitDueTraining` hands a batch over one unit at a time and leaves the order on the bench with
+ * `splitDueMuster` hands a batch over one unit at a time and leaves the order on the bench with
  * `delivered` moved up and `count` unchanged. Each delivered unit joins `base.army`, so reading the
  * whole `count` here counted the delivered part in both places. The peak over-count is one unit
  * short of the whole batch, and the total is what gates further orders and what the roster prints
  * as free beds.
  */
-describe('a training batch that is part way home', () => {
+describe('a muster batch that is part way home', () => {
   const razors = findUnit('razors');
   if (!razors) throw new Error('fixture: no razors');
 
@@ -320,7 +320,7 @@ describe('a training batch that is part way home', () => {
       unitSlotDraw({
         commanders: [],
         army: arrived === 0 ? {} : { razors: arrived },
-        trainingQueue: [order(10, delivered)],
+        musterQueue: [order(10, delivered)],
         fleet: {},
       });
 
@@ -337,7 +337,7 @@ describe('a training batch that is part way home', () => {
       const draw = unitSlotDraw({
         commanders: [],
         army: delivered === 0 ? {} : { razors: delivered },
-        trainingQueue: [order(50, delivered)],
+        musterQueue: [order(50, delivered)],
         fleet: {},
       });
       expect(draw.total, `${delivered} delivered`).toBe(50 * razors.unitSlots);

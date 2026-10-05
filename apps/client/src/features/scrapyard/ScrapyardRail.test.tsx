@@ -87,7 +87,7 @@ function drawYard(board: ScrapyardResponse) {
 beforeEach(() => {
   vi.stubGlobal('fetch', fetchMock);
   fetchMock.mockReset();
-  useSession.setState({ token: 'session-token', user: null });
+  useSession.setState({ signedIn: true, user: null });
 });
 
 afterEach(() => vi.unstubAllGlobals());
@@ -97,6 +97,7 @@ describe('the refits rail and the Combine', () => {
     const board: ScrapyardResponse = {
       scrapyardLevel: 8,
       discountPercent: 0,
+      salvagerCutPercent: 0,
       resources: F.base.resources,
       entries: [
         refit([

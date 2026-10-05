@@ -1,11 +1,18 @@
-import { CHANNEL_LABELS, EFFECT_CHANNELS } from '@frontline/shared';
+import {
+  EFFECT_CHANNELS,
+  OFFICER_ROLE_LABELS,
+  PRIVATE_CHANNELS,
+  type CrewStandingResponse,
+  type OfficerMark,
+} from '@frontline/shared';
 import { Link } from 'react-router-dom';
-import { AttributeRadar } from '../overseer/AttributeRadar';
 import { ChannelCard } from './ChannelCard';
 import { Icon } from '../../components/ui/Icon';
+import { MarkStamp } from '../../components/ui/MarkStamp';
 import { useCrewStanding } from '../../lib/queries';
 import { LoadFailure } from '../../components/ui/LoadFailure';
 import { PageShell } from '../game/PageShell';
+import { formatRemaining } from '../base/format';
 
 /**
  * What the crew is buying (maintainer request): the outcomes the books are paying for.
@@ -13,12 +20,84 @@ import { PageShell } from '../game/PageShell';
  * Its own screen, reached from the crew page, rather than the bottom two thirds of the overseer's
  * own file. It was on that file because the numbers are computed from the same sheet, which is a
  * reason about the code rather than about the reader: the file is *who you are*, and this is a
- * ledger of what eighteen people between them are worth to the district. Two subjects, two screens.
+ * ledger of what thirteen people between them are worth to the district. Two subjects, two screens.
  *
- * Every number here is the **best** figure anybody on the books has, the reader included. That is
- * the rule the whole page rests on and it is the one thing a player has to be told, so it is said
- * in the lede rather than folded into a collapsed note that nobody opens.
+ * Two halves since the chair rework (maintainer, 2026-10-04). The cards are what the perks on the
+ * books add up to: every perk sums across the room. The list beside them is what each chair pays,
+ * which is one passive per seated officer sized by how well they fit the seat, with the Overseer's
+ * own grade first. Attributes no longer feed a crew-wide channel, so there is no best-of sheet to
+ * draw any more.
  */
+
+/** One line of "What the chairs give": who, their grade, and the one passive it pays. */
+function ChairGift({
+  testId,
+  chair,
+  name,
+  mark,
+  passive,
+  chairFrom = null,
+}: {
+  testId: string;
+  chair: string;
+  name: string;
+  mark: OfficerMark;
+  passive: string;
+  /** When a chair taken a moment ago starts giving (`chairSettlesAt`), or null when it does. */
+  chairFrom?: string | null;
+}) {
+  const left = chairFrom === null ? 0 : Date.parse(chairFrom) - Date.now();
+  return (
+    <li data-testid={testId} className="flex min-w-0 flex-col gap-1 py-2 first:pt-0 last:pb-0">
+      <div className="flex min-w-0 items-start gap-2">
+        <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+          <span className="font-display text-[10px] font-bold uppercase tracking-[0.16em] text-brass-300">
+            {chair}
+          </span>
+          <span className="break-words font-stamp text-[14px] leading-tight text-ink-100">
+            {name}
+          </span>
+        </div>
+        <span className="relative h-9 w-9 shrink-0 text-oxblood-300">
+          <MarkStamp mark={mark} className="inset-0 h-full w-full" tip={`${chair}: ${mark}`} />
+        </span>
+      </div>
+      <p className="break-words font-body text-[12px] leading-snug text-ink-300">{passive}</p>
+      {left > 0 && (
+        <p className="break-words font-body text-[12px] italic leading-snug text-oxblood-300">
+          Settling in: nothing for another {formatRemaining(left)}.
+        </p>
+      )}
+    </li>
+  );
+}
+
+/** The Overseer's grade, then every working chair in `OFFICER_ROLES` order. */
+function ChairGifts({ data }: { data: CrewStandingResponse }) {
+  return (
+    <ul className="flex flex-col divide-y divide-surface-700/70" data-testid="chair-gifts">
+      <ChairGift
+        testId="chair-gift-overseer"
+        chair="Overseer"
+        name={data.overseer.name}
+        mark={data.overseerGrade.mark}
+        passive={data.overseerGrade.passive}
+      />
+      {data.chairs.map((line) => (
+        <ChairGift
+          key={line.role}
+          testId={`chair-gift-${line.role}`}
+          chair={OFFICER_ROLE_LABELS[line.role]}
+          name={line.officerName}
+          mark={line.mark}
+          passive={line.passive}
+          chairFrom={line.chairFrom ?? null}
+        />
+      ))}
+    </ul>
+  );
+}
+
 export function CrewEffectsPage() {
   const query = useCrewStanding();
   const data = query.data;
@@ -37,14 +116,15 @@ export function CrewEffectsPage() {
     );
   }
 
-  const { crewSheet, effects } = data;
-  const live = EFFECT_CHANNELS.filter((channel) => (effects[channel] ?? 0) > 0);
-  const dormant = EFFECT_CHANNELS.filter((channel) => (effects[channel] ?? 0) <= 0);
+  const { effects } = data;
+  const live = EFFECT_CHANNELS.filter(
+    // The spy totals are never sent (`PRIVATE_CHANNELS`); this holds if one ever is.
+    (channel) => !PRIVATE_CHANNELS.has(channel) && (effects[channel] ?? 0) > 0,
+  );
 
   return (
     <PageShell
       title="What the crew is buying"
-      icon="spark"
       action={
         <Link
           to="/game/crew"
@@ -58,54 +138,24 @@ export function CrewEffectsPage() {
       wide
     >
       <div className="flex flex-col gap-4">
-        <div className="grid items-start gap-3 xl:grid-cols-[minmax(0,1fr)_16rem]">
+        <div className="grid items-start gap-3 xl:grid-cols-[minmax(0,1fr)_18rem]">
           <ul
             className="grid min-w-0 gap-2 md:grid-cols-2 [@media(min-width:1600px)]:grid-cols-3"
             data-testid="crew-effects"
           >
             {live.map((channel) => (
-              <ChannelCard
-                key={channel}
-                channel={channel}
-                amount={effects[channel] ?? 0}
-                sheet={crewSheet}
-              />
+              <ChannelCard key={channel} channel={channel} amount={effects[channel] ?? 0} />
             ))}
           </ul>
 
           <section className="ink-frame card-paper washed flex flex-col gap-1.5 p-3">
             <h2 className="font-display text-[11px] font-bold uppercase tracking-[0.16em] text-brass-300">
-              The shape of the crew
+              What the chairs give
             </h2>
             <span aria-hidden className="ink-rule h-1 w-full" />
-            <div className="h-52 w-full">
-              <AttributeRadar attributes={crewSheet} />
-            </div>
+            <ChairGifts data={data} />
           </section>
         </div>
-
-        {dormant.length > 0 && (
-          <section className="flex flex-col gap-2">
-            <h2 className="font-display text-[11px] font-bold uppercase tracking-[0.18em] text-brass-300">
-              Nothing there yet
-            </h2>
-            <span aria-hidden className="ink-rule h-1 w-full" />
-            <p className="font-body text-[13px] text-ink-400">
-              Channels nobody on the books can open. Hire for them, or train towards them.
-            </p>
-            <ul className="flex flex-wrap gap-1.5">
-              {dormant.map((channel) => (
-                <li
-                  key={channel}
-                  className="flex items-center gap-1.5 rounded-sm border border-surface-700 px-2 py-1 font-display text-[11px] uppercase tracking-[0.12em] text-ink-300"
-                >
-                  <Icon name="lock" className="h-3 w-3" />
-                  {CHANNEL_LABELS[channel].label}
-                </li>
-              ))}
-            </ul>
-          </section>
-        )}
       </div>
     </PageShell>
   );

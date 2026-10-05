@@ -1,14 +1,20 @@
-import { findResearchItem, noCrewEffects, researchEffects, type Army } from '@frontline/shared';
+import {
+  RESEARCH_ITEMS,
+  bonusesAt,
+  noCrewEffects,
+  researchEffects,
+  type Army,
+} from '@frontline/shared';
 import { describe, expect, it } from 'vitest';
 import { fightMissionBattle } from './battle.js';
 
 /**
  * The syringes reach a battle job (bug pass, 2026-09-29).
  *
- * `battleStims` is paid by the Black Clinic and by two Lab rungs, the Chief Medic's Blood Bank and
- * the Wetware Chief's Salvage Grafts, each "+1 battle stim". The declared-battle settler spent
- * them and nothing else did, so a job, which is a fight on the same engine, was fought as though
- * the crew had none. Measured over a sweep of seeds rather than on one, since a single seed can
+ * `battleStims` is paid by the Black Clinic (the two Lab rungs that paid one each went with the
+ * Chief Medic's and the Wetware Chief's chairs, 2026-10-04). The declared-battle settler spent them
+ * and nothing else did, so a job, which is a fight on the same engine, was fought as though the
+ * crew had none. Measured over a sweep of seeds rather than on one, since a single seed can
  * land on either side of a close fight.
  */
 
@@ -37,26 +43,24 @@ function sweep(stims: number): { killed: number; lost: number } {
 }
 
 describe('stims on a battle job', () => {
-  it('are what the two Lab rungs pay', () => {
-    const rungs = ['tech_blood_bank', 'tech_salvage_grafts'];
-    for (const id of rungs)
-      expect(findResearchItem(id)?.payout.bonus?.kind, id).toBe('battle_stims');
-    expect(researchEffects(rungs).battleStims).toBe(2);
+  it('are what the Black Clinic pays, and no Lab rung any more', () => {
+    expect(bonusesAt('black_clinic', 1)).toContainEqual({ kind: 'battle_stims', flat: 2 });
+    expect(researchEffects(RESEARCH_ITEMS.map((spec) => spec.id)).battleStims).toBe(0);
   });
 
   /*
-   * Read off what the crew lost, which is where the syringes show. What it killed sits near the
-   * whole enemy on a grade E job either way, so a kill count only moves on noise: since the pursuit
-   * rolls each body on its own draw (2026-09-29) the 30 seeds read 296 killed bare and 292 dosed,
-   * while the losses read 73 and 60. Over 200 seeds: 1,994 and 2,016 killed, 469 and 400 lost.
+   * Read off what the crew kills, where the syringes show since morale reads wounds (2026-10-05).
+   * The enemy breaks on its wounds now, so a dosed crew runs more of it down; what the crew loses
+   * barely moves. 30 seeds: 264 killed bare and 292 dosed, 60 lost both. 200 seeds: 1,784 and 2,011
+   * killed, 396 and 398 lost. (Before the morale change it was the losses that moved: 469 and 400.)
    */
   it('change the fight in the crew’s favour', () => {
     const bare = sweep(0);
     const dosed = sweep(10);
     expect(bare.killed, 'the fixture kills nobody, so it measures nothing').toBeGreaterThan(0);
-    expect(dosed.lost, 'ten syringes did nothing to what the crew lost').toBeLessThan(
-      bare.lost * 0.9,
+    expect(dosed.killed, 'ten syringes did nothing to what the crew killed').toBeGreaterThan(
+      bare.killed * 1.05,
     );
-    expect(dosed.killed).toBeGreaterThanOrEqual(bare.killed * 0.97);
+    expect(dosed.lost).toBeLessThanOrEqual(bare.lost * 1.05);
   });
 });

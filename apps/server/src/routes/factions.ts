@@ -1,12 +1,17 @@
 import { randomUUID } from 'node:crypto';
 import {
+  sameDisplayName,
+  displayNameOf,
   AnswerInviteRequestSchema,
   CreateFactionRequestSchema,
   EditFactionDescriptionRequestSchema,
   EditFactionIdentityRequestSchema,
   FactionMemberActionRequestSchema,
   InviteToFactionRequestSchema,
+  LeaveFactionRequestSchema,
   ReinforceRequestSchema,
+  SeatFactionMemberRequestSchema,
+  dealCards,
   canAdminister,
   canEditDescription,
   canEditIdentity,
@@ -20,6 +25,8 @@ import {
   type FactionResponse,
 } from '@frontline/shared';
 import type { FastifyInstance } from 'fastify';
+import type { Repositories } from '../db/repos/index.js';
+import type { UserRecord } from '../types.js';
 import { AppError, parseBody } from '../errors.js';
 import { hasRoom, projectFaction } from '../factions/project.js';
 import { notify, notifyFaction } from '../social/notify.js';
@@ -155,7 +162,7 @@ export function registerFactionRoutes(app: FastifyInstance): void {
         if (!canInvite(held.rank)) refuse('not_allowed');
         if (!hasRoom(app.repos, held.factionId)) refuse('faction_full');
 
-        const invitee = app.repos.users.findByUsername(username);
+        const invitee = playerNamed(app.repos, username);
         if (!invitee) refuse('no_such_player');
         if (invitee.id === userId) refuse('already_a_member');
         if (app.repos.factions.membershipOf(invitee.id)) refuse('already_in_a_faction');
@@ -174,6 +181,12 @@ export function registerFactionRoutes(app: FastifyInstance): void {
         const tooOften = invitationRefusal(app.repos, letter);
         if (tooOften) refuse(tooOften);
         if (outOfLettersToday(app.repos, userId, now)) refuse('too_many_today');
+        /*
+         * A player who blocked the sender gets nothing from them, an invitation included (review,
+         * 2026-10-02): the letter was dropped while the invitation row still reached their faction
+         * screen. Answered as if it went, the same as a dropped letter, so a block is not announced.
+         */
+        if (app.repos.social.hasBlocked(invitee.id, userId)) return answer(userId);
         const inviteId = randomUUID();
         app.repos.factions.invite({
           id: inviteId,
@@ -192,23 +205,21 @@ export function registerFactionRoutes(app: FastifyInstance): void {
          * `message_received`, so somebody who has muted ordinary mail still hears about this.
          */
         sendMessage(app.repos, {
-          sender: { id: userId, username: request.currentUser.username },
+          sender: { id: userId, signature: displayNameOf(request.currentUser) },
           senderFaction: faction.name,
           recipients: [invitee.id],
           audience: 'player',
-          addressedTo: invitee.username,
+          addressedTo: displayNameOf(invitee),
           subject: `An invitation to ${faction.name}`,
           body:
-            `${request.currentUser.username} has asked you to join ${faction.name}.\n\n` +
-            `${faction.blurb || 'They have not written down what they are for.'}\n\n` +
-            'Accepting puts your district at their table: your army shows up on their roster, ' +
-            'their fights show up on yours, and either of you can send help to the other.',
+            `${displayNameOf(request.currentUser)} has asked you to join ${faction.name}.\n\n` +
+            (faction.blurb || 'They have not written down what they are for.'),
           sentAt: now,
           invite: { inviteId, factionId: faction.id },
           notification: {
             kind: 'faction_invite',
             title: `${faction.name} has asked you to join`,
-            body: `${request.currentUser.username} sent the invitation.`,
+            body: `${displayNameOf(request.currentUser)} sent the invitation.`,
             link: '/game/messages',
           },
           keepSentCopy: false,
@@ -278,7 +289,7 @@ export function registerFactionRoutes(app: FastifyInstance): void {
         app.repos.factions.clearInvitesFor(userId);
         notifyFaction(app.repos, invite.factionId, {
           kind: 'faction_joined',
-          title: `${request.currentUser.username} has joined`,
+          title: `${displayNameOf(request.currentUser)} has joined`,
           body: '',
           link: '/game/faction',
           at: now,
@@ -293,9 +304,17 @@ export function registerFactionRoutes(app: FastifyInstance): void {
     '/factions/leave',
     { preHandler: app.authenticate },
     (request): FactionMutationResponse => {
+      // Optional, so a bare `{}` still leaves exactly as it always did.
+      const { successorId } = parseBody(LeaveFactionRequestSchema, request.body ?? {});
       const userId = request.currentUser.id;
       return app.db.transaction(() => {
-        leaveFaction(app.repos, membership(userId), request.currentUser.username, new Date());
+        leaveFaction(
+          app.repos,
+          membership(userId),
+          displayNameOf(request.currentUser),
+          new Date(),
+          successorId,
+        );
         return answer(userId);
       })();
     },
@@ -320,7 +339,7 @@ export function registerFactionRoutes(app: FastifyInstance): void {
 
         notifyFaction(app.repos, held.factionId, {
           kind: 'faction_left',
-          title: `${request.currentUser.username} disbanded the faction`,
+          title: `${displayNameOf(request.currentUser)} disbanded the faction`,
           body: 'The faction they led is gone.',
           link: '/game/faction',
           at: new Date(),
@@ -370,6 +389,7 @@ export function registerFactionRoutes(app: FastifyInstance): void {
              * chief who has just been thrown out still seated its recipient (audit, 2026-09-28).
              */
             app.repos.factions.dropInvitesSentBy(targetId);
+            const removed = app.repos.users.findById(targetId);
             notify(app.repos, {
               userId: targetId,
               kind: 'faction_left',
@@ -380,7 +400,7 @@ export function registerFactionRoutes(app: FastifyInstance): void {
             });
             notifyFaction(app.repos, held.factionId, {
               kind: 'faction_left',
-              title: `${app.repos.users.findById(targetId)?.username ?? 'Somebody'} was removed`,
+              title: `${removed ? displayNameOf(removed) : 'Somebody'} was removed`,
               body: '',
               link: '/game/faction',
               at: now,
@@ -421,13 +441,60 @@ export function registerFactionRoutes(app: FastifyInstance): void {
               userId: targetId,
               kind: 'faction_joined',
               title: 'You lead the faction now',
-              body: `${request.currentUser.username} handed it over.`,
+              body: `${displayNameOf(request.currentUser)} handed it over.`,
               link: '/game/faction',
               at: now,
             });
             return answer(userId);
           }
         }
+      })();
+    },
+  );
+
+  /**
+   * The leader seats a member at a card (maintainer ruling P3-C, 2026-10-02).
+   *
+   * Cards were dealt by the army at home, so a member who marched to a table-mate's fight passed
+   * theirs to somebody weaker while the fight was on. The leader decides now, themselves included.
+   * Whoever held the card takes the member's old one, so a seat is a swap rather than an eviction
+   * and the table never loses a card it had.
+   */
+  app.post(
+    '/factions/seat',
+    { preHandler: app.authenticate },
+    (request): FactionMutationResponse => {
+      const { userId: targetId, card } = parseBody(SeatFactionMemberRequestSchema, request.body);
+      const userId = request.currentUser.id;
+      return app.db.transaction(() => {
+        const held = membership(userId);
+        if (!canAdminister(held.rank)) refuse('not_allowed');
+        const target = app.repos.factions.membershipOf(targetId);
+        if (!target || target.factionId !== held.factionId) refuse('not_a_member');
+        /*
+         * The table frozen as it stands first, every member pinned to the card they hold, so a seat
+         * moves the two people it names and nobody else: an unseated member is dealt what is left
+         * in seat order, and seating the leader at a free card used to re-deal the rest (review,
+         * 2026-10-02). Dealt off the rows rather than `cardsAtTable`, which leaves out a member
+         * with no Overseer.
+         */
+        const rows = app.repos.factions.members(held.factionId);
+        const dealt = dealCards(
+          rows.map((row) => ({
+            userId: row.userId,
+            username: app.repos.users.findById(row.userId)?.username ?? '',
+            rank: row.rank,
+            joinedAt: row.joinedAt,
+            seat: row.seat,
+          })),
+        );
+        const was = dealt.get(targetId) ?? null;
+        for (const row of rows) {
+          const holds = dealt.get(row.userId) ?? null;
+          app.repos.factions.setSeat(row.userId, card !== null && holds === card ? was : holds);
+        }
+        app.repos.factions.setSeat(targetId, card);
+        return answer(userId);
       })();
     },
   );
@@ -506,7 +573,7 @@ export function registerFactionRoutes(app: FastifyInstance): void {
           notify(app.repos, {
             userId: ownerOfBattle,
             kind: 'reinforcement_arrived',
-            title: `${request.currentUser.username} is sending help`,
+            title: `${displayNameOf(request.currentUser)} is sending help`,
             body: 'Units are on the road to a fight of yours.',
             link: '/game/battles',
             at: now,
@@ -516,4 +583,19 @@ export function registerFactionRoutes(app: FastifyInstance): void {
       })();
     },
   );
+}
+
+/**
+ * The player a typed name means: their login handle, or the display name every screen prints
+ * (bug pass, 2026-10-02). The invite form took the handle alone, which no screen shows, so typing the
+ * name off the standings was refused. Display names are unique across both kinds of name
+ * (`refuseTakenDisplayName`), so there is one answer.
+ */
+function playerNamed(repos: Repositories, name: string): UserRecord | undefined {
+  const byHandle = repos.users.findByUsername(name);
+  if (byHandle) return byHandle;
+  const shown = repos.users
+    .names()
+    .find((user) => user.displayName !== null && sameDisplayName(user.displayName, name));
+  return shown ? repos.users.findById(shown.id) : undefined;
 }

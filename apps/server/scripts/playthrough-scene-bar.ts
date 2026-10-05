@@ -1,15 +1,17 @@
 /**
  * Two weeks on (the bench), then the Bar: two crews at one table, the sealed half hour, the close
- * at midnight, a winner and a loser, the payroll ladder and letting somebody go.
+ * at midnight, a winner and a loser, widening the payroll book and letting somebody go.
  */
-import type {
-  BarAuction,
-  BarRecruit,
-  BarResponse,
-  BidResponse,
-  IncreasePayrollResponse,
-  NotificationsResponse,
-  ReleaseOfficerResponse,
+import {
+  PAYROLL_STEP,
+  PAYROLL_STEP_RESOURCE,
+  type BarAuction,
+  type BarRecruit,
+  type BarResponse,
+  type BidResponse,
+  type IncreasePayrollResponse,
+  type NotificationsResponse,
+  type ReleaseOfficerResponse,
 } from '@frontline/shared';
 import type { Harness, Player } from './playthrough-harness.js';
 import { player, type Cast } from './playthrough-cast.js';
@@ -361,9 +363,9 @@ export async function barScene(h: Harness, cast: Cast): Promise<void> {
   await release(h, b, c);
 }
 
-/** The Nexus's Increase Payroll: one step at a time, never twice for one press. */
+/** Increase Payroll: one expansion of 30 at a time, paid in caps, never twice for one press. */
 async function payroll(h: Harness, a: Player, b: Player): Promise<void> {
-  h.at('bar: the payroll ladder');
+  h.at('bar: widening the payroll book');
   const room = await bar(h, a);
   if (!room) return;
   const steps = room.payroll.purchasedSteps;
@@ -379,7 +381,17 @@ async function payroll(h: Harness, a: Player, b: Player): Promise<void> {
       bought.payroll.purchasedSteps === steps + 1,
       `payroll went from ${steps} to ${bought.payroll.purchasedSteps} steps`,
     );
-    expectDelta(h, before.resources, bought.resources, { caps: -bought.spent }, 'a payroll step');
+    h.check(
+      bought.payroll.capacity === room.payroll.capacity + PAYROLL_STEP,
+      `one expansion moved the book from ${room.payroll.capacity} to ${bought.payroll.capacity}`,
+    );
+    expectDelta(
+      h,
+      before.resources,
+      bought.resources,
+      { [PAYROLL_STEP_RESOURCE]: -bought.spent },
+      'a payroll expansion',
+    );
   }
   // The same press again, naming the step the screen showed, is stale.
   await h.refuse({
@@ -393,14 +405,14 @@ async function payroll(h: Harness, a: Player, b: Player): Promise<void> {
   await h.refuseMalformed(a, '/api/bar/payroll', { fromSteps: -1 });
   // A crew with no caps cannot buy one.
   const poor = await baseOf(h, b);
-  h.repos.bases.updateResources(b.baseId, { ...poor.resources, caps: 0 });
+  h.repos.bases.updateResources(b.baseId, { ...poor.resources, [PAYROLL_STEP_RESOURCE]: 0 });
   await h.refuse({
     as: b,
     method: 'POST',
     route: '/api/bar/payroll',
     body: {},
     expect: 409,
-    code: 'INSUFFICIENT_CAPS',
+    code: 'INSUFFICIENT_RESOURCES',
   });
   h.repos.bases.updateResources(b.baseId, poor.resources);
 }

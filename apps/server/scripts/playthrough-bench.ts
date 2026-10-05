@@ -108,7 +108,7 @@ export function addUnits(h: Harness, player: Player, army: Army): void {
   const base = baseOf(h, player);
   const next: Record<string, number> = { ...base.army };
   for (const [id, n] of Object.entries(army)) next[id] = (next[id] ?? 0) + (n ?? 0);
-  h.repos.bases.updateArmy(base.id, next, base.trainingQueue);
+  h.repos.bases.updateArmy(base.id, next, base.musterQueue);
   note(player, `units added ${JSON.stringify(army)}`);
 }
 

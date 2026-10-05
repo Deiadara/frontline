@@ -99,6 +99,12 @@ export interface AppConfig {
   maxConnections: number;
   /** See `TRUST_PROXY` above. Passed to Fastify verbatim. */
   trustProxy: boolean | number | string;
+  /**
+   * Whether the session cookie is `Secure`: in production, which is served over HTTPS behind Caddy,
+   * and nowhere else, since development is plain HTTP and a browser never returns a Secure cookie
+   * over it (`auth/session.ts`).
+   */
+  secureCookies: boolean;
 }
 
 /**
@@ -209,5 +215,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     backupMirrorDir: parsed.BACKUP_MIRROR_DIR,
     maxConnections: parsed.MAX_CONNECTIONS,
     backupsEnabled: parsed.BACKUPS,
+    secureCookies: (parsed.NODE_ENV ?? process.env.NODE_ENV) === 'production',
   };
 }

@@ -88,8 +88,9 @@ Today `BuildingSpec.basePowerDraw`, `building/power.ts`, `TerritoryEffects.power
   This is the existing `perHour` production path; the Greenhouse becomes the supplies producer.
 - Upgrading generates more.
 - Upgrading also **lowers the supplies cost of training units by a percentage**, by level
-  **(chosen: 2% per level, capped at 30%)**. This is a _supplies-only_ discount and must not touch
-  the other resources a unit costs.
+  **(chosen: 2% per level, capped at 30%; since 2026-10-01 half a point per level with no cap, on
+  the supplies line's taper toward 70% off, see SPEC-server)**. This is a _supplies-only_ discount
+  and must not touch the other resources a unit costs.
 
 ### B6. The Gauntlet: training speed and unit unlocks
 

@@ -15,7 +15,7 @@ import { Icon } from '../../components/ui/Icon';
 import { Modal } from '../../components/ui/Modal';
 import { NumberField } from '../../components/ui/NumberField';
 import { cn } from '../../lib/cn';
-import { useUnits } from '../../lib/queries';
+import { useDeployQuote, useUnits } from '../../lib/queries';
 import { usePlayerZone } from '../settings/usePlayerZone';
 import { fightOrder } from './order';
 import { EmptyPlate, Figure, WindowHead } from './parts';
@@ -171,6 +171,22 @@ function FightCard({
   // in winter was shown a mark some hours off the one the chips over the room count down to.
   const zone = usePlayerZone();
   const mark = new Date(battle.scheduledFor);
+  /*
+   * When the help would land, and whether that beats the mark (bug pass, 2026-10-02). A column that
+   * lands after the mark waits, never fights, and walks home; the drawer used to say nothing of it.
+   * The deploy dialog's own quote, which reads the same road the send walks.
+   */
+  const quote = useDeployQuote(
+    sending && held > 0 && unitId !== ''
+      ? {
+          battleId: battle.battleId,
+          changes: { [unitId]: count },
+          perimeterChanges: {},
+          byRail: false,
+        }
+      : null,
+  );
+  const landing = quote.data ? new Date(quote.data.arrivesAt) : null;
 
   return (
     <li className="flex min-w-[16rem] max-w-[30rem] flex-1 basis-[21rem]">
@@ -278,6 +294,19 @@ function FightCard({
                   onChange={setWanted}
                 />
               </div>
+            )}
+            {landing !== null && quote.data && (
+              <p
+                className={cn(
+                  'font-body text-[12px] leading-snug',
+                  quote.data.inTime ? 'text-ink-300' : 'text-oxblood-300',
+                )}
+                data-testid={`reinforce-landing-${battle.battleId}`}
+              >
+                {quote.data.inTime
+                  ? `Lands at ${formatClock(landing, zone)}, before the mark.`
+                  : `Lands at ${formatClock(landing, zone)}, after the mark. They would not fight.`}
+              </p>
             )}
             <div className="flex flex-wrap gap-2">
               <Button

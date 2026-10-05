@@ -3,6 +3,7 @@ import {
   LEADER_HOLD_LABELS,
   MAX_WAGE_DISCOUNT,
   NO_FREE_BED_TEXT,
+  PAYROLL_STEP_RESOURCE,
   PlaceBidRequestSchema,
   ReleaseOfficerRequestSchema,
   SealBidRequestSchema,
@@ -24,6 +25,7 @@ import {
   sealBid,
   settleBarAuctions,
   tablesHeldIn,
+  wagesHeldByBids,
   type BidRefusal,
   type BidRequest,
   type BidResult,
@@ -47,6 +49,7 @@ import { settleBase } from '../district/settle.js';
 import { districtUnitSlots } from '../district/unit-slots.js';
 import { AppError, cityQuery, parseBody, type ErrorCode } from '../errors.js';
 import { takeLevelUp } from '../progression/award.js';
+import { shownNameOf } from '../social/names.js';
 
 /**
  * The Bar (GDD §H, §H7a).
@@ -89,7 +92,7 @@ function usernamesFor(app: FastifyInstance, bids: readonly BarBid[]): Map<string
   const names = new Map<string, string>();
   for (const bid of bids) {
     if (names.has(bid.userId)) continue;
-    names.set(bid.userId, app.repos.users.findById(bid.userId)?.username ?? 'Somebody');
+    names.set(bid.userId, shownNameOf(app.repos, bid.userId, 'Somebody'));
   }
   return names;
 }
@@ -122,7 +125,14 @@ const BID_ERRORS: Record<BidRefusal, { code: ErrorCode; message: (minimum: numbe
     message: () => 'They will not work for a crew like yours at any price',
   },
   already_hired: { code: 'RECRUIT_UNAVAILABLE', message: () => 'They already work for you' },
-  no_slots: { code: 'NO_RECRUIT_SLOTS', message: () => 'You have no room for another recruit' },
+  // Worded for the crew over the limit as well as the one at it (maintainer, 2026-09-30): a save
+  // from before the slot ladder keeps every officer it holds, and has to be told why the Bar
+  // still says no.
+  no_slots: {
+    code: 'NO_RECRUIT_SLOTS',
+    message: () =>
+      'Every officer slot is taken. The officers you hold stay, but nobody new signs until you are under your limit',
+  },
   no_unit_slots: { code: 'NO_UNIT_SLOTS', message: () => NO_FREE_BED_TEXT },
   too_many_auctions: {
     code: 'TOO_MANY_AUCTIONS',
@@ -140,11 +150,11 @@ const BID_ERRORS: Record<BidRefusal, { code: ErrorCode; message: (minimum: numbe
   },
   too_low: {
     code: 'BID_REFUSED',
-    message: (minimum) => `Not enough. It takes ${minimum} a week to lead this table`,
+    message: (minimum) => `Not enough. It takes ${minimum} caps to lead this table`,
   },
   no_payroll: {
     code: 'NO_PAYROLL',
-    message: () => 'Your payroll will not stretch that far. Raise it at the Nexus',
+    message: () => 'Your payroll will not stretch that far. Increase it at the Bar or the Nexus',
   },
 };
 
@@ -227,15 +237,6 @@ export function registerBarRoutes(app: FastifyInstance): void {
     // by the time this read draws them.
     const base = settledBase(app, request.currentUser.id, now);
     /*
-     * §I1/§I2: what the two settles above just banked.
-     *
-     * `BarResponse.levelUp` has always been on the wire and the screen has always latched it, and
-     * nothing ever filled it in: signing somebody pays XP and the close runs here, so this read is
-     * often the only one that knows a level was crossed. `takeLevelUp` drains the durable marker
-     * (migration 0083), so it is announced exactly once whichever door banked it.
-     */
-    const levelUp = takeLevelUp(app.repos, base.id);
-    /*
      * Which city's room this is (maintainer, 2026-09-17).
      *
      * A bar belongs to a city and a crew may drink in any city they hold ground in, so a read that
@@ -248,6 +249,16 @@ export function registerBarRoutes(app: FastifyInstance): void {
     if (cityId === null) {
       throw new AppError('CITY_SHUT', 'You hold no ground in that city. Take a place in it first.');
     }
+    /*
+     * §I1/§I2: what the two settles above just banked.
+     *
+     * `BarResponse.levelUp` has always been on the wire and the screen has always latched it, and
+     * nothing ever filled it in: signing somebody pays XP and the close runs here, so this read is
+     * often the only one that knows a level was crossed. `takeLevelUp` drains the durable marker
+     * (migration 0083), so it is announced exactly once whichever door banked it. After the city
+     * check, as `/missions` does it: a refusal after the drain lost the announcement for good.
+     */
+    const levelUp = takeLevelUp(app.repos, base.id);
     const window = auctionWindow(now);
     const day = window.day;
     /*
@@ -276,7 +287,7 @@ export function registerBarRoutes(app: FastifyInstance): void {
     const usernames = usernamesFor(app, bids);
     // Read once: the book and the discount feed the ledger, the bid ceiling and the payroll gate.
     const effects = crewEffectsFor(app.repos, base);
-    const ledger = ledgerFor(base, effects.payrollStepDiscountPercent);
+    const ledger = ledgerFor(base, effects);
 
     return {
       day,
@@ -286,7 +297,7 @@ export function registerBarRoutes(app: FastifyInstance): void {
       ),
       officers: base.commanders.map((officer) => projectOfficer(base, officer)),
       slotsUsed: base.commanders.length,
-      slotsTotal: recruitSlotsFor(app.repos, base),
+      slotsTotal: recruitSlotsFor(base),
       bedsFree: districtUnitSlots(app.repos, base).spare,
       infamy: base.economy.infamy,
       notoriety: base.economy.notoriety,
@@ -311,8 +322,20 @@ export function registerBarRoutes(app: FastifyInstance): void {
       // this screen is the number of tables held in the room it is drawing.
       auctionsUsed: tablesHeldIn(app.repos, request.currentUser.id, day, cityId).length,
       auctionsAllowed: maxOpenAuctionsFor(base.level),
-      // The most this crew can put on a table: what the book holds after its own negotiators.
-      bidCeiling: bidCeilingFor(ledger.available, effects.wageDiscountPercent),
+      // The most this crew can put on a table: what the book holds after its own negotiators, less
+      // the wages its other bids tonight already hold, won or lost (2026-10-04). One figure for
+      // the room, so it can read a little low on a table the crew itself is leading.
+      bidCeiling: bidCeilingFor(
+        ledger.available -
+          wagesHeldByBids(
+            app.repos,
+            request.currentUser.id,
+            day,
+            null,
+            effects.wageDiscountPercent,
+          ),
+        effects.wageDiscountPercent,
+      ),
       wageDiscountPercent: Math.min(MAX_WAGE_DISCOUNT, Math.max(0, effects.wageDiscountPercent)),
       // Only the tables this crew sat at, from the last night it sat at any. A results panel that
       // carried every close in the city would be a leaderboard nobody asked for.
@@ -372,18 +395,18 @@ export function registerBarRoutes(app: FastifyInstance): void {
   });
 
   /**
-   * §H7: buy one more step of standing payroll.
+   * §H7: buy one more expansion of standing payroll.
    *
-   * The Nexus screen's `Increase Payroll`. A fixed step at a price that climbs by a flat amount
-   * with every step already bought, up to `PAYROLL_STEPS_MAX` rungs and then no further:
-   * `payrollStepCost` owns all of that and this route only moves the caps.
+   * The `Increase Payroll` the Bar and the Nexus both open. A flat 30 of room at a caps price that
+   * climbs by 60 with every expansion already bought (maintainer, 2026-10-01): there is always
+   * another one to buy. `payrollStepCost` owns the price and this route only moves the caps.
    */
   app.post('/bar/payroll', { preHandler: app.authenticate }, (request): IncreasePayrollResponse => {
     const { fromSteps } = parseBody(IncreasePayrollRequestSchema, request.body ?? {});
     const now = new Date();
     const base = settledBase(app, request.currentUser.id, now);
-    // Same guard as the notoriety ladder: the step the screen showed has to be the step the row
-    // is on, or a second press buys a second step nobody asked for.
+    // Same guard as the notoriety ladder: the expansion the screen showed has to be the one the
+    // row is on, or a second press buys a second expansion nobody asked for.
     if (fromSteps !== undefined && fromSteps !== base.economy.payroll.purchasedSteps) {
       throw new AppError(
         'STALE_STATE',
@@ -396,20 +419,15 @@ export function registerBarRoutes(app: FastifyInstance): void {
       base.economy.payroll.purchasedSteps,
       crewEffectsFor(app.repos, base).payrollStepDiscountPercent,
     );
-    // Before the stockpile, so a crew that could pay ten times over is told the real reason rather
-    // than being handed an affordability refusal it cannot act on. Not waived by admin mode: there
-    // is no step to sell, so there is no price for admin to waive.
-    if (cost === null) {
-      throw new AppError('PAYROLL_AT_MAX', 'The book is as wide as it goes. There is no step left');
-    }
-    if (cost > base.resources.caps && !app.config.admin) {
-      throw new AppError('INSUFFICIENT_CAPS', 'You cannot cover that');
+    if (cost > base.resources[PAYROLL_STEP_RESOURCE] && !app.config.admin) {
+      throw new AppError('INSUFFICIENT_RESOURCES', `You need ${cost} caps to widen the book`);
     }
 
     const raised = app.db.transaction(() => {
       const resources = {
         ...base.resources,
-        caps: base.resources.caps - (app.config.admin ? 0 : cost),
+        [PAYROLL_STEP_RESOURCE]:
+          base.resources[PAYROLL_STEP_RESOURCE] - (app.config.admin ? 0 : cost),
       };
       const economy = {
         ...base.economy,
@@ -426,7 +444,7 @@ export function registerBarRoutes(app: FastifyInstance): void {
     return {
       spent: cost,
       resources: raised.resources,
-      payroll: ledgerFor(raised, crewEffectsFor(app.repos, raised).payrollStepDiscountPercent),
+      payroll: ledgerFor(raised, crewEffectsFor(app.repos, raised)),
     };
   });
 }

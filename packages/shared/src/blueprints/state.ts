@@ -139,8 +139,8 @@ export function unlockBlueprint(inventory: Inventory, id: string): Inventory | n
 /**
  * §G4: the Reimagining seam.
  *
- * The trade itself is not here and must not be added here: it is a research item and a Head of
- * Research, both of which belong to the Lab. What the Blueprints page needs from this module is
+ * The trade itself is not here and must not be added here: it is a research item and a Researcher,
+ * both of which belong to the Lab. What the Blueprints page needs from this module is
  * the ability to draw the section **locked, with its requirements stated**, before either of those
  * exists, and that is a predicate over two booleans the Lab can hand it.
  *
@@ -148,17 +148,22 @@ export function unlockBlueprint(inventory: Inventory, id: string): Inventory | n
  * changes.
  */
 export interface ReimaginingContext {
-  /** An officer sitting in the Head of Research seat right now. */
-  hasHeadOfResearch: boolean;
+  /** An officer sitting in the Researcher seat right now. */
+  hasResearcher: boolean;
   /** The Reimagining research finished (§G1). */
   hasReimaginingResearch: boolean;
+  /**
+   * Seconds until a seated but injured Researcher is back, or null when nobody is laid up.
+   * The chair is filled, so the bench must not send the player to the Bar to hire a second one.
+   */
+  researcherBackInSeconds?: number | null | undefined;
 }
 
 /** How many pages the trade eats (§G2). Stated on the locked panel so the cost is never a surprise. */
 export const REIMAGINING_PAGES_SPENT = 3;
 
 export function reimaginingAvailable(context: ReimaginingContext): boolean {
-  return context.hasHeadOfResearch && context.hasReimaginingResearch;
+  return context.hasResearcher && context.hasReimaginingResearch;
 }
 
 /**
@@ -230,7 +235,8 @@ export function heldPages(inventory: Inventory): HeldPage[] {
  * the moment, so a request retried because the connection dropped cannot be retried until the Lab
  * offers something better.
  */
-export type ReimaginingRefusal = 'not_available' | 'wrong_page_count' | 'pages_not_held';
+export type ReimaginingRefusal =
+  'not_available' | 'wrong_page_count' | 'pages_not_held' | 'not_spare';
 
 /**
  * What the bench pays once there is nothing left to find (maintainer, 2026-09-23).
@@ -258,6 +264,7 @@ export const REIMAGINING_REFUSAL_MESSAGES: Readonly<Record<ReimaginingRefusal, s
   not_available: 'The Lab is not doing this yet.',
   wrong_page_count: 'The machine takes three pages. No more, no fewer.',
   pages_not_held: 'You are not holding three pages like that.',
+  not_spare: 'Only spare pages go in. That one is the only copy a document you are collecting has.',
 };
 
 export interface ReimaginingInput {
@@ -313,7 +320,19 @@ export function reimaginingRefusal(input: ReimaginingInput): ReimaginingRefusal 
   if (!reimaginingAvailable(input.context)) return 'not_available';
   if (input.pages.length !== REIMAGINING_PAGES_SPENT) return 'wrong_page_count';
   if (!holdsNamedPages(input.inventory, input.pages)) return 'pages_not_held';
+  if (!sparesCover(input.inventory, input.pages)) return 'not_spare';
   return null;
+}
+
+/**
+ * Whether every page named is a spare (maintainer ruling P7-B, 2026-10-02): the bench used to take
+ * the single copy of a page a document still needed and drop a five-of-six collection to four.
+ */
+function sparesCover(inventory: Inventory, pages: readonly string[]): boolean {
+  const spare = new Map(sparePages(inventory).map((entry) => [entry.pageId, entry.spare]));
+  const wanted = new Map<string, number>();
+  for (const pageId of pages) wanted.set(pageId, (wanted.get(pageId) ?? 0) + 1);
+  return [...wanted].every(([pageId, count]) => (spare.get(pageId) ?? 0) >= count);
 }
 
 export interface Reimagined {

@@ -2,14 +2,14 @@
  * The mark on an officer's card (§B4 to §B6).
  *
  * A mark is a statement about a *fit*, so the same person is worth a different letter in a
- * different chair. That is the whole reason it is shown: a player looking at a Head of Spies with a
- * B and wondering whether they would be better in the Lab can move them and find out.
+ * different chair. That is the whole reason it is shown: a player looking at a Master of Whispers
+ * with a B and wondering whether they would be better in the Lab can move them and find out.
  */
 import { createCommander, markIndex, type Commander } from '@frontline/shared';
 import { describe, expect, it } from 'vitest';
 import { projectCrewOfficer } from './roster.js';
 
-/** Somebody built for one chair: the stealth and deception a Head of Spies is read on. */
+/** Somebody built for one chair: the stealth and deception a Master of Whispers is read on. */
 const spy = (): Commander =>
   createCommander('o1', 'Vela', 'master_of_whispers', {
     stealth: 90,
@@ -30,7 +30,7 @@ describe('the mark on a crew card', () => {
     // A specialist put somewhere their sheet says nothing about. Nothing else about them moves:
     // only the chair, which is exactly what the mark is a statement about.
     const inTrade = projectCrewOfficer(spy()).mark;
-    const outOfTrade = projectCrewOfficer({ ...spy(), role: 'chief_medic' }).mark;
+    const outOfTrade = projectCrewOfficer({ ...spy(), role: 'veteran' }).mark;
     expect(inTrade).not.toBeNull();
     expect(outOfTrade).not.toBeNull();
     expect(

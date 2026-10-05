@@ -3,11 +3,13 @@ import {
   DisplayNameSchema,
   PASSWORD_MAX_BYTES,
   PasswordSchema,
+  SEEDED_BOT_USERNAMES,
   isReservedName,
   sameDisplayName,
   utf8Length,
 } from './accounts.js';
 import { ChangePasswordRequestSchema, UpdateProfileRequestSchema } from './api.accounts.js';
+import { GOVERNMENT } from './allegiance.js';
 import { RegisterRequestSchema } from './api.js';
 import { MVP_DEV_CREDENTIALS } from './mvp.js';
 import { displayNameOf } from './user.js';
@@ -29,7 +31,7 @@ describe('reserved names (bug pass, 2026-09-29)', () => {
     'staff',
     'Front_Line',
     'government',
-    'Vex_Combine',
+    'Vex_Holdings',
     'sable-ninth',
     'Halvard_Line',
   ])('%s is the game’s', (name) => {
@@ -42,6 +44,16 @@ describe('reserved names (bug pass, 2026-09-29)', () => {
       expect(isReservedName(name)).toBe(false);
     },
   );
+
+  /*
+   * A bot is another crew, and a crew called after the regime reads as the regime playing
+   * (maintainer, 2026-10-01): the rival was `Vex_Combine` until then.
+   */
+  it('names no seeded bot after the Combine', () => {
+    for (const username of SEEDED_BOT_USERNAMES) {
+      expect(username.toLowerCase(), username).not.toContain(GOVERNMENT.adjective.toLowerCase());
+    }
+  });
 
   it('refuses one at sign-up and says why', () => {
     const parsed = RegisterRequestSchema.safeParse({
@@ -77,6 +89,14 @@ describe('display names (bug pass, 2026-09-29)', () => {
 
   it('compares ignoring case and invisible characters', () => {
     expect(sameDisplayName('Alice', 'alice')).toBe(true);
+    // Look-alikes from other scripts, accents, and the digits that read as letters (2026-10-02).
+    expect(sameDisplayName('Kestrel', 'K\u0435strel')).toBe(true); // Cyrillic e
+    expect(sameDisplayName('Sable', 'S\u03b1ble')).toBe(true); // Greek alpha
+    expect(sameDisplayName('Noir', 'No\u00efr')).toBe(true);
+    expect(sameDisplayName('Vex', 'V3x')).toBe(false);
+    expect(sameDisplayName('Bolt', 'B0lt')).toBe(true);
+    expect(sameDisplayName('Corn', 'Com')).toBe(true);
+    expect(sameDisplayName('Kestrel', 'Kestrels')).toBe(false);
     expect(sameDisplayName('Al​ice', 'ALICE')).toBe(true);
     expect(sameDisplayName('Alice', 'Alicia')).toBe(false);
   });

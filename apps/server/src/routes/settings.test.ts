@@ -182,17 +182,42 @@ describe('PATCH /api/settings/profile', () => {
       expect((await rename(app, token, { displayName: 'Alice' })).statusCode).toBe(200);
     });
 
-    it('saves again unchanged after somebody registers it as a username', async () => {
+    it('saves again unchanged after somebody else holds it as a username', async () => {
       const { app } = await makeApp();
       const token = await register(app, 'alice');
       expect((await rename(app, token, { displayName: 'Zed' })).statusCode).toBe(200);
-      await register(app, 'zed');
+      // A row from before usernames were checked against display names: registering or renaming
+      // into it is refused now (see below), so the clash is written straight to the table.
+      await register(app, 'zedd');
+      const zedd = app.repos.users.findByUsername('zedd')!;
+      app.repos.users.updateProfile(zedd.id, { username: 'zed' });
       // The form resends the name with every save: the icon still changes...
       expect((await rename(app, token, { displayName: 'Zed', icon: 'flask' })).statusCode).toBe(
         200,
       );
       // ...but a new spelling of it is a new claim, and refused.
       expect((await rename(app, token, { displayName: 'ZED' })).statusCode).toBe(409);
+    });
+
+    // Bug pass, 2026-10-02: the other direction, a username taken over another's display name.
+    it('may not be taken as a username by somebody else, at sign-up or by a rename', async () => {
+      const { app } = await makeApp();
+      const alice = await register(app, 'alice');
+      expect((await rename(app, alice, { displayName: 'Kestrel' })).statusCode).toBe(200);
+
+      const signUp = await app.inject({
+        method: 'POST',
+        url: '/api/auth/register',
+        payload: { username: 'kestrel', password: PASSWORD },
+      });
+      expect(signUp.statusCode).toBe(409);
+      expect(signUp.json<{ error: { code: string } }>().error.code).toBe('USERNAME_TAKEN');
+
+      const bob = await register(app, 'bobby');
+      const renamed = await rename(app, bob, { username: 'Kestrel' });
+      expect(renamed.json<{ error: { code: string } }>().error.code).toBe('USERNAME_TAKEN');
+      // ...and the one who wears it may still take it as their own login.
+      expect((await rename(app, alice, { username: 'kestrel' })).statusCode).toBe(200);
     });
 
     it('is stored without control and format characters', async () => {

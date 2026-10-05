@@ -15,8 +15,13 @@ import {
   type BuildStructureResponse,
   type MeResponse,
   startingTraining,
+  OFFICER_ROLES,
   OVERSEER_PRESETS,
-  makeAttributes,
+  describeOverseerPassive,
+  disruptionFrom,
+  disruptionPercentAt,
+  raidDisruptionPercent,
+  stackDisruption,
   type CrewStandingResponse,
   type UnitsResponse,
 } from '@frontline/shared';
@@ -62,7 +67,7 @@ const base: Base = {
   ],
   buildQueue: [],
   army: {},
-  trainingQueue: [],
+  musterQueue: [],
   training: startingTraining('2026-08-16T00:00:00.000Z'),
   inventory: {},
   fittedUpgrades: [],
@@ -121,10 +126,12 @@ const crewStanding = (effects: Record<string, number>): CrewStandingResponse => 
   const { presetId: _presetId, ...preset } = OVERSEER_PRESETS[0]!;
   return {
     overseer: { ...preset, id: 'ov-1' },
-    crewSheet: makeAttributes(15),
+    chairs: [],
+    overseerGrade: { mark: 'C', passive: describeOverseerPassive(40) },
     effects,
     marks: {},
     haulPercent: 0,
+    missionCapsPercent: 0,
   };
 };
 
@@ -232,7 +239,7 @@ function buildBody(): BuildStructureRequest {
 beforeEach(() => {
   vi.stubGlobal('fetch', fetchMock);
   fetchMock.mockReset();
-  useSession.setState({ token: 'session-token', user: null });
+  useSession.setState({ signedIn: true, user: null });
 });
 
 afterEach(() => {
@@ -393,7 +400,8 @@ describe('§D3: building and upgrading consume materials, and take time', () => 
     ).toBeInTheDocument();
 
     fireEvent.click(within(dialog()).getByRole('button', { name: 'Queue build' }));
-    await waitFor(() => expect(buildBody()).toEqual({ kind: 'quarters' }));
+    // With the level the window quoted, which the server refuses as stale if the queue moved on.
+    await waitFor(() => expect(buildBody()).toEqual({ kind: 'quarters', level: 1 }));
   });
 
   /**
@@ -589,7 +597,7 @@ describe('§A1: what the district houses and what it makes', () => {
    * The roster's figure, not the district row's sum, once the roster has answered.
    *
    * `unitSlotDraw(base)` cannot see garrisons on held ground or units on the road; the server's
-   * count does, and it is what the Units page prints and what the training door refuses on. The
+   * count does, and it is what the Units page prints and what the muster door refuses on. The
    * fixture roster says six slots are taken while the district row alone says none, so the two
    * numbers can be told apart.
    */
@@ -614,6 +622,99 @@ describe('§A1: what the district houses and what it makes', () => {
     openReports();
     await waitFor(() => expect(screen.getByTestId('production')).toHaveTextContent('Caps+12/h'));
     expect(screen.getByTestId('production')).toHaveTextContent('Oil+7.2/h');
+  });
+
+  /*
+   * A raid's cut on the Production panel (bug pass, 2026-10-01). The settle charges it and the rates
+   * above already carry it; this row is the reason and the clock, drawn only while a cut runs so a
+   * district nobody raided looks exactly as it did.
+   */
+  describe('a raid cut', () => {
+    const at = (offsetMs: number) => new Date(Date.parse(NOW) + offsetMs);
+    const HOUR = 3_600_000;
+    const raided = (disruption: Base['economy']['disruption']): Base => ({
+      ...base,
+      economy: { ...base.economy, disruption },
+    });
+    const productionPanel = async () => {
+      await waitFor(() => expect(screen.getByTestId('reports-toggle')).toBeInTheDocument());
+      openReports();
+      return screen.findByTestId('production');
+    };
+
+    it('says how much and for how long while the cut is running', async () => {
+      // One crushing raid two hours ago: 30% for the four hours its window still has to run. The
+      // spare thirty seconds keeps the clock on "4h" however long the render takes.
+      stubApi({
+        detail: raided({
+          since: at(-2 * HOUR).toISOString(),
+          until: at(4 * HOUR + 30_000).toISOString(),
+          percent: raidDisruptionPercent(1),
+        }),
+        rates: { oil: 4.2 },
+      });
+      renderDistrict();
+      await productionPanel();
+      expect(await screen.findByTestId('production-raided')).toHaveTextContent('Raided-30% for 4h');
+    });
+
+    it('reads the stacked figure and the later window when a second raid lands on the first', async () => {
+      // Two crushing raids two hours apart: the first's blow has two thirds of its window left, so
+      // the cut is the curve at 1 + 2/3 of a blow, 37.5%, and it runs six hours from the second.
+      const stacked = stackDisruption(
+        disruptionFrom(at(-3 * HOUR + 30_000), 1),
+        disruptionFrom(at(-HOUR + 30_000), 1),
+      );
+      expect(stacked.percent).toBeCloseTo(37.5, 6);
+      stubApi({ detail: raided(stacked), rates: { oil: 3.75 } });
+      renderDistrict();
+      await productionPanel();
+      const row = await screen.findByTestId('production-raided');
+      expect(row).toHaveTextContent(
+        `-${Math.round(disruptionPercentAt(stacked, new Date(NOW)))}% for 5h`,
+      );
+      expect(row).toHaveTextContent('-38% for 5h');
+    });
+
+    it('draws nothing once the window has closed, or when nobody raided', async () => {
+      stubApi({
+        detail: raided({
+          since: at(-7 * HOUR).toISOString(),
+          until: at(-HOUR).toISOString(),
+          percent: 30,
+        }),
+        rates: { oil: 6 },
+      });
+      renderDistrict();
+      const panel = await productionPanel();
+      await waitFor(() => expect(panel).toHaveTextContent('Oil+6/h'));
+      expect(screen.queryByTestId('production-raided')).toBeNull();
+    });
+  });
+
+  /*
+   * The books as the Bar counts them (`recruitSlotsFor`): the level's slots, one per chair at most,
+   * and nothing from the Lab since research stopped paying slots (maintainer, 2026-10-01).
+   */
+  it('counts the officer slots the level gives, up to one per chair', async () => {
+    const slots = () =>
+      screen.queryByText('Officer slots')?.parentElement?.querySelector('dd')?.textContent;
+    const opened = async () => {
+      await waitFor(() => expect(screen.getByTestId('reports-toggle')).toBeInTheDocument());
+      openReports();
+    };
+
+    stubApi({ detail: { ...base, level: 9 } });
+    const { unmount } = renderDistrict();
+    await opened();
+    await waitFor(() => expect(slots()).toBe('3'));
+    unmount();
+
+    // At level 37 the level alone fills every chair.
+    stubApi({ detail: { ...base, level: 37 } });
+    renderDistrict();
+    await opened();
+    await waitFor(() => expect(slots()).toBe(String(OFFICER_ROLES.length)));
   });
 
   it('§A1: mentions no power, no energy and no grid anywhere on the district', async () => {
@@ -851,7 +952,7 @@ describe("a neighbour's district (§A4)", () => {
  * till.
  *
  * Both cases use a *non-zero* discount on purpose. The panel's first paint, before `/overseer/me`
- * answers, is the undiscounted 600, so a case asserting 600 would pass without the query ever
+ * answers, is the undiscounted 300, so a case asserting 300 would pass without the query ever
  * having been read.
  */
 /**
@@ -866,7 +967,7 @@ describe('the burn notice over the district', () => {
     renderDistrict();
     const notice = await screen.findByTestId('burn-notice');
     expect(notice).toHaveTextContent(/The tanks are burning/);
-    expect(notice).toHaveTextContent(/faster for another/);
+    expect(notice).toHaveTextContent(/placed in the next .+ takes 25% off its clock/);
   });
 
   it('is absent while the tanks are out', async () => {
@@ -883,32 +984,32 @@ describe('the payroll book quotes the crew price, not the list price', () => {
     resources: { ...STARTING_RESOURCES, caps },
   });
 
-  // The book is a window of its own off the Nexus's Change payroll control (2026-09-28).
+  // The book is a window of its own off the Nexus's Increase payroll control (2026-09-28).
   const openNexusPayroll = async () => {
     renderDistrict();
     await waitFor(() => expect(plot('The Nexus')).toBeInTheDocument());
     fireEvent.click(plot('The Nexus'));
-    fireEvent.click(within(dialog()).getByTestId('nexus-change-payroll'));
-    return within(screen.getByTestId('payroll-dialog')).getByTestId('nexus-payroll');
+    fireEvent.click(within(dialog()).getByTestId('nexus-open-payroll'));
+    return within(screen.getByTestId('payroll-dialog')).getByTestId('payroll-ledger');
   };
 
   it('takes the step discount off the quoted price and lets the purchase through', async () => {
-    // ledger_hand (5%) + bank_contact (8%): 600 -> 522, and the crew is holding 550.
-    stubApi({ detail: withCaps(550), effects: { payrollStepDiscountPercent: 13 } });
+    // ledger_hand (5%) + bank_contact (8%): 300 -> 261 caps, and the crew is holding 270.
+    stubApi({ detail: withCaps(270), effects: { payrollStepDiscountPercent: 13 } });
 
     const panel = await openNexusPayroll();
-    await waitFor(() => expect(panel).toHaveTextContent('522 caps, once'));
-    expect(panel).not.toHaveTextContent('600 caps, once');
-    expect(within(panel).getByTestId('nexus-increase-payroll')).toBeEnabled();
+    await waitFor(() => expect(panel).toHaveTextContent('261 caps, once'));
+    expect(panel).not.toHaveTextContent('300 caps, once');
+    expect(within(panel).getByTestId('increase-payroll')).toBeEnabled();
   });
 
   it('still refuses a step the crew cannot afford at the discounted price', async () => {
-    // bank_contact alone: 600 -> 552, which 550 caps does not cover.
-    stubApi({ detail: withCaps(550), effects: { payrollStepDiscountPercent: 8 } });
+    // bank_contact alone: 300 -> 276, which 270 caps does not cover.
+    stubApi({ detail: withCaps(270), effects: { payrollStepDiscountPercent: 8 } });
 
     const panel = await openNexusPayroll();
-    await waitFor(() => expect(panel).toHaveTextContent('552 caps, once'));
-    expect(within(panel).getByTestId('nexus-increase-payroll')).toBeDisabled();
+    await waitFor(() => expect(panel).toHaveTextContent('276 caps, once'));
+    expect(within(panel).getByTestId('increase-payroll')).toBeDisabled();
   });
 });
 

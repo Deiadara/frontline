@@ -1,4 +1,5 @@
 import {
+  OVERSEER_ARCHETYPE_LABELS,
   BUILDING_CATALOG,
   FACTION_RANK_LABELS,
   districtDisplayName,
@@ -147,7 +148,7 @@ export function CrewProfilePage() {
                       {overseer.name}
                     </p>
                     <p className="font-display text-[10px] uppercase tracking-[0.2em] text-brass-300">
-                      Overseer, {overseer.archetype}
+                      Overseer, {OVERSEER_ARCHETYPE_LABELS[overseer.archetype]}
                     </p>
                   </div>
                   <p className="font-body text-[13px] italic leading-relaxed text-ink-200">

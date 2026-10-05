@@ -108,7 +108,7 @@ const claim = (app: FastifyInstance, token: string, featId: string, acceptWaste 
   });
 
 /** The feat every crew can finish first: one letter written. Small, and pays plain caps. */
-const LETTER = 'letters_1';
+const FIRST_RUNG = 'long_odds_1';
 
 /** The one rung that is finished by the act of starting: picking a character. */
 const OPENING = 'overseer_taken';
@@ -169,7 +169,7 @@ describe('GET /feats', () => {
   /**
    * The screen has to settle first.
    *
-   * Half of what a feat asks about lands lazily on read: production, builds, training. A crew that
+   * Half of what a feat asks about lands lazily on read: production, builds, musters. A crew that
    * has been away sees the board as of their last visit unless the route settles them, and the
    * badge on `/me` would then disagree with the page.
    */
@@ -330,15 +330,15 @@ describe('collecting one', () => {
   it('pays what the catalogue says, into the stockpile', async () => {
     const app = await makeApp();
     const one = await player(app, 'feats_paid');
-    give(app, one.baseId, featMeasureKey('messages_sent'), 1);
+    give(app, one.baseId, featMeasureKey('jobs_won_long_odds'), 1);
 
     const before = app.repos.bases.findByOwnerId(one.userId)!.resources;
-    const response = await claim(app, one.token, LETTER);
+    const response = await claim(app, one.token, FIRST_RUNG);
     expect(response.statusCode, response.body).toBe(200);
 
     const body = response.json<ClaimFeatResponse>();
-    const reward = findFeat(LETTER)!.reward;
-    expect(body.featId).toBe(LETTER);
+    const reward = findFeat(FIRST_RUNG)!.reward;
+    expect(body.featId).toBe(FIRST_RUNG);
     expect(body.paid).toEqual(reward);
 
     const after = app.repos.bases.findByOwnerId(one.userId)!.resources;
@@ -352,10 +352,10 @@ describe('collecting one', () => {
   it('hands back the refreshed board, with the feat marked collected', async () => {
     const app = await makeApp();
     const one = await player(app, 'feats_refresh');
-    give(app, one.baseId, featMeasureKey('messages_sent'), 1);
+    give(app, one.baseId, featMeasureKey('jobs_won_long_odds'), 1);
 
-    const body = (await claim(app, one.token, LETTER)).json<ClaimFeatResponse>();
-    expect(body.feats.progress.find((row) => row.id === LETTER)?.state).toBe('claimed');
+    const body = (await claim(app, one.token, FIRST_RUNG)).json<ClaimFeatResponse>();
+    expect(body.feats.progress.find((row) => row.id === FIRST_RUNG)?.state).toBe('claimed');
     expect(body.feats.claimed).toBe(1 + ALREADY_COLLECTED);
     expect(body.feats.ready).toBe(0);
   });
@@ -363,7 +363,7 @@ describe('collecting one', () => {
   it('opens the next rung of the ladder', async () => {
     const app = await makeApp();
     const one = await player(app, 'feats_ladder');
-    give(app, one.baseId, featMeasureKey('messages_sent'), 1);
+    give(app, one.baseId, featMeasureKey('jobs_won_long_odds'), 1);
 
     const before = (await board(app, one.token)).progress;
     /*
@@ -371,13 +371,36 @@ describe('collecting one', () => {
      * it is no longer **locked**, and that happened the moment the first rung was achieved rather
      * than when it was collected: the ladder follows the work, not the button.
      */
-    expect(before.find((row) => row.id === 'letters_1')?.state).toBe('ready');
-    expect(before.find((row) => row.id === 'letters_2')?.state).toBe('open');
-    expect(before.find((row) => row.id === 'letters_2')?.value).toBe(1);
+    expect(before.find((row) => row.id === 'long_odds_1')?.state).toBe('ready');
+    expect(before.find((row) => row.id === 'long_odds_2')?.state).toBe('open');
+    expect(before.find((row) => row.id === 'long_odds_2')?.value).toBe(1);
 
     // And collecting the first does not shut the second again.
-    const body = (await claim(app, one.token, LETTER)).json<ClaimFeatResponse>();
-    expect(body.feats.progress.find((row) => row.id === 'letters_2')?.state).toBe('open');
+    const body = (await claim(app, one.token, FIRST_RUNG)).json<ClaimFeatResponse>();
+    expect(body.feats.progress.find((row) => row.id === 'long_odds_2')?.state).toBe('open');
+  });
+
+  // P8-A (2026-10-02): the mid game pays "a random page", drawn on the claim.
+  it('draws a random page on the claim and names it on the receipt', async () => {
+    const app = await makeApp();
+    const one = await player(app, 'feats_pages');
+    const feat = FEATS.find((spec) => spec.reward.pages !== undefined)!;
+    expect(feat, 'no feat pays a random page').toBeDefined();
+    give(app, one.baseId, featMeasureKey(feat.measure, feat.scope), feat.target);
+
+    const before = app.repos.bases.findByOwnerId(one.userId)!.inventory;
+    const response = await claim(app, one.token, feat.id);
+    expect(response.statusCode, response.body).toBe(200);
+    const body = response.json<ClaimFeatResponse>();
+    expect(body.paid.pages, 'the receipt still says "random"').toBeUndefined();
+
+    const pagesOf = (inventory: Record<string, number | undefined>) =>
+      Object.entries(inventory)
+        .filter(([id]) => ITEM_CATALOG[id as ItemId]?.kind === 'page')
+        .reduce((total, [, count]) => total + (count ?? 0), 0);
+    const after = app.repos.bases.findByOwnerId(one.userId)!.inventory;
+    expect(pagesOf(after) - pagesOf(before)).toBe(feat.reward.pages);
+    expect(pagesOf(body.paid.items ?? {})).toBe(feat.reward.pages);
   });
 
   it('pays a feat that grants units straight onto the roster', async () => {
@@ -399,10 +422,10 @@ describe('collecting one', () => {
    * A reward that does not fit.
    *
    * Nothing in the game clamps an army that is already over its beds: the only bed check is at
-   * `queueTraining`, which refuses to *start* training there is no room for. An army can be over
+   * `queueMuster`, which refuses to *start* a muster there is no room for. An army can be over
    * capacity today by a garrison coming home or a muster withdrawing, and a feat paying units is
    * the same situation. The reward must arrive whole rather than being quietly trimmed, and the
-   * consequence is the ordinary one, that nothing new can be trained until there are beds.
+   * consequence is the ordinary one, that nothing new can be mustered until there are beds.
    */
   it('hands over units even when there is nowhere to put them', async () => {
     const app = await makeApp();
@@ -431,17 +454,17 @@ describe('collecting one', () => {
    * Since 2026-09-28 every credit is clamped this way (`district/stores.ts`); a feat has its own
    * dialog because it can also lose units, which the stores' `WOULD_WASTE` does not carry.
    *
-   * `letters_1` pays 240 caps, 40 scrap, 40 planks and 20 oil. The scrap shelf is left with room
+   * `long_odds_1` pays 240 caps, 40 scrap, 40 planks and 20 oil. The scrap shelf is left with room
    * for ten, so exactly ten land and thirty are burned, and the other three channels are
    * untouched: a bundle is clamped line by line and not refused whole.
    */
   it('pays a claim up to the ceiling and discards the rest', async () => {
     const app = await makeApp();
     const one = await player(app, 'feats_overflow');
-    give(app, one.baseId, featMeasureKey('messages_sent'), 1);
+    give(app, one.baseId, featMeasureKey('jobs_won_long_odds'), 1);
 
     const base = app.repos.bases.findByOwnerId(one.userId)!;
-    // Off the route's own fold rather than off the structures, because §F2 Logistics raises the
+    // Off the route's own fold rather than off the structures, because the §F2 storage bonus raises the
     // shelf and a test that read the bare figure would leave room the claim can see and it cannot.
     const ceiling =
       base.resources.scrap + featClaimRoom(app.repos, base, new Date()).resources.scrap;
@@ -449,14 +472,14 @@ describe('collecting one', () => {
     app.repos.bases.updateResources(base.id, { ...base.resources, scrap: ceiling - room });
     const before = app.repos.bases.findByOwnerId(one.userId)!.resources;
 
-    const response = await claim(app, one.token, LETTER);
+    const response = await claim(app, one.token, FIRST_RUNG);
     expect(response.statusCode, response.body).toBe(200);
     const body = response.json<ClaimFeatResponse & { wasted?: { resources?: Resources } }>();
 
     const after = app.repos.bases.findByOwnerId(one.userId)!.resources;
     // Exactly to the top of the shelf, and no further.
     expect(after.scrap).toBe(ceiling);
-    const owed = findFeat(LETTER)!.reward.resources!;
+    const owed = findFeat(FIRST_RUNG)!.reward.resources!;
     expect(body.wasted?.resources?.scrap).toBe((owed.scrap ?? 0) - room);
     expect(body.paid).toMatchObject({ resources: { scrap: room } });
 
@@ -476,7 +499,7 @@ describe('collecting one', () => {
   it('refuses a claim that would waste something until the player agrees to it', async () => {
     const app = await makeApp();
     const one = await player(app, 'feats_unconfirmed');
-    give(app, one.baseId, featMeasureKey('messages_sent'), 1);
+    give(app, one.baseId, featMeasureKey('jobs_won_long_odds'), 1);
 
     const base = app.repos.bases.findByOwnerId(one.userId)!;
     app.repos.bases.updateResources(base.id, {
@@ -485,18 +508,18 @@ describe('collecting one', () => {
     });
     const before = app.repos.bases.findByOwnerId(one.userId)!.resources;
 
-    const refused = await claim(app, one.token, LETTER, false);
+    const refused = await claim(app, one.token, FIRST_RUNG, false);
     expect(refused.statusCode).toBe(409);
     expect(refused.json<{ error: { message: string } }>().error.message).toBe('would_waste');
     expect(app.repos.bases.findByOwnerId(one.userId)!.resources).toEqual(before);
-    expect(app.repos.feats.claimed(one.baseId).has(LETTER)).toBe(false);
-    expect((await board(app, one.token)).progress.find((row) => row.id === LETTER)?.state).toBe(
+    expect(app.repos.feats.claimed(one.baseId).has(FIRST_RUNG)).toBe(false);
+    expect((await board(app, one.token)).progress.find((row) => row.id === FIRST_RUNG)?.state).toBe(
       'ready',
     );
 
     // And saying yes then pays, which is what makes the refusal a question rather than a wall.
-    expect((await claim(app, one.token, LETTER)).statusCode).toBe(200);
-    expect(app.repos.feats.claimed(one.baseId).has(LETTER)).toBe(true);
+    expect((await claim(app, one.token, FIRST_RUNG)).statusCode).toBe(200);
+    expect(app.repos.feats.claimed(one.baseId).has(FIRST_RUNG)).toBe(true);
   });
 
   /**
@@ -510,7 +533,7 @@ describe('collecting one', () => {
   it('quotes on the board exactly what the claim goes on to discard', async () => {
     const app = await makeApp();
     const one = await player(app, 'feats_quote');
-    give(app, one.baseId, featMeasureKey('messages_sent'), 1);
+    give(app, one.baseId, featMeasureKey('jobs_won_long_odds'), 1);
 
     const base = app.repos.bases.findByOwnerId(one.userId)!;
     app.repos.bases.updateResources(base.id, {
@@ -518,10 +541,10 @@ describe('collecting one', () => {
       scrap: base.resources.scrap + featClaimRoom(app.repos, base, new Date()).resources.scrap - 10,
     });
 
-    const quoted = (await board(app, one.token)).waste[LETTER];
+    const quoted = (await board(app, one.token)).waste[FIRST_RUNG];
     expect(quoted, 'the board quoted no waste on a rung that cannot be paid in full').toBeDefined();
 
-    const response = await claim(app, one.token, LETTER);
+    const response = await claim(app, one.token, FIRST_RUNG);
     expect(response.statusCode, response.body).toBe(200);
     expect(response.json<{ wasted?: unknown }>().wasted).toEqual(quoted);
   });
@@ -536,19 +559,19 @@ describe('collecting one', () => {
   it('pays a reward that fits in full, and quotes no waste for it', async () => {
     const app = await makeApp();
     const one = await player(app, 'feats_fits');
-    give(app, one.baseId, featMeasureKey('messages_sent'), 1);
+    give(app, one.baseId, featMeasureKey('jobs_won_long_odds'), 1);
 
     const before = app.repos.bases.findByOwnerId(one.userId)!.resources;
-    expect((await board(app, one.token)).waste[LETTER]).toBeUndefined();
+    expect((await board(app, one.token)).waste[FIRST_RUNG]).toBeUndefined();
 
-    const response = await claim(app, one.token, LETTER, false);
+    const response = await claim(app, one.token, FIRST_RUNG, false);
     expect(response.statusCode, response.body).toBe(200);
     const body = response.json<ClaimFeatResponse & { wasted?: unknown }>();
     expect(body.wasted).toBeUndefined();
-    expect(body.paid).toEqual(findFeat(LETTER)!.reward);
+    expect(body.paid).toEqual(findFeat(FIRST_RUNG)!.reward);
 
     const after = app.repos.bases.findByOwnerId(one.userId)!.resources;
-    for (const [key, amount] of Object.entries(findFeat(LETTER)!.reward.resources ?? {})) {
+    for (const [key, amount] of Object.entries(findFeat(FIRST_RUNG)!.reward.resources ?? {})) {
       expect(after[key as keyof Resources], key).toBe(
         before[key as keyof Resources] + (amount ?? 0),
       );
@@ -582,7 +605,7 @@ describe('collecting one', () => {
     const base = app.repos.bases.findByOwnerId(one.userId)!;
     app.repos.bases.updateCommanders(base.id, [
       {
-        ...createCommander('teller', 'The Teller', 'consigliere', makeAttributes(40)),
+        ...createCommander('teller', 'The Teller', 'professor', makeAttributes(40)),
         perks: ['legend_builder'],
       },
     ]);
@@ -681,7 +704,7 @@ describe('a claim that cannot be paid', () => {
     const app = await makeApp();
     const one = await player(app, 'feats_unfinished');
 
-    const response = await claim(app, one.token, LETTER);
+    const response = await claim(app, one.token, FIRST_RUNG);
     expect(response.statusCode).toBe(409);
     expect(response.json<{ error: { message: string } }>().error.message).toBe('not_finished');
   });
@@ -690,7 +713,7 @@ describe('a claim that cannot be paid', () => {
     const app = await makeApp();
     const one = await player(app, 'feats_locked');
 
-    const response = await claim(app, one.token, 'letters_2');
+    const response = await claim(app, one.token, 'long_odds_2');
     expect(response.statusCode).toBe(409);
     expect(response.json<{ error: { message: string } }>().error.message).toBe('locked');
   });
@@ -699,7 +722,7 @@ describe('a claim that cannot be paid', () => {
    * §A1 is a ceiling on a district, and a feat is not an exemption from it.
    *
    * Seven feats pay units straight onto the roster, and the two largest pay 960 unit slots against
-   * a finished district's two thousand and a fresh one's twenty-six. Training refuses an order
+   * a finished district's two thousand and a fresh one's twenty-six. Mustering refuses an order
    * that would not fit and the Garage refuses a machine for the same reason; this was the one door
    * left open, and it let a crew walk out of the feats screen holding an army its district could
    * not house.
@@ -790,8 +813,13 @@ describe('a claim that cannot be paid', () => {
     const app = await makeApp();
     expect((await app.inject({ method: 'GET', url: '/api/feats' })).statusCode).toBe(401);
     expect(
-      (await app.inject({ method: 'POST', url: '/api/feats/claim', payload: { featId: LETTER } }))
-        .statusCode,
+      (
+        await app.inject({
+          method: 'POST',
+          url: '/api/feats/claim',
+          payload: { featId: FIRST_RUNG },
+        })
+      ).statusCode,
     ).toBe(401);
   });
 
@@ -806,15 +834,15 @@ describe('a claim that cannot be paid', () => {
   it('pays once however many times the button is pressed', async () => {
     const app = await makeApp();
     const one = await player(app, 'feats_twice');
-    give(app, one.baseId, featMeasureKey('messages_sent'), 1);
+    give(app, one.baseId, featMeasureKey('jobs_won_long_odds'), 1);
 
     const before = app.repos.bases.findByOwnerId(one.userId)!.resources.caps;
-    const first = await claim(app, one.token, LETTER);
+    const first = await claim(app, one.token, FIRST_RUNG);
     expect(first.statusCode).toBe(200);
     const paid = app.repos.bases.findByOwnerId(one.userId)!.resources.caps;
 
     for (let press = 0; press < 5; press += 1) {
-      const again = await claim(app, one.token, LETTER);
+      const again = await claim(app, one.token, FIRST_RUNG);
       expect(again.statusCode).toBe(409);
       expect(again.json<{ error: { message: string } }>().error.message).toBe('already_claimed');
     }
@@ -840,17 +868,17 @@ describe('a claim that cannot be paid', () => {
   it('pays once when the button is hammered, and refuses the rest', async () => {
     const app = await makeApp();
     const one = await player(app, 'feats_race');
-    give(app, one.baseId, featMeasureKey('messages_sent'), 1);
+    give(app, one.baseId, featMeasureKey('jobs_won_long_odds'), 1);
 
     const before = app.repos.bases.findByOwnerId(one.userId)!.resources.caps;
     const results = await Promise.all(
-      Array.from({ length: 8 }, () => claim(app, one.token, LETTER)),
+      Array.from({ length: 8 }, () => claim(app, one.token, FIRST_RUNG)),
     );
 
     expect(results.filter((response) => response.statusCode === 200)).toHaveLength(1);
     expect(results.filter((response) => response.statusCode === 409)).toHaveLength(7);
 
-    const reward = findFeat(LETTER)!.reward.resources?.caps ?? 0;
+    const reward = findFeat(FIRST_RUNG)!.reward.resources?.caps ?? 0;
     expect(app.repos.bases.findByOwnerId(one.userId)!.resources.caps).toBe(before + reward);
   });
 });
@@ -939,9 +967,20 @@ describe('the whole board, collected', () => {
     const owed = mergeFeatRewards(
       [...app.repos.feats.claimed(one.baseId)].map((featId) => findFeat(featId)!.reward),
     );
+    const isPage = (id: string) => ITEM_CATALOG[id as ItemId]?.kind === 'page';
     for (const [id, count] of Object.entries(owed.items ?? {})) {
+      // A random page can land on a sheet a feat also names, so pages are counted as a whole.
+      if (isPage(id)) continue;
       expect(base.inventory[id as ItemId] ?? 0, id).toBe(count);
     }
+    const pagesHeld = Object.entries(base.inventory)
+      .filter(([id]) => isPage(id))
+      .reduce((total, [, count]) => total + (count ?? 0), 0);
+    const pagesOwed =
+      Object.entries(owed.items ?? {})
+        .filter(([id]) => isPage(id))
+        .reduce((total, [, count]) => total + (count ?? 0), 0) + (owed.pages ?? 0);
+    expect(pagesHeld, 'pages, named and drawn').toBe(pagesOwed);
 
     // A second press on any of them refuses, and none of them pays again.
     const caps = base.resources.caps;
@@ -971,12 +1010,12 @@ describe('collecting the whole backlog at once', () => {
     const one = await player(app, 'feats_all');
     // Enough history to finish a good spread of ladders at once.
     for (const [measure, amount] of [
-      ['messages_sent', 40],
+      ['jobs_won_long_odds', 40],
       ['missions_done', 500],
       ['missions_won', 300],
       ['battles_fought', 250],
       ['spy_jobs_returned', 200],
-      ['units_trained', 2_500],
+      ['units_mustered', 2_500],
     ] as const) {
       give(app, one.baseId, featMeasureKey(measure), amount);
     }
@@ -1023,8 +1062,12 @@ describe('collecting the whole backlog at once', () => {
     const one = await player(app, 'feats_full');
     give(app, one.baseId, featMeasureKey('missions_done'), 500);
 
-    const before = (await board(app, one.token)).ready;
+    const firstBoard = await board(app, one.token);
+    const before = firstBoard.ready;
     expect(before, 'the fixture finished no ladders').toBeGreaterThan(0);
+    const readyAtFirst = new Set(
+      firstBoard.progress.filter((row) => row.state === 'ready').map((row) => row.id),
+    );
 
     // Every store filled past its own ceiling, so anything paying a resource has nowhere to go.
     // Ten times over rather than exactly to it: the claim settles first, and a build finishing in
@@ -1067,8 +1110,15 @@ describe('collecting the whole backlog at once', () => {
      */
     expect(roomBody.skipped.length).toBeLessThan(fullBody.skipped.length);
     const wasSkipped = new Set(fullBody.skipped);
-    expect(roomBody.featIds.length, 'the emptied store collected nothing').toBeGreaterThan(0);
-    for (const id of roomBody.featIds) expect(wasSkipped.has(id), id).toBe(true);
+    expect(
+      roomBody.featIds.filter((id) => wasSkipped.has(id)).length,
+      'the emptied store collected nothing it had passed over',
+    ).toBeGreaterThan(0);
+    // Anything else it collected was not ready the first time: the caps the first press paid out
+    // finished `caps_1`, which is earned, not passed over.
+    for (const id of roomBody.featIds) {
+      expect(wasSkipped.has(id) || !readyAtFirst.has(id), id).toBe(true);
+    }
   });
 
   /**
@@ -1088,7 +1138,7 @@ describe('collecting the whole backlog at once', () => {
     // A ladder whose top rung pays more units than any fresh district can hold, plus one feat that
     // pays no units at all, so the run has something to collect either way.
     give(app, one.baseId, big.measure, big.target);
-    give(app, one.baseId, featMeasureKey('messages_sent'), 1);
+    give(app, one.baseId, featMeasureKey('jobs_won_long_odds'), 1);
 
     const spare = districtUnitSlots(app.repos, app.repos.bases.findById(one.baseId)!).spare;
     expect(unitSlotsUsed(big.reward.units ?? {}), 'the top rung must not fit').toBeGreaterThan(
@@ -1096,7 +1146,7 @@ describe('collecting the whole backlog at once', () => {
     );
     const waiting = (await board(app, one.token)).progress.filter((row) => row.state === 'ready');
     expect(waiting.map((row) => row.id)).toContain(big.id);
-    expect(waiting.map((row) => row.id)).toContain(LETTER);
+    expect(waiting.map((row) => row.id)).toContain(FIRST_RUNG);
 
     const response = await claimAll(app, one.token);
     expect(response.statusCode, response.body).toBe(200);
@@ -1104,7 +1154,7 @@ describe('collecting the whole backlog at once', () => {
 
     // The one that does not fit is left alone; the rest of the backlog is paid.
     expect(body.featIds).not.toContain(big.id);
-    expect(body.featIds).toContain(LETTER);
+    expect(body.featIds).toContain(FIRST_RUNG);
     expect(body.feats.progress.find((row) => row.id === big.id)?.state).toBe('ready');
     expect(app.repos.feats.claimed(one.baseId).has(big.id)).toBe(false);
 
@@ -1130,11 +1180,11 @@ describe('collecting the whole backlog at once', () => {
     const app = await makeApp();
     const one = await player(app, 'feats_all_cascade');
     for (const [measure, amount] of [
-      ['messages_sent', 40],
+      ['jobs_won_long_odds', 40],
       ['missions_done', 500],
       ['missions_won', 300],
       ['battles_fought', 250],
-      ['units_trained', 2_500],
+      ['units_mustered', 2_500],
     ] as const) {
       give(app, one.baseId, featMeasureKey(measure), amount);
     }
@@ -1157,7 +1207,7 @@ describe('collecting the whole backlog at once', () => {
   it('pays the whole backlog, not just the last of it', async () => {
     const app = await makeApp();
     const one = await player(app, 'feats_all_paid');
-    give(app, one.baseId, featMeasureKey('messages_sent'), 40);
+    give(app, one.baseId, featMeasureKey('jobs_won_long_odds'), 40);
     give(app, one.baseId, featMeasureKey('missions_done'), 500);
 
     const before = app.repos.bases.findByOwnerId(one.userId)!.resources.caps;
@@ -1181,7 +1231,7 @@ describe('collecting the whole backlog at once', () => {
   it('pays nothing a second time, however many times it is pressed', async () => {
     const app = await makeApp();
     const one = await player(app, 'feats_all_twice');
-    give(app, one.baseId, featMeasureKey('messages_sent'), 40);
+    give(app, one.baseId, featMeasureKey('jobs_won_long_odds'), 40);
 
     const first = (await claimAll(app, one.token)).json<{ featIds: string[] }>();
     expect(first.featIds.length).toBeGreaterThan(0);
@@ -1222,7 +1272,7 @@ describe('the badge on the bottom bar', () => {
     const quiet = await app.inject({ method: 'GET', url: '/api/me', headers: auth(one.token) });
     expect(quiet.json<{ unread: { featsReady: number } }>().unread.featsReady).toBe(0);
 
-    give(app, one.baseId, featMeasureKey('messages_sent'), 1);
+    give(app, one.baseId, featMeasureKey('jobs_won_long_odds'), 1);
     give(app, one.baseId, featMeasureKey('missions_done'), 5);
 
     const loud = await app.inject({ method: 'GET', url: '/api/me', headers: auth(one.token) });
@@ -1235,10 +1285,10 @@ describe('the badge on the bottom bar', () => {
   it('falls as feats are collected', async () => {
     const app = await makeApp();
     const one = await player(app, 'feats_badge_falls');
-    give(app, one.baseId, featMeasureKey('messages_sent'), 1);
+    give(app, one.baseId, featMeasureKey('jobs_won_long_odds'), 1);
 
     expect((await board(app, one.token)).ready).toBe(1);
-    await claim(app, one.token, LETTER);
+    await claim(app, one.token, FIRST_RUNG);
     const after = await app.inject({ method: 'GET', url: '/api/me', headers: auth(one.token) });
     expect(after.json<{ unread: { featsReady: number } }>().unread.featsReady).toBe(0);
   });
@@ -1257,7 +1307,7 @@ describe('one crew’s feats are their own', () => {
     const a = await player(app, 'feats_crew_a');
     const b = await player(app, 'feats_crew_b');
 
-    give(app, a.baseId, featMeasureKey('messages_sent'), 1);
+    give(app, a.baseId, featMeasureKey('jobs_won_long_odds'), 1);
     give(app, a.baseId, featMeasureKey('missions_done'), 40);
     give(app, b.baseId, featMeasureKey('battles_fought'), 1);
 
@@ -1271,13 +1321,13 @@ describe('one crew’s feats are their own', () => {
 
     // Both collect at once. Each is paid their own and neither is refused.
     const [claimA, claimB] = await Promise.all([
-      claim(app, a.token, LETTER),
+      claim(app, a.token, FIRST_RUNG),
       claim(app, b.token, 'fights_1'),
     ]);
     expect(claimA.statusCode).toBe(200);
     expect(claimB.statusCode).toBe(200);
 
-    expect(app.repos.feats.claimed(a.baseId)).toEqual(new Set([OPENING, LETTER]));
+    expect(app.repos.feats.claimed(a.baseId)).toEqual(new Set([OPENING, FIRST_RUNG]));
     expect(app.repos.feats.claimed(b.baseId)).toEqual(new Set([OPENING, 'fights_1']));
   });
 
@@ -1285,11 +1335,11 @@ describe('one crew’s feats are their own', () => {
     const app = await makeApp();
     const a = await player(app, 'feats_merit_a');
     const b = await player(app, 'feats_merit_b');
-    give(app, a.baseId, featMeasureKey('messages_sent'), 1);
+    give(app, a.baseId, featMeasureKey('jobs_won_long_odds'), 1);
 
-    expect((await claim(app, a.token, LETTER)).statusCode).toBe(200);
+    expect((await claim(app, a.token, FIRST_RUNG)).statusCode).toBe(200);
     // B has written no letters, so they are refused for being unfinished rather than for A's claim.
-    const refused = await claim(app, b.token, LETTER);
+    const refused = await claim(app, b.token, FIRST_RUNG);
     expect(refused.statusCode).toBe(409);
     expect(refused.json<{ error: { message: string } }>().error.message).toBe('not_finished');
   });

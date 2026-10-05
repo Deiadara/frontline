@@ -7,6 +7,9 @@ import { MILESTONE_BROKERS_RESPECT, isPlayerUnlockActive } from '../progression/
 import { RESOURCE_KEYS, type ResourceKey } from '../resources.js';
 import { effectiveMarketDiscount } from './discount.js';
 import { RESOURCE_CAP_VALUE, withoutFloatNoise } from './offers.js';
+import { SUPPLY_MARKUP, supplyMarkup } from './supply.js';
+import { TRADER_EVEN_POINTS, traderRates } from '../crew/passives.js';
+import { CONTRABAND_PARTS } from './contraband.js';
 import { seedFrom } from '../rng.js';
 import {
   GAME_TIMEZONE,
@@ -253,7 +256,7 @@ export const VENDOR_PAGE_ODDS = 0.15;
  * the catalogue and in inventories, and the Black Market's shelf is its own call.
  */
 export const VENDOR_GOODS: readonly ItemId[] = ITEM_IDS.filter(
-  (id) => ITEM_CATALOG[id].kind !== 'blueprint',
+  (id) => ITEM_CATALOG[id].kind !== 'blueprint' && !CONTRABAND_PARTS.has(id),
 );
 
 /**
@@ -306,18 +309,23 @@ export function isDearVendorLine(item: ItemId): boolean {
 export function vendorStockFor(day: string, cityId: string = DEFAULT_CITY_ID): VendorLine[] {
   const room = vendorRoomKey(cityId);
   const rng = rngFrom(`${room}${day}:vendor-stock`);
-  const weighted: ItemId[] = VENDOR_GOODS.flatMap((id) => {
-    const spec = ITEM_CATALOG[id];
-    const weight =
-      spec.rarity === 'basic'
-        ? 5
-        : spec.rarity === 'intricate'
-          ? 3
-          : spec.rarity === 'advanced'
-            ? 2
-            : 1;
-    return Array.from({ length: weight }, () => id);
-  });
+  // The ordinary lines are drawn from the ordinary goods: the dear ones are the reserved line's.
+  // With the contraband parts off the barrow (maintainer, 2026-10-02) one dear part is left, and
+  // the ordinary five drawing it pushed a cheap part onto the line meant for something good.
+  const weighted: ItemId[] = VENDOR_GOODS.filter((id) => !VENDOR_DEAR_GOODS.includes(id)).flatMap(
+    (id) => {
+      const spec = ITEM_CATALOG[id];
+      const weight =
+        spec.rarity === 'basic'
+          ? 5
+          : spec.rarity === 'intricate'
+            ? 3
+            : spec.rarity === 'advanced'
+              ? 2
+              : 1;
+      return Array.from({ length: weight }, () => id);
+    },
+  );
 
   // One short of the barrow: the last line is the reserved one, below.
   const chosen: ItemId[] = [];
@@ -446,14 +454,65 @@ export function barterRateFor(level: number): number {
 /**
  * What the Broker gives back once the crew's market discount is applied (maintainer, 2026-09-29).
  *
- * The discount comes off his **cut**, not on top of what he pays: half kept at a 45% discount is a
- * cut of 27.5%. Taken off the goods instead, 65% back at level 60 over a 45% discount would pay
- * more than a trade put in, and two barters in a loop would print materials. This way a trade gets
- * closer to even and can never reach it.
+ * The discount comes off his **cut**, not on top of what he pays: half kept at a 26% discount (45
+ * raw, through the curve in `discount.ts`) is a cut of 37%. Taken off the goods instead, 65% back
+ * at level 60 over a large discount would pay more than a trade put in, and two barters in a loop
+ * would print materials. This way a trade gets closer to even and can never reach it: the curve
+ * stays under 60, so the cut never falls below 40% of what it was.
+ *
+ * `discountPercent` is the raw sum of the crew's sources; the curve is applied here.
  */
-export function brokerRate(level: number, discountPercent = 0): number {
+export function brokerRate(
+  level: number,
+  discountPercent = 0,
+  /** The working Trader's seat points, or null with the chair empty (`traderRates`). */
+  traderPoints: number | null = null,
+): number {
   const cut = 1 - barterRateFor(level);
-  return withoutFloatNoise(1 - cut * (1 - effectiveMarketDiscount(discountPercent) / 100));
+  const plain = 1 - cut * (1 - effectiveMarketDiscount(discountPercent) / 100);
+  return withoutFloatNoise(traderRates(traderPoints, plain, SUPPLY_MARKUP).worth);
+}
+
+/**
+ * The rate a trade that **ends in caps** pays at: {@link brokerRate}, but never more caps for a
+ * material than the supply run would charge this crew for it.
+ *
+ * Without this the two shops made money between them. The supply run's price falls with the
+ * discount (1.5 times the worth, less the discount) and so does the Broker's cut, so past an
+ * effective discount of about 46% at level 60 (50% before it) the run sold for less than he paid:
+ * at 50% off, a metal is 9 caps off the run and 9.9 back from him. The curve closes on 60, so a
+ * crew stacking enough perks on the line could reach that. Held at the run's own price, buy then
+ * sell never comes back ahead: the run rounds its price up and he rounds his payout down.
+ *
+ * It only bites past that crossing. Below it, which is every crew whose sources sum under about
+ * 196 raw at level 60 (300 before), the Broker pays caps at the same rate as anything else.
+ */
+export function brokerPayoutRate(
+  want: ResourceKey,
+  rate: number,
+  discountPercent = 0,
+  traderPoints: number | null = null,
+  /** What the crew hands over. Caps in are priced against what caps out pay (see below). */
+  give: ResourceKey | null = null,
+): number {
+  /*
+   * A Trader past C+ pays over value (maintainer, 2026-10-04: "you start gaining resources ... and
+   * end up making profit"), and only on a sale for caps. A trade into goods stops at even: two
+   * barters at 1.25 in a loop, scrap to metal and back, would print materials with nothing to stop
+   * them, where buying from the supply run and selling here is held by the run's daily ration.
+   *
+   * And a trade paid in caps is priced at no better than the inverse of a sale for caps, so caps
+   * in, goods, caps out never comes back ahead (bug pass, 2026-10-04): at even in and 1.25 out it
+   * returned a quarter on every lap with no ration to stop it.
+   */
+  if (want !== 'caps') {
+    const into = Math.min(rate, 1);
+    if (give !== 'caps') return into;
+    const out = brokerPayoutRate('caps', rate, discountPercent, traderPoints);
+    return withoutFloatNoise(Math.min(into, 1 / out));
+  }
+  if (traderPoints !== null && traderPoints >= TRADER_EVEN_POINTS) return rate;
+  return withoutFloatNoise(Math.min(rate, supplyMarkup(discountPercent, traderPoints)));
 }
 
 /**
@@ -483,17 +542,27 @@ export function barterQuote(
 export const BARTER_MINIMUM = 10;
 
 /**
- * The resources the Broker deals in: every material, and never caps (maintainer request, 2026-09-09).
+ * The resources the Broker deals in: every one of them, caps included (maintainer, 2026-10-01).
  *
- * Caps are money, and the supply run is where money becomes material at a price the day rations.
- * A Broker that took caps at half would be a second, unrationed supply run, and one that paid
- * caps out would be a cash machine for anybody with a full warehouse.
+ * Caps were kept out on 2026-09-09, on the worry that a Broker taking caps would be a second,
+ * unrationed supply run and one paying them out a cash machine for a full warehouse. The ruling
+ * that replaced it: "the broker also gives and gets caps", priced the way his other trades are,
+ * so the player loses on the trade and can make it a little better.
+ *
+ * It is safe because caps go through the same {@link barterQuote}, valued at `RESOURCE_CAP_VALUE`
+ * (a cap is worth one) and cut the same way:
+ *
+ * - **Caps in** costs more than the supply run at every level and every discount. At level 60 with
+ *   no discount, a metal is 18.5 caps from him against 18 off the run, and the gap only widens as
+ *   the discount grows. The run stays the cheaper way to buy within its ration; past the ration,
+ *   the Broker is the dear way to keep buying, which is what he was always for.
+ * - **Caps out** is a sale at his cut, so a warehouse sold to him comes back at half its worth
+ *   (65% at level 60). Held under the run's own price by {@link brokerPayoutRate}, so buying off
+ *   the run and selling to him never gains.
+ * - **Round trips** lose twice. Caps into a material and back, or a material into caps and on into
+ *   another, pays his cut on both legs, which is never better than one direct trade.
+ *
+ * No daily ration, the same as his material trades: the cut is the limit. `market.test.ts` walks
+ * every loop at the best rate a crew can reach.
  */
-export const BARTER_RESOURCES: readonly ResourceKey[] = RESOURCE_KEYS.filter(
-  (key) => key !== 'caps',
-);
-
-/** Whether the Broker will touch this resource at all. */
-export function brokerDealsIn(key: ResourceKey): boolean {
-  return BARTER_RESOURCES.includes(key);
-}
+export const BARTER_RESOURCES: readonly ResourceKey[] = RESOURCE_KEYS;

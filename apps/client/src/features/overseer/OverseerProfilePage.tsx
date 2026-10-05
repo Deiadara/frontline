@@ -1,3 +1,4 @@
+import { OVERSEER_ARCHETYPE_LABELS } from '@frontline/shared';
 import { PerkTags } from '../../components/PerkTags';
 import { DrawnRule } from '../../components/ui/DrawnMarks';
 import { InkButton } from '../../components/ui/InkButton';
@@ -27,9 +28,9 @@ import { PictureFrame } from './PictureFrame';
  * thirty-five rows do not fit in the column and it scrolls on its own, which is the one place a
  * bar is still drawn.
  *
- * The crew sheet is best-of across the Overseer and every officer, which is why an officer's good
- * number shows up on *your* file. What the crew is buying with those numbers is its own screen,
- * reached from the crew page.
+ * The numbers here are the Overseer's own. There is no crew-wide sheet since 2026-10-04: an
+ * officer's skills reach the crew only through their chair, and what the crew is buying with them
+ * is its own screen, reached from the crew page.
  */
 export function OverseerProfilePage() {
   const query = useCrewStanding();
@@ -47,7 +48,8 @@ export function OverseerProfilePage() {
   }
 
   const { overseer } = data;
-  const archetype = overseer.archetype.charAt(0).toUpperCase() + overseer.archetype.slice(1);
+  const label = OVERSEER_ARCHETYPE_LABELS[overseer.archetype];
+  const archetype = label.charAt(0).toUpperCase() + label.slice(1);
 
   return (
     <PageShell wide fills>

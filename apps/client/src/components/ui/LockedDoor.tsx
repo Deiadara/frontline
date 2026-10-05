@@ -4,6 +4,7 @@ import {
   areaName,
   areaRequirement,
   findResearchItem,
+  isAreaUnlocked,
   noUnlocks,
   type GatedArea,
   type UnlockFacts,
@@ -35,6 +36,7 @@ import type { IconName } from './Icon';
 export function LockedDoor({ area, facts }: { area: GatedArea; facts?: UnlockFacts }) {
   const known = facts ?? noUnlocks();
   const requirement = areaRequirement(area);
+  const line = standing(requirement, known);
 
   return (
     // The chrome floats over the top and bottom of this box, so the sign is inset by the measured
@@ -43,7 +45,9 @@ export function LockedDoor({ area, facts }: { area: GatedArea; facts?: UnlockFac
     // failure a locked door must not have: the one thing it exists to say is its own name.
     //
     // `items-start`, not `items-center`: a scroll container that centres its child clips the top of
-    // anything taller than the box, and there is no scrolling back up to it.
+    // anything taller than the box, and there is no scrolling back up to it. The sign is centred by
+    // its own `my-auto` instead (maintainer, 2026-10-01: every locked menu sits in the middle of the
+    // frame), which shrinks to nothing when the sign is taller than the box, so nothing is clipped.
     <div
       className="flex h-full w-full items-start justify-center overflow-y-auto px-4"
       style={{
@@ -68,10 +72,13 @@ export function LockedDoor({ area, facts }: { area: GatedArea; facts?: UnlockFac
        * that opens it says more about what it is for than a paragraph did.
        */}
       <section
-        className="ink-frame card-paper washed grain relative w-full max-w-lg p-5 shadow-panel sm:p-6"
+        className="ink-frame card-paper washed grain relative my-auto w-full max-w-lg p-5 shadow-panel sm:p-6"
         data-testid="locked-door"
       >
-        <div className="flex items-start gap-5">
+        {/* The lock sits level with the middle of the sign rather than its top (maintainer,
+            2026-10-01): with no line under the condition the column is short, and a lock pinned
+            to the top read as a stray mark beside the heading. */}
+        <div className="flex items-center gap-5">
           <span
             aria-hidden
             className="block h-16 w-16 shrink-0 text-oxblood-300 drop-shadow-[0_2px_4px_rgba(0,0,0,0.6)] sm:h-20 sm:w-20"
@@ -100,12 +107,14 @@ export function LockedDoor({ area, facts }: { area: GatedArea; facts?: UnlockFac
                 {figureFor(requirement)}
               </span>
             </p>
-            <p
-              className="font-body text-[14px] leading-relaxed text-ink-200"
-              data-testid="locked-door-standing"
-            >
-              {standing(requirement, known)}
-            </p>
+            {line !== null && (
+              <p
+                className="font-body text-[14px] leading-relaxed text-ink-200"
+                data-testid="locked-door-standing"
+              >
+                {line}
+              </p>
+            )}
           </div>
         </div>
       </section>
@@ -166,11 +175,18 @@ function figureFor(requirement: ReturnType<typeof areaRequirement>): string {
  * front of a door that has just opened, and "reload" is a better answer than a sign insisting they
  * have not done the thing they have just done.
  */
-function standing(requirement: ReturnType<typeof areaRequirement>, facts: UnlockFacts): string {
+function standing(
+  requirement: ReturnType<typeof areaRequirement>,
+  facts: UnlockFacts,
+): string | null {
   switch (requirement.kind) {
     case 'level': {
       if (facts.level >= requirement.level) return 'The door should be open. Reload the page.';
-      return 'Levels come off missions, fights, finished builds, finished research and anybody you sign at the Bar.';
+      // The Bar only once it is open: below its level the hint sent players to a door they could
+      // not walk through, and it sat on the Bar's own sign.
+      return isAreaUnlocked('bar', facts)
+        ? 'Levels come off missions, fights, feats, finished builds and research, units off the bench, and anybody you sign at the Bar.'
+        : 'Levels come off missions, fights, feats, finished builds and research, and units off the bench.';
     }
     case 'building':
       return facts.buildings.includes(requirement.building)
@@ -181,15 +197,9 @@ function standing(requirement: ReturnType<typeof areaRequirement>, facts: Unlock
         ? 'They are in the chair. Reload the page.'
         : 'Nobody is in that chair. Officers are signed at the Bar.';
     case 'notoriety':
-      return facts.notoriety >= requirement.rank
-        ? 'You have the rank. Reload the page.'
-        : /*
-           * The name, not the index, for the same reason `figureFor` gives above (bug pass,
-           * 2026-09-22). This line printed `You are at rank 0` directly under `Opens at Marked`,
-           * so the door named one ladder in words and the player's place on it in a number, and
-           * the two did not look like the same scale at all.
-           */
-          `You are at ${notorietyTier(facts.notoriety)}. Rank is bought with infamy, and once bought it is never lost.`;
+      // Nothing under an unmet rank (maintainer, 2026-10-01): the condition line names the rank,
+      // and the standing bar already shows the one the player is on.
+      return facts.notoriety >= requirement.rank ? 'You have the rank. Reload the page.' : null;
     case 'research':
       return facts.technologies.includes(requirement.technology)
         ? 'It is finished. Reload the page.'

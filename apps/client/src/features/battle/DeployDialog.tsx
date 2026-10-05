@@ -52,8 +52,8 @@ import { usePlayerZone } from '../settings/usePlayerZone';
  *
  * The machines are picked in this window now, under the units, and what they seat caps what goes:
  * *"once you choose vehicles you're limited up to that much"*. So a crew that wants forty unit
- * slots somewhere and owns one Scar takes eight slots' worth, comes home, and takes the rest on a
- * second run.
+ * slots somewhere and owns one Scar takes eight slots' worth, and that is all the machines carry to
+ * this fight: what already stands there and what is still walking count against the same seats.
  *
  * Three rules hold the ceiling honest, and each of them is a shared function rather than a second
  * arithmetic that agrees by inspection:
@@ -126,6 +126,8 @@ interface DeployDialogProps {
   /** §D7: the crew's rank, which is what decides who will take a contract. */
   notoriety: number;
   mode: DeployMode;
+  /** This crew's columns still walking to the fight, which the seats carry as surely as the batch. */
+  walking?: Army;
   pending: boolean;
   error: unknown;
   onClose: () => void;
@@ -144,6 +146,7 @@ export function DeployDialog({
   bagPercent,
   notoriety,
   mode,
+  walking = {},
   pending,
   error,
   onClose,
@@ -171,6 +174,7 @@ export function DeployDialog({
    * the waiver gets and what a payload from an older build says.
    */
   const anyRide = roster.data?.anyRide ?? false;
+  const unitSpeedPercent = roster.data?.unitSpeedPercent ?? 0;
 
   /*
    * §C3: loading a machine is its own write, and an absolute one (`TakeVehiclesRequestSchema`).
@@ -182,9 +186,14 @@ export function DeployDialog({
    */
   const takeVehicles = useTakeVehicles();
 
-  const alreadyThere = (mode === 'line' ? view.muster?.army : view.muster?.perimeter) ?? {};
-  const onGround = view.muster?.army ?? {};
-  const onRing = view.muster?.perimeter ?? {};
+  /*
+   * The reader's own row, not the side's (bug pass, 2026-10-02). The muster is everybody on the
+   * side, so an ally's 20 Razors offered a -20 the server clipped to nothing and answered 200: the
+   * player read that twenty came home and nothing had moved. Only your own come back.
+   */
+  const alreadyThere = (mode === 'line' ? view.own?.army : view.own?.perimeter) ?? {};
+  const onGround = view.own?.army ?? {};
+  const onRing = view.own?.perimeter ?? {};
   /** §C3: whether anything is being driven to this fight at all. */
   const riding = Object.values(view.vehicles).some((count) => (count ?? 0) > 0);
 
@@ -209,7 +218,7 @@ export function DeployDialog({
    * and it is what the sheet beside it is describing.
    */
   const sending: Army = Object.fromEntries(Object.entries(deltas).filter(([, delta]) => delta > 0));
-  const column = readColumn(view.vehicles, sending, loadouts, anyRide);
+  const column = readColumn(view.vehicles, sending, loadouts, anyRide, unitSpeedPercent);
   const quote = useDeployQuote(
     armySize(sending) > 0
       ? {
@@ -265,10 +274,36 @@ export function DeployDialog({
   const loadedFleet = view.vehicles;
   const ownedFleet = mergeFleets(view.yard, view.vehicles);
   const seats = fleetCapacity(loadedFleet);
-  const aboard = ridingUnitSlots(sending, anyRide);
+  /*
+   * Everybody the machines will have carried there by the mark, as the server counts it (bug pass,
+   * 2026-10-02): this crew's own line and ring after this batch, and its columns still walking.
+   * The batch alone let Max fill two seats a column already on the road had taken, and the send
+   * came back "no room in what you have loaded".
+   */
+  const after = (held: Army, moving: boolean): Army =>
+    moving
+      ? Object.fromEntries(
+          [...new Set([...Object.keys(held), ...Object.keys(deltas)])].map((id) => [
+            id,
+            Math.max(0, (held[id] ?? 0) + (deltas[id] ?? 0)),
+          ]),
+        )
+      : held;
+  const aboard = ridingUnitSlots(
+    [
+      after(view.own?.army ?? {}, mode === 'line'),
+      after(view.own?.perimeter ?? {}, mode !== 'line'),
+      walking,
+    ].reduce<Army>((all, part) => {
+      for (const [id, count] of Object.entries(part)) all[id] = (all[id] ?? 0) + (count ?? 0);
+      return all;
+    }, {}),
+    anyRide,
+  );
   /** Nothing loaded is the walk, and the walk has no ceiling. See the note at the top. */
   const capped = seats > 0;
-  const overloaded = capped && aboard > seats;
+  // Only a batch that sends somebody is held to the seats: bringing people home needs none.
+  const overloaded = capped && armySize(sending) > 0 && aboard > seats;
 
   /*
    * §A4: what this column could carry off, in loot slots.
@@ -309,7 +344,7 @@ export function DeployDialog({
       <div className="flex min-h-0 flex-col gap-5 overflow-y-auto p-5" data-testid="deploy-rows">
         {rows.length === 0 ? (
           <p className="font-body text-xs leading-relaxed text-ink-300">
-            You have nobody to send. Train units at the Gauntlet first.
+            You have nobody to send. Muster units at the Gauntlet first.
           </p>
         ) : (
           /* Two to a row from `md` up, one below it. The breakpoint is the viewport rather than

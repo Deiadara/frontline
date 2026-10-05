@@ -1,9 +1,9 @@
 import { z } from 'zod';
 import { ATTRIBUTE_LABELS, type AttributeName } from '../attributes.js';
 import { BUILDING_CATALOG, type BuildingKind } from '../building/kinds.js';
-import { describeHoldBonus, type HoldBonus } from '../city/locations.js';
+import { TAPERS, describeHoldBonus, type HoldBonus } from '../city/locations.js';
 import { findUnit } from '../units/catalog.js';
-import { UNIT_TIER_STAT_LABELS, type UnitTierStat } from '../units/tiers.js';
+import { UNIT_TIER_STAT_LABELS, tierStatAmount, type UnitTierStat } from '../units/tiers.js';
 
 /**
  * Perks: the discrete things an officer brings to the crew (GDD §B7).
@@ -18,17 +18,16 @@ import { UNIT_TIER_STAT_LABELS, type UnitTierStat } from '../units/tiers.js';
  *
  * A perk carries a {@link PerkBonus}, which is a `HoldBonus` minus the one kind that makes no sense
  * off the map. That is the whole integration: `crew/effects.ts` folds them into `CrewEffects` with
- * the fold the city already uses, and the battle engine, the market, the training queue and the
+ * the fold the city already uses, and the battle engine, the market, the muster queue and the
  * settle loop read them without a single new parameter threaded anywhere. A parallel bonus system
  * would have had to be plumbed into each of those by hand, and the plumbing is exactly where a
  * bonus quietly stops applying.
  *
  * ## Nought to three, and they add up
  *
- * An officer rolls between zero and three. They **sum** across the roster rather than taking a
- * best-of the way attributes do, because a perk is a thing a person brought with them rather than
+ * An officer rolls between zero and three. They **sum** across the roster, because a perk is a thing a person brought with them rather than
  * a rating the crew has: two officers who both know a foundry manager are two foundry managers.
- * That is also what makes filling nineteen chairs worth the wage bill.
+ * That is also what makes filling thirteen chairs worth the wage bill.
  *
  * Magnitudes are deliberately small, mostly two to six. A full roster is around thirty perks spread
  * over thirty-odd channels, so a channel usually sees one or two of them; the numbers are sized so
@@ -58,6 +57,12 @@ export type CrewOnlyBonus =
   | { kind: 'intel_resistance'; percent: number }
   | { kind: 'casualty_recovery'; percent: number }
   | { kind: 'cohesion'; percent: number }
+  /**
+   * More of a job's pay comes home as caps (maintainer, 2026-10-01). Cap Counter's home: it was a
+   * `resource_yield` on caps, and no structure makes caps, so it scaled only the few hourly caps
+   * the ground and the perks pay. Caps flow through jobs, so that is where it counts now.
+   */
+  | { kind: 'mission_caps'; percent: number }
   /*
    * The conditional ones (maintainer request).
    *
@@ -216,9 +221,8 @@ const CATALOG: Perk[] = [
     perHour: 1,
   }),
   perk('cap_counter', 'Cap Counter', 'economy', 'Counts twice and finds more the second time.', {
-    kind: 'resource_yield',
-    resource: 'caps',
-    percent: 5,
+    kind: 'mission_caps',
+    percent: 8,
   }),
   perk(
     'lean_kitchen',
@@ -685,7 +689,7 @@ const CATALOG: Perk[] = [
     percent: 5,
   }),
 
-  // --- Logistics: builds, training, roads, jobs -----------------------------------------------
+  // --- Logistics: builds, mustering, drills, roads, jobs --------------------------------------
   perk(
     'crane_hand',
     'Crane Hand',
@@ -712,8 +716,9 @@ const CATALOG: Perk[] = [
     /*
      * One level off the *price* of one structure (`building_credit`), never off the order.
      *
-     * A level is 28% of the bill at every height (`BUILDING_COST_GROWTH`), so this is the same
-     * share as a strong `building_cost` perk and it is deliberately not more: what makes it worth
+     * A level is 28% of the bill at every height (`BUILDING_COST_GROWTH`), less where the bill
+     * bends under the store (`fittedToTheStore`, 2026-10-02), so this is about the same share as a
+     * strong `building_cost` perk and it is deliberately not more: what makes it worth
      * hiring is that it does not shrink as a crew's other discounts pile up, because it moves the
      * exponent rather than taking a share off the result.
      */
@@ -754,22 +759,24 @@ const CATALOG: Perk[] = [
     },
   ),
   perk(
-    'training_officer',
-    'Training Officer',
+    'muster_master',
+    'Muster Master',
     'logistics',
-    'Turns a week of drill into three days.',
+    'Turns a week of mustering into three days.',
     {
-      kind: 'training_speed',
+      kind: 'muster_speed',
       percent: 6,
     },
   ),
   perk('hard_school', 'Hard School', 'logistics', 'Unkind, quick, and it works.', {
-    kind: 'training_speed',
+    kind: 'muster_speed',
     percent: 9,
   }),
+  // The four muster-cost perks were cut with every general muster cut (maintainer,
+  // 2026-10-01): 5, 8, 8 and 28 became 1, 2, 2 and 6, in the same order.
   perk('range_master', 'Range Master', 'logistics', 'Wastes nothing, least of all ammunition.', {
-    kind: 'training_cost',
-    percent: 5,
+    kind: 'muster_cost',
+    percent: 1,
   }),
   perk(
     'surplus_dealer',
@@ -777,8 +784,8 @@ const CATALOG: Perk[] = [
     'logistics',
     'Kits a recruit out of a budget that is not ours.',
     {
-      kind: 'training_cost',
-      percent: 8,
+      kind: 'muster_cost',
+      percent: 2,
     },
   ),
   perk('extra_hour', 'Extra Hour', 'logistics', 'Squeezes one more session out of the day.', {
@@ -885,12 +892,12 @@ const CATALOG: Perk[] = [
     'people',
     'Everybody worth hiring drinks with them eventually, and signs for less.',
     {
-      kind: 'training_cost',
-      percent: 8,
+      kind: 'muster_cost',
+      percent: 2,
     },
   ),
   perk('talent_scout', 'Talent Scout', 'people', 'Spots the quick learner across a full room.', {
-    kind: 'training_speed',
+    kind: 'muster_speed',
     percent: 12,
   }),
   perk('bunk_builder', 'Bunk Builder', 'people', 'Fits four where the plans allowed two.', {
@@ -1126,7 +1133,7 @@ const CATALOG: Perk[] = [
    * One named unit, one named stat.
    *
    * The narrowest bonus the book has, so it carries the biggest number. A tier bonus is a reason
-   * to field a tier; this is a reason to field *that unit*, and a crew that never trains an
+   * to field a tier; this is a reason to field *that unit*, and a crew that never musters an
    * Anodic gets nothing at all from the Arc Warden. Legendary units get the small version: there
    * is only ever one of them on the field, so a percentage of it is worth less than the same
    * percentage across a stack of Razors.
@@ -1161,7 +1168,7 @@ const CATALOG: Perk[] = [
       percent: 20,
     },
   ),
-  perk('sniper\u2019s_eye', "Sniper's Eye", 'military', 'Spotted for the best shot in the city.', {
+  perk('snipers_eye', "Sniper's Eye", 'military', 'Spotted for the best shot in the city.', {
     kind: 'unit_kind',
     unitId: 'snipers',
     stat: 'offense',
@@ -1344,8 +1351,8 @@ const CATALOG: Perk[] = [
     flat: 5,
   }),
   perk('sig_headhunter', 'Headhunter', 'people', 'Knows who is unhappy before their chief does.', {
-    kind: 'training_cost',
-    percent: 28,
+    kind: 'muster_cost',
+    percent: 6,
   }),
   perk('sig_paymaster', 'Paymaster', 'people', 'Nobody has ever queried one of their envelopes.', {
     kind: 'wage_discount',
@@ -1424,8 +1431,8 @@ const CATALOG: Perk[] = [
   }),
 
   // Logistics: the ones about how fast the machine turns over.
-  perk('sig_instructor', 'Instructor', 'logistics', 'Turns them out trained, not merely alive.', {
-    kind: 'training_speed',
+  perk('sig_instructor', 'Instructor', 'logistics', 'Turns them out ready, not merely alive.', {
+    kind: 'muster_speed',
     percent: 20,
   }),
   perk(
@@ -1559,10 +1566,13 @@ export function describePerkBonus(bonus: PerkBonus): string {
       return `+${bonus.percent}% production`;
     case 'storage_capacity':
       return `+${bonus.percent}% storage`;
+    // Points, added to the cards' and curved (`buildCostCut`), as the crew page prints them.
     case 'build_cost':
-      return `-${bonus.percent}% build cost`;
+      return `+${bonus.percent} points off build costs`;
+    // A one-time negotiation at signing (`committedWage`), never a re-price of the running book,
+    // and only while the carrier is working (maintainer, 2026-10-01).
     case 'wage_discount':
-      return `-${bonus.percent}% wages`;
+      return `-${bonus.percent}% off wages agreed at signing while they are working`;
     case 'payroll_step_discount':
       return `-${bonus.percent}% to widen payroll`;
     // Points, not percentages (bug pass, 2026-09-29). The spy contest adds both intel channels to
@@ -1572,21 +1582,23 @@ export function describePerkBonus(bonus: PerkBonus): string {
     case 'casualty_recovery':
       return `+${bonus.percent} medic points`;
     case 'cohesion':
-      return `+${bonus.percent}% cohesion`;
+      return `+${bonus.percent}% cohesion ${TAPERS}`;
+    case 'mission_caps':
+      return `+${bonus.percent}% caps from jobs`;
     // The conditional ones say *when*, not only how much: a number with no condition on it reads
     // as an unconditional bonus, and these are worth nothing until their condition is true.
     case 'allied_offense':
       return `+${bonus.percent}% offense fighting alongside allies`;
     case 'gate_defense':
-      return `+${bonus.percent}% Gate defense`;
+      return `+${bonus.percent}% Gate defense ${TAPERS}`;
     case 'whole_district':
-      return `+${bonus.percent}% defense while you hold a district whole`;
+      return `+${bonus.percent}% defense while you hold a district whole ${TAPERS}`;
     case 'building_cost':
       return `-${bonus.percent}% ${BUILDING_CATALOG[bonus.building].name} cost`;
     case 'building_credit':
       return `${BUILDING_CATALOG[bonus.building].name} priced ${bonus.levels} level${bonus.levels === 1 ? '' : 's'} lower`;
     case 'unit_kind':
-      return `+${bonus.percent}% ${findUnit(bonus.unitId)?.name ?? bonus.unitId} ${UNIT_TIER_STAT_LABELS[bonus.stat]}`;
+      return `${tierStatAmount(bonus.stat, bonus.percent)} ${findUnit(bonus.unitId)?.name ?? bonus.unitId} ${UNIT_TIER_STAT_LABELS[bonus.stat]}`;
     case 'xp_gain':
       return `+${bonus.percent}% experience`;
     /*

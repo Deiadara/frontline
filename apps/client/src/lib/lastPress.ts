@@ -48,7 +48,7 @@ function record(target: EventTarget | null): void {
    * times and glitch out").
    *
    * Every press minted a fresh id, and a readout stacks its figures per press id, so two quick
-   * presses of Train were two stacks with the same anchor: the second pair of receipts was
+   * presses of Muster were two stacks with the same anchor: the second pair of receipts was
    * drawn over the first at the same pixel, and four figures fighting for two rows is what the
    * glitch was. Measured: `-36@612,481` and `-36@612,482`, twice each. Keeping the id makes the
    * second press's figures the next rows of the first press's column, which is what a receipt
@@ -106,7 +106,7 @@ const rows = new Map<number, { owner: string; count: number }[]>();
  *
  * One row per *figure*, not per readout (maintainer, 2026-09-22). It was one row per owner, so a
  * readout holding two figures drew its second straight through the next readout's first: two
- * quick presses of Train put the caps column's `-36` on row 0 and 1 and the supplies column's
+ * quick presses of Muster put the caps column's `-36` on row 0 and 1 and the supplies column's
  * `-7` on row 1 and 2, and row 1 had both. Each owner reserves as many rows as it has figures,
  * and the next owner starts after them.
  */

@@ -1,9 +1,12 @@
 import {
+  HOME_LOCKED_TEXT,
   MISC_AREA_ID,
+  RESOURCE_KG,
   findUnit,
   findVehicle,
   makeAttributes,
   missionTimings,
+  payoutSlots,
   vehicleNoun,
   type FightLeaderQuoteRequest,
   type MissionArea,
@@ -63,14 +66,19 @@ const quote = vi.fn((body: FightLeaderQuoteRequest) => {
   return Promise.resolve({ leaders: [] });
 });
 
-function open(army: Record<string, number>, carriersFight: boolean): HTMLElement {
+function open(
+  army: Record<string, number>,
+  carriersFight: boolean,
+  offer: MissionOffer = fight,
+): HTMLElement {
   render(
     <MissionBoard
-      areas={[area]}
+      areas={[{ ...area, offers: [offer] }]}
       army={army}
       fleet={{ motorcycle: 1 }}
       loadouts={{}}
       bagPercent={0}
+      notoriety={100}
       marks={{}}
       carriersFight={carriersFight}
       anyRide={false}
@@ -95,7 +103,7 @@ function open(army: Record<string, number>, carriersFight: boolean): HTMLElement
       onLaunch={vi.fn()}
     />,
   );
-  fireEvent.click(screen.getByTestId(`send-${fight.templateId}`));
+  fireEvent.click(screen.getByTestId(`send-${offer.templateId}`));
   return screen.getByRole('dialog');
 }
 
@@ -144,5 +152,46 @@ describe('the leader quote', () => {
     const asked = quote.mock.calls.at(-1)?.[0];
     expect(asked?.force).toEqual({ razors: 2 });
     expect(asked?.vehicles).toEqual({});
+  });
+});
+
+describe('a board in the last hour before a raid on home', () => {
+  it('holds every Send button and says why', () => {
+    render(
+      <MissionBoard
+        areas={[area]}
+        army={{ razors: 6 }}
+        fleet={{}}
+        loadouts={{}}
+        bagPercent={0}
+        notoriety={100}
+        marks={{}}
+        carriersFight={false}
+        anyRide={false}
+        roster={undefined}
+        leaders={[]}
+        onQuoteFightLeaders={quote}
+        now={NOW}
+        atCapacity={false}
+        automated={false}
+        homeLocked
+        pendingTemplateId={null}
+        refusal={null}
+        onLaunch={vi.fn()}
+      />,
+    );
+    const button = screen.getByTestId(`send-${fight.templateId}`);
+    expect(button).toBeDisabled();
+    expect(button).toHaveTextContent(HOME_LOCKED_TEXT);
+  });
+});
+
+describe('the take when an officer leads', () => {
+  it('counts the officer loot perk the launch pays', () => {
+    const ledRewards = { scrap: 4000 };
+    const dialog = open({ razors: 6 }, false, { ...fight, ledRewards });
+    expect(within(dialog).getByTestId('send-carries')).toHaveTextContent(
+      `of ${Math.round(payoutSlots(ledRewards, RESOURCE_KG)).toLocaleString()} loot slots`,
+    );
   });
 });

@@ -1,4 +1,5 @@
 import {
+  NAME_TOO_SMALL_TEXT,
   blueprintGateMet,
   DECLARATION_REFUSAL_MESSAGES,
   DECLARE_UNAFFORDABLE_MESSAGE,
@@ -36,13 +37,23 @@ import {
   type Base,
   type ItemId,
   battleBoostSlots,
+  LOST_CALL_COOLDOWN_HOURS,
 } from '@frontline/shared';
 import type { FastifyInstance } from 'fastify';
 import { settleBase } from '../district/settle.js';
 import { AppError, parseBody, type ErrorCode } from '../errors.js';
 import { declareBattle, type DeclareRefusal } from './declare.js';
 import { adjustDeployment, deployQuote, sideOf, type DeployRefusal } from './deploy.js';
-import { oversellsSeats, recallColumn, type RecallRefusal, retimeColumns } from './movement.js';
+import { insideLock } from './lock.js';
+import { adminInfamy } from '../admin/mode.js';
+import { alignmentReader } from './alignment.js';
+import {
+  officerTravelMinutesTo,
+  oversellsSeats,
+  recallColumn,
+  type RecallRefusal,
+  retimeColumns,
+} from './movement.js';
 import {
   holdingsRefusal,
   moveMinutes,
@@ -52,10 +63,11 @@ import {
 } from '../moves/moves.js';
 import { projectActions, projectBattles } from './view.js';
 import { workingRoles } from '../crew/roster.js';
-import { crewEffectsFor } from '../crew/standing.js';
+import { crewEffectsFor, officerLiftRoom } from '../crew/standing.js';
 import { settleWorld } from '../world/settle.js';
 import { officerDuty } from '../crew/duty.js';
 import { defendingBaseOf } from './ground.js';
+import { tallyNameBurned } from '../feats/tally.js';
 
 /**
  * The battle board (GDD §A4, battle rework): what is coming, what you have moved up for it, what
@@ -133,14 +145,16 @@ export const REFUSAL_MESSAGES: Record<DeclareRefusal | DeployRefusal, string> = 
   no_such_place: 'There is no such place',
   city_closed: 'That city is not open yet. Nobody gets in',
   already_declared: 'Somebody has already called that one',
+  lost_here: `You lost here. You cannot call it again until ${String(LOST_CALL_COOLDOWN_HOURS)} hours after that fight`,
   too_many_pending: 'You have as many calls out as you can answer for',
   breach_closes: 'The gate is back up before then. Call it for while the breach is still open',
   own_ground: 'That is yours',
+  empty_ground: 'Nobody holds it. Send units to walk in and it is yours',
   not_a_participant: 'You are not in that fight',
   deployment_closed: 'They are on the ground. Nobody is moving now',
   not_enough_units: 'You do not have those units to send',
   not_a_fighting_force: 'Scavengers carry. They do not fight. Send them on a mission instead',
-  needs_infamy: 'They will not take a contract from a name that small',
+  needs_infamy: NAME_TOO_SMALL_TEXT,
   no_seats: 'There is no room in what you have loaded. Take another machine or send fewer',
   ring_is_the_defenders: 'The ring is the defender’s. You chose the ground; they choose the cordon',
   garrison_locked:
@@ -262,7 +276,10 @@ export function registerBattleRoutes(app: FastifyInstance): void {
 
       const battle = app.repos.sieges.find(body.battleId);
       if (!battle || battle.resolvedAt !== null) throw new AppError('NOT_FOUND', 'No such fight');
-      const side = sideOf(app.repos, battle, base.id);
+      // ...or the side a faction ally would send help to (`/factions/reinforce`), which has no row
+      // until the help lands and needs the same clock: when it arrives, and whether that is in time.
+      const side =
+        sideOf(app.repos, battle, base.id) ?? alignmentReader(app.repos, battle)(base.id);
       if (!side) refuse('not_a_participant');
 
       return deployQuote(app.repos, {
@@ -402,7 +419,6 @@ export function registerBattleRoutes(app: FastifyInstance): void {
         const allowed = boostAvailable(
           spec,
           {
-            technologies: base.research.technologies,
             // A benched officer is in no chair, so they unlock nothing a chair unlocks.
             // The chairs that are *working*: an injured officer unlocks nothing while they are
             // out (maintainer, 2026-09-23). See `workingRoles`.
@@ -466,7 +482,9 @@ export function registerBattleRoutes(app: FastifyInstance): void {
       }
 
       // A crate costs nothing here: it was paid for at the shelf. Only a name burns infamy.
-      const left = spec ? spendInfamy(base.economy.infamy, spec.cost) : base.economy.infamy;
+      const left = spec
+        ? spendInfamy(base.economy.infamy, adminInfamy(spec.cost, app.config.admin))
+        : base.economy.infamy;
       if (left === null) throw new AppError('NOT_ENOUGH_INFAMY', 'Your name is not worth that yet');
       const economy = { ...base.economy, infamy: left };
       // The name and the bill, together: a boost written without its price is a free boost.
@@ -478,6 +496,7 @@ export function registerBattleRoutes(app: FastifyInstance): void {
           updatedAt: now.toISOString(),
         });
         app.repos.bases.updateEconomy(base.id, economy);
+        if (spec) tallyNameBurned(app.repos, base.id);
       })();
       return respond({ ...base, economy }, now);
     },
@@ -558,6 +577,27 @@ export function registerBattleRoutes(app: FastifyInstance): void {
       if (duty !== null) {
         throw new AppError('FORBIDDEN', `${officer.name} ${LEADER_HOLD_MESSAGES[duty.held]}`);
       }
+      /*
+       * The road, which the picker prints, now counts (maintainer, 2026-10-02): an officer named
+       * ten seconds before the mark with ninety minutes to walk led in full. Their own pace, off
+       * their sheet, on whatever this crew has loaded for the fight.
+       */
+      const travel = officerTravelMinutesTo(
+        app.repos,
+        base,
+        battle.target.districtId,
+        officer,
+        app.repos.sieges.deployment(battleId, side, base.id)?.vehicles ?? {},
+        officerLiftRoom(app.repos, base, now),
+      );
+      const mark = Date.parse(battle.scheduledFor);
+      if (travel !== null && now.getTime() + travel * 60_000 > mark) {
+        const left = Math.max(0, Math.floor((mark - now.getTime()) / 60_000));
+        throw new AppError(
+          'FORBIDDEN',
+          `${officer.name} is ${String(travel)} minutes away, and this one starts in ${String(left)}`,
+        );
+      }
     }
 
     const deployment =
@@ -569,6 +609,10 @@ export function registerBattleRoutes(app: FastifyInstance): void {
       officerId,
       updatedAt: now.toISOString(),
     });
+    // Columns already on the road take the new leader's pace, or lose the old one's (bug pass,
+    // 2026-10-05): `sendColumn` read the leader at send time, so a stood-down officer's Short Way
+    // kept shortening a road nobody was leading. `retimeColumns` re-reads the row's officer.
+    retimeColumns(app.repos, base, battleId, deployment.vehicles, now, app.config.admin);
     return respond(base, now);
   });
 
@@ -612,6 +656,15 @@ export function registerBattleRoutes(app: FastifyInstance): void {
           throw new AppError('FORBIDDEN', 'You do not have that many in the yard');
         }
       }
+      /*
+       * The last-hour lock holds machines too (bug pass, 2026-10-02). Narrowing the set put them
+       * straight back in the yard, so a crew could take its machines out of a fight a minute before
+       * the mark and spare them the wreck roll the settle makes in proportion to the losses.
+       */
+      const narrowed = Object.entries(deployment.vehicles).some(
+        ([id, count]) => (vehicles[id as keyof typeof vehicles] ?? 0) < (count ?? 0),
+      );
+      if (narrowed && insideLock(battle, now)) refuse('garrison_locked');
       // One seat, one column, whichever door was used first.
       if (oversellsSeats(app.repos, base, battleId, side, vehicles, now)) refuse('no_seats');
 
@@ -755,7 +808,7 @@ export function registerBattleRoutes(app: FastifyInstance): void {
       if (cost === null) {
         throw new AppError('PLACE_UNAVAILABLE', 'There is no name above the one you have');
       }
-      const left = spendInfamy(base.economy.infamy, cost);
+      const left = spendInfamy(base.economy.infamy, adminInfamy(cost, app.config.admin));
       if (left === null) throw new AppError('NOT_ENOUGH_INFAMY', 'Your name is not worth that yet');
 
       const economy = { ...base.economy, infamy: left, notoriety: base.economy.notoriety + 1 };

@@ -149,6 +149,7 @@ function pacedRoad(from: District, to: District, pace: RoadPace): number {
       pace.speed ?? 0,
       pace.reductionPercent ?? 0,
       pace.flatMinutesOff ?? 0,
+      pace.baseCutPercent ?? 0,
     ),
   );
 }

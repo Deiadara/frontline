@@ -1,4 +1,5 @@
 import {
+  chairPassiveOf,
   findUnit,
   findLocation,
   combineLeaderOf,
@@ -26,9 +27,10 @@ import {
   type DistrictSummary,
   type Location,
   type LocationControl,
+  type LocationHolder,
   type LocationView,
   type SpyReport,
-  type TerritoryEffects,
+  type CrewEffects,
   bonusesAt,
   mergeLabels,
   upgradeCost,
@@ -57,7 +59,7 @@ import { capturedGatesFor } from './gates.js';
 export interface CityContext {
   base: Base;
   controls: Map<string, LocationControl>;
-  effects: TerritoryEffects;
+  effects: CrewEffects;
   /** A crew's name by base id, for "who holds this". */
   nameOf: (baseId: string) => string;
   /**
@@ -135,6 +137,7 @@ function summarise(
     travelMinutes: home
       ? travelMinutesBetween(home, district, {
           reductionPercent: context.effects.travelSpeedPercent,
+          baseCutPercent: chairPassiveOf(context.effects, 'cartographer', 'travel_time'),
           flatMinutesOff: context.effects.roadMinutesOff,
         })
       : 0,
@@ -200,7 +203,11 @@ function projectLocation(
 ): LocationView {
   const spec = LOCATION_CATALOG[location.kind];
   const mine = isHeldBy(control, context.base.id);
-  const nextCost = upgradeCost(location.kind, control.level);
+  const nextCost = upgradeCost(
+    location.kind,
+    control.level,
+    chairPassiveOf(context.effects, 'engineer', 'building_cost'),
+  );
   const note = upgradeNote(location.kind, control.level);
 
   return {
@@ -291,6 +298,18 @@ function combineLeaderView(
   };
 }
 
+/** The table the crew holding a district whole sits at, for its "Held by" plaque. */
+function factionOfHolder(
+  repos: Repositories,
+  holder: LocationHolder | null,
+): DistrictDetailResponse['holderFaction'] {
+  if (holder?.kind !== 'crew') return null;
+  const owner = repos.bases.findById(holder.baseId)?.ownerId;
+  const seat = owner ? repos.factions.membershipOf(owner) : undefined;
+  const faction = seat ? repos.factions.find(seat.factionId) : undefined;
+  return faction ? { name: faction.name, badge: faction.badge } : null;
+}
+
 export function projectDistrict(
   repos: Repositories,
   base: Base,
@@ -311,14 +330,26 @@ export function projectDistrict(
    * that is nobody's.
    */
   const closed = isClosedPlot(repos, district, base);
-  const residentBuildings =
+  const standingThere =
     closed || !resident ? [] : (repos.bases.findById(resident.id)?.buildings ?? []);
+  /*
+   * The structures and their levels, and not the cards fitted to them. A card is what a crew bought,
+   * not what a passer-by sees from the street, and two of them are a term of the spy contest: an
+   * Encrypted Core's points and the gate level summed to the resident's counter score, which is
+   * private (maintainer, 2026-10-01). The crew profile strips them for the same reason.
+   */
+  const residentBuildings =
+    resident?.id === base.id
+      ? standingThere
+      : standingThere.map((building) => ({ ...building, modifications: [] }));
+  const holder = districtHolder(district, context.controls);
 
   return {
     district,
     travelMinutes: home
       ? travelMinutesBetween(home, district, {
           reductionPercent: context.effects.travelSpeedPercent,
+          baseCutPercent: chairPassiveOf(context.effects, 'cartographer', 'travel_time'),
           flatMinutesOff: context.effects.roadMinutesOff,
         })
       : 0,
@@ -326,7 +357,8 @@ export function projectDistrict(
       const control = context.controls.get(location.id);
       return control ? [projectLocation(location, control, context, now, admin)] : [];
     }),
-    holder: districtHolder(district, context.controls),
+    holder,
+    holderFaction: factionOfHolder(repos, holder),
     // The Combine legendary over this ground, dead or alive: public, like the seat-of-power tag.
     combineLeader: combineLeaderView(district, [...context.controls.values()]),
     unified: unified ? { title: unified.title, effect: describeHoldBonus(unified.bonus) } : null,
@@ -338,14 +370,14 @@ export function projectDistrict(
       resident.id !== base.id &&
       isDistrictRaidable(district, district.id === base.districtId),
     spyRuns: spyRunViews(repos, base),
-    spyParties: spyPartiesFor(repos, base),
+    spyParties: spyPartiesFor(repos, base, now),
     spyTiersOpen: openSpyTiers(base.research.technologies),
     // Quoted where a job could be sent: anywhere but the crew's own district and a plot nobody
     // has claimed, which has nobody to read. The tier is the client's choice and only moves the
     // caps, so any tier prices the clock.
     spyQuote:
       closed || district.id === base.districtId ? null : quoteSpy(repos, base, district, now),
-    spyBlocker: spyBlocker(base),
+    spyBlocker: spyBlocker(base, now),
     // The door's own last look, for the gate window (`SpyPanel`). Only where a gate is a thing
     // a stranger could read: never on the crew's own district.
     spyGateReport:

@@ -15,7 +15,7 @@ describe('the stores are a hard ceiling (maintainer ruling, 2026-09-28)', () => 
     expect(ceilings.scrap).toBe(storageCapacityFor(DISTRICT, 'scrap'));
     expect(ceilings.highQualityMetal).toBe(storageCapacityFor(DISTRICT, 'highQualityMetal'));
     expect(ceilings.caps).toBe(Number.POSITIVE_INFINITY);
-    // The crew's Logistics widens it, as it widens the production clamp.
+    // The crew's storage bonus widens it, as it widens the production clamp.
     expect(storeCeilings(DISTRICT, 50).scrap).toBeGreaterThan(ceilings.scrap);
   });
 

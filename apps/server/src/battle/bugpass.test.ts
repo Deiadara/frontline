@@ -16,6 +16,7 @@ import {
 } from '@frontline/shared';
 import type { FastifyInstance } from 'fastify';
 import { afterEach, describe, expect, it } from 'vitest';
+import { armTheAttack } from '../testing/attack.js';
 import { buildApp } from '../app.js';
 import { loadConfig } from '../config.js';
 import { openDatabase, runMigrations, type AppDatabase } from '../db/index.js';
@@ -23,7 +24,7 @@ import { settleMovements } from './movement.js';
 import { settleMoves } from '../moves/moves.js';
 import { settleBattles } from './resolve.js';
 import { chooseOverseer } from '../testing/overseer.js';
-import { queueTraining } from '../units/training.js';
+import { queueMuster } from '../units/muster.js';
 import { standingEffectsFor } from '../crew/standing.js';
 import { everybodyHome } from '../testing/walk.js';
 
@@ -315,7 +316,7 @@ describe('leaving a faction', () => {
     app.repos.city.put({ ...control, holder: { kind: 'crew', baseId: host.baseId } });
     app.repos.alliedGarrisons.set(SQUATTED, guest.baseId, { razors: 6 });
     const guestBase = app.repos.bases.findById(guest.baseId)!;
-    app.repos.bases.updateArmy(guest.baseId, { razors: 14 }, guestBase.trainingQueue);
+    app.repos.bases.updateArmy(guest.baseId, { razors: 14 }, guestBase.musterQueue);
 
     const left = await app.inject({
       method: 'POST',
@@ -342,8 +343,8 @@ describe('one of each legendary', () => {
     // An empty yard, so the unit-slot cap (never waived) has room for the machine.
     app.repos.bases.updateArmy(crew.baseId, {}, []);
     const colossus = findUnit('the_colossus')!;
-    const train = () =>
-      queueTraining(app.repos, {
+    const muster = () =>
+      queueMuster(app.repos, {
         base: app.repos.bases.findById(crew.baseId)!,
         unit: colossus,
         count: 1,
@@ -353,7 +354,7 @@ describe('one of each legendary', () => {
       });
 
     // The control: with none anywhere, the order is taken.
-    expect(train().kind).toBe('queued');
+    expect(muster().kind).toBe('queued');
     app.repos.bases.updateArmy(crew.baseId, {}, []);
 
     const control = app.repos.city.control(SQUATTED)!;
@@ -362,7 +363,7 @@ describe('one of each legendary', () => {
       holder: { kind: 'crew', baseId: crew.baseId },
       garrison: { the_colossus: 1 },
     });
-    expect(train()).toMatchObject({ kind: 'refused', reason: 'already_have_one' });
+    expect(muster()).toMatchObject({ kind: 'refused', reason: 'already_have_one' });
   });
 });
 
@@ -500,6 +501,8 @@ describe('ground with a fight called on it (maintainer, 2026-09-27)', () => {
       districtId: 'steelbelt',
       locationId: SQUATTED,
     });
+    // The attack's least commitment, or the lock calls it off (2026-10-05).
+    armTheAttack(app.repos, battleId, caller.baseId);
     db.prepare('UPDATE scheduled_battles SET scheduled_for = ? WHERE id = ?').run(
       new Date(Date.now() + hoursOut * 3_600_000).toISOString(),
       battleId,
@@ -538,9 +541,14 @@ describe('ground with a fight called on it (maintainer, 2026-09-27)', () => {
     const { app } = await world('attacker');
     const caller = await register(app, 'caller');
     const walker = await register(app, 'walker');
-    // The one empty plot of the Belt, with a fight called on it.
+    // The one empty plot of the Belt. A fight cannot be called on empty ground (maintainer,
+    // 2026-10-04), so it is called while looters hold it and the ground empties after (an admin
+    // reset is one way), with the fight still to come.
     const EMPTY = 'steelbelt-ramp';
+    const control = app.repos.city.control(EMPTY)!;
+    app.repos.city.put({ ...control, holder: { kind: 'looters' } });
     await declare(app, caller, { kind: 'location', districtId: 'steelbelt', locationId: EMPTY });
+    app.repos.city.put({ ...control, holder: { kind: 'unoccupied' } });
     const res = await app.inject({
       method: 'POST',
       url: '/api/actions/move',

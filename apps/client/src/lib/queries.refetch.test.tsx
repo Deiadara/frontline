@@ -1,4 +1,9 @@
-import { playerLevelGrants, type CrewResponse } from '@frontline/shared';
+import {
+  payrollLedger,
+  playerLevelGrants,
+  startingPayroll,
+  type CrewResponse,
+} from '@frontline/shared';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { renderHook, waitFor } from '@testing-library/react';
 import type { ReactNode } from 'react';
@@ -81,6 +86,7 @@ const LEVELLED = { level: 4, levelsGained: 1, grants: playerLevelGrants(4), unlo
 const EMPTY_CREW: CrewResponse = {
   level: 1,
   housing: { used: 0, capacity: 16 },
+  payroll: payrollLedger(startingPayroll(), 0),
   officers: [],
 };
 
@@ -120,11 +126,11 @@ beforeEach(() => {
   startTech.mockReset();
   getDistrict.mockReset().mockResolvedValue({ district: { id: 'steelbelt' } });
   placeVendorBid.mockReset();
-  getCrewStanding.mockReset().mockResolvedValue({ crewSheet: {}, effects: {} });
+  getCrewStanding.mockReset().mockResolvedValue({ chairs: [], effects: {} });
   reassignOfficer.mockReset();
   releaseOfficer.mockReset();
   startTraining.mockReset();
-  useSession.setState({ token: 'session-token', user: null });
+  useSession.setState({ signedIn: true, user: null });
 });
 
 /** The app's own defaults, so a missing poll cannot be papered over by a short `staleTime`. */
@@ -394,9 +400,9 @@ describe('the writes that change what the crew is buying', () => {
 /**
  * A machine is built on the **units bench**, not in the yard.
  *
- * `POST /garage/build` calls `queueVehicle` (`apps/server/src/units/training.ts`), which pushes
- * the order onto `base.trainingQueue`: the same queue a batch of Razors goes on, sharing its
- * length cap and the district's beds. `settleTraining` is what later puts the machine in the fleet.
+ * `POST /garage/build` calls `queueVehicle` (`apps/server/src/units/muster.ts`), which pushes
+ * the order onto `base.musterQueue`: the same queue a batch of Razors goes on, sharing its
+ * length cap and the district's beds. `settleMuster` is what later puts the machine in the fleet.
  *
  * So the roster and the district both moved, and neither is on the garage response. Nothing else
  * re-reads them in time: `staleTime` is 30s, `useUnits` and `useBase` only poll while their own

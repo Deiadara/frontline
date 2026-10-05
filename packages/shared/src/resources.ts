@@ -251,7 +251,7 @@ export const RESOURCE_LORE: Readonly<Record<ResourceKey, ResourceLore>> = {
   supplies: {
     what: 'Ration bricks, tank protein, whatever the Greenhouse manages to grow.',
     spentOn: [
-      'Training the units that eat before they fight',
+      'Mustering the units that eat before they fight',
       'The structures that are stocked as much as built: the Quarters, the Gauntlet, the Infirmary',
     ],
     from: 'The Greenhouse, and anything you take off somebody else.',

@@ -126,8 +126,8 @@ function levelWithinReach(asked: number, kind: BuildingKind): number {
  * Which chair a card's trade belongs to, read off the channel it pays into.
  *
  * The maintainer's ruling was "the trade's own officer", and the trade is the effect rather than
- * the structure: a card that takes time off research asks the Head of Research whichever building
- * it is bolted to, and a card that widens the payroll asks the Head of Finance. Reading it off the
+ * the structure: a card that takes time off research asks the Researcher whichever building
+ * it is bolted to, and a card that widens the payroll asks the Fixer. Reading it off the
  * structure instead would have asked the same person for every card in a building, which is one
  * requirement wearing eleven names.
  *
@@ -136,17 +136,20 @@ function levelWithinReach(asked: number, kind: BuildingKind): number {
  */
 export const OFFICER_FOR_EFFECT: Readonly<Record<ModificationEffect, OfficerRole>> = {
   production_percent: 'salvager',
-  build_cost_reduction: 'finance_officer',
-  build_time_reduction: 'lead_engineer',
+  build_cost_reduction: 'fixer',
+  build_time_reduction: 'engineer',
   storage_percent: 'trader',
-  defense_percent: 'security_officer',
-  faction_xp_percent: 'consigliere',
-  research_time_reduction: 'head_of_research',
-  housing_percent: 'head_of_growth',
-  payroll_percent: 'finance_officer',
+  defense_percent: 'veteran',
+  faction_xp_percent: 'right_hand',
+  research_time_reduction: 'researcher',
+  housing_percent: 'steward',
+  payroll_percent: 'fixer',
   raid_loot_percent: 'raid_boss',
-  training_time_reduction: 'instructor_of_the_young',
-  training_supplies_reduction: 'wetware_chief',
+  // Mustering is the Veteran's trade since the Instructor and the Wetware Chief left (2026-10-04).
+  muster_time_reduction: 'veteran',
+  muster_supplies_reduction: 'veteran',
+  // The chair that defends a crew's ground against spies since 2026-10-01.
+  counter_intel_points: 'master_of_whispers',
 };
 
 /**
@@ -189,9 +192,10 @@ export function modificationRequirement(
 export const OFFICER_FOR_UNIT_STAT: Readonly<Record<string, OfficerRole>> = {
   offense: 'raid_boss',
   penetration: 'raid_boss',
-  range: 'lead_engineer',
-  vitality: 'chief_medic',
-  armor: 'security_officer',
+  range: 'engineer',
+  // The Chief Medic's chair went on 2026-10-04; keeping a unit standing is the Veteran's drill.
+  vitality: 'veteran',
+  armor: 'veteran',
   // The Scout's chair went on 2026-09-22. Speed is the Cartographer's trade (every road in the
   // game is on that track) and evasion the Field Commander's, whose sheet is what a line does
   // when it is shot at.
@@ -204,7 +208,8 @@ export const OFFICER_FOR_UNIT_STAT: Readonly<Record<string, OfficerRole>> = {
 };
 
 /** The default chair for a unit card whose stats name nothing in the table above. */
-export const OFFICER_FOR_UNIT_FALLBACK: OfficerRole = 'fabricator';
+// The Salvager since the Fabricator's chair went (2026-10-04): the Scrapyard is the Salvager's.
+export const OFFICER_FOR_UNIT_FALLBACK: OfficerRole = 'salvager';
 
 /** The structure a unit card's `buildingLevel` is read against, named once for both readers. */
 export const UNIT_MODIFICATION_HOST: BuildingKind = 'gauntlet';

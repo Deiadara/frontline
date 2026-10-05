@@ -1,4 +1,7 @@
 import {
+  MAX_OPEN_OFFERS,
+  BLUEPRINTS,
+  type BlueprintSpec,
   DEFAULT_CITY_ID,
   NO_TRADER_TEXT,
   RESOURCE_KEYS,
@@ -34,7 +37,7 @@ const resources = Object.fromEntries(
 ) as Resources;
 
 const market: MarketResponse = {
-  reimagining: { hasHeadOfResearch: false, hasReimaginingResearch: false },
+  reimagining: { hasResearcher: false, hasReimaginingResearch: false },
   serverNow: NOW,
   cityId: DEFAULT_CITY_ID,
   cities: [DEFAULT_CITY_ID],
@@ -109,7 +112,7 @@ beforeEach(() => {
     if (path.endsWith('/market')) return reply(market);
     throw new Error(`unstubbed request: ${path}`);
   });
-  useSession.setState({ token: 'session-token', user: null });
+  useSession.setState({ signedIn: true, user: null });
 });
 
 afterEach(() => {
@@ -224,6 +227,72 @@ describe('with no Trader at work', () => {
     fireEvent.click(screen.getByTestId('offer-want-scrap'));
     fireEvent.change(screen.getByTestId('offer-want-amount-scrap'), { target: { value: '400' } });
     expect(screen.getByRole('button', { name: 'Post it' })).toBeDisabled();
+  });
+});
+
+/*
+ * Two refusals the server gave after the press, now said before it (bug pass, 2026-10-02): the cap
+ * on standing listings, and giving more than the stores hold.
+ */
+describe('a listing the board would refuse', () => {
+  it('holds Post with five already up, and says why', async () => {
+    fetchMock.mockImplementation((path: string) => {
+      if (path.endsWith('/market'))
+        return reply({
+          ...market,
+          mine: Array.from({ length: MAX_OPEN_OFFERS }, (_, at) => ({
+            ...market.offers[0],
+            id: `mine-${at}`,
+          })),
+        });
+      throw new Error(`unstubbed request: ${path}`);
+    });
+    renderOffers();
+    await screen.findByTestId('offer-give');
+    fireEvent.click(screen.getByTestId('offer-give-oil'));
+    fireEvent.change(screen.getByTestId('offer-give-amount-oil'), { target: { value: '400' } });
+    fireEvent.click(screen.getByTestId('offer-want-scrap'));
+    fireEvent.change(screen.getByTestId('offer-want-amount-scrap'), { target: { value: '400' } });
+    expect(screen.getByRole('button', { name: 'Post it' })).toBeDisabled();
+    expect(screen.getByTestId('offers-full')).toBeInTheDocument();
+  });
+
+  it('will not give more than the stores hold', async () => {
+    renderOffers();
+    await screen.findByTestId('offer-give');
+    fireEvent.click(screen.getByTestId('offer-give-oil'));
+    expect(screen.getByTestId<HTMLInputElement>('offer-give-amount-oil').max).toBe(
+      String(resources.oil),
+    );
+  });
+});
+
+/*
+ * Pages trade on the board, and the composer could put none on either side (maintainer,
+ * 2026-10-02). The give side lists the pages held; the want side the ones missing from a blueprint
+ * the crew has started.
+ */
+describe('pages on the board', () => {
+  const started = (BLUEPRINTS as readonly BlueprintSpec[]).find((one) => one.pages.length >= 2)!;
+  const [held, missing] = [started.pages[0]!.id, started.pages[1]!.id];
+
+  beforeEach(() => {
+    fetchMock.mockImplementation((path: string) => {
+      if (path.endsWith('/market')) return reply({ ...market, inventory: { [held]: 2 } });
+      throw new Error(`unstubbed request: ${path}`);
+    });
+  });
+
+  it('offers the pages held, and asks for the ones a started blueprint is missing', async () => {
+    renderOffers();
+    await screen.findByTestId('offer-give');
+    fireEvent.click(screen.getByTestId('offer-give-pages'));
+    expect(screen.getByTestId(`offer-give-pages-row-${held}`)).toBeInTheDocument();
+    expect(screen.queryByTestId(`offer-give-pages-row-${missing}`)).toBeNull();
+
+    fireEvent.click(screen.getByTestId('offer-want-pages'));
+    expect(screen.getByTestId(`offer-want-pages-row-${missing}`)).toBeInTheDocument();
+    expect(screen.queryByTestId(`offer-want-pages-row-${held}`)).toBeNull();
   });
 });
 
@@ -420,5 +489,23 @@ describe('goods waiting on the board', () => {
     const card = await screen.findByTestId('market-claim-claim-2');
     expect(card).toHaveTextContent('A deal on a counter closed it');
     expect(card).toHaveTextContent('Back to you');
+  });
+});
+
+/**
+ * Bug pass, 2026-10-02: the want side lists every part, so it was handed the whole catalogue at 99
+ * apiece, and printed "99 held" on every row. The line under a part is what the crew really has.
+ */
+describe('asking for parts', () => {
+  it('prints what the crew holds, not the catalogue the stepper is bounded by', async () => {
+    fetchMock.mockImplementation((path: string) => {
+      if (path.endsWith('/market')) return reply({ ...market, inventory: { coolant_cell: 2 } });
+      throw new Error(`unstubbed request: ${path}`);
+    });
+    renderOffers();
+    fireEvent.click(await screen.findByTestId('offer-want-parts'));
+    expect(screen.getByTestId('offer-want-parts-row-coolant_cell')).toHaveTextContent('2 held');
+    expect(screen.getByTestId('offer-want-parts-row-ceramic_plate')).toHaveTextContent('0 held');
+    expect(screen.getByTestId('offer-want-parts-menu')).not.toHaveTextContent('99 held');
   });
 });

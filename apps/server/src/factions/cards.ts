@@ -26,12 +26,12 @@ export function cardsAtTable(repos: Repositories, factionId: string): Map<string
     const user = repos.users.findById(row.userId);
     const base = repos.bases.findByOwnerId(row.userId);
     if (!user || !base) return [];
-    const armySize = Object.values(base.army).reduce((total, count) => total + count, 0);
     const seat: Seatable & { userId: string; overseerId: string | null } = {
       userId: row.userId,
       username: user.username,
       rank: row.rank,
-      armySize,
+      joinedAt: row.joinedAt,
+      seat: row.seat,
       overseerId: user.overseerId ?? null,
     };
     return [seat];

@@ -1,6 +1,7 @@
 import { sendCellsHomeFromShutDistrict } from '../city/sleepers.js';
 import { randomUUID } from 'node:crypto';
 import {
+  chairPassiveOf,
   EVERY_LOCATION,
   MOVE_GATE_MINUTES,
   armySize,
@@ -15,7 +16,6 @@ import {
   railwayOfferBetween,
   roadMinutes,
   samePlace,
-  stationDistricts,
   travelMinutesBetween,
   unitsBeyondNotoriety,
   type Army,
@@ -33,6 +33,7 @@ import { isFightingForce, mergeArmies, removeForce } from '../battle/forces.js';
 import { columnSpeedFor } from '../battle/movement.js';
 import { fightCalledOn, placeLocked } from '../battle/lock.js';
 import { putControl } from '../city/actions.js';
+import { stationsHeldBy } from '../city/railway.js';
 import { standingEffectsFor } from '../crew/standing.js';
 import type { Repositories } from '../db/repos/index.js';
 import { tallyCaptured, tallyRailJourney } from '../feats/tally.js';
@@ -78,7 +79,11 @@ export function crewsInFactionWith(repos: Repositories, base: Base): Set<string>
   return allies;
 }
 
-/** Every place a column could be walked to: the crew's own, then the faction's. */
+/**
+ * Every place a column could be walked to: the crew's own, then the faction's, then the empty
+ * ground of every open city with no fight called on it (P6-A, 2026-10-02). Empty ground was always
+ * a legal destination, claimed on arrival with no fight; it was simply never on the list.
+ */
 export function moveDestinationsFor(repos: Repositories, base: Base): MoveDestination[] {
   const controls = repos.city.controls();
   const allies = crewsInFactionWith(repos, base);
@@ -105,10 +110,30 @@ export function moveDestinationsFor(repos: Repositories, base: Base): MoveDestin
    * as a source or a destination, even though `forceAt` would happily have read its garrison. The
    * units were reachable by the rules and unreachable by the only screen that moves them.
    */
+  const empty: MoveDestination[] = [];
+  // Read once, not once per empty plot: `fightCalledOn` reads every pending fight each time.
+  const called = new Set(
+    repos.sieges
+      .pending()
+      .flatMap((battle) => (battle.target.kind === 'location' ? [battle.target.locationId] : [])),
+  );
   for (const location of EVERY_LOCATION) {
     const control = controls.get(location.id);
-    if (!control || control.holder.kind !== 'crew') continue;
+    if (!control) continue;
     const district = findDistrict(location.districtId);
+    if (control.holder.kind === 'unoccupied') {
+      if (cityIsOpen(district?.cityId ?? '') && !called.has(location.id)) {
+        empty.push({
+          place: { kind: 'location', locationId: location.id },
+          label: location.name,
+          districtName: district?.name ?? null,
+          group: 'empty',
+          holderName: null,
+        });
+      }
+      continue;
+    }
+    if (control.holder.kind !== 'crew') continue;
     if (isHeldBy(control, base.id)) {
       out.push({
         place: { kind: 'location', locationId: location.id },
@@ -127,7 +152,7 @@ export function moveDestinationsFor(repos: Repositories, base: Base): MoveDestin
       });
     }
   }
-  return out;
+  return [...out, ...empty];
 }
 
 /** What this crew has standing at a place: its own roster there, or its posting on an ally's. */
@@ -160,24 +185,6 @@ export function placeName(base: Base, place: MovePlace): string {
   const location = findLocation(place.locationId);
   const district = location ? findDistrict(location.districtId) : undefined;
   return location ? `${location.name}, ${district?.name ?? location.districtId}` : 'somewhere';
-}
-
-/**
- * The platforms this crew holds, as district ids.
- *
- * Read off the live control map every time rather than cached on the crew, because losing a
- * platform has to drop that node out of the line immediately: a crew that was linked five minutes
- * ago and has just been pushed off Bond Street Halt is not linked any more.
- */
-export function stationsHeldBy(repos: Repositories, base: Base): Set<string> {
-  const controls = repos.city.controls();
-  const held: string[] = [];
-  for (const location of EVERY_LOCATION) {
-    if (location.kind !== 'rail_station') continue;
-    const control = controls.get(location.id);
-    if (control && isHeldBy(control, base.id)) held.push(location.id);
-  }
-  return stationDistricts(held);
 }
 
 /**
@@ -242,6 +249,7 @@ function rawRailOffer(
   const offer = railwayOfferBetween(fromDistrict, toDistrict, stationsHeldBy(repos, base), {
     speed,
     reductionPercent: effects.travelSpeedPercent,
+    baseCutPercent: chairPassiveOf(effects, 'cartographer', 'travel_time'),
     flatMinutesOff: effects.roadMinutesOff,
   });
   return offer;
@@ -325,7 +333,12 @@ function journeyLegs(
 ): { gateLeg: number; road: number | null; throughTheDoor: boolean } | null {
   const effects = standingEffectsFor(repos, base);
   const speed = columnSpeedFor(repos, base, { vehicles: riding.vehicles, force: riding.army });
-  const gateLeg = Math.max(1, roadMinutes(MOVE_GATE_MINUTES, speed, effects.travelSpeedPercent, 0));
+  const gateLeg = Math.max(
+    1,
+    // No Cartographer here (maintainer, 2026-10-05): the gate leg is the wait at a door, and the
+    // Cartographer shortens roads. Pace and speed bonuses still move a column through it.
+    roadMinutes(MOVE_GATE_MINUTES, speed, effects.travelSpeedPercent),
+  );
   const fromDistrict = findDistrict(districtOf(base, from) ?? '');
   const toDistrict = findDistrict(districtOf(base, to) ?? '');
   if (!fromDistrict || !toDistrict) return null;
@@ -348,6 +361,7 @@ function journeyLegs(
     road: travelMinutesBetween(fromDistrict, toDistrict, {
       speed,
       reductionPercent: effects.travelSpeedPercent,
+      baseCutPercent: chairPassiveOf(effects, 'cartographer', 'travel_time'),
       flatMinutesOff: effects.roadMinutesOff,
     }),
     throughTheDoor,
@@ -489,7 +503,7 @@ function takeFrom(
       else fleet[key] = left;
     }
     const next: Base = { ...base, army: removeForce(base.army, army), fleet };
-    repos.bases.updateArmy(next.id, next.army, next.trainingQueue);
+    repos.bases.updateArmy(next.id, next.army, next.musterQueue);
     repos.bases.updateFleet(next.id, next.fleet);
     return next;
   }
@@ -512,7 +526,7 @@ function takeFrom(
 /** Put the column down where it landed, or walk it home when the ground is no longer welcoming. */
 function landAt(repos: Repositories, base: Base, to: MovePlace, army: Army, now: Date): void {
   if (to.kind === 'district') {
-    repos.bases.updateArmy(base.id, mergeArmies(base.army, army), base.trainingQueue);
+    repos.bases.updateArmy(base.id, mergeArmies(base.army, army), base.musterQueue);
     return;
   }
   if (to.kind === 'gate') {
@@ -592,7 +606,7 @@ export function walkHome(
   if (armySize(people) === 0 && Object.keys(machines).length === 0) return null;
   const home = repos.bases.findById(base.id) ?? base;
   if (from.kind === 'district') {
-    repos.bases.updateArmy(home.id, mergeArmies(home.army, people), home.trainingQueue);
+    repos.bases.updateArmy(home.id, mergeArmies(home.army, people), home.musterQueue);
     returnVehicles(repos, home, machines);
     return null;
   }

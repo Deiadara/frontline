@@ -19,13 +19,16 @@ import {
   type VehicleRefusal,
   mergeFleets,
   type Fleet,
+  MAX_MUSTER_QUEUE,
+  vehiclePartsCut,
 } from '@frontline/shared';
 import type { FastifyInstance } from 'fastify';
+import { adminWaives } from '../admin/mode.js';
 import { standingEffectsFor } from '../crew/standing.js';
 import { AppError, parseBody } from '../errors.js';
 import { settledOwnBase } from '../routes/own-base.js';
 import { districtUnitSlots, vehiclesAbroad } from '../district/unit-slots.js';
-import { queueVehicle } from '../units/training.js';
+import { BENCH_FULL_MESSAGE, queueVehicle } from '../units/muster.js';
 
 /**
  * Machines already ordered and not yet delivered.
@@ -38,7 +41,7 @@ import { queueVehicle } from '../units/training.js';
  */
 function machinesOnTheBench(base: Base): Fleet {
   const bench: Fleet = {};
-  for (const order of base.trainingQueue) {
+  for (const order of base.musterQueue) {
     const spec = findVehicle(order.unitId);
     if (spec === undefined) continue;
     bench[spec.id] = (bench[spec.id] ?? 0) + (order.count - order.delivered);
@@ -64,7 +67,12 @@ function machinesOnTheBench(base: Base): Fleet {
  * the wagonload). `discounted` floors every line at 1, so nothing is ever free.
  */
 function price(app: FastifyInstance, base: Base, cost: PartialResources): PartialResources {
-  return discounted(cost, standingEffectsFor(app.repos, base).vehiclePartsPercent);
+  // Bent, not stopped (`vehiclePartsCut`, maintainer 2026-10-05).
+  return discounted(
+    cost,
+    vehiclePartsCut(standingEffectsFor(app.repos, base).vehiclePartsPercent),
+    100,
+  );
 }
 
 /**
@@ -103,13 +111,22 @@ function blockerFor(
    * own figure, which already counts the officers, the army, the garrisons, the bench and the
    * machines that are out at a fight, so a crew cannot make room by sending the yard away.
    */
-  if (spare < 1) return NO_UNIT_SLOTS_MESSAGE;
+  // Admin mode waives the beds, the bench and the purse here as `queueVehicle` does after it, or
+  // its waivers were never reached (maintainer, 2026-10-02).
+  const admin = app.config.admin;
+  if (spare < 1 && !adminWaives('no_unit_slots', admin)) return NO_UNIT_SLOTS_MESSAGE;
+  // The bench the units share, as `queueVehicle` refuses it: a card offering Build on a full bench
+  // came back "The bench is full" on the press (bug pass, 2026-10-02).
+  if (base.musterQueue.length >= MAX_MUSTER_QUEUE && !adminWaives('queue_full', admin)) {
+    return BENCH_FULL_MESSAGE;
+  }
   const reason: VehicleRefusal | null = vehicleRefusal(
     id,
     mergeFleets(mergeFleets(base.fleet, out), machinesOnTheBench(base)),
     buildingLevel(base.buildings, 'garage'),
     holdsVehicleBlueprint(base),
-    (cost) => canAfford(base.resources, price(app, base, cost)),
+    (cost) =>
+      adminWaives('cannot_afford', admin) || canAfford(base.resources, price(app, base, cost)),
   );
   if (reason === null) return null;
   // Two of the six say *which* level and *which* plans, because "needs a blueprint" with no name
@@ -131,6 +148,7 @@ export function projectGarage(app: FastifyInstance, base: Base): GarageResponse 
   const out = vehiclesAbroad(app.repos, base);
   // Once for the page rather than once per row: the fold walks the control table and the roster.
   const spare = districtUnitSlots(app.repos, base).spare;
+  const bench = machinesOnTheBench(base);
   return {
     resources: base.resources,
     garageLevel: buildingLevel(base.buildings, 'garage'),
@@ -143,6 +161,7 @@ export function projectGarage(app: FastifyInstance, base: Base): GarageResponse 
       description: spec.description,
       owned: base.fleet[spec.id] ?? 0,
       out: out[spec.id] ?? 0,
+      onBench: bench[spec.id] ?? 0,
       // Quoted with the crew's own discount on it, because the door charges that number.
       cost: price(app, base, spec.cost),
       // The yard's own level off it, because the queue charges that number and a screen quoting
@@ -191,7 +210,7 @@ export function registerGarageRoutes(app: FastifyInstance): void {
        *
        * This used to pay and hand the machine over in the same breath, which made a vehicle the
        * only thing in the game with a cost and no clock, and left `buildSeconds` on every vehicle
-       * spec as data nothing read. It shares the units' queue now: `settleTraining` is what puts
+       * spec as data nothing read. It shares the units' queue now: `settleMuster` is what puts
        * it in `base.fleet`, and what counts it for the feats board, on the read that catches it
        * finishing.
        */

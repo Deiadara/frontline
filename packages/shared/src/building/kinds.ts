@@ -101,7 +101,7 @@ export interface BuildingSpec {
    * **All** clauses must hold. Two kinds, and having both is the point:
    *
    *   * `building`: another structure standing at a level. This is the Grepolis shape: a Gauntlet
-   *     needs somewhere to put the people it trains, so it needs Quarters. The Nexus clause every
+   *     needs somewhere to put the people it musters, so it needs Quarters. The Nexus clause every
    *     structure carries is just the most important instance of this, not a separate rule.
    *   * `player_level`: the crew's own level (§I). The Nexus ladder says the *district* is ready;
    *     this says the *crew* is. A district can be a fortress run by people with no idea what to do
@@ -195,7 +195,7 @@ export const BUILDING_CATALOG: Record<BuildingKind, BuildingSpec> = {
     shortName: 'Greenhouse',
     description:
       'Grow lamps over stacked trays, running day and night. The only food down here nobody had to fight for.',
-    role: 'Grows supplies and planks around the clock, and every level takes a little more of the supplies bill off training a unit.',
+    role: 'Grows supplies and planks around the clock, and every level takes a little more of the supplies bill off mustering a unit.',
     requires: [nexus(3)],
     baseCost: { caps: 100, scrap: 150, planks: 200, oil: 200 },
     // Frames and ducting. Glass and trays are most of a glasshouse, so it asks for less good
@@ -258,7 +258,7 @@ export const BUILDING_CATALOG: Record<BuildingKind, BuildingSpec> = {
     shortName: 'Lab',
     description:
       'Clean-ish benches, a wall of borrowed datacores and three arguments running at once. Literally re-inventing the wheel.',
-    role: 'Makes research faster and unlocks a number of upgrades and projects.',
+    role: 'Makes research cheaper, opens a tier of programmes every two levels, and unlocks a number of upgrades and projects.',
     requires: [nexus(4), needs('generator', 2), crew(5)],
     baseCost: { caps: 400, scrap: 200, planks: 200, oil: 250, highQualityMetal: 25 },
     baseSeconds: 175,
@@ -268,9 +268,9 @@ export const BUILDING_CATALOG: Record<BuildingKind, BuildingSpec> = {
     shortName: 'Gauntlet',
     description:
       'When this was taken over it was obvious what it would be used for. People come out of it better than they went in, although that depends on your definition of better.',
-    role: 'Unlocks units as it grows and takes time off training every one of them, including the ones it cannot train itself.',
+    role: 'Unlocks units as it grows and takes time off mustering every one of them, including the ones it cannot muster itself.',
     requires: [nexus(3), needs('quarters', 2)],
-    // Every recruit trained here eats while they do it, and the ground itself is no different.
+    // Every recruit eats while they are mustered here, and the ground itself is no different.
     baseCost: { caps: 300, supplies: 300, scrap: 100, planks: 100, highQualityMetal: 10 },
     baseSeconds: 170,
   },

@@ -2,6 +2,9 @@ import {
   BLACK_MARKET_REFUSAL_TEXT,
   GAME_TIMEZONE,
   PlaceBlackMarketBidRequestSchema,
+  PlaceStackhouseBetRequestSchema,
+  STACKHOUSE_REFUSAL_TEXT,
+  type StackhouseResponse,
   type BlackMarketMutationResponse,
   type Base,
   type BlackMarketResponse,
@@ -12,10 +15,15 @@ import {
   projectBlackMarket,
   settleBlackMarketLots,
 } from '../blackmarket/shelf.js';
+import {
+  placeStackhouseBet,
+  projectStackhouse,
+  settleStackhouse,
+} from '../blackmarket/stackhouse.js';
 import { cityAsked } from '../city/stakes.js';
 import { AppError, cityQuery, parseBody } from '../errors.js';
 import { requireAreaFor } from '../progression/doors.js';
-import { ownBase } from './own-base.js';
+import { ownBase, settledOwnBase } from './own-base.js';
 
 /**
  * The back room (black-market extension).
@@ -63,7 +71,7 @@ export function registerBlackMarketRoutes(app: FastifyInstance): void {
 
   app.get('/black-market', { preHandler: app.authenticate }, (request): BlackMarketResponse => {
     const now = new Date();
-    settleBlackMarketLots(app.repos, now, GAME_TIMEZONE);
+    settleBlackMarketLots(app.repos, now, GAME_TIMEZONE, app.config.admin);
     const base = ownBase(app, request.currentUser.id);
     const cityId = cityOrRefuse(base, cityQuery(request.query));
     return projectBlackMarket(app.repos, base, now, GAME_TIMEZONE, cityId);
@@ -79,6 +87,7 @@ export function registerBlackMarketRoutes(app: FastifyInstance): void {
        * bid and win by calling this. The read stays open, like every other gated area's, and here
        * for a second reason: the Battle page's Inventory tab reads the stash off it for everybody.
        */
+      requireAreaFor(app.repos, request.currentUser.id, 'market');
       requireAreaFor(app.repos, request.currentUser.id, 'black_market');
       const { slotIndex, goodId, amount, city } = parseBody(
         PlaceBlackMarketBidRequestSchema,
@@ -87,7 +96,7 @@ export function registerBlackMarketRoutes(app: FastifyInstance): void {
       const now = new Date();
       // The close first, the way `/market/bid` does it: a bid landing just after midnight belongs
       // to today's shelf, and last night's lot has to be settled before anything is written.
-      settleBlackMarketLots(app.repos, now, GAME_TIMEZONE);
+      settleBlackMarketLots(app.repos, now, GAME_TIMEZONE, app.config.admin);
 
       return app.db.transaction(() => {
         const base = ownBase(app, request.currentUser.id);
@@ -103,6 +112,7 @@ export function registerBlackMarketRoutes(app: FastifyInstance): void {
           now,
           zone: GAME_TIMEZONE,
           cityId,
+          admin: app.config.admin,
         });
         if (result.kind === 'refused') {
           throw new AppError('BLACK_MARKET_REFUSED', BLACK_MARKET_REFUSAL_TEXT[result.reason]);
@@ -117,6 +127,58 @@ export function registerBlackMarketRoutes(app: FastifyInstance): void {
         // Ashfall's five crates, so the lot the player had just bid on was not on the shelf they
         // got back and the screen showed somebody else's leader on it.
         return { blackMarket: projectBlackMarket(app.repos, base, now, GAME_TIMEZONE, cityId) };
+      })();
+    },
+  );
+
+  /*
+   * The Stackhouse (maintainer, 2026-10-05): the book on this crew's and its faction's fights.
+   *
+   * Both handlers close the bets whose fights are over before they answer, the way the shelf closes
+   * its lots, so a receipt is on the very read after the fight lands rather than on the next tick.
+   */
+  app.get(
+    '/black-market/stackhouse',
+    { preHandler: app.authenticate },
+    (request): StackhouseResponse => {
+      const now = new Date();
+      settleStackhouse(app.repos, now);
+      return projectStackhouse(app.repos, ownBase(app, request.currentUser.id), now);
+    },
+  );
+
+  /** One bet, locked in: it cannot be taken back, and the next waits until its fight is over. */
+  app.post(
+    '/black-market/stackhouse/bet',
+    { preHandler: app.authenticate },
+    (request): StackhouseResponse => {
+      requireAreaFor(app.repos, request.currentUser.id, 'market');
+      requireAreaFor(app.repos, request.currentUser.id, 'black_market');
+      const { battleId, side, stake } = parseBody(PlaceStackhouseBetRequestSchema, request.body);
+      const now = new Date();
+      settleStackhouse(app.repos, now);
+      return app.db.transaction(() => {
+        // Settled first, as every route that spends caps is (bug pass, 2026-10-05): caps the
+        // crew's ground made since the last read are in the stockpile before the stake is judged.
+        const base = settledOwnBase(app, request.currentUser.id, now);
+        const result = placeStackhouseBet(app.repos, {
+          base,
+          battleId,
+          side,
+          stake,
+          now,
+          admin: app.config.admin,
+        });
+        if (result.kind === 'refused') {
+          throw new AppError('STACKHOUSE_REFUSED', STACKHOUSE_REFUSAL_TEXT[result.reason]);
+        }
+        app.repos.history.record({
+          actorId: request.currentUser.id,
+          baseId: base.id,
+          kind: 'stackhouse.bet',
+          payload: { battleId, side, stake },
+        });
+        return projectStackhouse(app.repos, ownBase(app, request.currentUser.id), now);
       })();
     },
   );

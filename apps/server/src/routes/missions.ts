@@ -1,5 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import {
+  chairPassiveOf,
+  MISSION_FORCE_REFUSAL_TEXT,
+  NAME_TOO_SMALL_TEXT,
   removeFleet,
   districtsOfCity,
   LEADER_HOLD_MESSAGES,
@@ -26,6 +29,7 @@ import {
   type MissionForceRefusal,
   type MissionRoad,
   type MissionsResponse,
+  HOME_LOCKED_TEXT,
 } from '@frontline/shared';
 import type { FastifyInstance } from 'fastify';
 import { removeForce } from '../battle/forces.js';
@@ -39,19 +43,17 @@ import { standingEffectsFor } from '../crew/standing.js';
 import { cityAsked, citiesFor } from '../city/stakes.js';
 import { officerDuty } from '../crew/duty.js';
 import { settleAndResolveMissions } from '../missions/resolve.js';
-import { takeLevelUp } from '../progression/award.js';
+import { missionXpBonusPercent, takeLevelUp } from '../progression/award.js';
+import type { StoredMission } from '../db/repos/missions.js';
 import { rampFor } from '../missions/pricing.js';
 import { placeLocked } from '../battle/lock.js';
 import { settledOwnBase } from './own-base.js';
 
 /** Why a crew cannot go, in the player's words. */
 const FORCE_ERRORS: Record<MissionForceRefusal, { code: ErrorCode; message: string }> = {
-  no_force: { code: 'NO_FORCE', message: 'Send somebody, or do not send anybody' },
-  not_enough_units: { code: 'NO_FORCE', message: 'You do not have those units at home' },
-  needs_fighters: {
-    code: 'MISSION_REFUSED',
-    message: 'Somebody there has to be able to fight. Porters do not go in alone',
-  },
+  no_force: { code: 'NO_FORCE', message: MISSION_FORCE_REFUSAL_TEXT.no_force },
+  not_enough_units: { code: 'NO_FORCE', message: MISSION_FORCE_REFUSAL_TEXT.not_enough_units },
+  needs_fighters: { code: 'MISSION_REFUSED', message: MISSION_FORCE_REFUSAL_TEXT.needs_fighters },
 };
 
 /** The caller's own base: a player runs missions from their one base or from nowhere. */
@@ -120,19 +122,33 @@ function onTheWire(mission: Mission): Mission {
 }
 
 /**
+ * The history page, with every run still out added to it.
+ *
+ * The page is the newest `MISSION_HISTORY_LIMIT` launches, so a day-long job with two hundred short
+ * ones launched after it is off the page while it is still out, and the screen works out what is
+ * running (the in-flight rows, the recall, "every crew is out") from this list.
+ */
+function historyWithRunning(
+  history: readonly StoredMission[],
+  running: readonly StoredMission[],
+): Mission[] {
+  const shown = new Set(history.map((entry) => entry.mission.id));
+  return [...history, ...running.filter((entry) => !shown.has(entry.mission.id))].map((entry) =>
+    onTheWire(entry.mission),
+  );
+}
+
+/**
  * The crew's own cuts off the road to a job, off the same fold and with the same clamps the launch
  * spends them with, so the send dialog's round trip is the one the run keeps (`MissionRoadSchema`).
  */
 function missionRoad(app: FastifyInstance, base: Base, now: Date): MissionRoad {
-  const { travelSpeedPercent, roadMinutesOff, unitSpeedPercent } = standingEffectsFor(
-    app.repos,
-    base,
-    now,
-  );
+  const effects = standingEffectsFor(app.repos, base, now);
   return {
-    travelSpeedPercent: Math.max(0, travelSpeedPercent),
-    roadMinutesOff: Math.max(0, roadMinutesOff),
-    unitSpeedPercent,
+    travelSpeedPercent: Math.max(0, effects.travelSpeedPercent),
+    roadMinutesOff: Math.max(0, effects.roadMinutesOff),
+    unitSpeedPercent: effects.unitSpeedPercent,
+    baseCutPercent: chairPassiveOf(effects, 'cartographer', 'travel_time'),
   };
 }
 
@@ -174,10 +190,12 @@ export function registerMissionRoutes(app: FastifyInstance): void {
         now,
       }),
       level: settlement.base.level,
-      missions: stored.map((entry) => onTheWire(entry.mission)),
+      missions: historyWithRunning(stored, active),
       justResolved: settlement.resolved.map(onTheWire),
       resources: settlement.base.resources,
       activeLimit: missionSlotsFor(app, settlement.base, now),
+      xpBonusPercent: missionXpBonusPercent(app.repos, settlement.base),
+      homeLocked: placeLocked(app.repos, settlement.base, { kind: 'district' }, now),
       // The card quotes what the launch will freeze. Read from the same fold `POST /missions`
       // reads: a Smuggler's Tunnel shortens the clock and the crew's own fixer widens the cut, and
       // both used to be invisible to the board and frozen onto the run.
@@ -187,10 +205,19 @@ export function registerMissionRoutes(app: FastifyInstance): void {
         active,
         settlement.base,
         now,
-        (({ missionSpeedPercent, missionSpeedPercentByCity, missionSpoilsPercent }) => ({
+        (({
+          missionSpeedPercent,
+          missionSpeedPercentByCity,
+          missionSpoilsPercent,
+          missionCapsPercent,
+          leadLootPercent,
+        }) => ({
           speedPercent: missionSpeedPercent,
           citySpeedPercent: missionSpeedPercentByCity,
           spoilsPercent: missionSpoilsPercent,
+          capsPercent: missionCapsPercent,
+          leadLootPercent,
+          xpBonusPercent: missionXpBonusPercent(app.repos, settlement.base),
           // The opening band, which shortens the first runs and pays the premium that keeps them
           // worth taking (`missions.ramp.ts`).
           ramp: rampFor(app.repos, settlement.base),
@@ -359,15 +386,11 @@ export function registerMissionRoutes(app: FastifyInstance): void {
      *
      * `notorietyToField` says a unit past the crew's rank "will not take the field", and the gate
      * stood on two of the three doors onto a field: the deployment (`battle/deploy.ts`) and the
-     * city (`city/actions.ts`). A rank-0 crew that trained a Colossus was refused at the fight and
+     * city (`city/actions.ts`). A rank-0 crew that mustered a Colossus was refused at the fight and
      * waved through here, with the same unit fighting the same engine on the other side of it.
      */
     if (unitsBeyondNotoriety(force, base.economy.notoriety).length > 0) {
-      throw new AppError(
-        'MISSION_REFUSED',
-        'They will not take a contract from a name that small',
-        levelUp,
-      );
+      throw new AppError('MISSION_REFUSED', NAME_TOO_SMALL_TEXT, levelUp);
     }
 
     /*
@@ -390,11 +413,7 @@ export function registerMissionRoutes(app: FastifyInstance): void {
      * (`battle/lock.ts`, maintainer 2026-09-28): the district army is what that raid meets.
      */
     if (placeLocked(app.repos, base, { kind: 'district' }, now)) {
-      throw new AppError(
-        'MISSION_REFUSED',
-        'A raid lands on your district within the hour. Nobody leaves home now',
-        levelUp,
-      );
+      throw new AppError('MISSION_REFUSED', HOME_LOCKED_TEXT, levelUp);
     }
 
     // §C3: the machines leave the yard with the crew, checked like the force above.
@@ -455,6 +474,7 @@ export function registerMissionRoutes(app: FastifyInstance): void {
         travelSpeedPercent,
         roadMinutesOff,
         anyRide,
+        chairPoints,
       }) => ({
         // The Blockhouse's cut pays on its own city's jobs only (maintainer, 2026-09-30).
         missionSpeedPercent: missionSpeedPercentIn(
@@ -467,6 +487,8 @@ export function registerMissionRoutes(app: FastifyInstance): void {
         // below as `leadSpeedPercent`.
         travelSpeedPercent,
         roadMinutesOff,
+        // The Cartographer's cut off the road's base (maintainer, 2026-10-04).
+        roadBaseCutPercent: chairPassiveOf({ chairPoints }, 'cartographer', 'travel_time'),
         leadSpeedPercent: officer ? leadArrivalPercent : 0,
         missionSpoilsPercent: missionSpoilsPercent + (officer ? leadLootPercent : 0),
         // §C3: the same channel the march reads (`battle/movement.ts`). The Skate Ground says
@@ -482,7 +504,7 @@ export function registerMissionRoutes(app: FastifyInstance): void {
     // defend the district, and a split between these two would let the same people do both.
     app.db.transaction(() => {
       app.repos.missions.insert(stored);
-      app.repos.bases.updateArmy(base.id, removeForce(base.army, force), base.trainingQueue);
+      app.repos.bases.updateArmy(base.id, removeForce(base.army, force), base.musterQueue);
       // The yard empties with the roster, and for the same reason: a machine that is out on a run
       // is not in the yard to be sent to a fight.
       app.repos.bases.updateFleet(base.id, removeFleet(base.fleet, vehicles));
@@ -601,10 +623,12 @@ export function registerMissionRoutes(app: FastifyInstance): void {
         level: settled.level,
         cityId: boardCity(app, settled, askedCity(request)),
         cities: citiesFor(app.repos, settled),
-        missions: all.map((entry) => onTheWire(entry.mission)),
+        missions: historyWithRunning(all, active),
         justResolved: settlement.resolved.map(onTheWire),
         resources: settled.resources,
         activeLimit: missionSlotsFor(app, settled, now),
+        xpBonusPercent: missionXpBonusPercent(app.repos, settled),
+        homeLocked: placeLocked(app.repos, settled, { kind: 'district' }, now),
         // The same fold the read prices from. Without it every card was repainted at bare timings
         // and bare pay until the next poll put the crew's tunnel and fixer back on it.
         // The same city the read draws, off the same `?city=`: a recall repaints the board the
@@ -616,10 +640,19 @@ export function registerMissionRoutes(app: FastifyInstance): void {
           active,
           settled,
           now,
-          (({ missionSpeedPercent, missionSpeedPercentByCity, missionSpoilsPercent }) => ({
+          (({
+            missionSpeedPercent,
+            missionSpeedPercentByCity,
+            missionSpoilsPercent,
+            missionCapsPercent,
+            leadLootPercent,
+          }) => ({
             speedPercent: missionSpeedPercent,
             citySpeedPercent: missionSpeedPercentByCity,
             spoilsPercent: missionSpoilsPercent,
+            capsPercent: missionCapsPercent,
+            leadLootPercent,
+            xpBonusPercent: missionXpBonusPercent(app.repos, settled),
             ramp: rampFor(app.repos, settled),
           }))(standingEffectsFor(app.repos, settled, now)),
         ),

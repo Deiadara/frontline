@@ -7,8 +7,10 @@ import {
   MessageMutationResponseSchema,
   NotificationsResponseSchema,
   NotificationMutationResponseSchema,
+  type AdminResetRequest,
   type AnswerInviteRequest,
   type CreateFactionRequest,
+  type LeaveFactionRequest,
   LeaderboardResponseSchema,
   ClaimAllResponseSchema,
   ClaimFeatResponseSchema,
@@ -20,6 +22,7 @@ import {
   type LeaderboardBoard,
   type EditFactionIdentityRequest,
   type FactionMemberActionRequest,
+  type SeatFactionMemberRequest,
   type InviteToFactionRequest,
   type NotificationSettingsRequest,
   type ReinforceRequest,
@@ -45,7 +48,7 @@ import {
   BaseDetailResponseSchema,
   CityMutationResponseSchema,
   DistrictDetailResponseSchema,
-  TrainUnitsResponseSchema,
+  MusterUnitsResponseSchema,
   UnitsResponseSchema,
   BuildStructureResponseSchema,
   BuildBoostResponseSchema,
@@ -70,6 +73,7 @@ import {
   MarketMutationResponseSchema,
   ReimagineResponseSchema,
   BlackMarketResponseSchema,
+  StackhouseResponseSchema,
   BlackMarketMutationResponseSchema,
   SettingsResponseSchema,
   AdminSnapshotSchema,
@@ -77,13 +81,13 @@ import {
   type UpgradeLocationRequest,
   type PlantSleepersRequest,
   type RecallSleepersRequest,
-  type CancelTrainingRequest,
+  type CancelMusterRequest,
   IncreasePayrollResponseSchema,
   ReleaseOfficerResponseSchema,
   type IncreasePayrollRequest,
   type UpgradeNotorietyRequest,
   type ReleaseOfficerRequest,
-  type TrainUnitsRequest,
+  type MusterUnitsRequest,
   type BuildStructureRequest,
   type RenameDistrictRequest,
   type CreateOverseerRequest,
@@ -106,6 +110,7 @@ import {
   type ClaimMarketRequest,
   type OfferActionRequest,
   type PlaceBlackMarketBidRequest,
+  type PlaceStackhouseBetRequest,
   type TutorialSeenRequest,
   type UpdateProfileRequest,
   type ChangePasswordRequest,
@@ -127,6 +132,8 @@ import {
   type SpyRequest,
   type CancelGateRaiseRequest,
   type CancelDrillRequest,
+  CSRF_HEADER,
+  CSRF_HEADER_VALUE,
 } from '@frontline/shared';
 import { z } from 'zod';
 import { useSession } from '../store/session';
@@ -134,9 +141,6 @@ import { askToWaste } from '../store/wasteConfirm';
 
 /** All endpoints live under this prefix (proxied to the API server in dev). */
 export const API_BASE_URL = '/api';
-
-/** The response header a renewed session token arrives in (`apps/server/src/auth/session.ts`). */
-export const SESSION_HEADER = 'x-session-token';
 
 /** A typed, non-2xx API failure surfaced from the shared error envelope. */
 export class ApiRequestError extends Error {
@@ -189,36 +193,57 @@ async function mindingWaste<T>(send: (acceptWaste: true | undefined) => Promise<
 }
 
 /**
- * Typed fetch wrapper. Attaches auth + JSON headers, validates every 2xx body
- * with `schema`, and turns non-2xx responses into a typed `ApiRequestError`
- * (clearing the session on `401`).
+ * What every request carries besides its body.
+ *
+ * The session rides an httpOnly cookie the page never sees (`apps/server/src/auth/session.ts`), so
+ * there is no credential to attach. `CSRF_HEADER` is what lets a write through with that cookie:
+ * the server refuses one without it, because another site's form cannot set a header. Exported for
+ * the live channel, which reads with `fetch` rather than through `apiFetch`.
+ */
+export function apiHeaders(init?: HeadersInit): Headers {
+  const headers = new Headers(init);
+  headers.set('Content-Type', 'application/json');
+  headers.set(CSRF_HEADER, CSRF_HEADER_VALUE);
+  return headers;
+}
+
+/**
+ * Cookies go to this origin and no other. The API is same-origin everywhere the game runs (the Vite
+ * proxy in development, Caddy in production), so `same-origin`, fetch's own default, is spelled out
+ * to say that the cookie is the credential. `include` would only differ for another origin, and
+ * that is exactly where the session must not go.
+ */
+export const API_CREDENTIALS: RequestCredentials = 'same-origin';
+
+/**
+ * Typed fetch wrapper. Attaches the JSON and CSRF headers, validates every 2xx body with `schema`,
+ * and turns non-2xx responses into a typed `ApiRequestError` (clearing the session on `401`).
  */
 export async function apiFetch<Schema extends z.ZodType>(
   path: string,
   schema: Schema,
   init?: RequestInit,
 ): Promise<z.infer<Schema>> {
-  const { token } = useSession.getState();
-  const headers = new Headers(init?.headers);
-  headers.set('Content-Type', 'application/json');
-  if (token) headers.set('Authorization', `Bearer ${token}`);
-
-  const res = await fetch(`${API_BASE_URL}${path}`, { ...init, headers });
-
-  /*
-   * A login lasts thirty days and is renewed while the player plays: any answer may carry a fresh
-   * token, and a password change or "log out everywhere" hands this tab its only surviving one.
-   *
-   * Both halves apply only while the token this request was sent with is still the tab's token. A
-   * poll that left before "log out everywhere" comes back 401 after the tab has already been handed
-   * its new token; acting on it signed out the one session that was meant to survive.
-   */
-  const current = () => useSession.getState().token === token;
-  const renewed = res.headers.get(SESSION_HEADER);
-  if (renewed && current()) useSession.getState().setToken(renewed);
+  const { epoch } = useSession.getState();
+  const res = await fetch(`${API_BASE_URL}${path}`, {
+    ...init,
+    headers: apiHeaders(init?.headers),
+    credentials: API_CREDENTIALS,
+  });
 
   if (!res.ok) {
-    if (res.status === 401 && current()) useSession.getState().logout();
+    /*
+     * A login lasts thirty days and is renewed while the player plays, as a fresh cookie on any
+     * answer. A password change or "log out everywhere" hands this tab its only surviving session
+     * the same way, and ends every other one.
+     *
+     * So a 401 signs the tab out only if no rotation has happened since this request left. A poll
+     * that left before "log out everywhere" comes back 401 after the tab has already been handed
+     * its new cookie; acting on it signed out the one session that was meant to survive.
+     */
+    if (res.status === 401 && useSession.getState().epoch === epoch) {
+      useSession.getState().logout();
+    }
     const parsed = ApiErrorSchema.safeParse(await res.json().catch(() => null));
     const { code, message } = parsed.success
       ? parsed.data.error
@@ -262,6 +287,32 @@ export const register = (body: RegisterRequest) =>
 
 export const login = (body: LoginRequest) =>
   apiFetch('/auth/login', AuthResponseSchema, jsonBody(body));
+
+const OkSchema = z.object({ ok: z.literal(true) });
+
+/**
+ * Signs this browser out. The server drops the cookie, since the page cannot touch an httpOnly
+ * one; the page forgets the session whether or not that answer arrives, so a player pressing Log
+ * out is never left looking at the game.
+ */
+export async function signOut(): Promise<void> {
+  try {
+    await apiFetch('/auth/logout', OkSchema, jsonBody({}));
+  } finally {
+    useSession.getState().logout();
+  }
+}
+
+/**
+ * A call the server answers with a new session for this tab, ending every other one. Marked once it
+ * lands, so the 401s that requests still in flight on the old session bring back are not taken for
+ * this tab's own (see `apiFetch`).
+ */
+async function rotatingSession<T>(send: () => Promise<T>): Promise<T> {
+  const answer = await send();
+  useSession.getState().rotated();
+  return answer;
+}
 
 export const getMe = () => apiFetch('/me', MeResponseSchema);
 
@@ -389,12 +440,12 @@ export const increasePayroll = (body: IncreasePayrollRequest) =>
 
 export const getUnits = () => apiFetch('/units', UnitsResponseSchema);
 
-export const trainUnits = (body: TrainUnitsRequest) =>
-  apiFetch('/units/train', TrainUnitsResponseSchema, jsonBody(body));
+export const musterUnits = (body: MusterUnitsRequest) =>
+  apiFetch('/units/muster', MusterUnitsResponseSchema, jsonBody(body));
 
-export const cancelTraining = (body: CancelTrainingRequest) =>
+export const cancelMuster = (body: CancelMusterRequest) =>
   mindingWaste((acceptWaste) =>
-    apiFetch('/units/cancel', TrainUnitsResponseSchema, jsonBody({ ...body, acceptWaste })),
+    apiFetch('/units/cancel', MusterUnitsResponseSchema, jsonBody({ ...body, acceptWaste })),
   );
 
 export const getMissions = (city?: string) =>
@@ -511,6 +562,12 @@ export const getBlackMarket = (city?: string) =>
 export const placeBlackMarketBid = (body: PlaceBlackMarketBidRequest) =>
   apiFetch('/black-market/bid', BlackMarketMutationResponseSchema, jsonBody(body));
 
+/** The Stackhouse's book: the fights this crew may bet on, and its one bet riding. */
+export const getStackhouse = () => apiFetch('/black-market/stackhouse', StackhouseResponseSchema);
+
+export const placeStackhouseBet = (body: PlaceStackhouseBetRequest) =>
+  apiFetch('/black-market/stackhouse/bet', StackhouseResponseSchema, jsonBody(body));
+
 export const getSettings = () => apiFetch('/settings', SettingsResponseSchema);
 
 export const updateProfile = (body: UpdateProfileRequest) =>
@@ -520,11 +577,11 @@ export const updateProfile = (body: UpdateProfileRequest) =>
   });
 
 export const changePassword = (body: ChangePasswordRequest) =>
-  apiFetch('/settings/password', SettingsResponseSchema, jsonBody(body));
+  rotatingSession(() => apiFetch('/settings/password', SettingsResponseSchema, jsonBody(body)));
 
-/** Ends every session this account has open except this tab's, which is handed a new token. */
+/** Ends every session this account has open except this tab's, which is handed a new cookie. */
 export const logoutEverywhere = () =>
-  apiFetch('/auth/logout-all', z.object({ ok: z.literal(true) }), jsonBody({}));
+  rotatingSession(() => apiFetch('/auth/logout-all', OkSchema, jsonBody({})));
 
 /** Records opening tutorial cards as shown. Skip is this call carrying every step. */
 export const markTutorialSeen = (body: TutorialSeenRequest) =>
@@ -547,7 +604,13 @@ export const grantAdmin = (body: AdminGrantRequest) =>
   apiFetch('/admin/grant', AdminMutationResponseSchema, jsonBody(body));
 
 /** §Console: this crew back to its first second, character included. */
-export const resetAdmin = () => apiFetch('/admin/reset', AdminMutationResponseSchema, jsonBody({}));
+/** Clean slate. `successorId` is who leads the old life's faction after it (`canNameSuccessor`). */
+export const resetAdmin = (successorId?: string) =>
+  apiFetch(
+    '/admin/reset',
+    AdminMutationResponseSchema,
+    jsonBody({ successorId } satisfies AdminResetRequest),
+  );
 
 /** The console's mock: somebody else in the city calls a fight on the reviewer's ground. */
 export const mockBattleOnMe = () =>
@@ -587,8 +650,13 @@ export const inviteToFaction = (body: InviteToFactionRequest) =>
 export const answerFactionInvite = (body: AnswerInviteRequest) =>
   apiFetch('/factions/answer', FactionMutationResponseSchema, jsonBody(body));
 
-export const leaveFaction = () =>
-  apiFetch('/factions/leave', FactionMutationResponseSchema, jsonBody({}));
+/** Walking out. A leader may name `successorId` to lead after them; without one it disbands. */
+export const leaveFaction = (successorId?: string) =>
+  apiFetch(
+    '/factions/leave',
+    FactionMutationResponseSchema,
+    jsonBody({ successorId } satisfies LeaveFactionRequest),
+  );
 
 /**
  * The standings (§J9). A GET with the board and the scope in the query string, because it is a
@@ -630,6 +698,9 @@ export const disbandFaction = () =>
 export const factionMemberAction = (body: FactionMemberActionRequest) =>
   apiFetch('/factions/member', FactionMutationResponseSchema, jsonBody(body));
 
+export const seatFactionMember = (body: SeatFactionMemberRequest) =>
+  apiFetch('/factions/seat', FactionMutationResponseSchema, jsonBody(body));
+
 export const reinforceAlly = (body: ReinforceRequest) =>
   apiFetch('/factions/reinforce', FactionMutationResponseSchema, jsonBody(body));
 
@@ -646,6 +717,10 @@ export const readAllMessages = () =>
 
 export const deleteMessage = (body: { id: string }) =>
   apiFetch('/messages/delete', MessageMutationResponseSchema, jsonBody(body));
+
+/** Stop, or start again, taking letters from one player (maintainer, 2026-10-02). */
+export const blockSender = (body: { userId: string; blocked: boolean }) =>
+  apiFetch('/messages/block', MessageMutationResponseSchema, jsonBody(body));
 
 export const getNotifications = () => apiFetch('/notifications', NotificationsResponseSchema);
 

@@ -16,13 +16,13 @@ Conventions used below:
 
 ## A. World, tone and art direction
 
-- **A1a [SPEC]** **Unit slots are one pool.** The army, the training bench, the officers and the
+- **A1a [SPEC]** **Unit slots are one pool.** The army, the muster bench, the officers and the
   machines in the Garage all draw on the district's unit slots: a unit costs the slots on its own
   sheet (`UnitSpec.unitSlots`), an officer or a machine costs one slot each (maintainer,
   2026-09-15). The same figure is what a unit costs a vehicle's seats, so a sheet at three slots
-  takes three of a truck's thirty. Training, a Garage order and **a feat that pays units** are all
+  takes three of a truck's thirty. Mustering, a Garage order and **a feat that pays units** are all
   refused when the slots run out; a refused feat stays ready and loses nothing. Signing an officer
-  is not refused, so a full district can still hire and simply cannot train until it makes room. A district that is finished and holding ground has **about
+  is not refused, so a full district can still hire and simply cannot muster until it makes room. A district that is finished and holding ground has **about
   2,000**, up from 345.
   - **A1b [PROVISIONAL]** The Quarters' contribution is triangular (`HOUSING_PER_QUARTERS_LEVEL * L(L+1)/2`)
     rather than flat, so the ceiling reaches the maintainer's figure without a level-1 Quarters starting
@@ -46,7 +46,7 @@ Conventions used below:
     role-affinity template to lift 3-5 attributes toward ~30 and push 1-3 down toward ~10. **No attribute
     exceeds 40 at recruitment**: the 40-100 band is what progression is for. Exact distribution is the
     engineer's call as long as a large sample reproduces the maintainer's three numbers.
-- **B3 [SPEC]** **Many** distinct attributes: enough that all 19 roles in §C have something that is
+- **B3 [SPEC]** **Many** distinct attributes: enough that all 13 roles in §C have something that is
   genuinely theirs.
 - **B4 [SPEC]** Attributes are grouped into **Football-Manager-style categories**: Physical Attributes,
   Mental Attributes, Skills, Traits, etc.
@@ -68,21 +68,67 @@ Conventions used below:
 
 ## C. Roles (officer positions)
 
-- **C1 [SPEC]** The 19 fillable positions:
-  Master of Whispers · Lead Engineer · Head of Finance · Head of Growth · Field Commander · Head of Research ·
-  Wetware Chief · Fabricator · Salvager · Right Hand · Cartographer · Trader · Head of Security ·
-  Chief Medic · Instructor of the Young · Raid Boss · Consigliere · Professor.
+- **C1 [SPEC]** The 13 fillable positions:
+  Master of Whispers · Engineer · Fixer · Steward · Field Commander · Researcher · Salvager ·
+  Right Hand · Cartographer · Trader · Veteran · Raid Boss · Professor. (The Consigliere was
+  removed on 2026-10-01; the Wetware Chief, the Fabricator, the Chief Medic and the Instructor of
+  the Young on 2026-10-04, when the Lead Engineer, Head of Finance, Head of Growth, Head of Research
+  and Head of Security became the Engineer, Fixer, Steward, Researcher and Veteran.)
 - **C2 [SPEC]** Humans are generic; **roles are what you hire them into**. The same character could be
   slotted anywhere: well or badly.
+- **C2c [BOARD, 2026-09-30; 2026-10-04]** A chair tags one skill **irreplaceable**, two
+  **essential** and four **useful**, and each tag has a tier: 75, 50 and 25. The seat's points
+  (`seatPoints`, what the mark, the chair's research gates and the chair's passive all read) count a
+  point short of its tier at 2.5 times a point past it, so for any fixed budget the best sheet
+  brings every tag up to its tier before piling onto one. Untagged skills still count, at a small
+  flat rate. Jobs keep their own reading of their leanings. The Overseer has a seat of their own for
+  this (`ROLE_IMPORTANCE.overseer`) and a grade read off it, though they sit in no chair.
+- **C2d [BOARD, 2026-10-04]** **No best of the room.** An officer gives the crew only their chair's
+  one passive (and their perks), sized by the seat's points on a straight line from nothing at the
+  F- floor to the whole cap at a perfect sheet (`crew/passives.ts`):
+  Researcher, research up to 50% faster (with the gating of every other chair's research);
+  Fixer, payroll +50%; Steward, base unit slots +50% (the Quarters and the ground's flat slots,
+  never a card's percentage nor the flat slots research and perks add, maintainer 2026-10-05); Field Commander, infamy from fights against other crews +100%;
+  Raid Boss, his own damage and vitality up to five times, in every fight; Salvager, the scrap and
+  HQ metal of every Scrapyard bill up to half off; Cartographer, every road's base up to half,
+  before speed bonuses (roads only: the gate leg of a move is not shortened, 2026-10-05); Trader, the broker and the supply run even at C+ and 25% in the crew's
+  favour at S+ (a profit past C+ only on sales for caps, bounded by the run's daily ration);
+  Veteran, the cost of mustering units up to half off; Engineer, building and upgrading structures
+  and locations up to half off; Professor, experience from missions +50%. The Master of Whispers
+  spies at their grade and the Right Hand lifts the room, as before. No officer cuts a programme's
+  price; the Lab does. Skills no longer feed any crew channel, except Signals and Cryptography,
+  which every person in the room, the Overseer included, still gives against spies.
+- **C2f [BOARD, 2026-10-05]** **A new chair settles in.** An officer moved into a chair gives
+  nothing from it for six hours (`CHAIR_SETTLE_HOURS`): no passive, no Right Hand lift, no Master of
+  Whispers grade in a spy contest. Their perks, their fighting and the doors their grade opens are on
+  at once. Every move restarts the clock, a hop from one chair to the next included; an officer
+  seated before the rule existed counts as settled. The officer's file counts down to it.
+- **C2e [BOARD, 2026-10-04]** **The Overseer's passive** is their grade on every seated officer:
+  one point per grade step (F- one, S+ twenty one), dealt in turn to the officer's irreplaceable
+  skill, then one essential, then the other (`overseerLift`). The Overseer is always on the crew
+  screen, first, and cannot be benched or let go.
 - **C3 [PROVISIONAL]** One officer per role slot; a role is either filled or empty. Duplicate officers in the same
   role are not supported in this pass.
 - **C4** The Professor runs _reskilling_ (§G4). The librarian-ish research task in §B9 is a
-  Professor/Head-of-Research activity.
+  Professor/Researcher activity.
 
 ## D. Economy: resources and meters
 
-- **D1 [SPEC]** **Supplies**: core stores. Spent on training units and on raising the Quarters.
+- **D1 [SPEC]** **Supplies**: core stores. Spent on mustering units and on raising the Quarters.
 - **D2 [SPEC]** **Caps**: the currency (Fallout-style). Officer **wages** are paid in caps (§H7).
+  - **D2a [BOARD, 2026-10-05]** **The Stackhouse**, the right half of the Black Market, takes bets in
+    caps on declared fights the crew or anybody at its faction's table is in, called by them or on
+    them, except a fight the crew called itself, on either side (maintainer, 2026-10-05: a crew
+    could call a fight it meant to lose and back the defender). A faction mate's calls stay open. Pick a winner, stake 1 to 5,000 caps; a win pays twice the stake, a loss keeps it. Either
+    side may be backed. One bet rides at a time and cannot be taken back; the next waits until that
+    fight is over. Betting on a fight closes an hour before it starts. Bets are private: nobody
+    else sees them or moves them. A fight that never runs hands the stake back, and that includes
+    one called off at the lock because the attacking side, allies included, had fewer than 20 unit
+    slots committed (its units walk home whole, and the infamy paid to call it stays spent). A crew
+    that calls a fight and loses it cannot call the same place again for 24 hours from that
+    fight's mark; anybody else can. The door is the
+    Fixer's third rung, Put Your Money Where Your Mouth Is (it replaced Wage Bands), on top of the
+    Black Market's own.
 - **D3 [SPEC]** **Oil**: consumed by upgrading and building inside the hideout.
 - **D4 [SPEC]** **Morale**: a meter.
 - **D5 [SPEC]** **Scrap**: a resource.
@@ -111,7 +157,8 @@ Conventions used below:
 - **E4 [SPEC]** When choosing a mission you see **how long the travel is** and **how long the mission
   itself takes**, before committing.
 - **E5 [SPEC]** Rewards **scale with time**. Battles pay more than standard missions **but risk your
-  people**.
+  people**: a fight premium over a plain job of the same grade, **+10% at F-** rising to **+200% at
+  S** and about **+250% at S+** (maintainer, 2026-09-30; `fightPremiumPercent`).
 - **E6 [SPEC]** Travel time by distance band: **close ≈ 5 min**, **further ≈ 20 min**, **furthest ≈ 1
   hour**.
 - **E7 [SPEC]** Mission duration itself ranges from **2-3 minutes up to a day**.
@@ -177,7 +224,7 @@ Conventions used below:
   - **H4b [SPEC]** **Perks** (§B7): a book of a hundred-odd discrete bonuses to the _crew's_ numbers,
     not the carrier's own: `+6% build speed`, `+3 armour on Heavy units`, `-5% to widen the payroll`.
     Each officer rolls **nought to three**, weighted so three is rare. They **sum** across the roster,
-    which is what makes filling all nineteen chairs worth the wage bill.
+    which is what makes filling all thirteen chairs worth the wage bill.
   - **H4c [PROVISIONAL]** ~~How hard somebody is to haggle with is read off the sheet the player can already
     see: **Composure** is their patience and **Negotiation** is how little ground they give.~~
     **Superseded by H7a**: nobody haggles at the Bar. What is left of the idea is the part that was
@@ -186,8 +233,15 @@ Conventions used below:
     read every other attribute.
 - **H7 [SPEC]** ~~Recruitment involves **negotiating a salary** if the character is interested.~~
   **Superseded by H7a**: there is no negotiation. A salary is still what recruitment is about, still in
-  **caps**, and still quoted per week. Nothing is paid weekly: signing commits the fee against the
-  payroll book (§H7a, W2's `economy/payroll.ts`) and only a dismissal moves caps.
+  **caps**. Nothing is paid on a clock: signing commits the fee against the payroll book (§H7a, W2's
+  `economy/payroll.ts`) and only a dismissal moves caps. Payroll and wages are shown as plain caps,
+  never per week (maintainer, 2026-10-01).
+- **H7b [BOARD, 2026-09-30; repriced 2026-10-01]** The book is widened by **expansions**, always for
+  sale: a flat 30 caps of capacity each, added after the payroll cards, priced in **caps** at 300 for
+  the first, 360 for the second, 420 for the third and sixty more for every one after, with no
+  ceiling. The Nexus and the Quarters still grow the book on their own, and each has two payroll
+  cards. Sold from one window, opened by `Increase Payroll` at the Bar (beside Payroll left) and at
+  the Nexus. The Crew screen shows the book and sells nothing.
 - **H7a [BOARD, 2026-09-07]** The Bar is a **city-wide daily auction**, not a private haggle.
   - The same eight people, for everybody, all day. **Nobody is replaced when they are won**: the room
     is what it is until it rotates whole at **midnight Athens**, the clock every other daily reset uses.
@@ -205,7 +259,12 @@ Conventions used below:
   - Every gate a hire ever had is checked again at the close: the §H3 doors, a free chair (§H8), a fee
     the payroll book can hold. A winner who cannot take them passes to the next final, and a table
     nobody can take goes unsold.
-- **H8 [SPEC]** You can hold **2 recruits at the start**, **+1 per level**.
+- **H8 [SPEC]** Officer slots (maintainer, 2026-09-30): **none before the Bar opens**, the **first
+  with the Bar** (level 5) and **another every 2 levels** after (7, 9, 11 ...), up to **one per
+  chair** (17, at level 37). The level is the only source: research pays no officer slots
+  (maintainer, 2026-10-01).
+  A crew over its slots (a save from before the ladder) keeps everyone and hires nobody until it
+  is back under.
 
 ## J. Factions [SPEC]
 

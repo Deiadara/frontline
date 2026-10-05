@@ -112,7 +112,9 @@ export function BoostStash({ stash, inventory }: { stash: Stash; inventory: Inve
   });
 
   const all = [...boosts, ...traps];
-  const total = all.reduce((sum, one) => sum + one.count, 0);
+  // This shelf's boosts alone: the traps have their own count below, and the tab's badge counts the
+  // boosts. It summed both, so one screen read 3, 5 and 2 (bug pass, 2026-10-02).
+  const total = boosts.reduce((sum, one) => sum + one.count, 0);
   const opened = all.find((one) => one.id === open);
 
   return (
@@ -277,7 +279,13 @@ function StashCard({ held, onClose }: { held: Held; onClose: () => void }) {
           {/* The plate the mark stands on: the same drawn frame the district's structures wear, so
               an item reads as a thing in the world rather than as a row in a table. */}
           <span className="ink-frame card-paper flex h-[76px] w-[76px] shrink-0 items-center justify-center rounded-sm">
-            <StashGlyph id={held.id} className="h-16 w-16 text-tangerine-300" />
+            {/* The mark the slot draws, so a trap opens on its own mark rather than the boosts'
+                fallback circle (bug pass, 2026-10-02). */}
+            {held.shelf === 'Trap' ? (
+              <YardGlyph mark={{ kind: 'trap', id: held.id }} className="h-16 w-16" />
+            ) : (
+              <StashGlyph id={held.id} className="h-16 w-16 text-tangerine-300" />
+            )}
           </span>
 
           <div className="flex min-w-0 flex-1 flex-col gap-1.5">

@@ -77,7 +77,7 @@ describe('the console wipes a crew', () => {
      * Play first. This is the whole point of the test.
      *
      * The End game preset is the heaviest thing the console can do to a crew: it maxes every
-     * structure, finishes all eighteen programmes, fills the inventory with every document and part,
+     * structure, finishes all thirteen programmes, fills the inventory with every document and part,
      * cuts ten of every trap and puts five of every boost on the shelf. A reset that works on a
      * fresh account and falls over on this one is a reset nobody can use.
      */
@@ -108,8 +108,8 @@ describe('the console wipes a crew', () => {
     }>().base;
     expect(played.level, 'the crew has played').toBe(30);
     expect(Object.keys(played.inventory).length).toBeGreaterThan(20);
-    // Eighteen chairs, ten rungs each, since the Scout's chair went on 2026-09-22.
-    expect(played.research.technologies.length).toBe(180);
+    // Thirteen chairs, ten rungs each, since the chair rework (2026-10-04).
+    expect(played.research.technologies.length).toBe(130);
 
     /*
      * The ground, counted in the table rather than off `/api/city`.
@@ -143,11 +143,11 @@ describe('the console wipes a crew', () => {
      * The three things keyed on the id that no cascade reaches, because the row is never deleted.
      *
      * Feats: a lifetime counter and a collected rung. Without the wipe the fresh crew opened its
-     * feats screen on "units trained: 5" and a rung it could not collect twice. The market: a
+     * feats screen on "units mustered: 5" and a rung it could not collect twice. The market: a
      * standing listing whose escrow, on the ordinary close, would have been credited to the fresh
      * stockpile two days later.
      */
-    app.repos.feats.bump(baseId, 'units_trained', 5);
+    app.repos.feats.bump(baseId, 'units_mustered', 5);
     expect(app.repos.feats.claim(baseId, 'first_blood', new Date().toISOString())).toBe(true);
     const played2 = app.repos.bases.findById(baseId)!;
     const listed = postOffer(
@@ -483,6 +483,8 @@ describe('the console wipes a crew', () => {
         returnsAt: new Date(now.getTime() + 60_000).toISOString(),
         travelMinutes: 1,
         recalledAt: null,
+        chairPoints: null,
+        intelPercent: null,
       });
       expect(app.repos.missions.listActiveByBaseId(baseId)).toHaveLength(1);
       expect(app.repos.spying.activeFor(baseId)).toHaveLength(1);
@@ -574,6 +576,43 @@ describe('the console wipes a crew', () => {
       expect(app.repos.factions.all().map((faction) => faction.id)).not.toContain(factionId);
       const told = app.repos.social.notifications(member.userId, 20).map((note) => note.title);
       expect(told).toContain('reviewer disbanded the faction');
+    });
+
+    /** Maintainer, 2026-09-30: Clean slate takes the same successor the Leave door does. */
+    it('a leader who names a successor leaves the faction standing under them', async () => {
+      const { app, token } = await console_();
+      const member = await another(app, 'follower');
+      const me = app.repos.users.findByUsername('reviewer')!;
+      const factionId = 'the-handed-table';
+      const at = new Date().toISOString();
+      app.repos.factions.insert({
+        id: factionId,
+        name: 'The Handed Table',
+        badge: randomBadge(7),
+        blurb: '',
+        foundedAt: at,
+      });
+      app.repos.factions.addMember({ userId: me.id, factionId, rank: 'leader', joinedAt: at });
+      app.repos.factions.addMember({
+        userId: member.userId,
+        factionId,
+        rank: 'member',
+        joinedAt: at,
+      });
+
+      const wiped = await app.inject({
+        method: 'POST',
+        url: '/api/admin/reset',
+        headers: auth(token),
+        payload: { successorId: member.userId },
+      });
+      expect(wiped.statusCode, wiped.body.slice(0, 200)).toBe(200);
+
+      expect(app.repos.factions.membershipOf(me.id)).toBeUndefined();
+      expect(app.repos.factions.membershipOf(member.userId)?.rank).toBe('leader');
+      const told = app.repos.social.notifications(member.userId, 20).map((note) => note.title);
+      expect(told).toContain('You lead the faction now');
+      expect(told).not.toContain('reviewer disbanded the faction');
     });
 
     it('its people leave a fight it joined as an ally, and the fight goes on without them', async () => {

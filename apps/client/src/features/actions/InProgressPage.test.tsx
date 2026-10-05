@@ -16,6 +16,8 @@ const useMe = vi.hoisted(() => vi.fn());
 const useResearch = vi.hoisted(() => vi.fn());
 const useTraining = vi.hoisted(() => vi.fn());
 const useMissions = vi.hoisted(() => vi.fn());
+const useCity = vi.hoisted(() => vi.fn(() => ({ data: { districts: [] as unknown[] } })));
+const useWorksUnderWay = vi.hoisted(() => vi.fn(() => 0));
 const idle = () => ({ mutate: vi.fn(), isPending: false, error: null });
 vi.mock('../../lib/queries', () => ({
   useMe,
@@ -23,10 +25,11 @@ vi.mock('../../lib/queries', () => ({
   useTraining,
   useMissions,
   useCrew: () => ({ data: { officers: [] } }),
-  useCity: () => ({ data: { districts: [] } }),
+  useCity,
+  useWorksUnderWay,
   useDistrict: () => ({ data: undefined }),
   useCancelBuild: idle,
-  useCancelTraining: idle,
+  useCancelMuster: idle,
   useCancelResearch: idle,
   useCancelDrill: idle,
   useCancelLocationUpgrade: idle,
@@ -67,12 +70,31 @@ describe('the In progress page', () => {
     useMe.mockReturnValue({
       data: {
         ...F.me,
-        base: { ...F.me.base, buildQueue: [], trainingQueue: [], training: F.me.base?.training },
+        base: { ...F.me.base, buildQueue: [], musterQueue: [], training: F.me.base?.training },
       },
     });
     draw();
     expect(screen.getByText('Nothing is running')).toBeVisible();
     expect(screen.queryByTestId('progress-builds')).toBeNull();
+  });
+
+  // Bug pass, 2026-10-02: holding ground with nothing worked up left the page empty, no card on it.
+  it('says nothing is running for a crew that holds ground and is working none of it up', () => {
+    useMe.mockReturnValue({
+      data: {
+        ...F.me,
+        base: { ...F.me.base, buildQueue: [], musterQueue: [], training: F.me.base?.training },
+      },
+    });
+    useCity.mockReturnValue({
+      data: {
+        districts: [{ district: { id: 'steelbelt', name: 'The Rustyard' }, held: { mine: 1 } }],
+      },
+    });
+    useWorksUnderWay.mockReturnValue(0);
+    draw();
+    expect(screen.getByText('Nothing is running')).toBeVisible();
+    useCity.mockImplementation(() => ({ data: { districts: [] } }));
   });
 
   it('lists a build with a live countdown, and the X only inside its first tenth', () => {
@@ -83,7 +105,14 @@ describe('the In progress page', () => {
         ...F.me,
         base: {
           ...base,
-          trainingQueue: [],
+          // What the queue below builds on, so cancelling either order leaves the other standing:
+          // the cancel mark is shut on an order something behind it is built on.
+          buildings: [
+            { id: 'b-nexus', kind: 'nexus', level: 10, modifications: [] },
+            { id: 'b-quarters', kind: 'quarters', level: 3, modifications: [] },
+            { id: 'b-greenhouse', kind: 'greenhouse', level: 1, modifications: [] },
+          ],
+          musterQueue: [],
           buildQueue: [
             {
               id: 'young',
@@ -123,9 +152,9 @@ describe('the In progress page', () => {
         base: {
           ...base,
           buildQueue: [],
-          trainingQueue: [
+          musterQueue: [
             {
-              ...base.trainingQueue[0]!,
+              ...base.musterQueue[0]!,
               id: 'batch',
               delivered: 2,
               startedAt: new Date(REAL_NOW - 60_000).toISOString(),
@@ -135,7 +164,7 @@ describe('the In progress page', () => {
       },
     });
     draw();
-    const row = screen.getByTestId('progress-training-batch');
+    const row = screen.getByTestId('progress-muster-batch');
     expect(row).toHaveTextContent('6 × Razors');
     expect(row).toHaveTextContent('2 of 6 out');
   });

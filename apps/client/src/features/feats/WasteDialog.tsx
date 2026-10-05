@@ -17,7 +17,7 @@ import { RewardTally } from './RewardTally';
  * own tokens, so what is lost is recognisably the same objects as what the rung promised.
  *
  * The figure comes off the server's quote on the feats read and is never computed here. The
- * ceilings are the district's structures and the crew's Logistics folded together, and a screen
+ * ceilings are the district's structures and the crew's storage bonus folded together, and a screen
  * that guessed would be naming a number the till does not agree with.
  */
 export function WasteDialog({

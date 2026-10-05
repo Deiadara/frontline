@@ -12,7 +12,8 @@ import {
   dealGrade,
   enemyStrength,
   fightCategory,
-  fightLift,
+  fightPayFactor,
+  fightPremiumPercent,
   gradePay,
   gradeOdds,
   gradedChance,
@@ -43,11 +44,36 @@ describe('the grade ladder', () => {
       const [low, high] = [GRADES[index - 1]!, GRADES[index]!];
       expect(enemyStrength(high), high).toBeGreaterThan(enemyStrength(low));
       expect(gradePay(high), high).toBeGreaterThan(gradePay(low));
-      expect(fightLift(high), high).toBeGreaterThanOrEqual(fightLift(low));
+      expect(fightPremiumPercent(high), high).toBeGreaterThan(fightPremiumPercent(low));
       expect(GRADE_PAY_LEVEL[high], high).toBeGreaterThan(GRADE_PAY_LEVEL[low]);
       expect(gradePeakLevel(high), high).toBeGreaterThan(gradePeakLevel(low));
     }
     expect(GRADE_ENEMY_STRENGTH['F-']).toBe(1_600);
+  });
+
+  /*
+   * The maintainer's ruling (2026-09-30), as numbers typed out here rather than read back off the
+   * curve: 10% extra at F-, 200% at S, and S+ about 250%. The middle is pinned loosely so a retune
+   * of the growth is a deliberate edit of this test rather than a silent drift.
+   */
+  it('pays a fight 10% over plain work at F-, 200% at S and about 250% at S+', () => {
+    expect(fightPremiumPercent('F-')).toBeCloseTo(10, 6);
+    expect(fightPremiumPercent('S')).toBeCloseTo(200, 6);
+    expect(fightPremiumPercent('S+')).toBeGreaterThanOrEqual(248);
+    expect(fightPremiumPercent('S+')).toBeLessThanOrEqual(252);
+    expect(fightPremiumPercent('C')).toBeGreaterThan(25);
+    expect(fightPremiumPercent('C')).toBeLessThan(40);
+    expect(fightPayFactor('F-')).toBeCloseTo(1.1, 6);
+    expect(fightPayFactor('S')).toBeCloseTo(3, 6);
+  });
+
+  it('climbs the fight premium harder the higher the grade, across all twenty one', () => {
+    expect(GRADES).toHaveLength(21);
+    for (let index = 2; index < GRADES.length; index += 1) {
+      const step = (at: number) =>
+        fightPremiumPercent(GRADES[at]!) - fightPremiumPercent(GRADES[at - 1]!);
+      expect(step(index), GRADES[index]).toBeGreaterThan(step(index - 1));
+    }
   });
 
   it('keeps a job longer on site for every mark above its lowest, never past the ceiling', () => {

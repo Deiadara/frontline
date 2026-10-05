@@ -1,3 +1,7 @@
+import { CHAIR_PASSIVE_CAP } from '../crew/passives.js';
+import { softCap } from '../battle/soft-cap.js';
+import { travelSpeedCut } from '../economy/soft-bounds.js';
+
 /**
  * Speed, and what a speed is worth on a clock.
  *
@@ -14,18 +18,15 @@
  * than divides, so twenty minutes at speed 100 is ten, and another ten percent off that is nine.
  * Reductions stack on top of the speed and never replace it.
  *
- * Other channels (research, building, training, the mission's job leg) are still divisors, which
+ * Other channels (research, building, mustering, the mission's job leg) are still divisors, which
  * is why {@link timeSavingPercent} exists: a card that prints the raw percentage of a divisor
  * channel is lying, and the card and the clock have to agree.
  *
- * The caps live here rather than beside the arithmetic that spends them, because the card and the
- * clock both read them and `units/training.ts` imports `city/locations.ts`. A leaf module both can
+ * The caps and the muster taper live here rather than beside the arithmetic that spends them,
+ * because the card and the clock both read them and `units/muster.ts` imports `city/locations.ts`. A leaf module both can
  * read is the only way round that without a cycle; their original homes re-export them, so nothing
  * outside this file had to move.
  */
-
-/** A mission that lands the moment it is launched is a mission with no decision in it. */
-export const MAX_MISSION_SPEED_BONUS = 50;
 
 /**
  * The ceiling on a speed, for a unit and for a machine alike.
@@ -36,16 +37,24 @@ export const MAX_MISSION_SPEED_BONUS = 50;
 export const MAX_SPEED = 100;
 
 /**
- * The most the ground and the crew may take off a road, as a percentage of what is left.
+ * What the muster bench makes of its summed speed: in full up to the knee, then less for every
+ * point after, closing on the ceiling and never reaching it.
  *
- * A separate ceiling from {@link MAX_SPEED} because it is a separate quantity: speed decides the
- * pace, and this decides how much of the resulting clock a crew's holdings can buy away. At 60 the
- * best-supplied crew in the game still spends four tenths of every road it walks.
+ * It was a hard 60 until 2026-10-01 (`MAX_TRAINING_SPEED_BONUS`). A Gauntlet at 20 is 40 points on
+ * its own, so a crew with 20 more from its people sat on the stop, and every muster-time card
+ * and the Automation set paid nothing while the yard sold them at full price (bugs file, B3). The
+ * maintainer's ruling that day: the curve held ground and medic points already use. The knee sits
+ * five points under the old stop, so ordinary crews barely move, and the ceiling is a third above
+ * the old stop, so a deep stack still buys a little. Measured on it: 40 is 40, the old stop of 60 is
+ * 59.5 (a 330 s unit takes 207 s rather than 206), 80 is 70.8, 110 is 77.2, and nothing reaches 80.
  */
-export const MAX_TRAVEL_SPEED_BONUS = 60;
+export const MUSTER_SPEED_KNEE = 55;
+export const MUSTER_SPEED_CEILING = 80;
 
-/** The same argument for the training bench. */
-export const MAX_TRAINING_SPEED_BONUS = 60;
+/** The muster bench's speed after its taper. See {@link MUSTER_SPEED_KNEE}. */
+export function musterSpeedAfterTaper(percent: number): number {
+  return softCap(Math.max(0, percent), MUSTER_SPEED_KNEE, MUSTER_SPEED_CEILING);
+}
 
 const clamp = (value: number, low: number, high: number): number =>
   Math.min(high, Math.max(low, value));
@@ -91,10 +100,19 @@ export function roadMinutes(
    * city can feel. The one-minute floor below is what keeps it from paying a road that is not there.
    */
   flatMinutesOff = 0,
+  /**
+   * The Cartographer's passive (`passives.ts`, maintainer 2026-10-04): a share off the road's
+   * **base**, before the column's pace and every speed bonus, so an hour's road is half an hour
+   * under a perfect Cartographer and every other cut is then taken off the half hour. Outside the
+   * clamp on `reductionPercent`: it is a shorter road, not a faster crew.
+   */
+  baseCutPercent = 0,
 ): number {
   const pace = clamp(speed, 0, MAX_SPEED);
-  const off = clamp(reductionPercent, 0, MAX_TRAVEL_SPEED_BONUS);
-  const minutes = (baseMinutes / (1 + pace / 100)) * (1 - off / 100) - Math.max(0, flatMinutesOff);
+  // Bent, not stopped (`travelSpeedCut`, maintainer 2026-10-05).
+  const off = travelSpeedCut(reductionPercent);
+  const road = baseMinutes * (1 - clamp(baseCutPercent, 0, CHAIR_PASSIVE_CAP.travel_time) / 100);
+  const minutes = (road / (1 + pace / 100)) * (1 - off / 100) - Math.max(0, flatMinutesOff);
   return Math.max(1, Math.round(minutes));
 }
 

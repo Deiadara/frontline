@@ -1,6 +1,7 @@
 import {
   unitSlotsUsed,
   type ActionsResponse,
+  type Army,
   type BattleView,
   type BattlesResponse,
   type Mission,
@@ -46,14 +47,24 @@ export function onTheRoad(
     jobs: (missions?.missions ?? []).filter((mission) => mission.status === 'active'),
     // A fight the caller has units at. A declaration with nobody deployed yet is on the board,
     // not on the road, and a bystander's fight is nobody's.
-    fights: (battles?.coming ?? []).filter(
-      (view) => view.muster !== null && view.muster.size > 0 && view.battle.resolvedAt === null,
-    ),
+    fights: (battles?.coming ?? []).filter((view) => {
+      const mine = ownAt(view);
+      return mine !== null && mine.size > 0 && view.battle.resolvedAt === null;
+    }),
     spies: actions?.spyRuns ?? [],
     moves: actions?.moves ?? [],
     cells: actions?.sleepers ?? [],
     stationed: actions?.stationed ?? [],
   };
+}
+
+/**
+ * What the reader has at a fight: their own row, not the whole side (bug pass, 2026-10-02). An ally's
+ * reinforcement was drawn and counted as the reader's own units on the road. A payload from before
+ * `own` existed reads as the side, as it always did.
+ */
+export function ownAt(view: BattleView): { army: Army; perimeter: Army; size: number } | null {
+  return view.own === undefined ? view.muster : view.own;
 }
 
 /** Whether the road has anybody on it at all. */
@@ -102,11 +113,10 @@ export function roadCounts(road: Road): {
     unitSlots:
       road.columns.reduce((total, column) => total + slots(column.army, column.perimeter), 0) +
       road.jobs.reduce((total, job) => total + slots(job.force), 0) +
-      road.fights.reduce(
-        (total, fight) =>
-          total + (fight.muster ? slots(fight.muster.army, fight.muster.perimeter) : 0),
-        0,
-      ) +
+      road.fights.reduce((total, fight) => {
+        const mine = ownAt(fight);
+        return total + (mine ? slots(mine.army, mine.perimeter) : 0);
+      }, 0) +
       /*
        * §A1: planted and posted people draw their beds too, so the header has to count them.
        *
@@ -123,4 +133,26 @@ export function roadCounts(road: Road): {
 /** A force at a fight is waiting for the mark, or in it once the mark has passed and nobody has settled it. */
 export function fightPhase(view: BattleView, now: Date): 'waiting' | 'fighting' {
   return Date.parse(view.battle.scheduledFor) <= now.getTime() ? 'fighting' : 'waiting';
+}
+
+/**
+ * How many things the road tab is listing, for the badge on it.
+ *
+ * Rows rather than `roadCounts().unitSlots`: the badge sits beside the word "on the road", and a
+ * player reads it as "how many entries am I about to look at". The slot figure is the header's
+ * job on the page itself, where it has the room to say which currency it is in.
+ */
+export function roadRows(road: Road): number {
+  const counts = roadCounts(road);
+  // Every row the page draws: the spy runs and the moves were left out, so a crew whose only
+  // business out was a move read "On the road 0" over a page listing it (bug pass, 2026-10-02).
+  return (
+    counts.columns +
+    counts.jobs +
+    counts.fights +
+    counts.cells +
+    counts.stationed +
+    counts.spies +
+    counts.moves
+  );
 }

@@ -1,7 +1,8 @@
 import { z } from 'zod';
 import { BUILDING_CATALOG, type BuildingKind } from '../building/kinds.js';
-import { OFFICER_ROLE_LABELS, type OfficerRole } from '../roles.js';
+import { OFFICER_ROLES, OFFICER_ROLE_LABELS, type OfficerRole } from '../roles.js';
 import { PLAYER_LEVEL_MIN } from './curve.js';
+import { notorietyTier } from '../economy/notoriety.js';
 import { MAYHEM_UNLOCK_LEVEL } from '../missions.grade.js';
 
 /**
@@ -14,7 +15,7 @@ import { MAYHEM_UNLOCK_LEVEL } from '../missions.grade.js';
  * the only place an unlock is declared: a system that wants to know whether something is open asks
  * {@link isAreaUnlocked} or {@link isPlayerUnlockActive} rather than comparing a number of its own.
  *
- * Two kinds live here and the difference is worth keeping straight:
+ * Three kinds live here and the difference is worth keeping straight:
  *
  * - **Doors** ({@link GATED_AREAS}) are screens. They exist from the start, they are visible from
  *   the start, and what a condition buys is the right to walk through. A door that vanished until
@@ -22,6 +23,9 @@ import { MAYHEM_UNLOCK_LEVEL } from '../missions.grade.js';
  * - **Milestones** are the round-number rewards. Every one of them bends a rule some other module
  *   already enforces, a daily limit, a broker's cut, rather than adding a system of its own, so a
  *   milestone is a constant moving, not a feature to keep alive.
+ * - **Officer slots** are the one reward levels keep paying between the doors and the milestones:
+ *   the first comes with the Bar and another every two levels until every chair has one
+ *   ({@link officerSlotsAt}). Each is an entry so a level-up can say it.
  *
  * The 2026-09-19 change was to the first kind and it is worth naming, because the file no longer
  * does what its old title said. A door used to be a level and nothing else. Five of the nine still
@@ -75,7 +79,7 @@ export type GatedArea = (typeof GATED_AREAS)[number];
  * It used to be a level and nothing else, which made the catalogue a `Record<GatedArea, number>`
  * and every gate in the client a `<` against it. That shape could not say the things the game
  * actually wanted to say: the Scrapyard opens when you *build* the Scrapyard, the Archive opens
- * when somebody is sitting in the Head of Research's chair, and the fence opens on a reputation
+ * when somebody is sitting in the Researcher's chair, and the fence opens on a reputation
  * rather than on a birthday.
  *
  * A union rather than an object of optional fields, so a door has exactly one condition and there
@@ -117,8 +121,8 @@ export const TECH_DISTRICT_OFFERS = 'tech_getting_on_the_board';
  *
  * - **Scrapyard** opens by building the Scrapyard. A door to a structure that gates on owning the
  *   structure is the one gate that needs no explaining at all.
- * - **Research** opens on hiring a Head of Research, which the Lab already refuses to work
- *   without (`no_head_of_research`). The screen was reachable and useless; now it arrives with the
+ * - **Research** opens on hiring a Researcher, which the Lab already refuses to work
+ *   without (`no_researcher`). The screen was reachable and useless; now it arrives with the
  *   person who makes it work.
  * - **District Offers** opens on the Trader's first programme, so the board other crews post to is
  *   something a crew decides to get into rather than something that appears.
@@ -130,7 +134,7 @@ export const AREA_REQUIREMENTS: Readonly<Record<GatedArea, AreaRequirement>> = {
   training: { kind: 'level', level: 3 },
   bar: { kind: 'level', level: 5 },
   crew: { kind: 'level', level: 5 },
-  research: { kind: 'officer', role: 'head_of_research' },
+  research: { kind: 'officer', role: 'researcher' },
   faction: { kind: 'level', level: 10 },
   market: { kind: 'level', level: 15 },
   offers: { kind: 'research', technology: TECH_DISTRICT_OFFERS },
@@ -144,7 +148,7 @@ const AREA_COPY: Readonly<Record<GatedArea, { name: string; description: string 
     description: 'Where the traps, the fittings and the building work are made.',
   },
   training: {
-    name: 'Drills',
+    name: 'Training',
     description: 'Hours spent on your own crew instead of on the city.',
   },
   bar: {
@@ -156,7 +160,7 @@ const AREA_COPY: Readonly<Record<GatedArea, { name: string; description: string 
     description: 'Who you have signed, what chair they sit in, and what they are worth.',
   },
   research: {
-    name: 'The Archive',
+    name: 'Research',
     description: 'Projects that pay out long after they are started.',
   },
   faction: {
@@ -267,7 +271,8 @@ export function describeAreaRequirement(area: GatedArea): string {
     case 'officer':
       return `Hire a ${OFFICER_ROLE_LABELS[requirement.role]} at the Bar and sit them in the chair.`;
     case 'notoriety':
-      return `Buy rank ${requirement.rank} on the notoriety ladder.`;
+      // The rank's name, as the locked sign says it (maintainer, 2026-09-22), not its index.
+      return `Reach ${notorietyTier(requirement.rank)} on the infamy ladder.`;
     case 'research':
       return 'Finish the first programme on the Trader track in the Lab.';
   }
@@ -282,6 +287,72 @@ export function areaName(area: GatedArea): string {
 export function areaDescription(area: GatedArea): string {
   return AREA_COPY[area].description;
 }
+
+// --- officer slots ---
+
+/**
+ * The most officers a crew may hold: one per chair (maintainer, 2026-09-30). The bench is where a
+ * signed officer waits for a chair, not extra room on top of the chairs.
+ */
+export const MAX_OFFICER_SLOTS = OFFICER_ROLES.length;
+
+/** Levels between one officer slot and the next, counted from the Bar's door. */
+export const OFFICER_SLOT_LEVEL_STEP = 2;
+
+/**
+ * The level the first officer slot comes with, which is the Bar's door: a slot is worth nothing
+ * before the room where officers are hired is open.
+ *
+ * Read off {@link AREA_REQUIREMENTS} rather than restated. Checked at load, because the whole
+ * slot ladder counts from this number and a Bar opened by something other than a level would
+ * leave the ladder with no first rung.
+ */
+export const FIRST_OFFICER_SLOT_LEVEL: number = (() => {
+  const bar = AREA_REQUIREMENTS.bar;
+  if (bar.kind !== 'level') throw new Error('officer slots count from the Bar, a level door');
+  return bar.level;
+})();
+
+/**
+ * §H8: how many officers a crew may hold at this level (maintainer, 2026-09-30). None before the
+ * Bar opens, one when it does, and another every {@link OFFICER_SLOT_LEVEL_STEP} levels after,
+ * until there is one for every chair.
+ */
+export function officerSlotsAt(level: number): number {
+  if (level < FIRST_OFFICER_SLOT_LEVEL) return 0;
+  const earned = 1 + Math.floor((level - FIRST_OFFICER_SLOT_LEVEL) / OFFICER_SLOT_LEVEL_STEP);
+  return Math.min(MAX_OFFICER_SLOTS, earned);
+}
+
+/** The id every officer slot entry starts with, followed by the slot count it brings. */
+const OFFICER_SLOT_UNLOCK_PREFIX = 'officer_slot_';
+
+/** What an officer slot entry says, for a crew that holds `slots` once it lands. */
+function officerSlotDescription(slots: number): string {
+  if (slots === 1) {
+    return `Room for one officer on the books. Another opens every ${OFFICER_SLOT_LEVEL_STEP} levels.`;
+  }
+  return slots >= MAX_OFFICER_SLOTS
+    ? `Room for ${MAX_OFFICER_SLOTS} officers, one for every chair. That is the last of them.`
+    : `Room for ${slots} officers on the books.`;
+}
+
+/**
+ * One catalogue entry per slot, so the level-up and the levels screen say when the next one comes.
+ * The first arrives with the Bar and says so; the rest read the same, with the new total in them.
+ */
+const OFFICER_SLOT_UNLOCKS: readonly PlayerLevelUnlock[] = Array.from(
+  { length: MAX_OFFICER_SLOTS },
+  (_, index) => {
+    const slots = index + 1;
+    return {
+      id: `${OFFICER_SLOT_UNLOCK_PREFIX}${slots}`,
+      level: FIRST_OFFICER_SLOT_LEVEL + index * OFFICER_SLOT_LEVEL_STEP,
+      name: slots === 1 ? 'Your first officer slot' : 'Another officer slot',
+      description: officerSlotDescription(slots),
+    };
+  },
+);
 
 /** The doors a level opens, which are the only ones a level-up has anything to say about. */
 const LEVEL_GATED_AREAS: readonly GatedArea[] = GATED_AREAS.filter(
@@ -308,7 +379,7 @@ export const MILESTONE_SECOND_SIGNATURE = 'second_signature';
 export const MILESTONE_STANDING_INVITATION = 'standing_invitation';
 /** Level 60: the Broker stops taking half. */
 export const MILESTONE_BROKERS_RESPECT = 'brokers_respect';
-/** Level 70: the day's supply run is no longer bounded by what the district can hold. */
+/** Level 70: the day's supply run doubles, to two full stores. */
 export const MILESTONE_DEEP_POCKETS = 'deep_pockets';
 /** Level 80: a third crew out at once, in a third area (§E). */
 export const MILESTONE_THIRD_CREW = 'third_crew';
@@ -320,25 +391,25 @@ const MILESTONES: readonly PlayerLevelUnlock[] = [
     id: MILESTONE_SECOND_SIGNATURE,
     level: 40,
     name: 'The Second Signature',
-    description: 'You can bid on three people at once at the Bar. Nobody else in the city can.',
+    description: 'You can bid on three people at once at the Bar.',
   },
   {
     id: MILESTONE_STANDING_INVITATION,
     level: 50,
     name: 'A Standing Invitation',
-    description: 'The back door is open twice a day for you.',
+    description: 'You may take two lots a day from the back room instead of one.',
   },
   {
     id: MILESTONE_BROKERS_RESPECT,
     level: 60,
     name: "The Broker's Respect",
-    description: 'He stops taking half. Every trade at his window is worth a third more.',
+    description: 'He stops taking half. Every trade at his window pays 30% more.',
   },
   {
     id: MILESTONE_DEEP_POCKETS,
     level: 70,
     name: 'Deep Pockets',
-    description: 'Your day of buying is no longer measured against what you can store.',
+    description: 'Your day of buying doubles, to two full stores.',
   },
   {
     id: MILESTONE_THIRD_CREW,
@@ -356,7 +427,7 @@ const MILESTONES: readonly PlayerLevelUnlock[] = [
 ];
 
 /**
- * Everything level opens, doors first and then the ladder, each in level order.
+ * Everything level opens: the doors, the officer slots and the ladder, in level order.
  *
  * Built rather than written out, so {@link AREA_REQUIREMENTS} stays the one statement of when a
  * screen opens. A door's id *is* its {@link GatedArea} id, which is what lets the client ask
@@ -375,6 +446,7 @@ export const PLAYER_LEVEL_UNLOCKS: readonly PlayerLevelUnlock[] = [
     name: AREA_COPY[area].name,
     description: AREA_COPY[area].description,
   })),
+  ...OFFICER_SLOT_UNLOCKS,
   ...MILESTONES,
 ].sort((a, b) => a.level - b.level || a.id.localeCompare(b.id));
 

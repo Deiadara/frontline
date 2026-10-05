@@ -86,10 +86,11 @@ function makeBase(overrides: Partial<Base> = {}): Base {
     economy: startingEconomy(NOW.toISOString()),
     progression: startingProgression(),
     research: startingResearch(),
-    buildings: [],
+    // A Lab at its top, so the tier gate (P7-C, 2026-10-02) opens every rung.
+    buildings: [{ id: 'lab', kind: 'lab', level: 20, modifications: [] }],
     buildQueue: [],
     army: {},
-    trainingQueue: [],
+    musterQueue: [],
     training: startingTraining('2026-08-16T00:00:00.000Z'),
     inventory: {},
     fittedUpgrades: [],
@@ -143,7 +144,7 @@ function fakeRepos(): {
 function chairs(track: Commander['role']): Commander[] {
   return [
     createCommander('track', 'Track Officer', track, makeAttributes(95)),
-    createCommander('head', 'Head', 'head_of_research', makeAttributes(95)),
+    createCommander('head', 'Head', 'researcher', makeAttributes(95)),
   ];
 }
 
@@ -164,13 +165,13 @@ function runToCompletion(base: Base, overseer: Overseer, techId: string) {
   };
 }
 
-const MEDIC_RUNGS = itemsInTrack('chief_medic');
+const MEDIC_RUNGS = itemsInTrack('veteran');
 const FIRST_MEDIC = MEDIC_RUNGS[0];
 const LAST_MEDIC = MEDIC_RUNGS[MEDIC_RUNGS.length - 1];
 if (!FIRST_MEDIC || !LAST_MEDIC) throw new Error('the medic track has no rungs');
 
 describe('§F3: Charisma turns a finished rung into allegiance XP', () => {
-  const base = () => makeBase({ commanders: chairs('chief_medic') });
+  const base = () => makeBase({ commanders: chairs('veteran') });
 
   it('pays a charismatic Overseer more than a dour one for the same rung', () => {
     const bright = runToCompletion(
@@ -201,13 +202,13 @@ describe('a rung pays XP off its own clock (§I1)', () => {
 
   it('pays the tenth rung of a track more than the first', () => {
     const shallow = runToCompletion(
-      makeBase({ commanders: chairs('chief_medic') }),
+      makeBase({ commanders: chairs('veteran') }),
       overseer,
       FIRST_MEDIC.id,
     );
     const deep = runToCompletion(
       makeBase({
-        commanders: chairs('chief_medic'),
+        commanders: chairs('veteran'),
         research: {
           ...startingResearch(),
           technologies: MEDIC_RUNGS.slice(0, -1).map((spec) => spec.id),
@@ -335,6 +336,15 @@ describe('GET /research and POST /research/tech', () => {
     }
   });
 
+  /** A Lab raised to `level`: a first rung needs one at 2 (P7-C, 2026-10-02). */
+  function withLab(app: FastifyInstance, token: string, level: number): void {
+    const base = baseOf(app, token);
+    app.repos.bases.updateBuildings(base.id, [
+      ...base.buildings.filter((one) => one.kind !== 'lab'),
+      { id: 'lab', kind: 'lab', level, modifications: [] },
+    ]);
+  }
+
   async function makeApp(): Promise<FastifyInstance> {
     const config = loadConfig({ DATABASE_PATH: ':memory:', JWT_SECRET: 'test-secret' });
     const db = openDatabase(config.databasePath);
@@ -390,7 +400,7 @@ describe('GET /research and POST /research/tech', () => {
 
     expect(body.active).toBeNull();
     expect(body.completesAt).toBeNull();
-    expect(body.head, 'a fresh crew has no Head of Research').toBeNull();
+    expect(body.head, 'a fresh crew has no Researcher').toBeNull();
     expect(body.tracks.length).toBeGreaterThan(0);
     expect(body.technologies.length).toBe(body.tracks.length * 10);
     expect(body.technologies.every((rung) => !rung.known)).toBe(true);
@@ -437,10 +447,29 @@ describe('GET /research and POST /research/tech', () => {
    * finished programme unless somebody asks. Started over HTTP, rewound in the row, then read: the
    * settle path is the only thing that can bank it and this is the read that has to prove it did.
    */
+  // P7-C (2026-10-02): a tier of programmes every two Lab levels, enforced at the door.
+  it('shuts a rung the Lab is not high enough for, and says how high', async () => {
+    const app = await makeApp();
+    const token = await makePlayer(app, 'nolab');
+    app.repos.bases.updateCommanders(baseOf(app, token).id, chairs('veteran'));
+    withLab(app, token, 1);
+
+    const refused = await startTech(app, token, FIRST_MEDIC.id);
+    expect(refused.statusCode).toBe(409);
+    const page = await read(app, token);
+    expect(page.technologies.find((rung) => rung.id === FIRST_MEDIC.id)?.blocker).toBe(
+      'Needs the Lab at 2',
+    );
+
+    withLab(app, token, 2);
+    expect((await startTech(app, token, FIRST_MEDIC.id)).statusCode).toBe(200);
+  });
+
   it('runs a rung end to end and banks it on the read path', async () => {
     const app = await makeApp();
     const token = await makePlayer(app, 'trackrunner');
-    app.repos.bases.updateCommanders(baseOf(app, token).id, chairs('chief_medic'));
+    app.repos.bases.updateCommanders(baseOf(app, token).id, chairs('veteran'));
+    withLab(app, token, 2);
 
     const started = await startTech(app, token, FIRST_MEDIC.id);
     expect(started.statusCode).toBe(200);
@@ -487,7 +516,8 @@ describe('GET /research and POST /research/tech', () => {
   it('banks a finished rung on a read of a completely different screen', async () => {
     const app = await makeApp();
     const token = await makePlayer(app, 'elsewhere');
-    app.repos.bases.updateCommanders(baseOf(app, token).id, chairs('chief_medic'));
+    app.repos.bases.updateCommanders(baseOf(app, token).id, chairs('veteran'));
+    withLab(app, token, 2);
 
     const started = await startTech(app, token, FIRST_MEDIC.id);
     expect(started.statusCode, started.body.slice(0, 200)).toBe(200);
@@ -537,7 +567,8 @@ describe('GET /research and POST /research/tech', () => {
   it('puts no raw role knowledge on the wire', async () => {
     const app = await makeApp();
     const token = await makePlayer(app, 'leakcheck');
-    app.repos.bases.updateCommanders(baseOf(app, token).id, chairs('chief_medic'));
+    app.repos.bases.updateCommanders(baseOf(app, token).id, chairs('veteran'));
+    withLab(app, token, 2);
     const body = await read(app, token);
 
     expect(Object.keys(body).sort()).toEqual(
@@ -545,7 +576,7 @@ describe('GET /research and POST /research/tech', () => {
     );
     for (const track of body.tracks) {
       expect(Object.keys(track).sort()).toEqual(
-        ['costCutPercent', 'done', 'mark', 'officerName', 'role'].sort(),
+        ['done', 'mark', 'officerName', 'passive', 'role'].sort(),
       );
     }
   });

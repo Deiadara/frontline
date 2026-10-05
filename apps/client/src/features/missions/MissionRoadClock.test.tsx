@@ -102,6 +102,7 @@ function renderBoard(extra: Partial<MissionBoardProps> = {}) {
       fleet={{ scrap_car: 1 }}
       loadouts={{}}
       bagPercent={0}
+      notoriety={100}
       marks={{}}
       carriersFight={false}
       anyRide={false}
@@ -162,9 +163,9 @@ describe('the road the send dialog quotes', () => {
     const { road } = columnLine(dialog);
     const roundTrip = within(dialog).getByTestId('round-trip-clock').textContent;
 
-    // Two legs of that road plus the job at the far end. The job's clock is the crew's own cut and
-    // the officer's, exactly as `launchMission` spends them.
-    const onSite = hastenedMinutes(RAW_DURATION, GROUND_PERCENT + ARRIVAL_PERCENT);
+    // Two legs of that road plus the job at the far end. The job's clock takes the ground's cut
+    // alone: Short Way is road only (maintainer, 2026-10-01), exactly as `launchMission` spends it.
+    const onSite = hastenedMinutes(RAW_DURATION, GROUND_PERCENT);
     const legs = [...formatDurationsUpTo(60)].find((entry) => entry.label === road)?.minutes;
     expect(legs).toBeDefined();
     expect(roundTrip).toBe(formatDuration(2 * (legs as number) + onSite));
@@ -205,7 +206,7 @@ describe('the crew’s own road', () => {
       cut + road.travelSpeedPercent,
       road.roadMinutesOff,
     );
-    const onSite = hastenedMinutes(RAW_DURATION, cut);
+    const onSite = hastenedMinutes(RAW_DURATION, GROUND_PERCENT);
     expect(within(dialog).getByTestId('round-trip-clock').textContent).toBe(
       formatDuration(2 * leg + onSite),
     );

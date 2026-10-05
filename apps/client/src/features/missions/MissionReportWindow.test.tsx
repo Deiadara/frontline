@@ -233,6 +233,33 @@ describe('the rest of the report', () => {
     expect(report).toHaveTextContent('1h 00m');
   });
 
+  // A recall settles as a failure, but nobody was lost, and they were out for minutes rather than
+  // the planned hour (bug pass, 2026-10-02).
+  // A battle job pays infamy and, with a Bone Market, caps for its dead; the report said neither.
+  it('prints the infamy and the Bone Market refund the return paid, and only when it paid them', () => {
+    show(mission({ outcome: 'success', infamyPaid: 18, refund: { caps: 140 } }));
+    expect(screen.getByTestId('mission-infamy-r-1')).toHaveTextContent('+18');
+    expect(screen.getByTestId('mission-refund-r-1')).toHaveTextContent('140');
+  });
+
+  it('prints neither on a run that paid none', () => {
+    show(mission({ outcome: 'success' }));
+    expect(screen.queryByTestId('mission-infamy-r-1')).toBeNull();
+    expect(screen.queryByTestId('mission-refund-r-1')).toBeNull();
+  });
+
+  it('calls a recalled run called back, with the time they were really out', () => {
+    const sent = mission({ outcome: 'failure', xp: 240 });
+    const recalledAt = new Date(Date.parse(sent.startedAt) + 3 * 60_000).toISOString();
+    show({ ...sent, recalledAt });
+
+    expect(screen.getByTestId('mission-outcome-r-1')).toHaveTextContent('Called back');
+    expect(screen.getByTestId('mission-outcome-r-1')).not.toHaveTextContent('Lost');
+    const report = screen.getByTestId('mission-report-r-1');
+    expect(report).not.toHaveTextContent('1h 00m');
+    expect(report).toHaveTextContent('6m');
+  });
+
   it('prints the XP the settle paid: all of it on a clean run, none for a crew turned round', () => {
     show(mission({ xp: 240 }));
     expect(screen.getByTestId('mission-report-r-1')).toHaveTextContent('240 XP');
@@ -295,5 +322,32 @@ describe('what the full stores threw away', () => {
     const one = mission({ wasted: {} });
     open(one);
     expect(screen.queryByTestId(`mission-wasted-${one.id}`)).toBeNull();
+  });
+});
+
+/**
+ * Bug pass, 2026-10-02: the award adds the district's and the crew's XP bonus, and the report
+ * printed the frozen figure without it. A row from before the paid figure was kept falls back.
+ */
+describe('the experience a run paid', () => {
+  const shown = (one: Mission) => {
+    render(
+      <MissionReportWindow
+        mission={one}
+        leaders={[ROOK]}
+        overseerName="Rook"
+        loadouts={{}}
+        onClose={() => undefined}
+      />,
+    );
+    return screen.getByRole('dialog');
+  };
+
+  it('prints what the return banked', () => {
+    expect(shown(mission({ xp: 240, xpPaid: 257 }))).toHaveTextContent('257 XP');
+  });
+
+  it('falls back to the frozen figure on an older row', () => {
+    expect(shown(mission({ xp: 240 }))).toHaveTextContent('240 XP');
   });
 });

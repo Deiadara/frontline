@@ -1,7 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { tallyContrabandTaken, tallyPagesIn } from '../feats/tally.js';
 import {
-  MAX_BLACK_MARKET_DISCOUNT,
   addItems,
   addToStash,
   alreadyKnown,
@@ -30,6 +29,7 @@ import {
 } from '@frontline/shared';
 import type { BlackBid } from '../db/repos/blackmarket.js';
 import type { Repositories } from '../db/repos/index.js';
+import { adminInfamy, adminWaives } from '../admin/mode.js';
 import { calibreOf, citiesFor } from '../city/stakes.js';
 import { standingEffectsFor } from '../crew/standing.js';
 import { missedLotTitle, outcomeAgainst } from '../bar/auction.js';
@@ -37,6 +37,7 @@ import { bidderNames, projectLotAuction } from '../market/auction.js';
 import { notify } from '../social/notify.js';
 import { tellPagesFound } from '../social/pages.js';
 import { settleEach } from '../world/guard.js';
+import { shownNameOf } from '../social/names.js';
 
 /**
  * The back room, server-side.
@@ -173,7 +174,8 @@ export function projectBlackMarket(
     // The edge `blackBidRefusal` refuses at: the bid whose charge after this crew's standing is
     // the last one the ledger covers. The card's `affordable` reads the same discount.
     bidCeiling: largestBidWithin(infamy, (bid) => discountedInfamy(bid, discount)),
-    discountPercent: Math.min(MAX_BLACK_MARKET_DISCOUNT, Math.max(0, discount)),
+    // The summed points: `discountedInfamy` bends them, so the screen bends the same figure once.
+    discountPercent: Math.max(0, discount),
     takenToday,
     takesPerDay,
     cityLevel,
@@ -201,6 +203,8 @@ export interface BlackBidCommand {
   zone: string;
   /** Whose back room the bid is placed in. The route has already checked the crew may stand here. */
   cityId?: string;
+  /** Admin mode: the bid is not held to the crew's infamy, and the close charges nothing. */
+  admin?: boolean;
 }
 
 /**
@@ -262,7 +266,12 @@ export function placeBlackMarketBid(repos: Repositories, command: BlackBidComman
       .filter((bid) => bid.userId === userId && cityOfBlackLot(bid.lotId) === cityId)
       .map((bid) => bid.lotId),
   });
-  if (refusal) return { kind: 'refused', reason: refusal };
+  if (
+    refusal &&
+    !(refusal === 'not_enough_infamy' && adminWaives(refusal, command.admin ?? false))
+  ) {
+    return { kind: 'refused', reason: refusal };
+  }
 
   repos.blackMarket.placeBid({
     day,
@@ -281,7 +290,10 @@ export function placeBlackMarketBid(repos: Repositories, command: BlackBidComman
 /** What a lot went for, and who took it. The price is the bid, not what their standing cut it to. */
 interface BlackLotWinner {
   userId: string;
+  /** The winning bid, which is the price everybody at the counter saw. */
   price: number;
+  /** What left the winner's wallet after their standing discount: their own bell quotes this. */
+  charged: number;
 }
 
 /** Who took a crate, and the ranking the close walked to find them, which the bells read. */
@@ -301,13 +313,18 @@ interface BlackLotAward {
  * closes have already written, so a crew leading three lots takes the first one it is allowed and
  * the other two fall to whoever is behind them.
  */
-export function settleBlackMarketLots(repos: Repositories, now: Date, zone: string): number {
+export function settleBlackMarketLots(
+  repos: Repositories,
+  now: Date,
+  zone: string,
+  admin = false,
+): number {
   return settleEach(
     repos,
     'black market lots',
     repos.blackMarket.unsettled(now),
     (lot) => `${lot.day}:${lot.lotId}:${lot.slotIndex}`,
-    (lot) => closeBlackLot(repos, lot, now, zone),
+    (lot) => closeBlackLot(repos, lot, now, zone, admin),
   );
 }
 
@@ -316,6 +333,7 @@ function closeBlackLot(
   lot: { day: string; lotId: string; slotIndex: number },
   now: Date,
   zone: string,
+  admin: boolean,
 ): void {
   const { day, lotId, slotIndex } = lot;
   // What the bells are dated: the lot closed at midnight, whenever the tick got to it.
@@ -337,7 +355,7 @@ function closeBlackLot(
   // would settle it again on every read for ever. It goes down as a lot nobody took.
   const { winner, ranked } =
     slot && spec
-      ? awardBlackLot(repos, { day, cityId, slot, spec, bids, now, closedAt, zone })
+      ? awardBlackLot(repos, { day, cityId, slot, spec, bids, now, closedAt, zone, admin })
       : { winner: null, ranked: [] };
 
   repos.blackMarket.recordResult({
@@ -375,6 +393,7 @@ function awardBlackLot(
     now: Date;
     closedAt: Date;
     zone: string;
+    admin: boolean;
   },
 ): BlackLotAward {
   const { day, cityId, slot, spec, bids, now, closedAt } = lot;
@@ -398,9 +417,9 @@ function awardBlackLot(
     // every slot walks away with one crate and the rest of the city takes the other four.
     if (repos.blackMarket.takenOn(base.id, day) >= blackMarketTakesPerDay(base.level)) continue;
 
-    const charge = discountedInfamy(
-      entry.amount,
-      standingEffectsFor(repos, base).blackMarketDiscountPercent,
+    const charge = adminInfamy(
+      discountedInfamy(entry.amount, standingEffectsFor(repos, base).blackMarketDiscountPercent),
+      lot.admin,
     );
     const left = spendInfamy(base.economy.infamy, charge);
     if (left === null) continue;
@@ -415,7 +434,7 @@ function awardBlackLot(
       now,
       closedAt,
     });
-    return { winner: { userId: entry.userId, price: entry.amount }, ranked };
+    return { winner: { userId: entry.userId, price: entry.amount, charged: charge }, ranked };
   }
   return { winner: null, ranked };
 }
@@ -505,16 +524,16 @@ function tellTheFence(
     notify(repos, {
       userId: winner.userId,
       kind: 'market_won',
-      title: `The fence let you have ${name} for ${winner.price} infamy`,
+      // What they paid, not what they bid: a 20% discount on a winning 500 is 400 (bug pass,
+      // 2026-10-02).
+      title: `The fence let you have ${name} for ${winner.charged.toLocaleString('en')} infamy`,
       link: '/game/market/black',
       subjectId: lotId,
       at: closedAt,
     });
   }
 
-  const winnerName = winner
-    ? (repos.users.findById(winner.userId)?.username ?? 'another crew')
-    : '';
+  const winnerName = winner ? shownNameOf(repos, winner.userId, 'another crew') : '';
   for (const bid of bids) {
     if (bid.userId === winner?.userId) continue;
     notify(repos, {
@@ -523,7 +542,9 @@ function tellTheFence(
       title: missedLotTitle({
         name,
         passed: outcomeAgainst(ranked, winner?.userId ?? null, bid.userId) === 'passed',
-        winner: winner ? { name: winnerName, price: `${winner.price} infamy` } : null,
+        winner: winner
+          ? { name: winnerName, price: `${winner.price.toLocaleString('en')} infamy` }
+          : null,
         nobody: 'went to nobody',
       }),
       link: '/game/market/black',

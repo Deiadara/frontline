@@ -355,10 +355,10 @@ test('live: Nikos logs in, meets the AI rival and raids it against the real back
   /*
    * §B6: on day one the fighting tier is locked, and the card says what would open it.
    *
-   * This asserted that Razors could be trained immediately, on the grounds that they "need nothing
+   * This asserted that Razors could be mustered immediately, on the grounds that they "need nothing
    * at all". That stopped being true when the Gauntlet became the gate for the ten units it
-   * trains: a new crew runs Quarters, then the Nexus to 2, then a Gauntlet, before its first
-   * Razor. What it can train in the meantime is the carrier bench, which answers to the Nexus it
+   * musters: a new crew runs Quarters, then the Nexus to 2, then a Gauntlet, before its first
+   * Razor. What it can muster in the meantime is the carrier bench, which answers to the Nexus it
    * already has (maintainer, 2026-09-18), so the opening has a move in it either way.
    *
    * The assertion is kept pointed at the same card, because what it is really guarding is that the
@@ -382,16 +382,9 @@ test('live: Nikos logs in, meets the AI rival and raids it against the real back
  */
 async function openGround(page: Page): Promise<District> {
   const { city, gates } = await page.evaluate(async () => {
-    // `zustand/persist` stores `{ state, version }` under the store's own key.
-    const token = JSON.parse(localStorage.getItem('frontline.token') ?? '{}') as {
-      state?: { token?: string };
-    };
-    const res = await fetch('/api/city', {
-      headers: { authorization: `Bearer ${token.state?.token ?? ''}` },
-    });
-    const board = await fetch('/api/battles', {
-      headers: { authorization: `Bearer ${token.state?.token ?? ''}` },
-    });
+    // The page's own session cookie goes with these, as it does with every read the game makes.
+    const res = await fetch('/api/city');
+    const board = await fetch('/api/battles');
     return {
       city: (await res.json()) as {
         homeDistrictId: string;

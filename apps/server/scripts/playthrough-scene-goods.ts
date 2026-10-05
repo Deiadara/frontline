@@ -5,7 +5,6 @@
 import {
   BLUEPRINTS,
   REIMAGINING_RESEARCH_ID,
-  RESEARCH_ITEMS,
   type BlueprintTargetKind,
   findBlackMarketGood,
   findBlueprint,
@@ -274,9 +273,6 @@ async function scrapyard(h: Harness, a: Player, b: Player): Promise<void> {
   h.at('scrapyard: cards and traps');
   setBuildings(h, a, { scrapyard: 6, quarters: 8, gauntlet: 5 });
   grantBlueprintFor(h, a, 'trap', 'trap_pressure_plates');
-  // The trap is also a rung on the Security Officer's track.
-  const plates = RESEARCH_ITEMS.find((item) => item.name === 'Pressure Plates');
-  if (plates) addTechnologies(h, a, [plates.id]);
   grantResources(h, a, {
     caps: 20_000,
     scrap: 6_000,

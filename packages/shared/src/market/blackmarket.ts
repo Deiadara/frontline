@@ -9,6 +9,7 @@ import { MILESTONE_STANDING_INVITATION, isPlayerUnlockActive } from '../progress
 import { dayInZone, GAME_TIMEZONE, instantAtHourInZone } from '../time/zone.js';
 import { LotAuctionSchema, canOpenLot, lotSeed, nextLotBid } from './auction.js';
 import { drawWeighted } from '../rng.js';
+import { blackMarketDiscountCut } from '../economy/soft-bounds.js';
 
 /**
  * The back room of the market (black-market extension).
@@ -20,7 +21,7 @@ import { drawWeighted } from '../rng.js';
  *
  * ## One city, one shelf
  *
- * Five slots, the same five for every player in the city, drawn from the day alone. That is the same
+ * Six slots (five until 2026-10-05), the same six for every player in the city, drawn from the day alone. That is the same
  * decision the Runner's barrow makes and for the same reason: a back room where two players see
  * different stock is a vending machine with a random number generator in it, and there is nothing
  * to say to anybody about it. Here everyone is looking at the same five things and knows that
@@ -86,7 +87,7 @@ export const BLACK_MARKET_KIND_LABELS: Readonly<Record<BlackMarketKind, string>>
 };
 
 /** How many slots stand at once, and how many lots a crew may win in a day. */
-export const BLACK_MARKET_SLOTS = 5;
+export const BLACK_MARKET_SLOTS = 6; // Six since 2026-10-05 (maintainer): two rows of three.
 export const BLACK_MARKET_TAKES_PER_DAY = 1;
 
 /**
@@ -790,7 +791,7 @@ export const BLACK_MARKET_REFUSAL_TEXT: Readonly<Record<BlackMarketRefusal, stri
   moved_on: 'Somebody got there first. Something else is in that slot now.',
   not_enough_infamy: 'He has heard of you, but not enough. Come back with a worse reputation.',
   not_known_enough: 'He keeps this for people with a name. Yours is not one of them yet.',
-  too_low: 'He will not write that down. Somebody has already said more.',
+  too_low: 'He will not write that down. It is under what he will take.',
   too_many_lots: 'You have a name down on every crate you can hold. Wait for one to close.',
   outbid_yourself: 'You are the one in front. Bidding against yourself is not a negotiation.',
   already_known: 'You already have these plans. He does not sell the same set twice.',
@@ -822,11 +823,11 @@ export const BLACK_MARKET_REFUSAL_TEXT: Readonly<Record<BlackMarketRefusal, stri
  * same number for everybody at the table; the discount is what the winner is charged, exactly as a
  * crew's ground comes off what they pay at the Runner's close.
  */
-export const MAX_BLACK_MARKET_DISCOUNT = 50;
-
 export function discountedInfamy(price: number, percent: number): number {
   if (!Number.isFinite(price)) return price;
-  const off = Math.min(MAX_BLACK_MARKET_DISCOUNT, Math.max(0, percent));
+  // Bent, not stopped (`blackMarketDiscountCut`, maintainer 2026-10-05). `percent` is the summed
+  // points, so the screen and the close can hand over the same raw figure without bending twice.
+  const off = blackMarketDiscountCut(percent);
   return Math.max(1, Math.round(price * (1 - off / 100)));
 }
 

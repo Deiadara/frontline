@@ -1,11 +1,6 @@
+import { TRAVEL_SPEED_CEILING } from '../economy/soft-bounds.js';
 import { describe, expect, it } from 'vitest';
-import {
-  MAX_SPEED,
-  MAX_TRAVEL_SPEED_BONUS,
-  effectiveSpeed,
-  roadMinutes,
-  timeSavingPercent,
-} from './speed.js';
+import { MAX_SPEED, effectiveSpeed, roadMinutes, timeSavingPercent } from './speed.js';
 
 /**
  * The one arithmetic every road in the game is measured with.
@@ -37,11 +32,13 @@ describe('roadMinutes', () => {
     expect(roadMinutes(200, 0, 10)).toBe(180);
   });
 
-  it('caps the speed at 100 and the reduction at its own ceiling', () => {
+  it('caps the speed at 100 and bends the reduction under its ceiling', () => {
     expect(roadMinutes(200, 500)).toBe(roadMinutes(200, MAX_SPEED));
-    expect(roadMinutes(200, 0, 500)).toBe(roadMinutes(200, 0, MAX_TRAVEL_SPEED_BONUS));
+    // Bent, not stopped (2026-10-05): more points always take a little more off, never past 75%.
+    expect(roadMinutes(200, 0, 500)).toBeLessThan(roadMinutes(200, 0, 100));
+    expect(roadMinutes(200, 0, 500)).toBeGreaterThanOrEqual(200 * (1 - TRAVEL_SPEED_CEILING / 100));
     // Both ceilings together still leave a road on the clock, which is the point of having them.
-    expect(roadMinutes(200, 500, 500)).toBe(40);
+    expect(roadMinutes(200, 500, 500)).toBeGreaterThanOrEqual(25);
   });
 
   it('never lets a road round away to nothing, and never lengthens one', () => {

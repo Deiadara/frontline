@@ -9,7 +9,7 @@ import {
   type ProfileHolding,
 } from '@frontline/shared';
 import type { FastifyInstance } from 'fastify';
-import { sideOf } from '../battle/deploy.js';
+import { sideFought } from '../battle/deploy.js';
 import { REPORT_HISTORY } from '../battle/view.js';
 import { districtsHeldWhole } from '../city/gates.js';
 import type { Repositories } from '../db/repos/index.js';
@@ -89,7 +89,7 @@ export function projectCrewProfile(
 
   const fights = repos.sieges.resolvedFor(crew.id, REPORT_HISTORY).reduce(
     (tally, { battle, analysis }) => {
-      const side = sideOf(repos, battle, crew.id);
+      const side = sideFought(repos, battle, crew.id);
       if (side === null) return tally;
       return analysis.winner === side
         ? { ...tally, won: tally.won + 1 }

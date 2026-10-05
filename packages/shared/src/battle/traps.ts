@@ -1,5 +1,5 @@
 import type { PartialResources } from '../resources.js';
-import type { Army } from '../units/training.js';
+import type { Army } from '../units/muster.js';
 
 /**
  * What you leave behind for people who come looking (GDD §A4, battle rework).
@@ -68,8 +68,6 @@ export interface TrapSpec {
   id: string;
   name: string;
   description: string;
-  /** The Lab programme the yard wants finished before it will cut one. */
-  requiresTech: string;
   cost: PartialResources;
   effect: TrapEffect;
 }
@@ -95,7 +93,6 @@ export const TRAP_CATALOG: readonly TrapSpec[] = [
     name: 'Pressure Plates',
     description:
       'Boards over a stairwell with something underneath them. Cheap, and everybody forgets which floor.',
-    requiresTech: 'tech_pressure_plates',
     cost: { scrap: 700, planks: 520, caps: 400 },
     effect: { kind: 'bite', bite: 0.14 },
   },
@@ -103,7 +100,6 @@ export const TRAP_CATALOG: readonly TrapSpec[] = [
     id: 'trap_gas_shell',
     name: 'Buried Shell',
     description: 'A cracked chemical round under the approach, wired to whatever walks over it.',
-    requiresTech: 'tech_shaped_charges',
     cost: { scrap: 1800, oil: 300, caps: 1100 },
     effect: { kind: 'bite', bite: 0.17 },
   },
@@ -111,7 +107,6 @@ export const TRAP_CATALOG: readonly TrapSpec[] = [
     id: 'trap_collapse',
     name: 'Prepared Collapse',
     description: 'The whole frontage, cut most of the way through, and one charge holding it up.',
-    requiresTech: 'tech_demolition_doctrine',
     cost: { scrap: 4200, planks: 2400, highQualityMetal: 260, caps: 2600 },
     effect: { kind: 'bite', bite: 0.24 },
   },
@@ -120,7 +115,6 @@ export const TRAP_CATALOG: readonly TrapSpec[] = [
     name: 'Razor Wire',
     description:
       'A belt of tape across the approach. Nobody dies of it; everybody slows down in it.',
-    requiresTech: 'tech_watch_schedules',
     cost: { scrap: 450, planks: 180, caps: 240 },
     effect: { kind: 'wire', speedCut: 15, moraleCut: 2, rounds: 2 },
   },
@@ -128,7 +122,6 @@ export const TRAP_CATALOG: readonly TrapSpec[] = [
     id: 'trap_fuel_fougasse',
     name: 'Fuel Fougasse',
     description: 'A drum of thickened oil laid in a pit at an angle, with a charge behind it.',
-    requiresTech: 'tech_sally_ports',
     cost: { scrap: 2400, planks: 400, oil: 620, caps: 1400 },
     effect: { kind: 'bite', bite: 0.2 },
   },
@@ -136,7 +129,6 @@ export const TRAP_CATALOG: readonly TrapSpec[] = [
     id: 'trap_flooded_cellar',
     name: 'Flooded Cellar',
     description: 'The basement filled from the culvert, and two bus bars sitting in the far wall.',
-    requiresTech: 'tech_layered_defence',
     cost: { scrap: 5600, planks: 1800, oil: 900, highQualityMetal: 340, caps: 3200 },
     effect: { kind: 'bite', bite: 0.28 },
   },
@@ -179,11 +171,6 @@ export function trapEffectLine(spec: TrapSpec): string {
     (units) => `${trapBite(units, bite)} of ${units.toLocaleString('en-GB')}`,
   );
   return `Takes ${quoted.join(', ')} attacking units before contact`;
-}
-
-/** Traps this crew's finished research allows the yard to cut. */
-export function trapsAvailable(technologies: readonly string[]): TrapSpec[] {
-  return TRAP_CATALOG.filter((spec) => technologies.includes(spec.requiresTech));
 }
 
 export interface TrapToll {

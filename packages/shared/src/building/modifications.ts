@@ -7,7 +7,7 @@ import type { ModificationRarity } from '../modification-rarity.js';
  * Building modifications (GDD §A1): the second axis a structure improves along.
  *
  * A modification is **not** a level. Levels are bought with materials and time; a modification is
- * *researched* or built in the Scrapyard, needs a Lead Engineer on the books to design it, and then
+ * *researched* or built in the Scrapyard, needs a Engineer on the books to design it, and then
  * sits in one of the structure's three slots. Each structure offers seven and holds three, so the
  * choice is which three of the seven this district is: see §E, which is what made the slots
  * emptiable again.
@@ -41,10 +41,15 @@ export const MODIFICATION_EFFECTS = [
   /** Percentage points on the payroll ceiling: room for another name on the book. */
   'payroll_percent',
   'raid_loot_percent',
-  /** Percentage points off the training clock of every unit on the roster. */
-  'training_time_reduction',
-  /** Percentage points off the **supplies** line of a training bill, and no other line. */
-  'training_supplies_reduction',
+  /** Percentage points off the muster clock of every unit on the roster. */
+  'muster_time_reduction',
+  /** Percentage points off the **supplies** line of a muster bill, and no other line. */
+  'muster_supplies_reduction',
+  /**
+   * **Points**, not a percentage: what a spy has to beat on top of the holder's Master of Whispers,
+   * the people's counter-intelligence and the gate (`crewCounter` in `spying/spying.ts`).
+   */
+  'counter_intel_points',
 ] as const;
 export const ModificationEffectSchema = z.enum(MODIFICATION_EFFECTS);
 export type ModificationEffect = z.infer<typeof ModificationEffectSchema>;
@@ -141,6 +146,15 @@ export interface ModificationSpec {
    * whose content wants something the band does not say.
    */
   requires?: Partial<ModificationRequirement>;
+  /**
+   * The Scrapyard level this card opens at, when it is not its grade's rung
+   * (`SCRAPYARD_LEVEL_FOR_RARITY`, read by `scrapyardLevelForModification`).
+   *
+   * For a card whose number was cut below its old band (maintainer, 2026-10-01: "keep old Yard
+   * level"): the four supplies cards halved into BASIC keep the rung they opened at before. Moved
+   * with the ladder on 2026-10-02 (P13-A) to the first level of the band they came from.
+   */
+  yardLevel?: number;
 }
 
 /**
@@ -159,7 +173,7 @@ export const SET_BONUSES: Readonly<
   plumbing: { effect: 'production_percent', magnitude: 10, title: 'Everything Runs' },
   power: { effect: 'build_time_reduction', magnitude: 8, title: 'The Lights Never Dip' },
   optics: { effect: 'research_time_reduction', magnitude: 10, title: 'Nothing Unseen' },
-  automation: { effect: 'training_time_reduction', magnitude: 9, title: 'It Runs Itself' },
+  automation: { effect: 'muster_time_reduction', magnitude: 9, title: 'It Runs Itself' },
   comfort: { effect: 'housing_percent', magnitude: 12, title: 'Somewhere Worth Coming Back To' },
   armour: { effect: 'defense_percent', magnitude: 12, title: 'Buttoned Up' },
 };
@@ -223,8 +237,10 @@ const FITS_BY_EFFECT: Readonly<Record<ModificationEffect, readonly BuildingKind[
   housing_percent: ['quarters', 'infirmary', 'apothecary'],
   payroll_percent: ['nexus', 'quarters'],
   raid_loot_percent: ['garage', 'scrapyard', 'gauntlet', 'gate'],
-  training_time_reduction: ['gauntlet', 'quarters', 'infirmary'],
-  training_supplies_reduction: ['greenhouse', 'gauntlet', 'apothecary'],
+  muster_time_reduction: ['gauntlet', 'quarters', 'infirmary'],
+  muster_supplies_reduction: ['greenhouse', 'gauntlet', 'apothecary'],
+  // Where the district keeps what it knows: the hub, the door, and the Lab's datacores.
+  counter_intel_points: ['nexus', 'gate', 'lab'],
 };
 
 /**
@@ -268,7 +284,10 @@ const SPECS: readonly Omit<ModificationSpec, 'id'>[] = [
     building: 'nexus',
     name: 'Encrypted Core',
     description: 'Encrypts all allegiance data. Anyone casing this district works blind.',
-    effect: 'defense_percent',
+    // Points against a spy since 2026-10-01 (maintainer: "make it anti-spy"); it paid Gate defence,
+    // which no spy ever meets. 14 points is a Gate a level and a half deep, and the price is the
+    // ADVANCED one it always had.
+    effect: 'counter_intel_points',
     magnitude: 14,
     rarity: 'advanced',
     family: 'armour',
@@ -331,6 +350,19 @@ const SPECS: readonly Omit<ModificationSpec, 'id'>[] = [
     rarity: 'advanced',
     family: 'plumbing',
   },
+  // Maintainer, 2026-09-30: one more card in the Nexus and one in the Quarters that widen the
+  // book. The two already there are an ADVANCED and a MASTERPIECE, so these sit lower: a crew
+  // mid-way up the ladder has a payroll card within reach.
+  {
+    building: 'nexus',
+    name: 'Pay Office',
+    description:
+      'A clerk, a window and a queue on Fridays. Wages go out on time and nobody asks for more.',
+    effect: 'payroll_percent',
+    magnitude: 10,
+    rarity: 'intricate',
+    family: 'automation',
+  },
 
   // --- The Quarters ---
   {
@@ -376,7 +408,7 @@ const SPECS: readonly Omit<ModificationSpec, 'id'>[] = [
     building: 'quarters',
     name: 'Turnout Drills',
     description: 'Bunk to boots in ninety seconds, and the same again on every other parade.',
-    effect: 'training_time_reduction',
+    effect: 'muster_time_reduction',
     magnitude: 8,
     rarity: 'basic',
     family: 'automation',
@@ -385,8 +417,8 @@ const SPECS: readonly Omit<ModificationSpec, 'id'>[] = [
     building: 'quarters',
     name: 'Mess Rota',
     description: 'One kitchen, one sitting, and what a recruit is fed stops being an argument.',
-    effect: 'training_supplies_reduction',
-    magnitude: 8,
+    effect: 'muster_supplies_reduction',
+    magnitude: 4,
     rarity: 'basic',
     family: 'plumbing',
   },
@@ -397,6 +429,16 @@ const SPECS: readonly Omit<ModificationSpec, 'id'>[] = [
     effect: 'housing_percent',
     magnitude: 16,
     rarity: 'advanced',
+    family: 'comfort',
+  },
+  {
+    building: 'quarters',
+    name: 'Board and Lodging',
+    description:
+      'A bed and a hot meal come with the job. People sign for less when the roof is included.',
+    effect: 'payroll_percent',
+    magnitude: 7,
+    rarity: 'basic',
     family: 'comfort',
   },
 
@@ -422,12 +464,23 @@ const SPECS: readonly Omit<ModificationSpec, 'id'>[] = [
   },
   {
     building: 'greenhouse',
+    fits: ['greenhouse', 'gauntlet', 'apothecary'],
     name: 'Sealed Growrooms',
     description:
       'Heat stays in and the trays run year round, so a ration goes further than it did.',
-    effect: 'training_supplies_reduction',
-    magnitude: 14,
-    rarity: 'advanced',
+    effect: 'muster_supplies_reduction',
+    magnitude: 7,
+    rarity: 'basic',
+    // Halved with the other supplies cards (2026-10-01), which puts it in the basic band; it keeps
+    // the gates, the reach (`fits`) and the Scrapyard level it had as an advanced drawing, so it is
+    // still a late fitting that travels, at a basic card's price.
+    requires: {
+      buildingLevel: 12,
+      crewLevel: 15,
+      officer: { role: 'veteran', mark: 'C+' },
+      notoriety: 6,
+    },
+    yardLevel: 9,
     family: 'plumbing',
   },
   {
@@ -681,19 +734,28 @@ const SPECS: readonly Omit<ModificationSpec, 'id'>[] = [
     name: 'Stimulant Line',
     description:
       'Measured doses for the drill yard, and a recruit is through the course a week sooner.',
-    effect: 'training_time_reduction',
+    effect: 'muster_time_reduction',
     magnitude: 8,
     rarity: 'basic',
     family: 'automation',
   },
   {
     building: 'apothecary',
+    fits: ['greenhouse', 'gauntlet', 'apothecary'],
     name: 'Dispensary Apprenticeships',
     description:
       'Apprentices grinding and weighing under somebody who has seen a wrong dose. Nothing is spoiled twice.',
-    effect: 'training_supplies_reduction',
-    magnitude: 14,
-    rarity: 'advanced',
+    effect: 'muster_supplies_reduction',
+    magnitude: 7,
+    rarity: 'basic',
+    // Halved and kept at its old gates, as Sealed Growrooms (2026-10-01).
+    requires: {
+      buildingLevel: 12,
+      crewLevel: 15,
+      officer: { role: 'veteran', mark: 'C+' },
+      notoriety: 6,
+    },
+    yardLevel: 9,
     family: 'plumbing',
   },
 
@@ -818,7 +880,7 @@ const SPECS: readonly Omit<ModificationSpec, 'id'>[] = [
     building: 'lab',
     name: 'Written Drill',
     description: 'Drill set down properly, so the Gauntlet stops teaching the same hour twice.',
-    effect: 'training_time_reduction',
+    effect: 'muster_time_reduction',
     magnitude: 7,
     rarity: 'basic',
     family: 'automation',
@@ -846,11 +908,20 @@ const SPECS: readonly Omit<ModificationSpec, 'id'>[] = [
   },
   {
     building: 'gauntlet',
+    fits: ['greenhouse', 'gauntlet', 'apothecary'],
     name: 'Instructor Cadre',
     description: 'People whose whole job is making other people better at theirs. Less is ruined.',
-    effect: 'training_supplies_reduction',
-    magnitude: 16,
-    rarity: 'advanced',
+    effect: 'muster_supplies_reduction',
+    magnitude: 8,
+    rarity: 'basic',
+    // Halved and kept at its old gates, as Sealed Growrooms (2026-10-01).
+    requires: {
+      buildingLevel: 12,
+      crewLevel: 15,
+      officer: { role: 'veteran', mark: 'C+' },
+      notoriety: 6,
+    },
+    yardLevel: 9,
     family: 'plumbing',
   },
   {
@@ -876,27 +947,36 @@ const SPECS: readonly Omit<ModificationSpec, 'id'>[] = [
     building: 'gauntlet',
     name: 'Salvaged Simulators',
     description:
-      'Combine training rigs, repurposed. A recruit walks the course before they walk it.',
-    effect: 'training_time_reduction',
+      'Combine obstacle rigs, repurposed. A recruit walks the course before they walk it.',
+    effect: 'muster_time_reduction',
     magnitude: 14,
     rarity: 'advanced',
     family: 'automation',
   },
   {
     building: 'gauntlet',
+    fits: ['greenhouse', 'gauntlet', 'apothecary'],
     name: 'Kit Store',
     description:
       'Kit issued, signed for and handed back, so a course stops eating a new set every intake.',
-    effect: 'training_supplies_reduction',
-    magnitude: 9,
-    rarity: 'intricate',
+    effect: 'muster_supplies_reduction',
+    magnitude: 5,
+    rarity: 'basic',
+    // Halved and kept at the gates it had as an intricate card (2026-10-01).
+    requires: {
+      buildingLevel: 7,
+      crewLevel: 8,
+      officer: { role: 'veteran', mark: 'D' },
+      notoriety: 0,
+    },
+    yardLevel: 4,
     family: 'plumbing',
   },
   {
     building: 'gauntlet',
     name: 'Night Course',
     description: 'The same run made in the dark until dark stops being a reason to slow down.',
-    effect: 'training_time_reduction',
+    effect: 'muster_time_reduction',
     magnitude: 16,
     rarity: 'advanced',
     family: 'automation',
@@ -966,7 +1046,7 @@ const SPECS: readonly Omit<ModificationSpec, 'id'>[] = [
     name: 'Prosthetics Bench',
     description:
       'Limbs fitted and tuned here, so somebody is back on the course in days rather than months.',
-    effect: 'training_time_reduction',
+    effect: 'muster_time_reduction',
     magnitude: 14,
     rarity: 'advanced',
     family: 'automation',
@@ -1060,7 +1140,7 @@ const SPECS: readonly Omit<ModificationSpec, 'id'>[] = [
     fits: ['quarters', 'nexus', 'infirmary', 'apothecary'],
     name: 'Standpipe Run',
     description:
-      'Clean water to every floor instead of one tap in the yard. People stop being ill.',
+      'Clean water to every floor instead of one tap in the yard. The top storeys can be lived in now.',
     effect: 'housing_percent',
     magnitude: 8,
     rarity: 'basic',
@@ -1106,18 +1186,18 @@ const SPECS: readonly Omit<ModificationSpec, 'id'>[] = [
     fits: ['greenhouse', 'apothecary', 'infirmary', 'quarters', 'scrapyard'],
     name: 'Grey Water Loop',
     description: 'Nothing leaves the building that could be used again first.',
-    effect: 'training_supplies_reduction',
-    magnitude: 7,
+    effect: 'muster_supplies_reduction',
+    magnitude: 3,
     rarity: 'basic',
     family: 'plumbing',
-    synergy: { with: 'automation', bonus: 5 },
+    synergy: { with: 'automation', bonus: 2 },
   },
   {
     building: 'infirmary',
     fits: ['infirmary', 'quarters', 'apothecary'],
     name: 'Quiet Wing',
     description:
-      'Thick walls and no through traffic. People come out of it faster than they went in.',
+      'Thick walls and no through traffic. People sign for less to sleep somewhere quiet.',
     effect: 'payroll_percent',
     magnitude: 8,
     rarity: 'basic',
@@ -1140,7 +1220,7 @@ const SPECS: readonly Omit<ModificationSpec, 'id'>[] = [
     fits: ['gauntlet', 'quarters', 'infirmary'],
     name: 'Mess Hall',
     description: 'Hot food at the end of a shift. It is not complicated and it works.',
-    effect: 'training_time_reduction',
+    effect: 'muster_time_reduction',
     magnitude: 7,
     rarity: 'basic',
     family: 'comfort',
@@ -1174,11 +1254,11 @@ const SPECS: readonly Omit<ModificationSpec, 'id'>[] = [
     fits: ['garage', 'scrapyard', 'gauntlet'],
     name: 'Parts Carousel',
     description: 'The part you want arrives in front of you instead of being looked for.',
-    effect: 'training_supplies_reduction',
-    magnitude: 6,
+    effect: 'muster_supplies_reduction',
+    magnitude: 3,
     rarity: 'basic',
     family: 'automation',
-    synergy: { with: 'optics', bonus: 5 },
+    synergy: { with: 'optics', bonus: 2 },
   },
   {
     building: 'apothecary',
@@ -1196,7 +1276,7 @@ const SPECS: readonly Omit<ModificationSpec, 'id'>[] = [
     fits: ['gauntlet', 'gate', 'garage'],
     name: 'Range Optics',
     description: 'Glass on the targets and a screen in the shed. Arguments about hits end.',
-    effect: 'training_time_reduction',
+    effect: 'muster_time_reduction',
     magnitude: 6,
     rarity: 'basic',
     family: 'optics',

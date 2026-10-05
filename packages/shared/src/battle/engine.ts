@@ -22,7 +22,7 @@ import {
 import { bareBattlefield, type Battlefield } from './battlefield.js';
 import { bareLineRules, fightingSlots, markedUnit, standsInLine, type LineRules } from './line.js';
 import { packBonusPercent } from '../units/collective.js';
-import { effectiveStats, OUTNUMBERED_RATIO, type Effective } from './effects.js';
+import { effectiveStats, outnumberedWeight, type Effective } from './effects.js';
 // Kept exported from here because every caller in the game imports the engine's own names for
 // these, and they are the engine's rules: the module split is about the import graph, not about
 // where they belong.
@@ -39,6 +39,7 @@ import {
   type MoraleShock,
   type MoraleState,
   WINNING_RELIEF,
+  MORALE_THRESHOLDS,
 } from './morale.js';
 import { drawLuck } from './luck.js';
 import { softCap } from './soft-cap.js';
@@ -136,17 +137,26 @@ export function engagedUnits(side: SideState, frontage: number): number {
 }
 
 /**
- * The most a crew's own co-ordination can widen the ground it is fighting on.
+ * How far a crew's own co-ordination widens the ground it is fighting on: in full up to the knee,
+ * then less for every point after, closing on the ceiling and never reaching it.
  *
- * Capped at half again, because a corridor is a corridor. Cohesion is a real answer to combat width
- * and it is deliberately not a complete one: a crew that solves overstacking by hiring an organiser
- * would put the mechanic back where it was before frontage existed.
+ * A corridor is a corridor. Cohesion is a real answer to combat width and deliberately not a
+ * complete one: a crew that solves overstacking by hiring an organiser would put the mechanic back
+ * where it was before frontage existed. It was a hard +50% until 2026-10-01, which two officers and
+ * the Organiser signature passed, so every cohesion point after that bought nothing. The curve
+ * keeps +50% at +49.4, takes +64 to +57.3 and +100 to +63.7, and never reaches +65.
  */
-export const MAX_COHESION_WIDTH = 1.5;
+export const COHESION_KNEE = 45;
+export const COHESION_CEILING = 65;
+
+/** The share the front is widened by, as a percentage, after the curve. */
+export function cohesionWidening(percent: number): number {
+  return softCap(Math.max(0, percent), COHESION_KNEE, COHESION_CEILING);
+}
 
 /** This side's usable frontage: the ground's, widened by what the crew can co-ordinate. */
 export function effectiveFrontage(side: SideState, frontage: number): number {
-  return frontage * Math.min(MAX_COHESION_WIDTH, 1 + Math.max(0, side.cohesionPercent) / 100);
+  return frontage * (1 + cohesionWidening(side.cohesionPercent) / 100);
 }
 
 /**
@@ -205,6 +215,18 @@ export function frontageShare(side: SideState, frontage: number): number {
  * `STEALTH_UNTAGGED_SHARE` and `docs/BATTLE-ENGINE.md`, "The eight ratings").
  */
 export const AMBUSH_ROUND_SHARE = 1;
+
+/**
+ * Where the ambush stops paying in full, and the share of a round it closes on and never reaches.
+ *
+ * The note above says a fraction of a round, never a whole one, and the product could reach one:
+ * a Specter at stealth 100 against the Abomination, which sees nothing, opened with 1.000 of a
+ * round (maintainer ruling P10-E, 2026-10-02: cap it below a round). A curve rather than a `min`,
+ * by the 2026-09-29 rule (`softCap`): more stealth always buys a little more. Ordinary ambushes,
+ * a quarter of a round or less, are under the knee and do not move; the Specter's reads 0.80.
+ */
+export const AMBUSH_KNEE = 0.6;
+export const AMBUSH_CEILING = 0.85;
 
 /**
  * How much a stack without the `ambush` mark still counts towards the opening strike, per body.
@@ -618,14 +640,9 @@ export const INTIMIDATION_KNEE = 0.8;
  * and this carries how many. A mirror is reached in full, so even fights are unchanged.
  */
 export function intimidationReach(enemy: SideState, side: SideState): number {
-  const slots = (of: SideState): number =>
-    of.stacks.reduce(
-      (total, stack) => total + (stack.brokeAt === null ? stack.alive * stack.unit.unitSlots : 0),
-      0,
-    );
-  const line = slots(side);
+  const line = slotsInTheFight(side);
   if (line <= 0) return 1;
-  return softCap((slots(enemy) * INTIMIDATION_REACH) / line, INTIMIDATION_KNEE, 1);
+  return softCap((slotsInTheFight(enemy) * INTIMIDATION_REACH) / line, INTIMIDATION_KNEE, 1);
 }
 
 /** Average intimidation across a side's live units: what the other side has to look at. */
@@ -728,7 +745,7 @@ function intimidatePlan(side: SideState, against: number): Map<Stack, number> {
    * shot, with nothing the defender could do about it after the fact.
    *
    * That is the shape every other ceiling in this engine exists to prevent. `MAX_MEND_SHARE` says
-   * a hospital may not cancel a round; `MAX_HELD_DEFENSE` says no amount of building makes a
+   * a hospital may not cancel a round; `heldDefense` says no amount of building makes a
    * district untakeable; `MAX_CONCENTRATION` says a numbers edge may not compound into
    * annihilation. This was the one lever with no such line, and the doc above already promises the
    * behaviour a ceiling gives: "the steadiest troops hold".
@@ -1410,7 +1427,8 @@ function buildStacks(
   army: Army,
   battlefield: Battlefield,
   defending: boolean,
-  outnumbered: boolean,
+  /** How far the line is outnumbered, 0 to 1 (`outnumberedWeight`). */
+  outnumbered: number,
   territory: TerritoryEffects,
   upgrades: UnitLoadouts,
   /** §D1: the officer leading, appended as a one-unit stack after the roster. */
@@ -1968,7 +1986,7 @@ export function applyDamage(
  * the difference between a fight that turns and a fight that detonates.
  */
 /**
- * How badly `side` is outnumbered by `enemy`, as a ratio of the men still in the fight.
+ * How badly `side` is outnumbered by `enemy`, as a ratio of the unit slots still in the fight.
  *
  * Counted off who is still fighting rather than off who is still on the field (2026-09-17). This
  * was `standingUnits` on both halves, which counts the routed: a line felt outnumbered by men who
@@ -1982,7 +2000,19 @@ export function applyDamage(
  * put a number on.
  */
 export function outnumberedBy(side: SideState, enemy: SideState): number {
-  return fighting(enemy) / Math.max(1, fighting(side));
+  /*
+   * In unit slots (maintainer, 2026-10-02), as the formation's rule and intimidation already count:
+   * by heads, 20 Wardens (40 slots) felt outnumbered 2 to 1 by 40 Razors (40 slots) every round.
+   */
+  return slotsInTheFight(enemy) / Math.max(1, slotsInTheFight(side));
+}
+
+/** Slots still in the fight, unbroken: what `outnumberedBy` and the reach weigh a line in. */
+function slotsInTheFight(of: SideState): number {
+  return of.stacks.reduce(
+    (total, stack) => total + (stack.brokeAt === null ? stack.alive * stack.unit.unitSlots : 0),
+    0,
+  );
 }
 
 /**
@@ -2025,6 +2055,11 @@ export function moraleOutlook(side: SideState, enemy: SideState): MoraleOutlook 
   };
 }
 
+/** A stack's health when it walked in: every body at its sheet's vitality. */
+function startedHealth(stack: Stack): number {
+  return stack.started * stack.effective.vitality;
+}
+
 function moralePhase(
   side: SideState,
   enemy: SideState,
@@ -2060,14 +2095,29 @@ function moralePhase(
    * zero, so a body that falls a round late costs exactly what it would have cost on time. See
    * `Stack.charged`.
    */
-  const enemyStarted = enemy.stacks.reduce((n, stack) => n + stack.started, 0);
-  const enemyAlive = enemy.stacks.reduce((n, stack) => n + stack.alive, 0);
-  const enemyLostSoFar = enemyStarted === 0 ? 0 : 1 - enemyAlive / enemyStarted;
+  /*
+   * Read off health, not bodies (maintainer, 2026-10-05, P2-A). A wounded front body counted for
+   * nothing until it died, then the whole shock landed at once, so a long fight between hardy sheets
+   * turned on the round one body happened to fall, and adding units to a mixed line could lose
+   * fights it used to win. The share of starting health gone moves with every wound.
+   */
+  const enemyStartedHealth = enemy.stacks.reduce((n, stack) => n + startedHealth(stack), 0);
+  const enemyHealth = enemy.stacks.reduce((n, stack) => n + stack.pool, 0);
+  const enemyLostSoFar =
+    enemyStartedHealth <= 0 ? 0 : Math.max(0, 1 - enemyHealth / enemyStartedHealth);
 
+  /*
+   * The Saint's presence (`steadies`, maintainer 2026-10-05): read once for the round, before any
+   * stack's morale moves, so the order the stacks are walked in cannot decide who it reaches.
+   */
+  const steadied = side.stacks.some(
+    (stack) => stack.unit.steadies === true && stack.brokeAt === null && stack.alive > 0,
+  );
   const broke: Stack[] = [];
   for (const stack of side.stacks) {
     if (stack.brokeAt !== null || stack.alive <= 0) continue;
-    const ownLostSoFar = stack.started === 0 ? 0 : 1 - stack.alive / stack.started;
+    const full = startedHealth(stack);
+    const ownLostSoFar = full <= 0 ? 0 : Math.max(0, 1 - stack.pool / full);
     const deficit = Math.max(0, ownLostSoFar - WINNING_RELIEF * enemyLostSoFar);
     const casualtyFraction = Math.max(0, deficit - stack.charged);
     stack.charged = Math.max(stack.charged, deficit);
@@ -2078,6 +2128,10 @@ function moralePhase(
       0,
       100,
     );
+    // Held at wavering beside the Saint: shaken, never running. The Saint himself is not.
+    if (steadied && stack.unit.steadies !== true) {
+      stack.morale = Math.max(stack.morale, MORALE_THRESHOLDS.wavering);
+    }
     // `stalwart` is checked after the morale is written, not instead of it: the stack still loses
     // its nerve on the ledger, it simply does not leave. That is what makes the rule bite exactly
     // once, when the losses finally take it under half and it breaks in the same round it would
@@ -2253,7 +2307,7 @@ export function simulate(input: SimulateInput): Simulation {
       setup.army,
       ground,
       setup.defending,
-      ownCount > 0 && otherCount / ownCount >= OUTNUMBERED_RATIO,
+      outnumberedWeight(otherCount, ownCount),
       setup.territory ?? noTerritoryEffects(),
       setup.upgrades ?? {},
       setup.officer,
@@ -2606,7 +2660,7 @@ export function ambushShare(side: SideState, enemy: SideState): number {
    * It used to be, as `min(1, hidden / engagedUnits(side, frontage))`, and it was counted twice:
    * the volley is fired through `fireRound`'s `only` filter, which already restricts it to the
    * stacks carrying the sheet, so six Ghosts in a force of thirty were scaled to a fifth and then
-   * fired a fifth of a round. Measured at the shipped numbers: `AMBUSH_ROUND_SHARE` is 0.6 and the
+   * fired a fifth of a round. Measured at the numbers then: `AMBUSH_ROUND_SHARE` was 0.6 and the
    * mechanic delivered 0.09, so a maxed stealth bonus moved the outcome of none of 150 seeded
    * fights and the whole opening strike was worth two points of damage out of six hundred.
    *
@@ -2634,7 +2688,7 @@ export function ambushShare(side: SideState, enemy: SideState): number {
    * everyone who hid fires, the marked at full weight and the rest at a third. A line built to
    * set an ambush opens at nearly three times what a line that merely happens to be quiet does.
    */
-  return AMBUSH_ROUND_SHARE * edge * (hidden / bodies);
+  return softCap(AMBUSH_ROUND_SHARE * edge * (hidden / bodies), AMBUSH_KNEE, AMBUSH_CEILING);
 }
 
 /** How hard a side is to sneak up on: its own stealth is what it knows to look for. */

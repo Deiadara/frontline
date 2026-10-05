@@ -1,4 +1,4 @@
-import type { OverseerArchetype } from '@frontline/shared';
+import { OVERSEER_ARCHETYPE_LABELS, type OverseerArchetype } from '@frontline/shared';
 import { deliveredUrl } from '../../assets/delivered';
 import { cn } from '../../lib/cn';
 
@@ -143,7 +143,7 @@ export function OverseerPortrait({
       <span className="grain pointer-events-none absolute inset-0 block opacity-60" />
       {showTag && archetype !== undefined && (
         <span className="absolute bottom-1.5 left-1.5 border border-brass-300/30 bg-surface-950/70 px-1.5 py-0.5 font-display text-[8px] uppercase tracking-[0.2em] text-brass-300">
-          {archetype}
+          {OVERSEER_ARCHETYPE_LABELS[archetype]}
         </span>
       )}
     </span>

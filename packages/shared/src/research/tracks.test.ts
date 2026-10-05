@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { TRAP_CATALOG } from '../battle/traps.js';
 import { BATTLE_BOOSTS } from '../battle/boosts.js';
 import { noCrewEffects } from '../crew/effects.js';
+import { PERK_CATALOG, describePerkBonus } from '../crew/perks.js';
 import { findUnit } from '../units/catalog.js';
 import { OFFICER_MARKS, markIndex, type OfficerMark } from '../crew/marks.js';
 import { OFFICER_ROLES } from '../roles.js';
@@ -9,19 +10,19 @@ import { TECH_DISTRICT_OFFERS, isAreaUnlocked, noUnlocks } from '../progression/
 import { ResearchStateSchema } from './state.js';
 import {
   HEAD_MARK_THRESHOLDS,
-  MAX_RESEARCH_COST_CUT,
-  MAX_RESEARCH_TIME_CUT,
   PAYOUT_FAMILIES,
   REIMAGINING_RESEARCH_ID,
   RESEARCH_ITEMS,
   RESEARCH_TRACK_BLURBS,
   RESEARCH_TRACK_STEPS,
   TRACK_MARKS,
+  describeResearchItemRefusal,
   describeResearchPayout,
   findResearchItem,
   hardestRequiredMark,
   isReimaginingResearched,
   itemsInTrack,
+  labLevelForStep,
   payoutFamily,
   requiredHeadMark,
   requiredTrackMark,
@@ -32,7 +33,6 @@ import {
   researchItemPrice,
   researchTimeCutPercent,
   researchUnlocks,
-  trackCostCutPercent,
   trackProgress,
 } from './tracks.js';
 
@@ -46,6 +46,8 @@ import {
 
 /** Nobody in either chair: the state every crew starts in. */
 const EMPTY = { trackMark: null, headMark: null };
+/** A Lab at its top, so the tier gate (P7-C) opens every rung and the chair gates are what is tested. */
+const FULL_LAB = 20;
 
 /** A chair pair good enough for anything: used where the test is about a different gate. */
 const PERFECT: { trackMark: OfficerMark; headMark: OfficerMark } = {
@@ -94,16 +96,16 @@ describe('§C1: the shape of the tree', () => {
       'tech_critical_path',
       'tech_traffic_analysis',
       // `tech_one_time_pads` was here: retired with the Whispers rework, dropped from saves by 0109.
-      'tech_false_traffic',
-      'tech_field_triage',
-      'tech_blood_bank',
-      'tech_trauma_theatre',
+      // `tech_false_traffic` was here: the Consigliere's, dropped from saves by 0135 (2026-10-01).
+      // The Chief Medic's, the Fabricator's and the Head of Security's rungs that were here went
+      // with the chair rework, dropped from saves by 0142 (2026-10-04).
       'tech_sorted_salvage',
       'tech_alloy_reclamation',
-      'tech_standard_parts',
-      'tech_pressure_plates',
-      'tech_shaped_charges',
-      'tech_demolition_doctrine',
+      // ...and the rungs that moved to a surviving track kept their ids.
+      'tech_batch_runs',
+      'tech_reimagining',
+      'tech_carry_both',
+      'tech_drill_yard',
     ];
     for (const id of stored) expect(findResearchItem(id), id).toBeDefined();
 
@@ -122,13 +124,13 @@ describe('§C1: the shape of the tree', () => {
     expect(ResearchStateSchema.parse({ active: null, facts: [] }).technologies).toEqual([]);
   });
 
-  it('still answers the two catalogues that gate on a research id', () => {
-    for (const trap of TRAP_CATALOG) {
-      expect(findResearchItem(trap.requiresTech), trap.id).toBeDefined();
-    }
-    for (const boost of BATTLE_BOOSTS) {
-      if (boost.unlock.kind !== 'tech') continue;
-      expect(findResearchItem(boost.unlock.techId), boost.id).toBeDefined();
+  // Traps and the boosts the Lab proposed open off their blueprint alone (maintainer, 2026-10-01),
+  // so no rung may still promise one.
+  it("opens no trap and no battle boost: those are the blueprints' now", () => {
+    for (const spec of RESEARCH_ITEMS) {
+      const line = describeResearchPayout(spec);
+      for (const trap of TRAP_CATALOG) expect(line, spec.id).not.toContain(trap.name);
+      for (const boost of BATTLE_BOOSTS) expect(line, spec.id).not.toContain(boost.name);
     }
   });
 });
@@ -167,17 +169,20 @@ describe('§C2: the gating curve', () => {
     for (const step of [1, 2, 3]) {
       const spec = itemsInTrack(track)[step - 1];
       if (!spec) throw new Error('missing rung');
-      expect(researchItemRefusal(spec.id, finishedBelow(track, step), fresh), spec.id).toBeNull();
+      expect(
+        researchItemRefusal(spec.id, finishedBelow(track, step), fresh, FULL_LAB),
+        spec.id,
+      ).toBeNull();
     }
     const fourth = itemsInTrack(track)[3];
     if (!fourth) throw new Error('missing rung');
-    expect(researchItemRefusal(fourth.id, finishedBelow(track, 4), fresh)).toBe(
+    expect(researchItemRefusal(fourth.id, finishedBelow(track, 4), fresh, FULL_LAB)).toBe(
       'track_mark_too_low',
     );
   });
 
   /** §C2e: the Head's own bar, after the 3rd, 5th and 7th. */
-  it('asks the Head of Research for a mark from the fourth rung', () => {
+  it('asks the Researcher for a mark from the fourth rung', () => {
     expect(HEAD_MARK_THRESHOLDS.map((entry) => entry.afterStep)).toEqual([3, 5, 7]);
     expect([1, 2, 3].map(requiredHeadMark)).toEqual([null, null, null]);
     expect([4, 5, 6, 7, 8, 9, 10].map(requiredHeadMark)).toEqual([
@@ -214,21 +219,21 @@ describe('§C2: the gating curve', () => {
 });
 
 describe('§C1b/§C1c: who has to be in a chair', () => {
-  const track = 'chief_medic';
+  const track = 'veteran';
   const first = itemsInTrack(track)[0];
   if (!first) throw new Error('need a rung');
 
-  it('refuses everything without a Head of Research', () => {
+  it('refuses everything without a Researcher', () => {
     for (const spec of RESEARCH_ITEMS) {
       expect(
-        researchItemRefusal(spec.id, finishedBelow(spec.track, spec.step), EMPTY),
+        researchItemRefusal(spec.id, finishedBelow(spec.track, spec.step), EMPTY, FULL_LAB),
         spec.id,
-      ).toBe('no_head_of_research');
+      ).toBe('no_researcher');
     }
   });
 
   it('refuses a track whose own chair is empty, even with a perfect Head', () => {
-    expect(researchItemRefusal(first.id, [], { trackMark: null, headMark: 'S+' })).toBe(
+    expect(researchItemRefusal(first.id, [], { trackMark: null, headMark: 'S+' }, FULL_LAB)).toBe(
       'no_track_officer',
     );
   });
@@ -236,23 +241,57 @@ describe('§C1b/§C1c: who has to be in a chair', () => {
   it('refuses a rung whose predecessor is unfinished', () => {
     const third = itemsInTrack(track)[2];
     if (!third) throw new Error('need a rung');
-    expect(researchItemRefusal(third.id, [], PERFECT)).toBe('needs_previous_step');
-    expect(researchItemRefusal(third.id, finishedBelow(track, 3), PERFECT)).toBeNull();
+    expect(researchItemRefusal(third.id, [], PERFECT, FULL_LAB)).toBe('needs_previous_step');
+    expect(researchItemRefusal(third.id, finishedBelow(track, 3), PERFECT, FULL_LAB)).toBeNull();
   });
 
   it('refuses what is already done, and what does not exist', () => {
-    expect(researchItemRefusal(first.id, [first.id], PERFECT)).toBe('already_known');
-    expect(researchItemRefusal('tech_nothing_at_all', [], PERFECT)).toBe('unknown_item');
+    expect(researchItemRefusal(first.id, [first.id], PERFECT, FULL_LAB)).toBe('already_known');
+    expect(researchItemRefusal('tech_nothing_at_all', [], PERFECT, FULL_LAB)).toBe('unknown_item');
   });
 
   it('names the Head threshold rather than the track one when the Head is what is short', () => {
     const fourth = itemsInTrack(track)[3];
     if (!fourth) throw new Error('need a rung');
     const done = finishedBelow(track, 4);
-    expect(researchItemRefusal(fourth.id, done, { trackMark: 'S+', headMark: 'F-' })).toBe(
-      'head_mark_too_low',
-    );
-    expect(researchItemRefusal(fourth.id, done, { trackMark: 'S+', headMark: 'E' })).toBeNull();
+    expect(
+      researchItemRefusal(fourth.id, done, { trackMark: 'S+', headMark: 'F-' }, FULL_LAB),
+    ).toBe('head_mark_too_low');
+    expect(
+      researchItemRefusal(fourth.id, done, { trackMark: 'S+', headMark: 'E' }, FULL_LAB),
+    ).toBeNull();
+  });
+});
+
+/** Maintainer ruling P7-C (2026-10-02): a tier of programmes every two Lab levels. */
+describe('the Lab opens a tier every two levels', () => {
+  const track = 'veteran';
+  it('asks a Lab at twice the rung, the tenth at 20 and the ninth at 18', () => {
+    expect(labLevelForStep(10)).toBe(20);
+    expect(labLevelForStep(9)).toBe(18);
+    expect(labLevelForStep(1)).toBe(2);
+    for (const spec of itemsInTrack(track)) {
+      const done = finishedBelow(track, spec.step);
+      const at = labLevelForStep(spec.step);
+      expect(researchItemRefusal(spec.id, done, PERFECT, at - 1), spec.id).toBe('lab_too_low');
+      expect(researchItemRefusal(spec.id, done, PERFECT, at), spec.id).toBeNull();
+    }
+  });
+
+  it('says which Lab level in the refusal', () => {
+    const fifth = itemsInTrack(track)[4]!;
+    expect(describeResearchItemRefusal('lab_too_low', fifth)).toBe('Needs the Lab at 10');
+  });
+
+  // No officer cuts a programme's price since 2026-10-04: the Lab's is the only cut.
+  it("takes the Lab's cut off the price, and nothing else", () => {
+    const spec = itemsInTrack(track)[5]!;
+    const cut = researchItemPrice(spec, 30);
+    for (const [key, amount] of Object.entries(spec.cost)) {
+      const paid = cut[key as keyof typeof cut] ?? 0;
+      expect(paid, key).toBe(Math.max(1, Math.round((amount ?? 0) * 0.7)));
+    }
+    expect(researchItemPrice(spec)).toEqual(spec.cost);
   });
 });
 
@@ -299,12 +338,13 @@ describe('§C4a: what a rung pays', () => {
   });
 
   it('keeps the doors for the deep rungs', () => {
-    // A second crew out, another chair, another fight called: the grants a crew plans around,
-    // and none of them on a rung a fresh recruit can reach.
+    // A second crew out, another fight called: the grants a crew plans around, and none of them
+    // on a rung a fresh recruit can reach. Two since research stopped paying officer slots
+    // (maintainer, 2026-10-01).
     const doors = RESEARCH_ITEMS.filter((spec) =>
-      ['mission_slots', 'recruit_slots', 'declarations'].includes(spec.payout.bonus?.kind ?? ''),
+      ['mission_slots', 'declarations'].includes(spec.payout.bonus?.kind ?? ''),
     );
-    expect(doors.length).toBeGreaterThanOrEqual(5);
+    expect(doors.length).toBeGreaterThanOrEqual(2);
     for (const spec of doors) expect(spec.step, spec.id).toBeGreaterThanOrEqual(6);
     expect(doors.some((spec) => spec.payout.bonus?.kind === 'mission_slots')).toBe(true);
   });
@@ -316,7 +356,7 @@ describe('§C4a: what a rung pays', () => {
     if (!map || !chair || !fire) throw new Error('missing rungs');
     const folded = researchEffects([map.id, chair.id, fire.id, 'tech_not_a_thing']);
     expect(folded.missionSlotsFlat).toBe(1);
-    expect(folded.recruitSlotsFlat).toBe(1);
+    expect(folded.officerGroupFlat.social).toBe(3);
     expect(folded.unitTierPercent.rabble?.offense).toBe(6);
     expect(researchEffects([])).toEqual(noCrewEffects());
   });
@@ -343,7 +383,7 @@ describe('§C4a: what a rung pays', () => {
         expect(spec.payout.unlocks, spec.id).not.toMatch(/\.$/);
     }
     expect(describeResearchPayout(findResearchItem(TECH_DISTRICT_OFFERS)!)).toBe(
-      'Opens the district offers board, to post what you will trade and take what others post, and -5% market prices',
+      'Opens the district offers board, to post what you will trade and take what others post, and -5 points off market prices (tapers, no hard stop)',
     );
   });
 
@@ -421,15 +461,18 @@ describe('§C4a: what a rung pays', () => {
     for (const role of OFFICER_ROLES) {
       const ladders = new Map<string, { step: number; id: string; paid: number }[]>();
       for (const rung of itemsInTrack(role)) {
-        if (rung.payout.bonus === undefined) continue;
-        const bonus = rung.payout.bonus as unknown as Record<string, unknown>;
-        const paid = magnitudeOf(bonus);
-        if (paid === null) continue;
-        const channel = channelOf(bonus);
-        ladders.set(channel, [
-          ...(ladders.get(channel) ?? []),
-          { step: rung.step, id: rung.id, paid },
-        ]);
+        // A rung's second bonus (`also`) is on the same ladder as anything else on that channel.
+        for (const paidOut of [rung.payout.bonus, rung.payout.also]) {
+          if (paidOut === undefined) continue;
+          const bonus = paidOut as unknown as Record<string, unknown>;
+          const paid = magnitudeOf(bonus);
+          if (paid === null) continue;
+          const channel = channelOf(bonus);
+          ladders.set(channel, [
+            ...(ladders.get(channel) ?? []),
+            { step: rung.step, id: rung.id, paid },
+          ]);
+        }
       }
       for (const [channel, rungs] of ladders) {
         for (let index = 1; index < rungs.length; index += 1) {
@@ -479,25 +522,127 @@ describe('§G1: Reimagining', () => {
     expect(isReimaginingResearched(['tech_shift_rotation'])).toBe(false);
     expect(isReimaginingResearched([REIMAGINING_RESEARCH_ID])).toBe(true);
   });
+
+  // The bench is a tab of its own beside Blueprints (`ResearchPage.tsx`, `SECTIONS`). The card sent
+  // players to the Blueprints tab, which has no bench on it (wiring audit, 2026-10-01).
+  it('sends a player to the tab the bench is actually on', () => {
+    const spec = findResearchItem(REIMAGINING_RESEARCH_ID);
+    if (!spec) throw new Error('no Reimagining rung');
+    const card = describeResearchPayout(spec);
+    expect(card).toContain('its own tab in the Lab');
+    expect(card).not.toContain('Blueprints page');
+  });
+});
+
+/**
+ * The nine rungs the maintainer repaid on 2026-10-01: seven lost the trap or boost they opened
+ * ("have the traps just be unlocked by blueprints ... add just some universal bonuses in their
+ * place") and two lost an officer slot ("Remove the +1 at the bar mechanic"). Each pays a bonus
+ * that always pays: no chair, no blueprint, no fight it has to be.
+ */
+describe('the nine rungs repaid on 2026-10-01', () => {
+  /** Channels that pay every crew all the time, with no condition to meet first. */
+  const UNIVERSAL = new Set([
+    'unit_vitality',
+    'unit_morale',
+    'unit_offense',
+    'unit_armor',
+    'vehicle_parts',
+    'production',
+    'officer_group',
+  ]);
+  // Watch Schedules was the seventh, keeping its spy points; it lost them later the same day and
+  // is held below, with the other five spy rungs.
+  // The six rungs that were here sat on the Head of Security's and the Fabricator's tracks, which
+  // went with the chair rework (2026-10-04); the two below are what is left of the nine.
+  const OPENED_A_DOOR: Record<string, string> = {};
+
+  it.each(Object.entries(OPENED_A_DOOR))(
+    '%s keeps its own bonus, opens nothing, and pays a universal one beside it',
+    (id, kept) => {
+      const spec = findResearchItem(id);
+      if (!spec) throw new Error(`no ${id}`);
+      expect(spec.payout.bonus?.kind).toBe(kept);
+      expect(spec.payout.unlocks).toBeUndefined();
+      const also = spec.payout.also;
+      expect(also && UNIVERSAL.has(also.kind), `${id} pays ${also?.kind}`).toBe(true);
+      // Folded, not only declared: the second bonus reaches the crew.
+      const folded = researchEffects([id]);
+      expect(folded).not.toEqual(researchEffects([]));
+      expect(describeResearchPayout(spec)).not.toMatch(/^Opens /);
+    },
+  );
+
+  it.each(['tech_the_growth_curve', 'tech_succession_planning'])(
+    '%s pays a universal bonus where the officer slot was',
+    (id) => {
+      const spec = findResearchItem(id);
+      if (!spec?.payout.bonus) throw new Error(`no bonus on ${id}`);
+      expect(UNIVERSAL.has(spec.payout.bonus.kind), spec.payout.bonus.kind).toBe(true);
+      expect(describeResearchPayout(spec)).not.toContain('at the Bar');
+    },
+  );
+
+  it('pays the second bonus through the fold, at its own number', () => {
+    expect(researchEffects(['tech_the_growth_curve']).productionPercent).toBe(15);
+    expect(researchEffects(['tech_succession_planning']).officerGroupFlat.social).toBe(3);
+  });
+});
+
+/**
+ * The six rungs that paid spying (maintainer, 2026-10-01): "spy bonuses from the officer should
+ * only come based on his grade", and the same rule for defence. Three paid spy points and three
+ * paid points against spies; each pays a bonus that always pays in their place, priced like a
+ * neighbour on the same step. Written out rather than read back, so a payout moved under the test
+ * is a failure and not a new expectation.
+ */
+describe('the six spy rungs repaid on 2026-10-01', () => {
+  const REPAID: Record<string, { step: number; card: string }> = {
+    tech_field_debriefs: { step: 6, card: '+7% experience' },
+    tech_underground_routes: { step: 5, card: '-8 points off the road (tapers, no hard stop)' },
+    tech_citation_index: { step: 6, card: '+10 points off the research clock' },
+  };
+
+  it.each(Object.entries(REPAID))('%s pays no spying, and pays %o', (id, { step, card }) => {
+    const spec = findResearchItem(id);
+    if (!spec) throw new Error(`no ${id}`);
+    expect(spec.step).toBe(step);
+    expect(describeResearchPayout(spec)).toBe(card);
+    const folded = researchEffects([id]);
+    expect(folded.intelYieldPercent).toBe(0);
+    expect(folded.intelResistancePercent).toBe(0);
+    expect(folded).not.toEqual(researchEffects([]));
+  });
+
+  it('pays the new bonuses through the fold, at their own numbers', () => {
+    expect(researchEffects(['tech_field_debriefs']).xpGainPercent).toBe(7);
+    expect(researchEffects(['tech_underground_routes']).travelSpeedPercent).toBe(8);
+    expect(researchEffects(['tech_citation_index']).researchSpeedPercent).toBe(10);
+  });
+
+  it('leaves no rung anywhere in the Lab paying spy points or points against spies', () => {
+    const all = researchEffects(RESEARCH_ITEMS.map((spec) => spec.id));
+    expect(all.intelYieldPercent).toBe(0);
+    expect(all.intelResistancePercent).toBe(0);
+    for (const spec of RESEARCH_ITEMS) {
+      for (const paid of [spec.payout.bonus, spec.payout.also]) {
+        expect(paid?.kind, spec.id).not.toBe('intel');
+        expect(paid?.kind, spec.id).not.toBe('intel_resistance');
+      }
+    }
+  });
 });
 
 describe('§C3: points, not marks', () => {
   /** Anchors written out: 10 is the measured mark floor, 100 the trainable ceiling. */
-  it('turns the Head of Research points into a percentage off the clock', () => {
-    expect(MAX_RESEARCH_TIME_CUT).toBe(45);
+  // The Researcher's passive (maintainer, 2026-10-04): a straight line to 50% at a perfect sheet.
+  it('turns the Researcher points into a percentage off the clock', () => {
     expect(researchTimeCutPercent(10)).toBe(0);
     expect(researchTimeCutPercent(0)).toBe(0);
-    expect(researchTimeCutPercent(20)).toBeCloseTo(5, 10);
-    expect(researchTimeCutPercent(55)).toBeCloseTo(22.5, 10);
-    expect(researchTimeCutPercent(100)).toBe(45);
-    expect(researchTimeCutPercent(140)).toBe(45);
-  });
-
-  it('turns the track officer points into a percentage off the price', () => {
-    expect(MAX_RESEARCH_COST_CUT).toBe(30);
-    expect(trackCostCutPercent(10)).toBe(0);
-    expect(trackCostCutPercent(40)).toBeCloseTo(10, 10);
-    expect(trackCostCutPercent(100)).toBe(30);
+    expect(researchTimeCutPercent(19)).toBeCloseTo(5, 10);
+    expect(researchTimeCutPercent(55)).toBeCloseTo(25, 10);
+    expect(researchTimeCutPercent(100)).toBe(50);
+    expect(researchTimeCutPercent(140)).toBe(50);
   });
 
   /**
@@ -511,18 +656,6 @@ describe('§C3: points, not marks', () => {
   it('moves on a fraction of a point, so training is never wasted', () => {
     const step = 1 / 13;
     expect(researchTimeCutPercent(30 + step)).toBeGreaterThan(researchTimeCutPercent(30));
-    expect(trackCostCutPercent(30 + step)).toBeGreaterThan(trackCostCutPercent(30));
-    // ...and the two are not the same lever wearing two names.
-    expect(researchTimeCutPercent(60)).not.toBeCloseTo(trackCostCutPercent(60), 3);
-  });
-
-  it('takes the track officer cut off the real price', () => {
-    const spec = RESEARCH_ITEMS[0];
-    if (!spec) throw new Error('need a rung');
-    expect(researchItemPrice(spec, 0)).toEqual(spec.cost);
-    const cut = researchItemPrice(spec, 30);
-    expect(cut.caps).toBeLessThan(spec.cost.caps ?? 0);
-    expect(cut.caps).toBe(Math.max(1, Math.floor((spec.cost.caps ?? 0) * 0.7)));
   });
 });
 
@@ -556,21 +689,22 @@ describe('the ladder of prices and clocks', () => {
  * that. Asserted as a switch on the fold rather than as a number, because the consumer is a
  * yes-or-no and reads it that way.
  */
-describe('§C: the Chief Medic rung that brings the pack back', () => {
-  const rung = itemsInTrack('chief_medic')[5];
-  if (!rung) throw new Error('the Chief Medic track has no sixth rung');
+// On the Veteran's track since the Chief Medic's chair left the game (2026-10-04), its id kept.
+describe('§C: the Veteran rung that brings the pack back', () => {
+  const rung = itemsInTrack('veteran')[3];
+  if (!rung) throw new Error('the Veteran track has no fourth rung');
 
-  it('is the sixth rung of the Chief Medic track, priced and gated off that depth', () => {
+  it('is the fourth rung of the Veteran track, priced and gated off that depth', () => {
     expect(rung.id).toBe('tech_carry_both');
     expect(rung.name).toBe('Carry Both');
-    expect(rung.track).toBe('chief_medic');
-    expect(rung.step).toBe(6);
+    expect(rung.track).toBe('veteran');
+    expect(rung.step).toBe(4);
     // Written out rather than recomputed: a rung that moved up or down the track would change all
     // four of these at once, which is exactly what this is here to catch.
-    expect(rung.cost).toEqual({ caps: 6750, scrap: 3750, highQualityMetal: 130 });
-    expect(rung.minutes).toBe(170);
-    expect(rung.requiresMark).toBe('D');
-    expect(rung.requiresHeadMark).toBe('D+');
+    expect(rung.cost).toEqual({ caps: 3900, scrap: 2250, highQualityMetal: 30 });
+    expect(rung.minutes).toBe(120);
+    expect(rung.requiresMark).toBe('E-');
+    expect(rung.requiresHeadMark).toBe('E');
     expect(findResearchItem('tech_carry_both')).toBe(rung);
   });
 
@@ -710,7 +844,7 @@ describe("the Master of Whispers' track, off the ledger", () => {
     ],
   ] as const;
 
-  it('carries the ledger rung for rung: id, name, price, clock and the Head of Research mark', () => {
+  it('carries the ledger rung for rung: id, name, price, clock and the Researcher mark', () => {
     const track = itemsInTrack('master_of_whispers');
     expect(track.map((spec) => spec.id)).toEqual(LEDGER.map(([id]) => id));
     for (const [index, [id, name, cost, minutes, head]] of LEDGER.entries()) {
@@ -762,7 +896,7 @@ describe("the Master of Whispers' track, off the ledger", () => {
       '+1 spying party out at once',
     );
     expect(describeResearchPayout(findResearchItem('tech_shared_knowledge')!)).toBe(
-      '+5 Stealth, +3 Deception and +3 Cryptography on every other officer seated and working',
+      '+5 Stealth, +3 Deception and +3 Cryptography on every other officer seated and working, while somebody works this chair',
     );
   });
 });
@@ -772,25 +906,46 @@ describe("the Master of Whispers' track, off the ledger", () => {
  * 2026-09-29). The spy contest adds both intel channels to a chair's fit as points
  * (`spying/spying.ts`), and the medics' points go through a curve before they are a share of the
  * dead (`casualtyRecoveryShare`). A "+8% intel" card promised something on top of the chair.
+ *
+ * No rung pays spy points since 2026-10-01, nor medic points since 2026-10-04, so their wording
+ * is held on the perks, which share the rungs' describer and still pay all three.
  */
-describe('the rungs that pay points, worded as points', () => {
+describe('the rungs and perks that pay points, worded as points', () => {
   const WORDING = {
     intel: 'spy points',
     intel_resistance: 'spy points against enemy spies',
     casualty_recovery: 'medic points',
   } as const;
+  const pointsOf = (bonus: { kind: string } | undefined) =>
+    bonus !== undefined && bonus.kind in WORDING
+      ? (bonus as { kind: keyof typeof WORDING; percent: number })
+      : null;
 
   it('names the points on every such rung, and never a percentage', () => {
-    const paying = RESEARCH_ITEMS.filter((spec) => {
-      const kind = spec.payout.bonus?.kind;
-      return kind !== undefined && kind in WORDING;
-    });
-    expect(paying.length, 'no rung pays spy or medic points').toBeGreaterThan(10);
+    // The medic rungs sat on the Wetware Chief's and the Chief Medic's tracks, which went on
+    // 2026-10-04; the perks below still pay medic points, and the Infirmary.
+    const paying = RESEARCH_ITEMS.filter((spec) => pointsOf(spec.payout.bonus) !== null);
     for (const spec of paying) {
-      const bonus = spec.payout.bonus as { kind: keyof typeof WORDING; percent: number };
+      const bonus = pointsOf(spec.payout.bonus)!;
       const card = describeResearchPayout(spec);
       expect(card, spec.id).toContain(`+${bonus.percent} ${WORDING[bonus.kind]}`);
       expect(card, spec.id).not.toContain(`${bonus.percent}%`);
+    }
+  });
+
+  it('names the points on every such perk, both spy kinds included', () => {
+    const paying = PERK_CATALOG.filter((perk) => pointsOf(perk.bonus) !== null);
+    for (const kind of ['intel', 'intel_resistance', 'casualty_recovery'] as const) {
+      expect(
+        paying.some((perk) => perk.bonus.kind === kind),
+        kind,
+      ).toBe(true);
+    }
+    for (const perk of paying) {
+      const bonus = pointsOf(perk.bonus)!;
+      const card = describePerkBonus(perk.bonus);
+      expect(card, perk.id).toContain(`+${bonus.percent} ${WORDING[bonus.kind]}`);
+      expect(card, perk.id).not.toContain(`${bonus.percent}%`);
     }
   });
 });

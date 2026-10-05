@@ -33,13 +33,17 @@ async function makeApp(env: Record<string, string> = {}): Promise<FastifyInstanc
   return app;
 }
 
-/** One failed sign-in, presented as arriving from `from` by way of the proxy. */
+/**
+ * One failed sign-in, presented as arriving from `from` by way of the proxy. A name of its own each
+ * time, so what refuses is the address's budget and never the per-account lock.
+ */
+let knocks = 0;
 const knock = (app: FastifyInstance, from: string) =>
   app.inject({
     method: 'POST',
     url: '/api/auth/login',
     headers: { 'x-forwarded-for': from },
-    payload: { username: 'nobody_at_all', password: 'wrongpassword' },
+    payload: { username: `nobody_at_all_${(knocks += 1)}`, password: 'wrongpassword' },
   });
 
 describe('the address bucket behind a proxy', () => {

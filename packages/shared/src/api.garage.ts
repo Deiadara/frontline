@@ -28,6 +28,12 @@ export const GarageVehicleSchema = z.object({
    * to an empty yard and no word of where anything went.
    */
   out: z.number().int().nonnegative().default(0),
+  /**
+   * How many are ordered and still on the bench. The yard's ceiling counts them (a bench order
+   * holds its space), so a card at "10" refused another one with nothing on it saying why (bug
+   * pass, 2026-10-02). Optional so a fixture without it parses; `?? 0` reads as none.
+   */
+  onBench: z.number().int().nonnegative().optional(),
   cost: PartialResourcesSchema,
   buildSeconds: z.number().int().positive(),
   /** **Unit slots** it carries, which is also what the enemy earns for destroying it (§C3). */

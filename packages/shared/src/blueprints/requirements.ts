@@ -47,9 +47,8 @@ export function blueprintForBattleBoost(boostId: string): BlueprintSpec | undefi
 /**
  * §I4: the drawings the yard cuts a trap from.
  *
- * The Lab rung on `TrapSpec.requiresTech` is the other half and neither replaces the other: the
- * rung says the crew has worked out what the thing does, the document says somebody wrote down how
- * to make one. Both are checked at the Scrapyard, in that order.
+ * The only thing that opens one (maintainer, 2026-10-01: "have the traps just be unlocked by
+ * blueprints, and then made in the scrapyard"). The yard's own level and the bill are the rest.
  */
 export function blueprintForTrap(trapId: string): BlueprintSpec | undefined {
   return blueprintForTarget('trap', trapId);

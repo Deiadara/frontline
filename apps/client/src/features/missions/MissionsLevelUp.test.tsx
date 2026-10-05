@@ -42,6 +42,7 @@ function board(levelUp?: LevelUp): { data: MissionsResponse; dataUpdatedAt: numb
       army: {},
       resources: { caps: 0, supplies: 0, oil: 0, scrap: 0, highQualityMetal: 0, planks: 0 },
       activeLimit: 3,
+      xpBonusPercent: 0,
       serverNow: NOW,
       leaders: [],
       level: 12,

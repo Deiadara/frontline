@@ -14,6 +14,7 @@ import { buildApp } from '../app.js';
 import { loadConfig } from '../config.js';
 import { openDatabase, runMigrations, type AppDatabase } from '../db/index.js';
 import { chooseOverseer } from '../testing/overseer.js';
+import { openDoors } from '../testing/doors.js';
 
 /**
  * The door on a city's back room (maintainer, 2026-09-17).
@@ -79,6 +80,8 @@ async function player(app: FastifyInstance, username: string) {
     payload: { infamy: 500_000, notoriety: MAX_NOTORIETY },
   });
   expect(knobs.statusCode, knobs.body).toBe(200);
+  // The back room sits inside the Market, whose door is a level.
+  openDoors(app, token, 'market');
   return { token, baseId };
 }
 

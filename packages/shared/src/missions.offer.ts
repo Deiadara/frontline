@@ -16,6 +16,7 @@ import {
   type Mission,
   type MissionTemplate,
 } from './missions.js';
+import { boostedXp } from './progression/state.js';
 import { RESOURCE_KG } from './raid.js';
 
 /**
@@ -31,7 +32,25 @@ import { RESOURCE_KG } from './raid.js';
  * into the frozen minutes rather than quoted as a percentage. It is the card's decoration, not its
  * pay. A row from before grades reads as the job's lowest.
  */
-export function offerOfMission(mission: Mission, template: MissionTemplate): MissionOffer {
+/**
+ * A card's two XP figures as the return banks them: a clean run's, and a failure's share of it,
+ * each with the district's and the crew's bonus on (`boostedXp`). The row freezes the job's own
+ * figure and the award adds the bonus, so a card printing the frozen figure quoted 200 for a run
+ * that paid 214 (bug pass, 2026-10-02).
+ */
+export function offerXp(xp: number, bonusPercent = 0): Pick<MissionOffer, 'xp' | 'failedXp'> {
+  return {
+    xp: boostedXp(xp, bonusPercent),
+    failedXp: boostedXp(Math.round(xp * FAILED_MISSION_XP_SHARE), bonusPercent),
+  };
+}
+
+export function offerOfMission(
+  mission: Mission,
+  template: MissionTemplate,
+  /** `MissionsResponse.xpBonusPercent`: what the return adds to the frozen XP. */
+  xpBonusPercent = 0,
+): MissionOffer {
   const grade = mission.grade ?? template.grades[0];
   const timings = missionTimings(mission);
   const priced = pricedTotalMinutes(mission);
@@ -67,8 +86,7 @@ export function offerOfMission(mission: Mission, template: MissionTemplate): Mis
     speedPercent: 0,
     rewards,
     payoutSlots: Math.round(payoutSlots(rewards, RESOURCE_KG)),
-    xp,
-    failedXp: Math.round(xp * FAILED_MISSION_XP_SHARE),
+    ...offerXp(xp, xpBonusPercent),
     leanings: [...leaningsFor(template)],
   };
 }

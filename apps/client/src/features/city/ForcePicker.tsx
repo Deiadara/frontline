@@ -99,7 +99,7 @@ export function ForcePicker({
       <div className="flex min-h-0 flex-col gap-3 overflow-y-auto p-5">
         {available.length === 0 ? (
           <p className="font-body text-xs leading-relaxed text-ink-300">
-            You have nobody to send. Train units at the Gauntlet first.
+            You have nobody to send. Muster units at the Gauntlet first.
           </p>
         ) : (
           available.map(({ unit, count }) => (

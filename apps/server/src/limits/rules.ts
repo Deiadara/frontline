@@ -18,6 +18,17 @@ import type { LimitRule } from './bucket.js';
 /** Signing in and signing up. Per address, because there is no account yet to count against. */
 export const AUTH_LIMIT: LimitRule = { quota: 20, windowMs: 15 * 60_000 };
 
+/**
+ * Failed sign-ins against one account, from anywhere (maintainer, 2026-09-30).
+ *
+ * `AUTH_LIMIT` is per address, so a guesser with a thousand addresses had twenty thousand guesses
+ * a quarter hour at one password. This counts the misses against the name typed, whoever typed it,
+ * and past ten the eleventh attempt is refused before the password is hashed. The price is that a
+ * stranger can hold somebody's account shut for fifteen minutes by missing on purpose, which is the
+ * lesser harm: a shut door costs a player a wait, a guessed password costs them the account.
+ */
+export const LOGIN_FAILURE_LIMIT: LimitRule = { quota: 10, windowMs: 15 * 60_000 };
+
 /** Everything that changes the world. Per account. */
 export const WRITE_LIMIT: LimitRule = { quota: 120, windowMs: 60_000 };
 

@@ -29,7 +29,7 @@ describe('recentPress', () => {
 /**
  * Two quick presses of one button are one column (maintainer, 2026-09-22).
  *
- * Every press minted a fresh id, and a readout stacks its figures per press id, so pressing Train
+ * Every press minted a fresh id, and a readout stacks its figures per press id, so pressing Muster
  * twice drew the second pair of receipts over the first at the same pixel. A press on the same
  * control inside the window keeps the id; a press somewhere else, or after the window, is new.
  */
@@ -50,20 +50,20 @@ describe('pressing the same control again', () => {
 
   it('keeps one press id for the same button, and mints another for a different one', () => {
     installLastPress(document);
-    const train = document.createElement('button');
+    const muster = document.createElement('button');
     const other = document.createElement('button');
-    train.getBoundingClientRect = () => box(400, 600);
+    muster.getBoundingClientRect = () => box(400, 600);
     other.getBoundingClientRect = () => box(400, 900);
-    document.body.append(train, other);
+    document.body.append(muster, other);
 
-    press(train);
+    press(muster);
     const first = recentPress();
     expect(first).not.toBeNull();
-    press(train);
-    expect(recentPress()?.id, 'the second press of Train opened a second column').toBe(first!.id);
+    press(muster);
+    expect(recentPress()?.id, 'the second press of Muster opened a second column').toBe(first!.id);
     press(other);
     expect(recentPress()?.id, 'a press elsewhere is not the same column').not.toBe(first!.id);
-    train.remove();
+    muster.remove();
     other.remove();
   });
 });

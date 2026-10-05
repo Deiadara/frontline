@@ -166,13 +166,15 @@ describe('adding rewards together', () => {
     const merged = mergeFeatRewards([
       { resources: { caps: 100, scrap: 5 }, xp: 10 },
       { resources: { caps: 50 }, boosts: ['combat_stims'] },
-      { units: { razors: 2 }, items: { scrap_servo: 1 }, xp: 90 },
+      { units: { razors: 2 }, items: { scrap_servo: 1 }, xp: 90, pages: 1 },
+      { pages: 2 },
     ]);
     expect(merged.resources).toEqual({ caps: 150, scrap: 5 });
     expect(merged.units).toEqual({ razors: 2 });
     expect(merged.items).toEqual({ scrap_servo: 1 });
     expect(merged.xp).toBe(100);
     expect(merged.boosts).toEqual(['combat_stims']);
+    expect(merged.pages).toBe(3);
   });
 
   it('keeps duplicate boosts, because two of a thing is two of a thing', () => {

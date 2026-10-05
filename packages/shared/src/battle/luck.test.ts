@@ -36,7 +36,7 @@ const bare = (id: string) =>
   effectiveStats(
     unit(id),
     bareBattlefield(),
-    { defending: false, outnumbered: false },
+    { defending: false, outnumbered: 0 },
     noTerritoryEffects(),
   );
 
