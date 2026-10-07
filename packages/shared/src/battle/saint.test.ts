@@ -12,7 +12,9 @@ import { simulate } from './engine.js';
  */
 describe('the Saint steadies the line beside him', () => {
   const SAINT_SIDE: Army = { the_saint: 1, razors: 30 };
-  const ENEMY: Army = { razors: 40 };
+  // Fifty since 2026-10-07: the Saint is fifty unit slots now, so forty Razors no longer outnumber
+  // his line enough to break it without him (97 of 200 at forty; 200 of 200 at fifty).
+  const ENEMY: Army = { razors: 50 };
   const SEEDS = 200;
 
   /** Fights in which any stack beside the Saint broke and ran. */
@@ -42,7 +44,8 @@ describe('the Saint steadies the line beside him', () => {
     } finally {
       saint.steadies = true;
     }
-    // Measured 2026-10-05: 0 of 200 with the aura, 200 of 200 without.
+    // Measured 2026-10-05: 0 of 200 with the aura, 200 of 200 without. Re-measured 2026-10-07 at
+    // fifty Razors: 0 of 200 with, 200 of 200 without.
     expect(alone).toBeGreaterThan(SEEDS / 2);
     expect(steadied).toBeLessThan(alone / 4);
   });

@@ -1,21 +1,27 @@
 import {
+  bestLeader,
+  composeProfile,
   createCommander,
+  findMissionTemplate,
+  leaningsFor,
+  makeAttributes,
   OFFICER_ROLES,
   concurrentMissionSlots,
-  unitsBeyondNotoriety,
+  notorietyToField,
   AUTOMATION_RUNGS,
   MISC_AREA_ID,
   NO_RIGHT_HAND_TEXT,
   type MissionsResponse,
 } from '@frontline/shared';
 import type { FastifyInstance } from 'fastify';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { buildApp } from '../app.js';
 import { loadConfig } from '../config.js';
 import { openDatabase, runMigrations, type AppDatabase } from '../db/index.js';
 import { chooseOverseer } from '../testing/overseer.js';
 import { holdEveryBoard } from '../testing/footholds.js';
 import { settleAutomations } from '../automations/runners.js';
+import { liftedOfficerSheet, officerLiftRoom } from '../crew/standing.js';
 
 /**
  * The two routes behind the Right Hand's screen (§C2b), and the one lock that is not on the
@@ -138,6 +144,52 @@ describe('reading and writing a standing order', () => {
     expect(taken.statusCode, taken.body).toBe(200);
   });
 
+  /**
+   * Bug pass, 2026-10-06: an order naming an officer since let go at the Bar could not be switched
+   * off, which kept the mission board locked to the Right Hand.
+   */
+  it('lets an order naming an officer no longer on the books be switched off', async () => {
+    const { app, token, baseId } = await crew();
+    grant(app, baseId, [AUTOMATION_RUNGS.open]);
+    withOfficers(app, baseId);
+    expect((await save(app, token, { ...ORDER, officerId: 'auto-off-2' })).statusCode).toBe(200);
+    // Released: gone from the books, still named on the slot.
+    const base = app.repos.bases.findById(baseId)!;
+    app.repos.bases.updateCommanders(
+      baseId,
+      base.commanders.filter((officer) => officer.id !== 'auto-off-2'),
+    );
+    const off = await save(app, token, { ...ORDER, enabled: false, officerId: 'auto-off-2' });
+    expect(off.statusCode, off.body).toBe(200);
+    expect(app.repos.automations.get(baseId, 0)?.enabled).toBe(false);
+    // Switching it back on still needs somebody real.
+    const on = await save(app, token, { ...ORDER, officerId: 'auto-off-2' });
+    expect(on.statusCode, on.body).toBe(404);
+  });
+
+  /**
+   * Bug pass, 2026-10-06: a party naming a unit since retired read back as stored, stalled the
+   * runner for ever, and the switch-off (which resends the party) was refused as "No such unit".
+   */
+  it('lets an order naming a retired unit be switched off, and reads the unit as gone', async () => {
+    const { app, token, baseId } = await crew();
+    grant(app, baseId, [AUTOMATION_RUNGS.open]);
+    withOfficers(app, baseId);
+    expect((await save(app, token, ORDER)).statusCode).toBe(200);
+    app.db
+      .prepare('UPDATE automations SET force_json = ? WHERE base_id = ? AND slot = 0')
+      .run(JSON.stringify({ razors: 1, retired_unit: 3 }), baseId);
+    expect(app.repos.automations.get(baseId, 0)?.force).toEqual({ razors: 1 });
+    // What the screen resends: the party as it last read it, the retired id included if stale.
+    const off = await save(app, token, {
+      ...ORDER,
+      enabled: false,
+      force: { razors: 1, retired_unit: 3 },
+    });
+    expect(off.statusCode, off.body).toBe(200);
+    expect(app.repos.automations.get(baseId, 0)?.enabled).toBe(false);
+  });
+
   /** Audit, 2026-09-28: the slot was saved, then stalled on every tick with "not free". */
   it('refuses switching on a slot that names an officer on the bench, and lets it be switched off', async () => {
     const { app, token, baseId } = await crew();
@@ -225,6 +277,33 @@ describe('reading and writing a standing order', () => {
     expect(slots[0]).toMatchObject({ slot: 0, enabled: true, force: { razors: 1 } });
     expect(app.repos.automations.get(baseId, 0)?.enabled).toBe(true);
   });
+
+  /*
+   * A slot's own leader stays on the list while out, marked so (maintainer, 2026-10-06). Dropping
+   * them left a running order's dropdown reading "Choose the officer who leads". Somebody out whom
+   * no slot names is still left off: the picker offers nobody the runner would refuse.
+   */
+  it('lists a slot’s own leader while out, marked out, and nobody else who is out', async () => {
+    const { app, token, baseId } = await crew();
+    grant(app, baseId, [AUTOMATION_RUNGS.open]);
+    withOfficers(app, baseId, 3);
+    expect((await save(app, token, { ...ORDER, officerId: 'auto-off-2' })).statusCode).toBe(200);
+    const base = app.repos.bases.findById(baseId)!;
+    const later = new Date(Date.now() + 3_600_000).toISOString();
+    app.repos.bases.updateCommanders(
+      baseId,
+      base.commanders.map((one) =>
+        one.id === 'auto-off-1' ? one : { ...one, injuredUntil: later },
+      ),
+    );
+
+    const read = await app.inject({ method: 'GET', url: '/api/automations', headers: auth(token) });
+    const officers = read.json<{ officers: { id: string; out: boolean }[] }>().officers;
+    expect(officers).toEqual([
+      expect.objectContaining({ id: 'auto-off-1', out: false }),
+      expect.objectContaining({ id: 'auto-off-2', out: true }),
+    ]);
+  });
 });
 
 /**
@@ -241,6 +320,92 @@ describe('reading and writing a standing order', () => {
  * wants to watch a second party leave needs a way past it that a player does not have. It is a
  * knob, admin-only like every other, and it touches `restingSince` and nothing else on the slot.
  */
+/*
+ * One slot this build cannot read (bug pass, 2026-10-06): saved for a resource since renamed, it
+ * threw in the read of every enabled order and stopped every crew's standing orders, and in the
+ * crew's own reads it answered 500 on the screen that switches it off.
+ */
+describe('a standing order this build cannot read', () => {
+  it('is skipped, and every other order still runs', async () => {
+    const { app, token, baseId } = await crew();
+    grant(app, baseId, [AUTOMATION_RUNGS.open]);
+    withOfficers(app, baseId);
+    expect((await save(app, token, ORDER)).statusCode).toBe(200);
+    const { db } = instances.at(-1)!;
+    db.exec(
+      `CREATE TEMP TABLE poisoned AS SELECT * FROM automations WHERE base_id = '${baseId}';
+       UPDATE poisoned SET id = 'poisoned', slot = 1, optimise_for = 'rations';
+       INSERT INTO automations SELECT * FROM poisoned;`,
+    );
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    // The stage reads every enabled order before it settles any: one bad row threw it whole.
+    expect(() => settleAutomations(app.repos, new Date())).not.toThrow();
+    const read = await app.inject({ method: 'GET', url: '/api/automations', headers: auth(token) });
+    expect(read.statusCode, read.body).toBe(200);
+    expect((await save(app, token, { ...ORDER, enabled: false })).statusCode).toBe(200);
+  });
+});
+
+/*
+ * Bug pass, 2026-10-06: a standing order ranked its leader on the printed sheets and only lifted
+ * the one it picked, while the board ranks the lifted bench. The Right Hand lifts everybody but
+ * themselves, so a Right Hand a point ahead on paper lost the job to the officer they lift.
+ */
+describe('the leader a standing order picks', () => {
+  it('is the one the board would pick, on the lifted sheets', async () => {
+    const config = loadConfig({
+      DATABASE_PATH: ':memory:',
+      JWT_SECRET: 'test-secret',
+      ADMIN: 'true',
+    });
+    const db = openDatabase(config.databasePath);
+    runMigrations(db);
+    const app = await buildApp({ config, db, logger: false });
+    instances.push({ app, db });
+    const registered = await app.inject({
+      method: 'POST',
+      url: '/api/auth/register',
+      payload: { username: 'picker', password: 'hunter2pass' },
+    });
+    const token = registered.json<{ token: string }>().token;
+    const baseId = (await chooseOverseer(app, token)).json<{ base: { id: string } }>().base.id;
+    grant(app, baseId, [AUTOMATION_RUNGS.open]);
+    const longAgo = new Date(Date.now() - 48 * 3_600_000).toISOString();
+    app.repos.bases.updateCommanders(baseId, [
+      {
+        ...createCommander('hand', 'The Hand', 'right_hand', makeAttributes(60)),
+        seatedAt: longAgo,
+      },
+      {
+        ...createCommander('lifted', 'The Lifted', 'fixer', makeAttributes(59)),
+        seatedAt: longAgo,
+      },
+    ]);
+    app.repos.bases.updateArmy(baseId, { razors: 5 }, []);
+    expect((await save(app, token, ORDER)).statusCode).toBe(200);
+    settleAutomations(app.repos, new Date());
+
+    const [sent] = app.repos.missions.listActiveByBaseId(baseId);
+    if (!sent) throw new Error('fixture: the slot sent nothing');
+    const template = findMissionTemplate(sent.mission.templateId)!;
+    const profile = composeProfile(leaningsFor(template));
+    const base = app.repos.bases.findById(baseId)!;
+    const room = officerLiftRoom(app.repos, base);
+    const printed = bestLeader(base.commanders, profile)!;
+    const lifted = bestLeader(
+      base.commanders.map((one) => ({
+        id: one.id,
+        attributes: liftedOfficerSheet(one, room).attributes,
+      })),
+      profile,
+    )!;
+    // The fixture is only a test while the two rankings disagree on this job.
+    expect(printed.id, 'the lifts no longer change who leads this job').not.toBe(lifted.id);
+    expect(sent.mission.officerId).toBe(lifted.id);
+  });
+});
+
 describe('the rest knob', () => {
   it('clears the rest on every slot and leaves the slot otherwise as it was', async () => {
     const config = loadConfig({
@@ -339,17 +504,20 @@ describe("the board is the Right Hand's while an order is on", () => {
  * pins the refusal against the manual route's, so the two cannot drift apart again.
  */
 describe('a standing order obeys the same doors a player does', () => {
-  it('will not field units the crew’s name cannot carry', async () => {
+  /*
+   * §D7 moved to the muster (maintainer, 2026-10-07): a unit on the books goes where the crew
+   * goes, whatever the crew's name. Pinned on a rank-0 crew holding the sheet the old door
+   * refused, by hand and by slot, so the gate cannot quietly come back on either.
+   */
+  it('sends whatever is on the books, whatever the crew’s name', async () => {
     const { app, token, baseId } = await crew();
-    grant(app, baseId, [AUTOMATION_RUNGS.open]);
+    grant(app, baseId, [AUTOMATION_RUNGS.open, AUTOMATION_RUNGS.bestFit]);
     const base = app.repos.bases.findById(baseId)!;
-    // A sheet the opening rank cannot field, beside one it can: `notorietyToField('juggernauts')`
-    // is above Nobody, which is where every crew starts.
+    expect(base.economy.notoriety).toBe(0);
+    expect(notorietyToField('juggernauts')).toBeGreaterThan(0);
     app.repos.bases.updateArmy(baseId, { juggernauts: 4, razors: 8 }, base.musterQueue);
     withOfficers(app, baseId);
-    expect(unitsBeyondNotoriety({ juggernauts: 1 }, 0).length).toBeGreaterThan(0);
 
-    // The manual door refuses it, which is the standard this test holds the slot to.
     const board = await app.inject({ method: 'GET', url: '/api/missions', headers: auth(token) });
     const read = board.json<MissionsResponse>();
     const misc = read.areas.find((area) => area.id === MISC_AREA_ID);
@@ -368,29 +536,26 @@ describe('a standing order obeys the same doors a player does', () => {
         leaderId: read.leaders[0]?.id,
       },
     });
-    expect(byHand.statusCode).toBe(409);
+    expect(byHand.statusCode, byHand.body).toBe(200);
 
-    // Named party: refused, so the slot stalls rather than sending.
-    expect((await save(app, token, { ...ORDER, force: { juggernauts: 1 } })).statusCode).toBe(200);
-    settleAutomations(app.repos, new Date());
-    expect(app.repos.missions.countActiveByBaseId(baseId), 'a named party walked the gate').toBe(0);
-  });
-
-  it('fits a party out of what the crew may field, not out of everything on the books', async () => {
-    const { app, token, baseId } = await crew();
-    grant(app, baseId, [AUTOMATION_RUNGS.open, AUTOMATION_RUNGS.bestFit]);
-    const base = app.repos.bases.findById(baseId)!;
-    app.repos.bases.updateArmy(baseId, { juggernauts: 4, razors: 8 }, base.musterQueue);
-    withOfficers(app, baseId);
-
-    // The fitted branch ranks by offense per slot, so it would reach for the Juggernauts first.
-    expect((await save(app, token, { ...ORDER, force: {}, unitSlots: 4 })).statusCode).toBe(200);
-    settleAutomations(app.repos, new Date());
-
-    const out = app.repos.missions.listActiveByBaseId(baseId);
-    expect(out.length, 'the slot sent nothing it could legally send').toBe(1);
-    expect(out[0]!.mission.force.juggernauts ?? 0).toBe(0);
-    expect(out[0]!.mission.force.razors ?? 0).toBeGreaterThan(0);
+    // And by slot, naming the party, which is the branch that used to stall on the name. On a
+    // second crew: the first's one leader is out on the job above, and a slot needs one.
+    const slotted = await crew();
+    grant(slotted.app, slotted.baseId, [AUTOMATION_RUNGS.open]);
+    const second = slotted.app.repos.bases.findById(slotted.baseId)!;
+    slotted.app.repos.bases.updateArmy(
+      slotted.baseId,
+      { juggernauts: 4, razors: 8 },
+      second.musterQueue,
+    );
+    withOfficers(slotted.app, slotted.baseId);
+    expect(
+      (await save(slotted.app, slotted.token, { ...ORDER, force: { juggernauts: 1 } })).statusCode,
+    ).toBe(200);
+    settleAutomations(slotted.app.repos, new Date());
+    const out = slotted.app.repos.missions.listActiveByBaseId(slotted.baseId);
+    expect(out.length).toBe(1);
+    expect(out[0]!.mission.force.juggernauts ?? 0).toBeGreaterThan(0);
   });
 
   it('stops at the ceiling on crews out at once, and says so', async () => {

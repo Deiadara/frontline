@@ -9,7 +9,7 @@ import {
   type StoresCredit,
 } from '@frontline/shared';
 import type { Repositories } from '../db/repos/index.js';
-import { crewEffectsFor } from '../crew/standing.js';
+import { crewEffectsFor, standingEffectsFor } from '../crew/standing.js';
 import { AppError } from '../errors.js';
 
 /**
@@ -29,7 +29,19 @@ import { AppError } from '../errors.js';
  * all draw, and a credit clamped to the bare structures would throw away what the screen says fits.
  */
 export function storeCeilingsOf(repos: Repositories, base: Base, now: Date): StoreCeilings {
-  return storeCeilings(base.buildings, crewEffectsFor(repos, base, now).storageCapacityPercent);
+  return storeCeilings(base.buildings, storagePercentOf(repos, base, now));
+}
+
+/**
+ * The crew's storage bonus and the ground's (`storageGroundPercent`, the Undercroft Stores,
+ * maintainer 2026-10-07), added. One function so the HUD bar, the production clamp and the
+ * market's room check cannot disagree about what fits.
+ */
+export function storagePercentOf(repos: Repositories, base: Base, now: Date): number {
+  return (
+    crewEffectsFor(repos, base, now).storageCapacityPercent +
+    standingEffectsFor(repos, base, now).storageGroundPercent
+  );
 }
 
 /** `gain` into this crew's stores as they stand in `base`: what lands and what is thrown away. */

@@ -14,6 +14,7 @@ import { AppError, parseBody } from '../errors.js';
 import type { UserRecord } from '../types.js';
 import { clearSession, issueSession, sessionCookie, signSession } from '../auth/session.js';
 import { worldHasRoom } from '../city/homes.js';
+import { addressBucket } from '../limits/plugin.js';
 import { admitSignIn, clearFailedSignIns } from '../limits/sign-in.js';
 import { refuseUsernameWornByAnother } from './settings.js';
 
@@ -92,8 +93,9 @@ export function registerAuthRoutes(app: FastifyInstance): void {
 
   app.post('/auth/login', async (request, reply) => {
     const body = parseBody(LoginRequestSchema, request.body);
+    const attempt = { username: body.username, address: addressBucket(request.ip) };
     // Before the compare: the point of the lock is that a knock on a shut door costs no hash.
-    admitSignIn(app.rateLimiter, body.username, (seconds) => {
+    admitSignIn(app.rateLimiter, attempt, (seconds) => {
       reply.header('Retry-After', String(seconds));
     });
 
@@ -107,8 +109,17 @@ export function registerAuthRoutes(app: FastifyInstance): void {
     if (!record || !passwordMatches) {
       throw new AppError('INVALID_CREDENTIALS', 'Invalid username or password');
     }
+    /*
+     * Re-read after the compare, as a password change does (bug pass, 2026-10-06). A change landing
+     * during this request's hash committed a new hash and bumped the session version, and the old
+     * password, compared against the row read before the await, still minted a token at the new
+     * version: the lock-out a password change is for did not hold.
+     */
+    if (app.repos.users.findById(record.id)?.passwordHash !== record.passwordHash) {
+      throw new AppError('INVALID_CREDENTIALS', 'Invalid username or password');
+    }
 
-    clearFailedSignIns(app.rateLimiter, body.username);
+    clearFailedSignIns(app.rateLimiter, attempt);
     // Successes only. A trail of failed attempts against a username is a list of guesses at a
     // password, and it belongs in a rate limiter rather than in a table anybody can read.
     app.repos.history.record({

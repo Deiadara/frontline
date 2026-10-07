@@ -11,7 +11,14 @@ import { ROLE_IMPORTANCE } from './crew/importance.js';
 import { PERK_IDS, findPerk } from './crew/perks.js';
 import { RESEARCH_ITEMS } from './research/tracks.js';
 import { TRAINING_DRILLS } from './crew/training.js';
-import { CITY_DISTRICTS, CITY_LOCATIONS, ENV_LABEL_IDS, LOCATION_CATALOG } from './city/index.js';
+import {
+  CITY_DISTRICTS,
+  CITY_LOCATIONS,
+  ENV_LABEL_IDS,
+  EVERY_LOCATION,
+  LOCATION_CATALOG,
+  baseBonusesOf,
+} from './city/index.js';
 import { NOTORIETY_TO_FIELD } from './economy/infamy.js';
 import { ITEM_CATALOG } from './items/catalog.js';
 import { OFFICER_PORTRAIT_IDS, OFFICER_ROLES, OFFICER_ROLE_LABELS } from './roles.js';
@@ -19,6 +26,7 @@ import { RESOURCE_KEYS, RESOURCE_LABELS } from './resources.js';
 import { ART_MANIFEST, tryResolveAssetKey } from './art/manifest.js';
 import { DAMAGE_TYPES, UNIT_MODIFIERS, UNIT_STAT_KEYS } from './units/stats.js';
 import { UNIT_CATALOG, UNIT_TIERS, UNIT_TIER_LABELS } from './units/catalog.js';
+import { doorsOn } from './units/unlocks.js';
 import { UNIT_MODIFICATIONS } from './units/modifications.js';
 
 /**
@@ -90,7 +98,9 @@ describe('every id points at something that exists', () => {
      * is the live example: one location in the whole city, and it is what unlocks the Cyberhounds.
      */
     it('gates every unit on ground the city actually has', () => {
-      const kinds = new Set(CITY_LOCATIONS.map((l) => l.kind));
+      // The world's ground, not Ashfall's: the Death Cloaks are raised in Reliquary's tombs and
+      // nowhere else (2026-10-06).
+      const kinds = new Set(EVERY_LOCATION.map((l) => l.kind));
       for (const unit of UNIT_CATALOG) {
         for (const need of unit.requires) {
           if (need.kind === 'location') {
@@ -101,6 +111,16 @@ describe('every id points at something that exists', () => {
             expect(BUILDING_CATALOG[need.building], unit.id).toBeDefined();
           } else if (need.kind === 'vehicle') {
             expect(findVehicle(need.vehicleId), unit.id).toBeDefined();
+          } else if (need.kind === 'door') {
+            // A door authored on the ground itself (Reliquary, 2026-10-07): some location on the
+            // map has to name this unit, or the unit can never be mustered anywhere.
+            expect(
+              EVERY_LOCATION.some((l) => doorsOn(baseBonusesOf(l)).includes(need.unitId)),
+              `${unit.id} has no door on the map`,
+            ).toBe(true);
+            if (need.orKind !== undefined) {
+              expect(kinds.has(need.orKind), `${unit.id} needs a ${need.orKind}`).toBe(true);
+            }
           } else {
             expect(findModification(need.modificationId), unit.id).toBeDefined();
           }

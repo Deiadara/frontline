@@ -1,5 +1,6 @@
 import {
   askingWage,
+  finalValue,
   auctionPhaseAt,
   auctionWindow,
   committedWage,
@@ -17,7 +18,7 @@ import {
   type Base,
 } from '@frontline/shared';
 import { adminWaives } from '../admin/mode.js';
-import { crewEffectsFor } from '../crew/standing.js';
+import { standingEffectsFor } from '../crew/standing.js';
 import type { BarBid, BarResult } from '../db/repos/bar.js';
 import { settleBase } from '../district/settle.js';
 import { districtUnitSlots } from '../district/unit-slots.js';
@@ -85,11 +86,6 @@ export const MAX_BIDS_SHOWN = 20;
 /** What this person will not go below, and where their table opens. The city's number, not a crew's. */
 export function reserveFor(recruit: BarCharacter): number {
   return reservationWage(askingWage(recruit.attributes, 0, recruit.perks));
-}
-
-/** What a crew is actually in for at a table: the higher of the two numbers they put down. */
-function finalOf(bid: BarBid): number {
-  return Math.max(bid.open ?? 0, bid.sealed ?? 0);
 }
 
 /** The highest open bid at a table, or `undefined` on one nobody has opened. */
@@ -205,7 +201,7 @@ function payrollRefuses(
   day: string,
 ): boolean {
   const { base, userId, recruit, admin } = request;
-  const effects = crewEffectsFor(repos, base);
+  const effects = standingEffectsFor(repos, base);
   const ledger = ledgerFor(base, effects);
   const wage = committedWage(amount, effects.wageDiscountPercent);
   const reserved = wagesHeldByBids(repos, userId, day, recruit.id, effects.wageDiscountPercent);
@@ -240,7 +236,7 @@ export function wagesHeldByBids(
   return repos.bar
     .bidsBy(userId, day)
     .filter((bid) => bid.recruitId !== exceptRecruitId)
-    .reduce((held, bid) => held + committedWage(finalOf(bid), wageDiscountPercent), 0);
+    .reduce((held, bid) => held + committedWage(finalValue(bid), wageDiscountPercent), 0);
 }
 
 /**
@@ -609,7 +605,7 @@ function tellTheTable(
   const winnerName = winner ? shownNameOf(repos, winner.userId, 'another crew') : '';
   for (const bid of bids) {
     if (bid.userId === winner?.userId) continue;
-    if (finalOf(bid) <= 0) continue;
+    if (finalValue(bid) <= 0) continue;
     notify(repos, {
       userId: bid.userId,
       kind: 'bar_outbid',
@@ -654,7 +650,7 @@ export function resultsFor(
 
   return mine.flatMap((bid) => {
     const result = closed.get(bid.recruitId);
-    const yourFinal = finalOf(bid);
+    const yourFinal = finalValue(bid);
     if (!result || yourFinal <= 0) return [];
     return [
       {

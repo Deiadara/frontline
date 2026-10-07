@@ -50,6 +50,9 @@ describe('the unclaimed plot window', () => {
 
     const backdrop = screen.getByTestId('unclaimed-plot').parentElement;
     if (!backdrop) throw new Error('the window has no backdrop');
+    // A whole press on the backdrop, as a real click is: `Modal` closes only on one that began
+    // there, so a drag out of the panel does not.
+    fireEvent.mouseDown(backdrop);
     fireEvent.click(backdrop);
     expect(onClose).toHaveBeenCalledTimes(1);
   });

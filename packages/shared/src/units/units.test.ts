@@ -52,6 +52,8 @@ import {
   unlockedUnits,
 } from './unlocks.js';
 import { MUSTER_SPEED_KNEE } from '../time/speed.js';
+import { notorietyToField } from '../economy/infamy.js';
+import { MAX_NOTORIETY, notorietyTier } from '../economy/notoriety.js';
 import {
   BATCH_TIME_FACTOR,
   MAX_MUSTER_DISCOUNT,
@@ -97,8 +99,10 @@ import { MAX_LOCATION_LEVEL, noTerritoryEffects, type LocationKind } from '../ci
 const NOTHING = {
   buildings: [] as Building[],
   heldPlaceKinds: new Set<never>(),
+  heldDoors: new Set<string>(),
   buildableVehicles: new Set<string>(),
   inventory: {} as Inventory,
+  notoriety: 0,
 };
 
 /** Every finished blueprint document, so the "everything is reachable" fixture really is. */
@@ -126,8 +130,13 @@ const EVERYTHING = {
     ]),
   ),
   heldPlaceKinds: new Set(LOCATION_KINDS),
+  // Every door too: the four legends and the Juggernauts answer to ground authored by name.
+  heldDoors: new Set(
+    UNIT_CATALOG.filter((unit) => unit.doorSteps !== undefined).map((unit) => unit.id),
+  ),
   buildableVehicles: new Set(VEHICLE_IDS),
   inventory: ALL_BLUEPRINTS,
+  notoriety: MAX_NOTORIETY,
 };
 
 describe('the catalogue (§A5)', () => {
@@ -480,7 +489,8 @@ describe('unlocking them (§A5)', () => {
     expect(new Set(gated)).toEqual(new Set(GAUNTLET_UNLOCKED_UNITS));
     // Twelve until 2026-09-18, when the two carriers moved onto the Nexus that signs them; ten
     // until 2026-10-02, when every unit mustered there was given a Gauntlet level (P2-B).
-    expect(gated).toHaveLength(23);
+    // ...and twenty four since the Death Cloaks (2026-10-06).
+    expect(gated).toHaveLength(24);
     for (const id of GAUNTLET_UNLOCKED_UNITS) {
       expect(gauntletLevelFor(id), id).toBeGreaterThanOrEqual(1);
       expect(gauntletLevelFor(id), id).toBeLessThanOrEqual(BUILDING_MAX_LEVEL);
@@ -520,9 +530,11 @@ describe('unlocking them (§A5)', () => {
     }
   });
 
-  it('gates something on each of the four kinds of clause', () => {
+  it('gates something on each of the five kinds of clause', () => {
     const kinds = new Set(UNIT_CATALOG.flatMap((unit) => unit.requires.map((need) => need.kind)));
-    expect(kinds).toEqual(new Set(['building', 'modification', 'location', 'vehicle']));
+    // `door` since Reliquary (2026-10-07): the Saint, the Condemned, the Dancer and the Juggernauts
+    // answer to ground authored by name rather than by kind of place.
+    expect(kinds).toEqual(new Set(['building', 'modification', 'location', 'vehicle', 'door']));
   });
 
   it('reads a building clause off the level, a modification off what is fitted', () => {
@@ -553,8 +565,9 @@ describe('unlocking them (§A5)', () => {
     const colossus = findUnit('the_colossus');
     expect(colossus).toBeDefined();
     const missing = missingRequirements(colossus!, NOTHING);
-    // The catalogue's own clauses, plus the blueprint document §D12d puts it behind.
-    expect(missing).toHaveLength(colossus!.requires.length + 1);
+    // The catalogue's own clauses, plus the blueprint document §D12d puts it behind and the §D7
+    // rank a legend asks for.
+    expect(missing).toHaveLength(colossus!.requires.length + 2);
     for (const clause of missing) expect(describeRequirement(clause).length).toBeGreaterThan(4);
 
     // Meeting one does not silence the others.
@@ -562,7 +575,7 @@ describe('unlocking them (§A5)', () => {
       ...NOTHING,
       buildings: [building('garage', 20)],
     });
-    expect(partway.length).toBe(colossus!.requires.length);
+    expect(partway.length).toBe(colossus!.requires.length + 1);
     expect(isUnitUnlocked(colossus!, partway.length === 0 ? EVERYTHING : NOTHING)).toBe(false);
   });
 
@@ -604,7 +617,7 @@ describe('unlocking them (§A5)', () => {
         kind: 'blueprint',
         blueprintId: 'bp_the_colossus',
       });
-      expect(unitUnlockClauses(colossus!)).toHaveLength(colossus!.requires.length + 1);
+      expect(unitUnlockClauses(colossus!)).toHaveLength(colossus!.requires.length + 2);
     });
 
     it('§D12b: the Road Reavers read the motorbike\u2019s own document, not one of their own', () => {
@@ -618,10 +631,65 @@ describe('unlocking them (§A5)', () => {
     });
 
     it('leaves a unit nothing gates with exactly the clauses its catalogue entry declares', () => {
-      const ungated = UNIT_CATALOG.filter((unit) => blueprintForUnit(unit.id) === undefined);
+      // Neither a document nor a rank (§D7, the other derived clause).
+      const ungated = UNIT_CATALOG.filter(
+        (unit) => blueprintForUnit(unit.id) === undefined && notorietyToField(unit) === 0,
+      );
       expect(ungated.length).toBeGreaterThan(0);
       for (const unit of ungated) {
         expect(unitUnlockClauses(unit), unit.id).toEqual([...unit.requires]);
+      }
+    });
+  });
+
+  /**
+   * §D7: the rank on the infamy ladder is a muster clause (maintainer, 2026-10-07).
+   *
+   * It used to be checked at the doors onto a field instead, which let a crew muster a unit it
+   * was then refused the right to send anywhere. Measured against a crew that has everything
+   * else, so the only thing being tested is the rank; the control is a sheet nothing gates.
+   */
+  describe('the rank clause (§D7)', () => {
+    const RICH_BUT_UNKNOWN = { ...EVERYTHING, notoriety: 0 };
+
+    it('locks a gated unit for a nobody, and nothing else', () => {
+      const colossus = findUnit('the_colossus');
+      const razors = findUnit('razors');
+      expect(notorietyToField(colossus!)).toBeGreaterThan(0);
+      expect(notorietyToField(razors!), 'the control unit is gated after all').toBe(0);
+
+      expect(isUnitUnlocked(colossus!, RICH_BUT_UNKNOWN)).toBe(false);
+      expect(isUnitUnlocked(razors!, RICH_BUT_UNKNOWN)).toBe(true);
+      expect(
+        isUnitUnlocked(colossus!, { ...EVERYTHING, notoriety: notorietyToField(colossus!) }),
+      ).toBe(true);
+      expect(
+        isUnitUnlocked(colossus!, { ...EVERYTHING, notoriety: notorietyToField(colossus!) - 1 }),
+      ).toBe(false);
+    });
+
+    it('names the rank by its name, in the sentence the roster prints', () => {
+      const colossus = findUnit('the_colossus');
+      const missing = missingRequirements(colossus!, RICH_BUT_UNKNOWN);
+      expect(missing.map(describeRequirement)).toEqual([
+        `A district with infamy level below ${notorietyTier(notorietyToField(colossus!))} cannot muster this unit`,
+      ]);
+      for (const clause of missing) expect(describeRequirement(clause)).not.toMatch(/\d/);
+    });
+
+    it('puts the rank after the structures, which a crew can go and raise', () => {
+      const colossus = findUnit('the_colossus');
+      const clauses = unitUnlockClauses(colossus!);
+      expect(clauses[clauses.length - 1]).toEqual({
+        kind: 'notoriety',
+        rank: notorietyToField(colossus!),
+      });
+    });
+
+    it('gates every unit the field gate used to, and no other', () => {
+      for (const unit of PLAYER_UNITS) {
+        const gated = unitUnlockClauses(unit).some((clause) => clause.kind === 'notoriety');
+        expect(gated, unit.id).toBe(notorietyToField(unit) > 0);
       }
     });
   });
@@ -1174,8 +1242,9 @@ describe('what a unit-producing location does to its own unit', () => {
       speedPercent: 3 * MUSTER_SPEED_PER_LOCATION_LEVEL,
     });
     const top = homeMusterBonus(hounds, levels(MAX_LOCATION_LEVEL));
-    // The price half is one a level since the general muster cuts were cut (2026-10-01).
-    expect(top).toEqual({ costPercent: 9, speedPercent: 27 });
+    // Two and seven a level since the ladder went to five (2026-10-06): 8 and 28 at the top,
+    // where the old level 10 paid 9 and 27.
+    expect(top).toEqual({ costPercent: 8, speedPercent: 28 });
     // And still inside the floor price and the speed's knee every other discount is competing for.
     expect(top.costPercent).toBeLessThan(MAX_MUSTER_DISCOUNT);
     expect(top.speedPercent).toBeLessThan(MUSTER_SPEED_KNEE);

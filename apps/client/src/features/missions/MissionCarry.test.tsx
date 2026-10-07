@@ -45,6 +45,8 @@ const offer: MissionOffer = {
   failedXp: 20,
   leanings: ['road'],
   ramp: null,
+  golden: false,
+  goldenPercent: 0,
 };
 
 const area: MissionArea = {
@@ -59,8 +61,8 @@ const area: MissionArea = {
 
 function openWindow(
   bag = 0,
-  rank = 100,
   army: Record<string, number> = { razors: 10 },
+  carrierFlat = 0,
 ): HTMLElement {
   render(
     <MissionBoard
@@ -69,7 +71,7 @@ function openWindow(
       fleet={{}}
       loadouts={{}}
       bagPercent={bag}
-      notoriety={rank}
+      carrierFlat={carrierFlat}
       marks={{}}
       carriersFight={false}
       anyRide={false}
@@ -150,14 +152,24 @@ describe('what one unit carries, on its row', () => {
     expect(carried).toBeGreaterThan(RAZORS.stats.lootCapacity);
     expect(dialog).toHaveTextContent(`carries ${carried} loot slots`);
   });
+
+  // The Straw Sack (Reliquary, 2026-10-07): flat slots on every carrier, and on nobody else.
+  it('adds the Straw Sack\u2019s bags to a carrier\u2019s row and not to a fighter\u2019s', () => {
+    const dialog = openWindow(0, { razors: 10, scavengers: 10 }, 5);
+    const porter = missionCarry({ scavengers: 1 }, {}, 0, undefined, 5);
+    expect(porter).toBe(missionCarry({ scavengers: 1 }) + 5);
+    expect(dialog).toHaveTextContent(`carries ${porter} loot slots`);
+    expect(dialog).toHaveTextContent(`carries ${RAZORS.stats.lootCapacity} loot slots`);
+  });
 });
 
-// Bug pass, 2026-10-02: a unit past the crew's rank could be picked, and the launch refused the party.
-describe('a unit that will not take a contract from this crew', () => {
-  it('cannot be picked, and its row says why', () => {
-    const dialog = openWindow(0, 0, { razors: 10, juggernauts: 2 });
-    expect(within(dialog).getByTestId('beyond-rank-juggernauts')).toBeInTheDocument();
-    expect(within(dialog).getByTestId('max-juggernauts')).toBeDisabled();
-    expect(within(dialog).queryByTestId('beyond-rank-razors')).toBeNull();
+// §D7 sits on the muster now (maintainer, 2026-10-07): a unit on the roster goes where the crew goes,
+// so the row carries no rank note and the picker takes everybody at home.
+describe('a unit the old rank gate refused', () => {
+  it('can be picked like any other, with nothing red on its row', () => {
+    const dialog = openWindow(0, { razors: 10, juggernauts: 2 });
+    expect(within(dialog).queryByTestId('beyond-rank-juggernauts')).toBeNull();
+    expect(within(dialog).getByTestId('max-juggernauts')).toBeEnabled();
+    expect(dialog.textContent).not.toMatch(/will not sign/i);
   });
 });

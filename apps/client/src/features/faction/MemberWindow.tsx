@@ -20,6 +20,7 @@ import { Button } from '../../components/ui/Button';
 import { Dropdown } from '../../components/ui/Dropdown';
 import { Confirm } from '../../components/ui/Confirm';
 import { Modal } from '../../components/ui/Modal';
+import { PressError } from '../../components/ui/PressError';
 import { MarkStamp } from '../../components/ui/MarkStamp';
 import { CardGlyph } from './CardGlyph';
 import { MemberFace } from './MemberFace';
@@ -50,6 +51,7 @@ export function MemberWindow({
   onSeat,
   onLeave,
   onClose,
+  refusal = null,
 }: {
   member: FactionMember;
   data: FactionResponse;
@@ -61,6 +63,11 @@ export function MemberWindow({
   /** Leaving, with the member a leader named to lead after them, if they named one. */
   onLeave: (successorId: string | undefined) => void;
   onClose: () => void;
+  /**
+   * The refusal of the last write made here, drawn in the window (bug pass, 2026-10-06): the page
+   * drew it under the backdrop, so the player heard the refusal and could not read it.
+   */
+  refusal?: string | null;
 }) {
   // Both questions are asked of the domain rather than re-derived here, so a greyed-out button and
   // the refusal behind it can never disagree about who may do what.
@@ -77,10 +84,10 @@ export function MemberWindow({
 
   const readings: readonly [label: string, value: string][] = [
     ['Level', String(member.level)],
-    ['Units', member.armySize.toLocaleString()],
-    ['Unit Slots', member.unitSlotsUsed.toLocaleString()],
-    ['Infamy', Math.round(member.infamy).toLocaleString()],
-    ['Earned here', Math.round(member.infamyEarned).toLocaleString()],
+    ['Units', member.armySize.toLocaleString('en-US')],
+    ['Unit Slots', member.unitSlotsUsed.toLocaleString('en-US')],
+    ['Infamy', Math.round(member.infamy).toLocaleString('en-US')],
+    ['Earned here', Math.round(member.infamyEarned).toLocaleString('en-US')],
     ['At the table since', dayInZone(new Date(member.joinedAt), zone)],
   ];
 
@@ -261,6 +268,8 @@ export function MemberWindow({
           </section>
         )}
       </div>
+
+      {refusal !== null && <PressError>{refusal}</PressError>}
 
       {asking === 'leave' && (
         <LeaveDialog

@@ -51,4 +51,10 @@ describe('the stores are a hard ceiling (maintainer ruling, 2026-09-28)', () => 
       'This would put you over your storage: 120 Scrap would go to waste',
     );
   });
+
+  // Bug pass, 2026-10-06: the stores settle in fractions and the sentence printed them raw.
+  it('says the loss in whole figures, and leaves out what rounds to nothing', () => {
+    expect(describeWaste({ scrap: 37.413, oil: 0.3 })).toBe('37 Scrap');
+    expect(describeWaste({ oil: 0.4 })).toBe('nothing');
+  });
 });

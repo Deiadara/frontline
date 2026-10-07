@@ -31,6 +31,7 @@ import { awardPlayerXp, settleRetunedCurve } from '../progression/award.js';
 import { settleResearchFor } from '../research/settle.js';
 import { settleMuster } from '../units/muster.js';
 import { notifyBase } from '../social/notify.js';
+import { storagePercentOf } from './stores.js';
 
 /**
  * Everything the district owes since it was last read (GDD §A1): finished builds, the resources
@@ -193,10 +194,21 @@ function yieldAt(
   base: Base,
   now: Date,
 ): { crew: CrewYield; groundPerHour: PartialResources } {
-  const { productionPercent, storageCapacityPercent } = crewEffectsFor(repos, base, now);
-  const { resourceYieldPercent, perHour } = standingEffectsFor(repos, base, now);
+  const { productionPercent } = crewEffectsFor(repos, base, now);
+  const { resourceYieldPercent, perHour, modificationOutputPercent } = standingEffectsFor(
+    repos,
+    base,
+    now,
+  );
   return {
-    crew: { productionPercent, storageCapacityPercent, resourceYieldPercent },
+    crew: {
+      productionPercent,
+      // The crew's own shelves and the ground's (the Undercroft Stores), one figure everywhere
+      // a ceiling is read: see `storagePercentOf`.
+      storageCapacityPercent: storagePercentOf(repos, base, now),
+      resourceYieldPercent,
+      modificationOutputPercent,
+    },
     groundPerHour: perHour,
   };
 }
@@ -304,6 +316,8 @@ export function settleDistrict(
       'buildingConstructed',
       0,
       queueEntryXp(entry),
+      // The crew as this stretch read it, as the yield beside it does (bug pass, 2026-10-06).
+      crewAt,
     );
     carried = progressed;
     awards.push(award);

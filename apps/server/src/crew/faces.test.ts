@@ -14,6 +14,7 @@ import { loadConfig } from '../config.js';
 import { openDatabase, runMigrations, type AppDatabase } from '../db/index.js';
 import { backfillPortraits, rosterFaces, takenFaces } from './faces.js';
 import { chooseOverseer } from '../testing/overseer.js';
+import { trimLegendaries } from '../units/legendaries.js';
 
 /**
  * One face per officer, across the whole city (maintainer request, 2026-09-11).
@@ -138,5 +139,32 @@ describe('faces across the city', () => {
     expect(
       app.repos.bases.findById(base.id)!.commanders.map((officer) => officer.portraitId),
     ).toEqual(faced);
+  });
+});
+
+/**
+ * One crew this build cannot read (bug pass, 2026-10-06). Boot's sweeps and the Bar's face check
+ * read every crew, and the first unreadable one threw: the server would not start, and once
+ * started every player's Bar answered 500.
+ */
+describe('a crew this build cannot read', () => {
+  it('is skipped by the boot sweeps and the Bar, and everybody else is served', async () => {
+    const app = await makeApp();
+    const { db } = instances.at(-1)!;
+    const broken = await player(app, 'faces_broken');
+    const fine = await player(app, 'faces_fine');
+    app.repos.bases.updateCommanders(
+      fine.base.id,
+      Array.from({ length: 3 }, (_, index) =>
+        createCommander(`late-${index}`, `Late ${index}`, null),
+      ),
+    );
+    db.prepare(`UPDATE bases SET commanders_json = '{not json' WHERE id = ?`).run(broken.base.id);
+
+    expect(() => takenFaces(app.repos)).not.toThrow();
+    expect(backfillPortraits(app.repos)).toBe(3);
+    expect(() => trimLegendaries(app.repos)).not.toThrow();
+    const bar = await app.inject({ method: 'GET', url: '/api/bar', headers: auth(fine.token) });
+    expect(bar.statusCode).toBe(200);
   });
 });

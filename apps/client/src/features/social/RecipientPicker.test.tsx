@@ -25,15 +25,23 @@ function Harness({
   exclude = null,
   start = [],
   offered = entries,
+  searching = false,
 }: {
   exclude?: string | null;
   start?: string[];
   offered?: readonly PlayerStanding[];
+  searching?: boolean;
 }) {
   const [chosen, setChosen] = useState<string[]>(start);
   return (
     <MemoryRouter>
-      <RecipientPicker entries={offered} exclude={exclude} chosen={chosen} onChange={setChosen} />
+      <RecipientPicker
+        entries={offered}
+        searching={searching}
+        exclude={exclude}
+        chosen={chosen}
+        onChange={setChosen}
+      />
       <output data-testid="chosen">{chosen.join('|')}</output>
     </MemoryRouter>
   );
@@ -81,6 +89,13 @@ describe('the recipient picker', () => {
       MESSAGE_REFUSAL_TEXT.no_such_player,
     );
     expect(screen.queryByTestId('recipient-suggestions')).toBeNull();
+  });
+
+  // The lookup is on the server now (2026-10-06): no answer yet is not the same as nobody.
+  it('says nothing about nobody while the lookup is still on its way', () => {
+    render(<Harness offered={[]} searching />);
+    fireEvent.change(field(), { target: { value: 'zzzz' } });
+    expect(screen.queryByTestId('recipient-no-match')).toBeNull();
   });
 
   it('never offers the writer their own name', () => {

@@ -1,4 +1,4 @@
-import { CITY_DISTRICTS, LOCATION_CATALOG } from '@frontline/shared';
+import { CITY_DISTRICTS, baseBonusesOf } from '@frontline/shared';
 import type { Repositories } from '../db/repos/index.js';
 
 /**
@@ -44,9 +44,7 @@ export function holdEveryBoard(repos: Repositories, baseId: string): void {
   for (const district of CITY_DISTRICTS) {
     if (district.kind !== 'contested') continue;
     const quiet = district.locations.find((location) =>
-      LOCATION_CATALOG[location.kind].bonuses.every(
-        (bonus) => !MOVES_THE_ARITHMETIC.has(bonus.kind),
-      ),
+      baseBonusesOf(location).every((bonus) => !MOVES_THE_ARITHMETIC.has(bonus.kind)),
     );
     if (!quiet) throw new Error(`fixture: ${district.id} has no place that leaves missions alone`);
     const control = repos.city.control(quiet.id);

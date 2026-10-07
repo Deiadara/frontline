@@ -426,6 +426,14 @@ describe('kindForTarget', () => {
     expect(kindForTarget(at('#b'))).toBeNull();
   });
 
+  it('says nothing for a locked control, which takes the click and does nothing with it', () => {
+    mount(
+      '<div><button id="b" aria-disabled="true"><span id="s">locked</span></button><ul><li id="o" role="option" aria-disabled="true">x</li></ul></div>',
+    );
+    expect(kindForTarget(at('#s'))).toBeNull();
+    expect(kindForTarget(at('#o'))).toBeNull();
+  });
+
   it('ignores a value that is not a kind and falls back to the tag', () => {
     mount('<button id="b" data-sound="clack">x</button>');
     expect(kindForTarget(at('#b'))).toBe('click');

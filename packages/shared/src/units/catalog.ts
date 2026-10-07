@@ -71,7 +71,14 @@ export type UnitRequirement =
   | { kind: 'building'; building: BuildingKind; level: number }
   | { kind: 'modification'; modificationId: string }
   | { kind: 'location'; locationKind: LocationKind }
-  | { kind: 'vehicle'; vehicleId: string };
+  | { kind: 'vehicle'; vehicleId: string }
+  /**
+   * A door authored on one location rather than on a kind (Reliquary, 2026-10-07): the Saint's
+   * Shrine, the Watch Cell, the Crimson Stage, the Reliquary Lab. Met by holding any location
+   * whose `unit_door` names this unit, or, where `orKind` is set, any location of that kind: the
+   * Juggernauts come out of a gene clinic or the Lab.
+   */
+  | { kind: 'door'; unitId: string; orKind?: LocationKind };
 
 export interface UnitSpec {
   id: string;
@@ -109,6 +116,12 @@ export interface UnitSpec {
    * shield line is.
    */
   taunts?: boolean;
+  /**
+   * What each level of this unit's door buys it, levels 2 to 5, in the player's words
+   * (Reliquary, 2026-10-07). Printed on the roster and on the door's own sheet; the engine spends
+   * the same ladder by number (`battle/doors.ts`), keyed by the door level the crew holds.
+   */
+  doorSteps?: readonly [string, string, string, string];
   /**
    * Whether this unit patches the line back together between volleys (§A5).
    *
@@ -184,6 +197,18 @@ export interface UnitSpec {
    * than the last, so it is a reason to commit and never a reason to bring literally everything.
    */
   pack?: boolean;
+  /**
+   * Faith (maintainer, 2026-10-06): the Death Cloaks' rule. Thirty damage and thirty vitality on
+   * the sheet for every Mausoleum the crew holds (`FAITH_PER_MAUSOLEUM`, `battle/effects.ts`),
+   * and fifty more of them allowed for each (`capPerHold`).
+   */
+  faith?: boolean;
+  /**
+   * How many of this unit a crew may keep, per location of one kind it holds: the Death Cloaks'
+   * fifty a Mausoleum. Counted the way a legendary is (`legendaryRoom`): the army, the garrisons,
+   * everything abroad and the queue. Absent means no ceiling but unit slots.
+   */
+  capPerHold?: { locationKind: LocationKind; each: number };
   /**
    * Whether this unit makes the ground it fights on unbearable to be next to (maintainer,
    * 2026-09-19).
@@ -333,6 +358,9 @@ const fitted = (modificationId: string): UnitRequirement => ({
   modificationId,
 });
 const holds = (locationKind: LocationKind): UnitRequirement => ({ kind: 'location', locationKind });
+/** The ground authored as this unit's door, or a kind of place that does as well. */
+const door = (unitId: string, orKind?: LocationKind): UnitRequirement =>
+  orKind === undefined ? { kind: 'door', unitId } : { kind: 'door', unitId, orKind };
 /** §B6: the Garage can turn this machine out, which is a different claim from owning one. */
 const canBuild = (vehicleId: string): UnitRequirement => ({ kind: 'vehicle', vehicleId });
 
@@ -579,7 +607,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
       lootCapacity: 20,
       intimidation: 20,
     }),
-    modifiers: ['dug_in', 'last_stand'],
+    modifiers: ['guard', 'last_stand'],
   },
   {
     id: 'ghosts',
@@ -691,7 +719,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
       // 25 the same stack loses the fights it starts and holds the ones it is given.
       intimidation: 25,
     }),
-    modifiers: ['bulwark', 'dug_in'],
+    modifiers: ['guard'],
     // Salvaged plate, worn all day. The cold is somebody else's problem.
     affinities: { cold: 5, hot: -5, snowy: -4 },
   },
@@ -841,7 +869,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
       lootCapacity: 20,
       intimidation: 2,
     }),
-    modifiers: ['dug_in'],
+    modifiers: ['guard'],
     // Medics are not fighting; what stops them is not being able to find anybody.
     affinities: { dark: -6, foggy: -5, eerie: -5 },
   },
@@ -1027,7 +1055,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
       lootCapacity: 0,
       intimidation: 45,
     }),
-    modifiers: ['ambush', 'night_operations'],
+    modifiers: ['ambush', 'night_operations', 'guard'],
     /**
      * They hunt by nose, so the two labels that blind everybody else are the two they are best in.
      * What stops them is noise, a press hall is a dog with no ears, and anything that makes the
@@ -1043,15 +1071,26 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
       'Fully augmented heavy assault units. Barely human any more, and no longer bothered by it.',
     musteredAt: 'gauntlet',
     unique: false,
+    /*
+     * A gene clinic or the Reliquary Lab (maintainer, 2026-10-07): either musters them, and the
+     * Lab's levels build them up (`doorSteps`). Ten unit slots, and Last Stand went with the
+     * rework; what they keep is the plate.
+     */
     requires: [
       gauntlet(11),
       structure('generator', 10),
       structure('infirmary', 9),
-      holds('gene_clinic'),
+      door('juggernauts', 'gene_clinic'),
     ],
     cost: { caps: 700, supplies: 105, scrap: 50, oil: 200, highQualityMetal: 20 },
     musterSeconds: 900,
-    unitSlots: 6,
+    unitSlots: 10,
+    doorSteps: [
+      '+20 range.',
+      '+100 vitality, and Wet, Cold and Snowy ground is home to them.',
+      '+50 damage, and they taunt: the enemy fires on them rather than on the line.',
+      'BLOWOUT: when one dies it bursts, dealing its damage to as many enemy unit slots as it had.',
+    ],
     stats: sheet({
       speed: 25,
       vitality: 365,
@@ -1072,7 +1111,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
       lootCapacity: 50,
       intimidation: 75,
     }),
-    modifiers: ['armor_piercing', 'last_stand'],
+    modifiers: ['armor_piercing'],
   },
   {
     id: 'hollow_men',
@@ -1121,8 +1160,15 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     blurb: 'Death row, handed one last chance and a blade. Nothing left to threaten them with.',
     musteredAt: 'gauntlet',
     unique: false,
-    requires: [gauntlet(10), structure('quarters', 12), holds('fight_pit')],
+    // The Watch Cell on Saint's Rest is their door now (maintainer, 2026-10-06), not the pit.
+    requires: [gauntlet(10), structure('quarters', 12), door('the_condemned')],
     cost: { caps: 190, supplies: 120 },
+    doorSteps: [
+      '+30 damage and +30 vitality.',
+      '+60 damage and +60 vitality.',
+      '+90 damage and +90 vitality.',
+      '+120 damage and +120 vitality, and LAST CHANCE: one strike more as they die, one time in five.',
+    ],
     musterSeconds: 600,
     unitSlots: 3,
     stats: sheet({
@@ -1273,18 +1319,29 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     blurb: 'A legendary fighter whose presence alone steadies everyone who can see them.',
     musteredAt: 'gauntlet',
     unique: true,
-    // Nobody runs while he is preaching, and he does not stop until they carry him off.
-    stalwart: true,
+    // Nobody runs while he is preaching. Holds the Line is the Shrine's second level now
+    // (`doorSteps`, `battle/doors.ts`), so it is not on the sheet.
     steadies: true,
+    /*
+     * The Saint's Shrine is his one door (maintainer, 2026-10-06): the taverns that mustered him
+     * stopped. Five times the old price and fifty unit slots, for a sheet the Shrine's levels
+     * build into a line on his own (`doorSteps`).
+     */
     requires: [
       gauntlet(12),
       structure('quarters', 12),
       structure('infirmary', 10),
-      holds('tavern'),
+      door('the_saint'),
     ],
-    cost: { caps: 1200, supplies: 300, highQualityMetal: 120 },
+    cost: { caps: 6000, supplies: 1500, highQualityMetal: 600 },
     musterSeconds: 3000,
-    unitSlots: 6,
+    unitSlots: 50,
+    doorSteps: [
+      'Holds the Line: never breaks while more than half of him is standing.',
+      '+10 evasion, +10 speed and +10 stealth.',
+      'INSPIRATION: every ally fighting beside him ignores the ground that is bad for it.',
+      '+1 damage and +1 vitality for every unit slot fighting beside him, up to +1,000.',
+    ],
     stats: sheet({
       speed: 45,
       vitality: 265,
@@ -1300,7 +1357,8 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
       lootCapacity: 20,
       intimidation: 40,
     }),
-    modifiers: ['last_stand', 'dug_in'],
+    // Last Stand alone: his Dug In went when the Shrine became his door (maintainer, 2026-10-06).
+    modifiers: ['last_stand'],
   },
   {
     id: 'the_cartographer',
@@ -1545,18 +1603,30 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     id: 'the_crimson_dancer',
     name: 'The Crimson Dancer',
     tier: 'legendary',
-    blurb: 'Went into the Fight Pit a dancer and came out on blades. Still counts the beats.',
+    blurb:
+      'Went onto the Crimson Stage a dancer and came off it on blades. Still counts the beats.',
     musteredAt: 'gauntlet',
     unique: true,
     // She is across the ground and among them before the line has finished forming.
     strikes_first: true,
     /**
      * Three clauses, as every legendary needs, and each one a different half of what it is: the
-     * Gauntlet at the top for the fighter, a Lab deep enough to have built the legs, and the Fight
-     * Pit, which is where it learned what they were for.
+     * Gauntlet at the top for the fighter, a Lab deep enough to have built the legs, and the
+     * Crimson Stage in Bloodstone, which is where she dances (maintainer, 2026-10-06).
      */
-    requires: [gauntlet(14), structure('lab', 12), structure('quarters', 15), holds('fight_pit')],
+    requires: [
+      gauntlet(14),
+      structure('lab', 12),
+      structure('quarters', 15),
+      door('the_crimson_dancer'),
+    ],
     cost: { caps: 1400, supplies: 260, oil: 180, highQualityMetal: 200 },
+    doorSteps: [
+      '+100 damage and +100 vitality.',
+      'SPECTACLE: every kill she makes pays twice the infamy.',
+      'Crammed and Wet ground no longer slows her, and +100 evasion.',
+      'PAPERCUT: every attack strips 5 armour from every enemy unit, for the rest of the fight.',
+    ],
     musterSeconds: 3300,
     unitSlots: 6,
     stats: sheet({
@@ -1617,7 +1687,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
       lootCapacity: 25,
       intimidation: 35,
     }),
-    modifiers: ['dug_in', 'armor_piercing'],
+    modifiers: ['guard', 'armor_piercing'],
     // A slug spreads. Ground that keeps the other side in front of you is worth more than ground
     // that lets them come round.
     affinities: { crammed: 5, open: -4 },
@@ -1749,7 +1819,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
       stealth: 12,
       intimidation: 12,
     }),
-    modifiers: ['dug_in'],
+    modifiers: ['guard'],
     /*
      * Issued one good coat and told to stand there, which is exactly what they are worth: the
      * wool is the best thing about them in the cold and the worst in the heat, and a line trained
@@ -1819,7 +1889,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
       stealth: 4,
       intimidation: 45,
     }),
-    modifiers: ['open_field', 'dug_in'],
+    modifiers: ['open_field', 'guard'],
     /*
      * A belt-fed gun on a tripod owns whatever it can see, and that is the whole of it: fog, dark
      * and a crammed room take its range away and leave a crew of two standing behind a heavy
@@ -1854,7 +1924,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
       stealth: 30,
       intimidation: 50,
     }),
-    modifiers: ['dug_in', 'last_stand'],
+    modifiers: ['guard', 'last_stand'],
     /*
      * Somebody who has never been shot at and has never needed to be. She is worth what she knows,
      * and what she knows is the yards: inside one she is at home, and anywhere the work is done in
@@ -1926,13 +1996,56 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
       stealth: 15,
       intimidation: 90,
     }),
-    modifiers: ['last_stand', 'dug_in'],
+    modifiers: ['last_stand', 'guard'],
     /*
      * He does not go anywhere. Everything he is worth is in the room he is standing in, which is
      * a lit hall at the top of a tower: elevated, indoors, and never dark. Weather he has never
      * been out in is weather he is no good in.
      */
     affinities: { elevated: 8, crammed: 5, snowy: -6, wet: -5, windy: -4 },
+  },
+
+  // ---------------------------------------------------------------- Reliquary (2026-10-06)
+  /*
+   * Rabble by tier and at the end of the file by position: `art/manifest.ts` seeds every unit's
+   * portrait off its index here, so a sheet filed under "rabble" would re-roll the art of every
+   * unit after it. Read the catalogue by tier, not by line.
+   */
+  {
+    id: 'death_cloaks',
+    name: 'Death Cloaks',
+    tier: 'rabble',
+    blurb:
+      'Mourners who stopped leaving the tombs. Grey cloth over whatever they were buried in, a lamp, a hammer, and a certainty about what comes next that nobody facing them shares.',
+    musteredAt: 'gauntlet',
+    unique: false,
+    // The sheet the maintainer wrote (2026-10-06): three hundred of each, and thirty more of
+    // each for every Mausoleum held. Collective, so a congregation fights harder than a mourner.
+    faith: true,
+    pack: true,
+    capPerHold: { locationKind: 'mausoleum', each: 50 },
+    requires: [gauntlet(3), holds('mausoleum')],
+    cost: { caps: 120, supplies: 30, scrap: 20 },
+    musterSeconds: 150,
+    unitSlots: 3,
+    stats: sheet({
+      speed: 20,
+      vitality: 300,
+      morale: 60,
+      armor: 20,
+      damageType: 'blunt',
+      resistances: { blade: 10, explosive: -20 },
+      penetration: 40,
+      range: 5,
+      offense: 300,
+      evasion: 30,
+      stealth: 50,
+      lootCapacity: 10,
+      intimidation: 55,
+    }),
+    modifiers: ['close_quarters'],
+    // At home among graves and in the dark; useless in rain and heat, where the cloth is a weight.
+    affinities: { eerie: 8, dark: 8, wet: -7, hot: -7 },
   },
 ];
 
@@ -2149,6 +2262,8 @@ export const GAUNTLET_UNLOCKED_UNITS: readonly string[] = [
   'the_saint',
   'the_crimson_dancer',
   'the_loose_end',
+  // Reliquary's rabble (2026-10-06), gated low: the tomb is the real door.
+  'death_cloaks',
 ];
 
 /** The Gauntlet level `unitId` needs, or `null` when the Gauntlet is not one of its gates. */

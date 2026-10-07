@@ -1,3 +1,8 @@
+import type { BattleSide } from '@frontline/shared';
+import { fightPlaceFor } from '../battle/alignment.js';
+import { mergeArmies } from '../battle/forces.js';
+import { defendingBaseOf } from '../battle/ground.js';
+import { turnRound } from '../battle/movement.js';
 import type { Repositories } from '../db/repos/index.js';
 import { walkHome } from '../moves/moves.js';
 
@@ -18,8 +23,15 @@ import { walkHome } from '../moves/moves.js';
  * side's units on the ground, and these are nobody's side there any more, so a posting left
  * standing would only be parked (`battle/alignment.ts`).
  *
+ * The same goes for the fights (maintainer, 2026-10-06): every row a crew has standing on a side
+ * another crew leads, and every column it has on the road to one, leaves the moment the tie is cut
+ * and walks home, even inside the fight's last hour. `sideOf` already refused such a crew a
+ * withdrawal, so its units were stuck until the mark walked them home (bug pass item 21). A crew's
+ * own call and its own defence are its own and stay.
+ *
  * `leaving` are the users whose tie ends; `staying` are the ones it ends with. For a disband the
- * two are the same list, which works because a crew never posts on its own ground.
+ * two are the same list, which works because a crew never posts on its own ground and never
+ * reinforces its own fight.
  */
 export function bringPostedUnitsHome(
   repos: Repositories,
@@ -53,4 +65,36 @@ export function bringPostedUnitsHome(
   };
   recall(leavingBases, stayingBases);
   recall(stayingBases, leavingBases);
+  recallFromFights(repos, leavingBases, stayingBases, now);
+  recallFromFights(repos, stayingBases, leavingBases, now);
+}
+
+/** Every row and column of a crew in `from` on a fight whose side is led by a crew in `on`. */
+function recallFromFights(
+  repos: Repositories,
+  from: ReadonlySet<string>,
+  on: ReadonlySet<string>,
+  now: Date,
+): void {
+  for (const battle of repos.sieges.pending()) {
+    const leaders: Record<BattleSide, string | null> = {
+      attacker: battle.attackerBaseId,
+      defender: defendingBaseOf(repos, battle)?.id ?? null,
+    };
+    const helping = (baseId: string, side: BattleSide): boolean => {
+      const leader = leaders[side];
+      return from.has(baseId) && leader !== null && leader !== baseId && on.has(leader);
+    };
+    for (const row of repos.sieges.deployments(battle.id)) {
+      if (row.baseId === null || !helping(row.baseId, row.side)) continue;
+      const owner = repos.bases.findById(row.baseId);
+      if (!owner) continue;
+      repos.sieges.removeDeployment(battle.id, row.side, row.baseId);
+      const force = mergeArmies(row.army, row.perimeter);
+      walkHome(repos, owner, fightPlaceFor(battle, owner), force, row.vehicles, now);
+    }
+    for (const column of repos.movements.forBattle(battle.id)) {
+      if (helping(column.baseId, column.side)) turnRound(repos, column, now);
+    }
+  }
 }

@@ -16,6 +16,7 @@ import {
   makeAttributes,
   capturedGateCost,
   capturedGateDefensePercent,
+  capturedGateStep,
   capturedGateSeconds,
   GATE_BREACH_HOURS,
   breachExpiry,
@@ -167,7 +168,9 @@ describe('raising one', () => {
 
   /** Maintainer, 2026-10-05: the crew's discounts and its Engineer reach a gate, and it runs 10% dearer. */
   it('runs 10% over the Gate at home, and takes a perfect Engineer’s half off', () => {
-    const plain = buildingCost('gate', 2, []);
+    // Level 2 of the five-level captured ladder is priced as the home Gate's level 4
+    // (`capturedGateStep`, maintainer 2026-10-06).
+    const plain = buildingCost('gate', capturedGateStep(2), []);
     expect(capturedGateCost(2).caps).toBe(Math.round((plain.caps ?? 0) * CAPTURED_GATE_PRICE_RISE));
 
     const { repos, base } = stack();
@@ -256,6 +259,36 @@ describe('raising one', () => {
     });
   });
 
+  /*
+   * Bug pass, 2026-10-06: gates settle before battles, so after a restart over both a raise that
+   * finished after a fight's mark already counted in that fight.
+   */
+  it('waits for a fight at the gate marked before the raise finished, and not one after', () => {
+    const doneAt = Date.parse(HOUR) + capturedGateSeconds(2) * 1000;
+    const late = new Date(doneAt + 3_600_000);
+    for (const [offset, lands] of [
+      [-60_000, 0],
+      [60_000, 1],
+    ] as const) {
+      const { repos, base } = stack();
+      takeWhole(repos, base.id, DISTRICT.id);
+      raiseCapturedGate(repos, base, DISTRICT.id, new Date(HOUR));
+      repos.sieges.insert({
+        id: `fight-${offset}`,
+        target: { kind: 'gate', districtId: DISTRICT.id },
+        attackerBaseId: base.id,
+        defender: { kind: 'crew', baseId: base.id },
+        scheduledFor: new Date(doneAt + offset).toISOString(),
+        declaredAt: HOUR,
+        resolvedAt: null,
+        seed: 'fight',
+        holdAfterCapture: true,
+        wokeSleepers: false,
+      });
+      expect(settleCapturedGates(repos, late), `fight ${offset} ms from the finish`).toBe(lands);
+    }
+  });
+
   it('lands the level when the clock runs out, and not before', () => {
     const { repos, base } = stack();
     takeWhole(repos, base.id, DISTRICT.id);
@@ -290,11 +323,11 @@ describe('raising one', () => {
       kind: 'refused',
       reason: 'at_ceiling',
     });
-    // The same ceiling a Gate at home reaches, which is the maintainer's rule that any gate you fully
-    // hold goes to the same place. Pinned against the structure ceiling rather than against 20, so
-    // moving one moves both.
-    expect(CAPTURED_GATE_MAX_LEVEL).toBe(BUILDING_MAX_LEVEL);
-    expect(CAPTURED_GATE_MAX_LEVEL).toBe(20);
+    // Five, like every location outside the home district (maintainer, 2026-10-06), each level
+    // priced and timed as two of the home Gate's twenty, so a maxed captured gate is half a maxed
+    // home one.
+    expect(CAPTURED_GATE_MAX_LEVEL).toBe(5);
+    expect(capturedGateStep(CAPTURED_GATE_MAX_LEVEL)).toBe(BUILDING_MAX_LEVEL / 2);
   });
 });
 
@@ -303,8 +336,9 @@ describe('what one is worth', () => {
    * The same rate a home Gate pays. Against a spy both are read off the level in the contest
    * (`SPY_GATE_POINTS_PER_LEVEL`), so that half needs no figure of its own.
    */
-  it('defends at exactly the home Gate rate', () => {
-    expect(capturedGateDefensePercent(8)).toBe(8 * GATE_DEFENSE_PERCENT_PER_LEVEL);
+  it('defends at twice the home Gate rate, over a quarter of the levels', () => {
+    expect(capturedGateDefensePercent(4)).toBe(4 * 2 * GATE_DEFENSE_PERCENT_PER_LEVEL);
+    expect(capturedGateDefensePercent(CAPTURED_GATE_MAX_LEVEL)).toBe(25);
   });
 
   it('is worth nothing at level zero', () => {
@@ -312,7 +346,7 @@ describe('what one is worth', () => {
   });
 
   it('is worth more the higher it goes', () => {
-    expect(capturedGateDefensePercent(10)).toBeGreaterThan(capturedGateDefensePercent(3));
+    expect(capturedGateDefensePercent(5)).toBeGreaterThan(capturedGateDefensePercent(3));
   });
 });
 
@@ -329,7 +363,7 @@ describe('the gate belongs to the ground', () => {
     takeWhole(repos, base.id, DISTRICT.id);
     repos.capturedGates.put({
       districtId: DISTRICT.id,
-      level: 12,
+      level: 4,
       upgradingTo: null,
       upgradingUntil: null,
       upgradingSince: null,
@@ -341,7 +375,7 @@ describe('the gate belongs to the ground', () => {
 
     expect(holdsDistrictWhole(repos, base.id, DISTRICT.id)).toBe(false);
     expect(holdsDistrictWhole(repos, 'b2', DISTRICT.id)).toBe(true);
-    expect(gateFor(repos, DISTRICT.id).level).toBe(12);
+    expect(gateFor(repos, DISTRICT.id).level).toBe(4);
   });
 });
 
@@ -390,7 +424,7 @@ describe('losing a district while the gate is down', () => {
   it('drops the gate to level 1 and takes the district with it', () => {
     const { repos, base } = stack();
     takeWhole(repos, base.id, DISTRICT.id);
-    raisedTo(repos, DISTRICT.id, 7);
+    raisedTo(repos, DISTRICT.id, 3);
     brokenSince(repos, DISTRICT.id, HOUR);
 
     const heldWholeBefore = holdsDistrictWhole(repos, base.id, DISTRICT.id);
@@ -413,7 +447,7 @@ describe('losing a district while the gate is down', () => {
   it('abandons whatever was being raised on it', () => {
     const { repos, base } = stack();
     takeWhole(repos, base.id, DISTRICT.id);
-    raisedTo(repos, DISTRICT.id, 7);
+    raisedTo(repos, DISTRICT.id, 3);
     raiseCapturedGate(repos, base, DISTRICT.id, new Date(HOUR));
     brokenSince(repos, DISTRICT.id, HOUR);
 
@@ -435,7 +469,7 @@ describe('losing a district while the gate is down', () => {
   it('takes nothing off a gate that is standing', () => {
     const { repos, base } = stack();
     takeWhole(repos, base.id, DISTRICT.id);
-    raisedTo(repos, DISTRICT.id, 7);
+    raisedTo(repos, DISTRICT.id, 3);
 
     const heldWholeBefore = holdsDistrictWhole(repos, base.id, DISTRICT.id);
     loseOne(repos, DISTRICT.id);
@@ -448,14 +482,14 @@ describe('losing a district while the gate is down', () => {
     });
 
     expect(reset).toBe(false);
-    expect(gateFor(repos, DISTRICT.id).level).toBe(7);
+    expect(gateFor(repos, DISTRICT.id).level).toBe(3);
   });
 
   /** And nothing at all once the breach has run out: the door is back on its hinges. */
   it('takes nothing off once the breach has expired', () => {
     const { repos, base } = stack();
     takeWhole(repos, base.id, DISTRICT.id);
-    raisedTo(repos, DISTRICT.id, 7);
+    raisedTo(repos, DISTRICT.id, 3);
     brokenSince(repos, DISTRICT.id, HOUR);
 
     const heldWholeBefore = holdsDistrictWhole(repos, base.id, DISTRICT.id);
@@ -470,14 +504,14 @@ describe('losing a district while the gate is down', () => {
         now: after,
       }),
     ).toBe(false);
-    expect(gateFor(repos, DISTRICT.id).level).toBe(7);
+    expect(gateFor(repos, DISTRICT.id).level).toBe(3);
   });
 
   /** A district that was already split has nothing to lose: the holder had not held it whole. */
   it('takes nothing off a district the crew did not hold outright', () => {
     const { repos, base } = stack();
     takeWhole(repos, base.id, DISTRICT.id);
-    raisedTo(repos, DISTRICT.id, 7);
+    raisedTo(repos, DISTRICT.id, 3);
     brokenSince(repos, DISTRICT.id, HOUR);
     loseOne(repos, DISTRICT.id);
 
@@ -489,7 +523,7 @@ describe('losing a district while the gate is down', () => {
         now: new Date(HOUR),
       }),
     ).toBe(false);
-    expect(gateFor(repos, DISTRICT.id).level).toBe(7);
+    expect(gateFor(repos, DISTRICT.id).level).toBe(3);
   });
 });
 
@@ -515,7 +549,7 @@ describe('what a captured gate changes (2026-09-22: read by spies, since nothing
     const bare = counterOn(repos, base);
     repos.capturedGates.put({
       districtId: DISTRICT.id,
-      level: 10,
+      level: CAPTURED_GATE_MAX_LEVEL,
       upgradingTo: null,
       upgradingUntil: null,
       upgradingSince: null,
@@ -523,7 +557,9 @@ describe('what a captured gate changes (2026-09-22: read by spies, since nothing
     const walled = counterOn(repos, base);
 
     expect(walled).toBeGreaterThan(bare);
-    expect(walled - bare).toBe((10 - CAPTURED_GATE_START_LEVEL) * SPY_GATE_POINTS_PER_LEVEL);
+    expect(walled - bare).toBe(
+      (CAPTURED_GATE_MAX_LEVEL - CAPTURED_GATE_START_LEVEL) * SPY_GATE_POINTS_PER_LEVEL,
+    );
   });
 
   // Nobody stands at a gate held from elsewhere between fights (maintainer, 2026-10-02): the

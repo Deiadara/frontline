@@ -4,6 +4,7 @@ import {
   earnedInfamy,
   gainInfamy,
   missionInfamyForBattle,
+  unitSlotsUsed,
   MISSION_INFAMY_DELTA,
   boostedXp,
   missionXpEarned,
@@ -51,7 +52,7 @@ import {
 import { overseerOf } from '../crew/training.js';
 import { refundFor } from '../battle/resolve.js';
 import { musterRatesFor } from '../units/muster.js';
-import { fightMissionBattle } from './battle.js';
+import { fightMissionBattle, missionInfamySurcharge } from './battle.js';
 import type { Repositories } from '../db/repos/index.js';
 import { notifyBase } from '../social/notify.js';
 import { creditBaseInTurn } from '../district/stores.js';
@@ -264,9 +265,9 @@ export function resolveDueMissions(
      * null and reads as the job's lowest.
      */
     const grade = stored.mission.grade ?? template?.grades[0] ?? 'F-';
-    const fights = !recalled && template !== undefined && template.kind === 'battle';
+    const thisFights = !recalled && template !== undefined && template.kind === 'battle';
     const battle =
-      template && fights
+      template && thisFights
         ? fightMissionBattle({
             seed: stored.seed,
             jobName: template.name,
@@ -332,29 +333,33 @@ export function resolveDueMissions(
         ? // Cap Counter's cut, off the fold at the return like the bag below: not frozen at the
           // launch, so a counter hired while the crew is out counts what they bring in.
           withMissionCaps(
+            // The Bounty Wall's gold on the area's premium (`golden.ts`), frozen at the launch,
+            // over the whole bundle the way the card quoted it.
             scaledSpoils(
-              missionRewards(template, outcome, pricedMinutes, grade),
-              stored.mission.payPercent,
+              scaledSpoils(
+                missionRewards(template, outcome, pricedMinutes, grade),
+                stored.mission.payPercent,
+              ),
+              stored.mission.goldenPercent ?? 0,
             ),
             crewCarry?.missionCapsPercent ?? 0,
           )
         : {};
-    // Off the crew's loadouts as they stand at the mark, the same way the roster folds them.
-    const rewards = carriedHome(
-      paid,
-      missionCarry(
-        // The ones still standing, not the ones who set out: see `MissionBattle.carrying`. A job
-        // with no fight in it kills nobody, so the force that went is the force that carries.
-        battle?.carrying ?? stored.mission.force,
-        base.unitLoadouts,
-        // §A4: the Pawn Shop, the raid modifications and `sig_scavenger_king` all pay into the same
-        // channel, and it reached the raid path only. A crew that bought a bigger bag carried the
-        // catalogue figure home off every job they ran.
-        crewCarry?.lootCapacityPercent ?? 0,
-        crewCarry ?? undefined,
-      ),
-      RESOURCE_KG,
+    // Off the crew's loadouts as they stand at the mark, the same way the roster folds them. Kept
+    // on the run, so the report says what they could lift then rather than today.
+    const carryCapacity = missionCarry(
+      // The ones still standing, not the ones who set out: see `MissionBattle.carrying`. A job
+      // with no fight in it kills nobody, so the force that went is the force that carries.
+      battle?.carrying ?? stored.mission.force,
+      base.unitLoadouts,
+      // §A4: the Pawn Shop, the raid modifications and `sig_scavenger_king` all pay into the same
+      // channel, and it reached the raid path only. A crew that bought a bigger bag carried the
+      // catalogue figure home off every job they ran.
+      crewCarry?.lootCapacityPercent ?? 0,
+      crewCarry ?? undefined,
+      crewCarry?.carrierLootFlat ?? 0,
     );
+    const rewards = carriedHome(paid, carryCapacity, RESOURCE_KG);
 
     /*
      * What they found, as opposed to what they were paid.
@@ -374,7 +379,7 @@ export function resolveDueMissions(
      * further along, so the run is as reproducible as any other.
      */
     const mayhemWon =
-      fights && fightCategory(grade) === 'mayhem' && outcome === 'success' && reported;
+      thisFights && fightCategory(grade) === 'mayhem' && outcome === 'success' && reported;
     const found = mayhemWon
       ? addItems(rolled, guaranteedSalvage(MAYHEM_GUARANTEED_PARTS, rng))
       : rolled;
@@ -409,6 +414,7 @@ export function resolveDueMissions(
         pageWon,
         lost: battle?.lost ?? {},
         reported,
+        carryCapacity,
         // What they turned up, named by the report rather than only added to the inventory.
         found: pageWon === null ? found : { ...found, [pageWon]: (found[pageWon] ?? 0) + 1 },
       } satisfies Mission,
@@ -431,15 +437,30 @@ export function resolveDueMissions(
       routed: battle && reported ? forceSize(battle.fledEnemy) : 0,
       /** The crew's dead the medics brought round, for the `casualties_recovered` ladder. */
       recovered: battle && reported ? battle.recovered : 0,
+      // ...plus Reliquary's two surcharges on the dead, which a declared fight paid and a job
+      // did not: the Fight Pit's on the enemy's intimidated and SPECTACLE's on the Dancer's kills.
       infamyDelta:
         template && reported
           ? Math.round(
               earnedInfamy(
                 MISSION_INFAMY_DELTA[template.kind][outcome] +
-                  (battle ? missionInfamyForBattle(battle.killed, battle.fledEnemy) : 0),
+                  (battle
+                    ? missionInfamyForBattle(battle.killed, battle.fledEnemy) +
+                      missionInfamySurcharge(battle, crew?.intimidatedInfamyPercent ?? 0)
+                    : 0),
                 crew?.infamyGainPercent ?? 0,
               ),
             )
+          : 0,
+      /*
+       * The Gravefields (`xpPerSlotLost`): player XP per unit slot of the crew's own dead, the way
+       * the declared-fight settle pays it (maintainer: "each unit that dies in battle"). Off `lost`
+       * rather than the raw dead, since somebody the medics brought round did not die; and gated on
+       * `reported` like every other payout here, because a run nobody came home from banks nothing.
+       */
+      xpForTheDead:
+        battle && reported && crew
+          ? Math.round(crew.xpPerSlotLost * unitSlotsUsed(battle.lost))
           : 0,
       /*
        * And the people walk back through the gate (§A5).
@@ -510,6 +531,8 @@ export function resolveDueMissions(
     now,
   );
   const paidIn = (at: number) => banked.credits[at * 2];
+  // The run's Bone Market refund, the second of its two credits.
+  const refundedIn = (at: number) => banked.credits[at * 2 + 1];
   const wastedBy = (at: number) => paidIn(at)?.wasted ?? {};
   // What the award below will bank for each run, kept on the row so the report prints it rather
   // than the figure before the district's and the crew's bonus. One sum for every run in this
@@ -537,6 +560,7 @@ export function resolveDueMissions(
       xpPaid: xpPaidBy(at),
       infamyPaid: settlements[at]?.infamyDelta ?? 0,
       refund: settlements[at]?.refund ?? {},
+      ...(mission.carryCapacity === undefined ? {} : { carryCapacity: mission.carryCapacity }),
     });
   }
 
@@ -588,8 +612,8 @@ export function resolveDueMissions(
     /*
      * A run the crew was turned round on is not a run.
      *
-     * This matters more than it looks. Cancelling inside the window refunds ninety per cent and
-     * costs only the minutes already walked, so counting a recalled mission would make
+     * This matters more than it looks. A launch charges nothing and a recall costs only the
+     * minutes already walked, so counting a recalled mission would make
      * launch-and-cancel the fastest way to finish every mission ladder in the catalogue, including
      * the per-district ones. The pay, the salvage and the page already treat a recall as having
      * never happened (see `recalled` above); the counters have to agree with them.
@@ -610,6 +634,9 @@ export function resolveDueMissions(
     tallyUnitsRouted(repos, base.id, settlement.routed);
     tallyCasualtiesRecovered(repos, base.id, settlement.recovered);
     tallyResourcesEarned(repos, base.id, paidIn(at)?.landed ?? {});
+    // The refund too, as the fight settle counts its own (bug pass, 2026-10-06): the feat counted a
+    // mission's pay and left its Bone Market caps out.
+    tallyResourcesEarned(repos, base.id, refundedIn(at)?.landed ?? {});
     tallyInfamyEarned(repos, base.id, settlement.infamyDelta);
     // Pages only. `found` is the whole inventory haul, so it carries salvaged components too, and
     // counting those as pages would finish the blueprint chain off scrap servos.
@@ -629,13 +656,27 @@ export function resolveDueMissions(
     // Priced per run rather than off the table: a day-long expedition is worth more than a scrap
     // run, a battle more than a standard job of the same length, and a run that came home empty
     // still pays a fifth. `missionXp` owns all three; this only banks what it said.
+    // At the settle's instant, the one `xpPaid` on the run was priced at (bug pass, 2026-10-06):
+    // the banked figure was read at the wall clock and could differ from the one the report shows.
     progressed = awardPlayerXp(
       repos,
       progressed,
       'missionCompleted',
       professor,
       settlement.xp,
+      now,
     ).base;
+    // The Gravefields' figure as its own award, so the run's own stays what the card quoted.
+    if (settlement.xpForTheDead > 0) {
+      progressed = awardPlayerXp(
+        repos,
+        progressed,
+        'missionCompleted',
+        0,
+        settlement.xpForTheDead,
+        now,
+      ).base;
+    }
   }
 
   // §H6 used to pay the officer who led each run their own character XP here. Officers have no

@@ -23,6 +23,14 @@ describe('a figure in a fixed-width readout', () => {
     expect(compactFigure(9_999_999)).toBe('10M');
   });
 
+  // Bug pass, 2026-10-06: rounding carried the mantissa to a thousand of the unit below.
+  it('moves up a unit when rounding reaches a thousand', () => {
+    expect(compactFigure(999_999_999)).toBe('1B');
+    expect(compactFigure(-999_999_999)).toBe('-1B');
+    expect(compactFigure(999_999_999_999)).toBe('1T');
+    expect(compactFigure(999_499_999)).toBe('999M');
+  });
+
   it('trims trailing zeros, so a round number reads round', () => {
     expect(compactFigure(2_000_000)).toBe('2M');
     expect(compactFigure(2_500_000)).toBe('2.5M');

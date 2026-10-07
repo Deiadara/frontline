@@ -12,6 +12,7 @@ import {
   territoryEffectsFor,
 } from '@frontline/shared';
 import type { Repositories } from '../db/repos/index.js';
+import { alliesOf } from '../city/holding.js';
 import { standingEffectsFor } from '../crew/standing.js';
 import { mergeArmies } from '../battle/forces.js';
 import { garrisonedUnits } from '../units/roster.js';
@@ -149,7 +150,10 @@ export function districtUnitSlots(
     // The Steward's passive (maintainer, 2026-10-04), on the buildings' beds and the ground's own
     // slots only: research and perk flats ride on top (2026-10-05).
     chairPassiveOf(standing, 'steward', 'unit_slots'),
-    territoryEffectsFor(base.id, EVERY_LOCATION, repos.city.controls()).unitSlotBonus,
+    // With the table's mates, so the Saint's Inn's second helping pays while the faction holds
+    // Saint's Rest together (2026-10-07).
+    territoryEffectsFor(base.id, EVERY_LOCATION, repos.city.controls(), alliesOf(repos, base.id))
+      .unitSlotBonus,
   );
   const draw = unitSlotDraw({
     ...base,

@@ -1,5 +1,6 @@
 import { LEGENDARY_CAP, capLegendaries, findUnit, type Army } from '@frontline/shared';
 import type { Repositories } from '../db/repos/index.js';
+import { settleEach } from '../world/guard.js';
 
 /**
  * One of each legendary and no more, across every roster already on disk (maintainer,
@@ -42,21 +43,28 @@ function excessIn(army: Army): number {
 
 export function trimLegendaries(repos: Repositories): LegendaryTrim {
   const trim: LegendaryTrim = { crews: 0, removed: 0 };
-  for (const summary of repos.bases.listSummaries()) {
-    const base = repos.bases.findById(summary.id);
-    if (!base) continue;
-    const over = excessIn(base.army);
-    if (over === 0) continue;
-    /*
-     * The queue is left exactly as it is.
-     *
-     * A batch on the bench is already bounded by the door that accepted it, and a muster order
-     * is a thing the crew paid for: taking one off here would be refunding nothing and deleting
-     * a purchase. The roster is the only place an ungated grant could have landed.
-     */
-    repos.bases.updateArmy(base.id, capLegendaries(base.army), base.musterQueue);
-    trim.crews += 1;
-    trim.removed += over;
-  }
+  // Guarded per crew, like the face backfill beside it at boot (bug pass, 2026-10-06).
+  settleEach(
+    repos,
+    'boot: legendary cap',
+    repos.bases.listSummaries(),
+    (summary) => summary.id,
+    (summary) => {
+      const base = repos.bases.findById(summary.id);
+      if (!base) return;
+      const over = excessIn(base.army);
+      if (over === 0) return;
+      /*
+       * The queue is left exactly as it is.
+       *
+       * A batch on the bench is already bounded by the door that accepted it, and a muster order
+       * is a thing the crew paid for: taking one off here would be refunding nothing and deleting
+       * a purchase. The roster is the only place an ungated grant could have landed.
+       */
+      repos.bases.updateArmy(base.id, capLegendaries(base.army), base.musterQueue);
+      trim.crews += 1;
+      trim.removed += over;
+    },
+  );
   return trim;
 }

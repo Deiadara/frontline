@@ -61,6 +61,8 @@ function option(unitId: string, fitted: readonly UnitModificationSpec[] = []): U
     cost: spec.cost,
     musterSeconds: spec.musterSeconds,
     unitSlots: spec.unitSlots,
+    doorLevel: null,
+    doorSteps: [],
     homeCostReduction: 0,
     homeSpeedBonus: 0,
     unlocked: true,
@@ -124,10 +126,9 @@ describe('a bracket is a door to the yard', () => {
     expect(burn.mutate).not.toHaveBeenCalled();
 
     fireEvent.click(screen.getByTestId('slot-burn-ironsides-yes'));
-    expect(burn.mutate).toHaveBeenCalledWith(
-      { unitId: 'ironsides', upgradeId: vest.id },
-      expect.anything(),
-    );
+    expect(burn.mutate).toHaveBeenCalledWith({ unitId: 'ironsides', upgradeId: vest.id });
+    // Closed on the press, so a second click cannot send the burn twice (bug pass, 2026-10-06).
+    expect(screen.queryByTestId('slot-burn-ironsides')).toBeNull();
   });
 
   /** A filled bracket never leaves the roster: burning is a dialog, not a trip to the yard. */

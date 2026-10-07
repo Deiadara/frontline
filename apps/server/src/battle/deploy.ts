@@ -4,15 +4,12 @@ import {
   findUnit,
   fittedFor,
   fleetCapacity,
-  ridingUnitSlots,
   upgradedStats,
   deploymentIsOpen,
   emptyDeployment,
-  movementForce,
   mulberry32,
   perimeterToll,
   seedFrom,
-  unitsBeyondNotoriety,
   type Army,
   bareLineRules,
   type BattleDeployment,
@@ -27,7 +24,7 @@ import type { Repositories } from '../db/repos/index.js';
 import { forceSize, isFightingForce, mergeArmies, removeForce } from './forces.js';
 import { defendingBaseOf } from './ground.js';
 import { sideForce } from './side.js';
-import { columnMinutesTo, railColumnOffer, sendColumn } from './movement.js';
+import { columnMinutesTo, railColumnOffer, seatsAsked, sendColumn } from './movement.js';
 import { standingEffectsFor } from '../crew/standing.js';
 import { insideLock, placeLocked } from './lock.js';
 import { alignmentReader, fightPlaceFor } from './alignment.js';
@@ -61,7 +58,6 @@ export const DEPLOY_REFUSALS = [
   'not_enough_units',
   /** §A5: a porter is not a soldier. The support tier may never be deployed to a battle. */
   'not_a_fighting_force',
-  'needs_infamy',
   /** §C3: the machines this crew has committed cannot seat what it is trying to send. */
   'no_seats',
   /** The ring is the defender's answer to being chosen; an attacker does not get one. */
@@ -215,23 +211,6 @@ export function adjustDeployment(repos: Repositories, input: DeployInput): Deplo
     return { kind: 'refused', reason: 'ring_is_the_defenders' };
   }
 
-  // §D7: the heaviest things on the roster will not take a contract from a nobody. Checked across
-  // both forces at once so a crew cannot slip a legend onto the ring instead of into the line.
-  const sending = [input.changes, input.perimeterChanges].reduce<Army>(
-    (total, changes) => ({
-      ...total,
-      ...Object.fromEntries(
-        Object.entries(changes)
-          .filter(([, delta]) => delta > 0)
-          .map(([unitId, delta]) => [unitId, (total[unitId] ?? 0) + delta]),
-      ),
-    }),
-    {},
-  );
-  if (unitsBeyondNotoriety(sending, base.economy.notoriety).length > 0) {
-    return { kind: 'refused', reason: 'needs_infamy' };
-  }
-
   /*
    * Read once, here, rather than three times further down.
    *
@@ -321,9 +300,9 @@ export function adjustDeployment(repos: Repositories, input: DeployInput): Deplo
    *
    * The deploy window has capped a batch by unit slots since 2026-09-15 ("once you choose vehicles
    * you're limited up to that much"), and the route took whatever was posted: the rule was a piece
-   * of the client, which is to say not a rule. Checked on the whole muster rather than on the
-   * batch, because the ceiling is about what will be standing there when the clock runs out, and
-   * skipped entirely when nothing is loaded, which is the walk and has no ceiling.
+   * of the client, which is to say not a rule. Checked on what is on the road
+   * with this batch (maintainer, 2026-10-06): a unit that has landed rides nothing and frees its
+   * seat. Skipped entirely when nothing is loaded, which is the walk and has no ceiling.
    *
    * Priced through `ridingUnitSlots` and `fleetCapacity`, the same two functions the window and
    * the settler use, so there is one arithmetic and not three that agree by inspection.
@@ -342,20 +321,15 @@ export function adjustDeployment(repos: Repositories, input: DeployInput): Deplo
    */
   const seats = fleetCapacity(existing.vehicles);
   if (seats > 0 && sendingNow) {
-    const walking = repos.movements
-      .forBattle(battle.id)
-      .filter((movement) => movement.baseId === base.id && movement.side === side)
-      .reduce<Army>((total, movement) => mergeArmies(total, movementForce(movement)), {});
-    const aboard = ridingUnitSlots(
-      mergeArmies(
-        mergeArmies(
-          mergeArmies(onTheGround, ring),
-          mergeArmies(departing.army, departing.perimeter),
-        ),
-        walking,
-      ),
-      effects.anyRide,
-    );
+    const aboard = seatsAsked(repos, {
+      baseId: base.id,
+      battleId: battle.id,
+      side,
+      now,
+      anyRide: effects.anyRide,
+      seats,
+      sending: mergeArmies(departing.army, departing.perimeter),
+    });
     if (aboard > seats) return { kind: 'refused', reason: 'no_seats' };
   }
 

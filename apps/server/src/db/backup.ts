@@ -1,4 +1,4 @@
-import { readdirSync, rmSync, statSync } from 'node:fs';
+import { existsSync, readdirSync, rmSync, statSync } from 'node:fs';
 import { copyFile, mkdir, rename, rm } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import path from 'node:path';
@@ -73,6 +73,9 @@ import type { AppDatabase } from './index.js';
 
 /** How often a snapshot is taken (maintainer, 2026-09-27). */
 export const BACKUP_INTERVAL_MS = 2 * 60 * 1000;
+
+/** How long the history keeps its line for each snapshot (maintainer, 2026-10-06): a week. */
+export const BACKUP_HISTORY_KEEP_MS = 7 * 24 * 3_600_000;
 
 const HOUR_MS = 60 * 60 * 1000;
 const DAY_MS = 24 * HOUR_MS;
@@ -168,14 +171,24 @@ export async function takeBackup(
   }
   await rename(partial, into);
   pruneBackups(directory, at);
-  if (mirror !== '') {
-    await mkdir(mirror, { recursive: true });
-    const copy = path.join(mirror, file);
-    await copyFile(into, `${copy}${PARTIAL}`);
-    await rename(`${copy}${PARTIAL}`, copy);
-    pruneBackups(mirror, at);
-  }
+  if (mirror !== '') await mirrorBackup(directory, file, mirror, at);
   return file;
+}
+
+/** Copies one finished snapshot into the mirror, through a partial file like the primary. */
+export async function mirrorBackup(
+  directory: string,
+  file: string,
+  mirror: string,
+  at = new Date(),
+): Promise<void> {
+  // Never made here: a missing mirror is an unmounted drive, and creating it would fill the local
+  // disk with what was meant to be off it (maintainer, 2026-10-06).
+  if (!existsSync(mirror)) throw new Error(`backup mirror ${mirror} does not exist (not mounted?)`);
+  const copy = path.join(mirror, file);
+  await copyFile(path.join(directory, file), `${copy}${PARTIAL}`);
+  await rename(`${copy}${PARTIAL}`, copy);
+  pruneBackups(mirror, at);
 }
 
 /** `ok`, or what SQLite found wrong. Read on a worker thread, on a connection of its own. */
@@ -218,16 +231,38 @@ try {
 
 const DRIVER_PATH = createRequire(import.meta.url).resolve('better-sqlite3');
 
+/**
+ * How long one snapshot may take before its worker is stopped (bug pass, 2026-10-06). A worker that
+ * never answered (a disk stalled on fsync) held the schedule for ever and kept Ctrl+C waiting on it.
+ */
+export const SNAPSHOT_DEADLINE_MS = 5 * 60_000;
+
 function inWorker(job: { source: string | null; file: string }): Promise<string> {
   return new Promise((resolve, reject) => {
     const worker = new Worker(WORKER_SOURCE, {
       eval: true,
       workerData: { driver: DRIVER_PATH, ...job },
     });
-    worker.once('message', (verdict: string) => resolve(verdict));
-    worker.once('error', reject);
+    const deadline = setTimeout(() => {
+      reject(
+        new Error(`snapshot worker took longer than ${SNAPSHOT_DEADLINE_MS} ms and was stopped`),
+      );
+      void worker.terminate();
+    }, SNAPSHOT_DEADLINE_MS);
+    deadline.unref();
+    worker.once('message', (verdict: string) => {
+      clearTimeout(deadline);
+      resolve(verdict);
+    });
+    worker.once('error', (error) => {
+      clearTimeout(deadline);
+      reject(error instanceof Error ? error : new Error(String(error)));
+    });
     // Settles nothing when a message already has; catches a worker that died without a word.
-    worker.once('exit', (code) => reject(new Error(`snapshot worker exited with code ${code}`)));
+    worker.once('exit', (code) => {
+      clearTimeout(deadline);
+      reject(new Error(`snapshot worker exited with code ${code}`));
+    });
   });
 }
 
@@ -304,6 +339,8 @@ export interface BackupScheduleOptions {
   intervalMs?: number;
   /** Called with whatever went wrong. The server passes its logger; tests pass a spy. */
   onError?: (error: unknown) => void;
+  /** Called when a step was skipped on purpose (the mirror's drive is not there). */
+  onWarn?: (message: string) => void;
   onBackup?: (file: string) => void;
 }
 
@@ -321,6 +358,7 @@ export function startBackupSchedule({
   mirror = '',
   intervalMs = BACKUP_INTERVAL_MS,
   onError,
+  onWarn,
   onBackup,
 }: BackupScheduleOptions): () => Promise<void> {
   let inFlight: Promise<void> | null = null;
@@ -331,16 +369,39 @@ export function startBackupSchedule({
       // not evaluate its arguments when the callee is undefined, so the whole snapshot
       // short-circuited away. It ran correctly in the one place that happened to pass a logger,
       // which is exactly how a backup system ends up with an empty directory and nobody noticing.
-      const file = await takeBackup(db, directory, new Date(), mirror);
+      const at = new Date();
+      const file = await takeBackup(db, directory, at);
       onBackup?.(file);
+      /*
+       * The mirror after the primary is announced, and its failure reported as its own (bug pass,
+       * 2026-10-06): copied inside `takeBackup`, an unwritable mirror made every good snapshot
+       * read as a failed one in the log, with no history row for it.
+       */
+      // A mirror that is not there is a drive that is not mounted: skipped and said, never made on
+      // the local disk in its place (maintainer, 2026-10-06).
+      if (mirror !== '' && !existsSync(mirror)) {
+        onWarn?.(
+          `backup mirror ${mirror} does not exist (not mounted?); snapshot ${file} not copied`,
+        );
+      } else if (mirror !== '') {
+        try {
+          await mirrorBackup(directory, file, mirror, at);
+        } catch (error) {
+          onError?.(new Error(`snapshot ${file} was taken but not mirrored`, { cause: error }));
+        }
+      }
     } catch (error) {
       onError?.(error);
     }
   };
   const timer = setInterval(() => {
     // A snapshot still being written when the next is due: one at a time, and the late one wins
-    // nothing by being joined by a second copy of itself.
-    if (inFlight) return;
+    // nothing by being joined by a second copy of itself. Said out loud (bug pass, 2026-10-06): a
+    // snapshot that never finished skipped every later tick without a word in the log.
+    if (inFlight) {
+      onError?.(new Error('the last snapshot is still running; this one was skipped'));
+      return;
+    }
     inFlight = snapshot().finally(() => {
       inFlight = null;
     });

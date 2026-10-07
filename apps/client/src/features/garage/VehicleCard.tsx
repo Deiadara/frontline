@@ -2,12 +2,20 @@ import {
   BUILDING_CATALOG,
   GARAGE_TIME_DISCOUNT_PER_LEVEL,
   MAX_EFFECT_REDUCTION,
+  MAX_PER_VEHICLE,
+  canAfford,
+  maxVehiclesBuildable,
+  vehicleBatchCost,
+  vehicleBatchSeconds,
   type GarageVehicle,
   type VehicleClass,
 } from '@frontline/shared';
+import { useState } from 'react';
 import { deliveredUrl } from '../../assets/delivered';
 import { CostLine } from '../../components/Resources';
 import { Button } from '../../components/ui/Button';
+import { NumberField } from '../../components/ui/NumberField';
+import { PressError } from '../../components/ui/PressError';
 import { HoverCard } from '../../components/ui/HoverCard';
 import { cn } from '../../lib/cn';
 import { formatDuration } from '../base/format';
@@ -53,14 +61,48 @@ const CLASS_LABELS: Record<VehicleClass, string> = {
 export function VehicleCard({
   vehicle,
   resources,
+  spareUnitSlots,
   pending,
+  error = null,
   onBuild,
 }: {
   vehicle: GarageVehicle;
   resources: Parameters<typeof CostLine>[0]['stock'];
+  /** Beds left in the district: a machine takes one, so Max stops at them (`GarageResponse`). */
+  spareUnitSlots: number;
   pending: boolean;
-  onBuild: () => void;
+  /** This card's last refused build, drawn on the card rather than under the whole list. */
+  error?: string | null;
+  onBuild: (count: number) => void;
 }) {
+  /*
+   * How many, the way the unit card asks it (maintainer, 2026-10-07): a typed count, or Max,
+   * which goes on meaning "as many as I can" after the order lands rather than the figure it was
+   * when pressed. Typing a number takes the box back.
+   */
+  const [typed, setTyped] = useState(1);
+  const [atMax, setAtMax] = useState(false);
+  // Room under the per-kind cap: the yard, the fight, the road and the bench all hold a space.
+  const room = Math.max(0, MAX_PER_VEHICLE - vehicle.owned - vehicle.out - (vehicle.onBench ?? 0));
+  const most = maxVehiclesBuildable(vehicle.cost, resources, Math.min(room, spareUnitSlots));
+  const count = atMax ? Math.max(1, most) : typed;
+  const price = vehicleBatchCost(vehicle.cost, count);
+  const seconds = vehicleBatchSeconds(vehicle.buildSeconds, count);
+  /*
+   * Why the door would refuse this order, in the door's own order (`garage/routes.ts`): the
+   * server's one-machine refusal first, then the batch against the room, the beds and the purse.
+   * Greyed with the reason on hover rather than pressed and refused (maintainer, 2026-10-06).
+   */
+  const refusal = ((): string | null => {
+    if (vehicle.refusal !== null) return vehicle.refusal;
+    if (count > room) return `The yard has room for ${room} more of these, not ${count}`;
+    if (count > spareUnitSlots) {
+      return `Nowhere in the district to house the crew for ${count} of them`;
+    }
+    if (!canAfford(resources, price)) return `Not enough in the yard to build ${count}`;
+    return null;
+  })();
+
   return (
     <article
       data-testid={`vehicle-${vehicle.id}`}
@@ -68,13 +110,13 @@ export function VehicleCard({
         // The roster card's frame, class for class: drawn paper, rivets, the lit edge.
         'card-paper washed rivets edge-lit relative flex gap-3 rounded-sm border p-3',
         // Definite, for the reason the unit card's is: the picture beside the sheet is `h-full`
-        // at its own ratio and a frame with no height gives it nothing to be full of. 15.5rem is
+        // at its own ratio and a frame with no height gives it nothing to be full of. 17.5rem is
         // the column this card holds (a header, two figures, the description, the clock and the
-        // action row) and not a measurement of the picture, which follows it: the longest blurb
-        // in the catalogue (the Cheese Wagon) runs to three lines in this column, and the band
-        // between the header and the action row is `flex-1`, so a shorter one leaves air under the
-        // prose rather than a card of a different height.
-        'h-[15.5rem]',
+        // two-line order box) and not a measurement of the picture, which follows it: the longest
+        // blurb in the catalogue (the Cheese Wagon) runs to three lines in this column, and the
+        // band between the header and the order box is `flex-1`, so a shorter one leaves air under
+        // the prose rather than a card of a different height.
+        'h-[17.5rem]',
         // And the same ceiling while it is one to a row, so a single machine does not become a
         // 1200px band. The grid beside it is the roster's own (`VehicleCatalogue`).
         'w-full max-w-[52rem] [@media(min-width:1440px)]:max-w-none',
@@ -184,7 +226,7 @@ export function VehicleCard({
              */}
             <span
               data-testid={`vehicle-time-${vehicle.id}`}
-              data-tip={`Time on the bench, with your Garage's discount already off. Every level of the yard takes ${GARAGE_TIME_DISCOUNT_PER_LEVEL}% off, to a floor of ${100 - MAX_EFFECT_REDUCTION}% of the catalogue time.`}
+              data-tip={`Time on the bench for one, with your Garage's discount already off. Every level of the yard takes ${GARAGE_TIME_DISCOUNT_PER_LEVEL}% off, to a floor of ${100 - MAX_EFFECT_REDUCTION}% of the catalogue time. A batch is quicker per machine: the order box says what yours takes.`}
               className="whitespace-nowrap border-b border-dashed border-brass-500/60"
             >
               Build time{' '}
@@ -206,32 +248,57 @@ export function VehicleCard({
           </div>
         </div>
 
-        {/* Row 3. The price sits **beside** the button rather than over it (maintainer,
-            2026-09-18), so the two halves of one decision are on one line and the card is a row
-            shorter. `flex-1 justify-end` on the price: the button is the fixed thing and the
-            materials are what has room to give, which is how a five-material machine keeps its
-            last line on the card instead of pushing the button down. */}
-        <div className="flex shrink-0 items-center gap-3">
-          <Button
-            size="sm"
-            className="shrink-0"
-            disabled={vehicle.refusal !== null || pending}
-            onClick={onBuild}
-          >
-            Build it
-          </Button>
-          {vehicle.refusal === null ? (
-            <span className="flex min-w-0 flex-1 justify-end">
-              <CostLine cost={vehicle.cost} stock={resources} />
+        {/* Row 3, the unit card's order box (`MusterBox`), line for line: the batch price over
+            the count, Max, the button and the clock. The same box on both tabs, so a player who
+            has ordered Razors knows how to order a truck. The price is the batch's, which is what
+            pressing the button costs. */}
+        <div className="flex w-full shrink-0 flex-col items-center justify-center gap-1.5 rounded-sm border border-brass-500/35 bg-surface-950/45 px-3 py-1.5">
+          <CostLine cost={price} stock={resources} />
+          <div className="flex items-center gap-2">
+            {/* Sized, where the unit card's is not: an input's own width is twenty characters,
+                and this column is half the roster card's, so left to itself the field pushed the
+                clock off the end of the box. Eight rems is the two steppers and the six digits the
+                field promises. */}
+            <NumberField
+              className="w-32 shrink-0"
+              label={`How many ${vehicle.name}`}
+              min={1}
+              max={MAX_PER_VEHICLE}
+              value={count}
+              onChange={(next) => {
+                setAtMax(false);
+                setTyped(next);
+              }}
+              data-testid={`vehicle-count-field-${vehicle.id}`}
+            />
+            <Button
+              size="sm"
+              variant="ghost"
+              disabled={pending || most < 1}
+              onClick={() => setAtMax(true)}
+              data-testid={`vehicle-max-${vehicle.id}`}
+              data-tip={`As many as you can afford, house and park: ${most}`}
+            >
+              Max
+            </Button>
+            <Button
+              size="sm"
+              disabled={pending}
+              refusal={refusal}
+              onClick={() => onBuild(count)}
+              data-testid={`vehicle-build-${vehicle.id}`}
+            >
+              {pending ? 'Working…' : 'Build it'}
+            </Button>
+            <span
+              className="whitespace-nowrap font-display text-[11px] tabular-nums text-ink-300"
+              data-testid={`vehicle-batch-time-${vehicle.id}`}
+            >
+              {formatDuration(seconds)}
             </span>
-          ) : (
-            /* The refusal takes the price's place rather than sitting under it. A machine that
-               cannot be built has one thing to say and it is not what it would have cost. */
-            <span className="min-w-0 flex-1 text-right font-display text-[12px] text-oxblood-300">
-              {vehicle.refusal}
-            </span>
-          )}
+          </div>
         </div>
+        {error !== null && <PressError>{error}</PressError>}
       </div>
     </article>
   );

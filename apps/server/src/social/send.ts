@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { MAILBOX_LIMIT, type MessageAudience, type NotificationKind } from '@frontline/shared';
 import type { Repositories } from '../db/repos/index.js';
+import { logLetter } from './limits.js';
 import { notify } from './notify.js';
 
 /**
@@ -62,10 +63,12 @@ export function sendMessage(repos: Repositories, outgoing: Outgoing): void {
     inviteFactionId: outgoing.invite?.factionId ?? null,
   };
 
+  const reached: string[] = [];
   for (const recipientUserId of outgoing.recipients) {
     // A reader who has blocked the sender never gets the letter, an invitation included
     // (maintainer, 2026-10-02). The sender's own copy still says it went.
     if (repos.social.hasBlocked(recipientUserId, outgoing.sender.id)) continue;
+    reached.push(recipientUserId);
     repos.social.putMessage({ ...common, id: randomUUID(), recipientUserId, isSentCopy: false });
     // The oldest goes as the newest lands, the way the bell is trimmed (maintainer, 2026-09-29).
     repos.social.trimMailbox(recipientUserId, MAILBOX_LIMIT);
@@ -88,4 +91,14 @@ export function sendMessage(repos: Repositories, outgoing: Outgoing): void {
     });
     repos.social.trimSentFolder(outgoing.sender.id, MAILBOX_LIMIT);
   }
+
+  logLetter(repos, {
+    letterId: common.threadId,
+    senderUserId: outgoing.sender.id,
+    reached,
+    // What a player typed spends one of the day's hundred; an invitation, which keeps no sent
+    // copy, is counted off its own ledger instead (`recordInvitationLetter`).
+    countsForTheDay: outgoing.keepSentCopy,
+    sentAt: outgoing.sentAt,
+  });
 }

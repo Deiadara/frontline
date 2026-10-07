@@ -84,8 +84,10 @@ describe('the wall around the Combine roster', () => {
       unlockedUnits({
         buildings: [],
         heldPlaceKinds: new Set(),
+        heldDoors: new Set<string>(),
         buildableVehicles: new Set(),
         inventory: {},
+        notoriety: 0,
       }).some((unit) => COMBINE_IDS.has(unit.id)),
     ).toBe(false);
     for (const tier of UNIT_TIERS) {

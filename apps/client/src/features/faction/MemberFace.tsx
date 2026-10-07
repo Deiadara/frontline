@@ -1,3 +1,7 @@
+import { PortraitFrame } from '../../components/ui/PortraitFrame';
+import { OverseerPortrait } from '../overseer/OverseerPortrait';
+import { MemberSigil } from './MemberSigil';
+
 /**
  * The three fields a face is drawn from, rather than a whole member row.
  *
@@ -11,9 +15,6 @@ export interface Faced {
   username: string;
   portraitId: string | null;
 }
-import { PortraitFrame } from '../../components/ui/PortraitFrame';
-import { OverseerPortrait } from '../overseer/OverseerPortrait';
-import { MemberSigil } from './MemberSigil';
 
 /**
  * A person at the table, as their own face (maintainer request, 2026-09-13).

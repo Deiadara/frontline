@@ -161,7 +161,9 @@ describe('the Syndic', () => {
   it('is worth something to the defence, not only to the sheet', () => {
     const holds = (presence: CombinePower | undefined) =>
       Array.from({ length: 80 }, (_, i) =>
-        fight({ razors: 21 }, { greycoat: 20 }, presence, `syndic-sweep-${i}`),
+        // 23 since 2026-10-07: the Greycoats carry GUARD now and hold 75 of 80 bare at 21, which
+        // leaves nothing for him to add. Swept 21 to 26: bare 75/48/16/1/0/0, backed 80/80/70/30/11/0.
+        fight({ razors: 23 }, { greycoat: 20 }, presence, `syndic-sweep-${i}`),
       ).filter((sim) => sim.winner === 'defender').length;
     const bare = holds(undefined);
     const backed = holds(SYNDIC);

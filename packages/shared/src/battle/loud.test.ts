@@ -195,15 +195,28 @@ describe('what it does to a fight', () => {
       side.stacks.reduce((total, stack) => total + (stack.started - stack.alive), 0);
     const sheet = ANODICS as unknown as Record<string, boolean | undefined>;
     // Thirty dogs rather than eighteen since 2026-09-21: eighteen died to the last either way.
-    const loud = fight({ anodics: 24 }, { cyber_dogs: 30 }, 'loud-fight');
-    const had = sheet['loud'];
-    delete sheet['loud'];
-    let quiet: Simulation;
-    try {
-      quiet = fight({ anodics: 24 }, { cyber_dogs: 30 }, 'loud-fight');
-    } finally {
-      sheet['loud'] = had;
+    // A sweep of thirty seeds rather than one since 2026-10-07: the dogs carry GUARD now and the
+    // one found seed stopped separating (4 dead either way). Measured: 132 dead loud against 121
+    // quiet over the thirty, more on 10 seeds and fewer on none.
+    const SEEDS = 30;
+    let loudDead = 0;
+    let quietDead = 0;
+    let fewer = 0;
+    for (let i = 0; i < SEEDS; i += 1) {
+      const loud = fight({ anodics: 24 }, { cyber_dogs: 30 }, `loud-${i}`);
+      const had = sheet['loud'];
+      delete sheet['loud'];
+      let quiet: Simulation;
+      try {
+        quiet = fight({ anodics: 24 }, { cyber_dogs: 30 }, `loud-${i}`);
+      } finally {
+        sheet['loud'] = had;
+      }
+      loudDead += lost(loud.defender);
+      quietDead += lost(quiet.defender);
+      if (lost(loud.defender) < lost(quiet.defender)) fewer += 1;
     }
-    expect(lost(loud.defender)).toBeGreaterThan(lost(quiet.defender));
+    expect(loudDead).toBeGreaterThan(quietDead);
+    expect(fewer).toBe(0);
   });
 });

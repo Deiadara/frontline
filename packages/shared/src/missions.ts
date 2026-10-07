@@ -393,6 +393,11 @@ export const MissionSchema = z.object({
    */
   payPercent: z.number().nonnegative().default(0),
   /**
+   * The Bounty Wall's bounty on this run, frozen at launch (maintainer, 2026-10-07): the percent
+   * a golden job pays on top, or 0. Absent on a run from before the wall, which reads as 0.
+   */
+  goldenPercent: z.number().int().nonnegative().optional(),
+  /**
    * §I1: allegiance XP a clean run of this pays, frozen at launch for the same reason.
    *
    * What actually lands is this, or `FAILED_MISSION_XP_SHARE` of it for a run that came home
@@ -410,6 +415,12 @@ export const MissionSchema = z.object({
   infamyPaid: z.number().int().nonnegative().optional(),
   /** The Bone Market's caps for the crew's own dead, as the return banked them. Absent before 0137. */
   refund: PartialResourcesSchema.optional(),
+  /**
+   * What the crew that walked home could lift between them, as the settle worked it out at the
+   * mark (`missionCarry`). Kept rather than recomputed on the report, which read today's loadouts,
+   * bag and marks and could say "all 300, out of the 200 they could lift". Absent before 0147.
+   */
+  carryCapacity: z.number().nonnegative().optional(),
   /**
    * The units that went (§E, §A5).
    *
@@ -676,8 +687,11 @@ export function isMissionDue(mission: Mission, now: Date): boolean {
 
 /** `1h 05m`, `12m`, `2m`: compact enough for a timer column, exact to the minute. */
 export function formatDuration(totalMinutes: number): string {
-  const hours = Math.floor(totalMinutes / 60);
-  const minutes = Math.round(totalMinutes % 60);
+  // Rounded before it is split (bug pass, 2026-10-06): rounding the minutes after the hours were
+  // taken off read 119.6 as "1h 60m".
+  const whole = Math.round(totalMinutes);
+  const hours = Math.floor(whole / 60);
+  const minutes = whole % 60;
   if (hours === 0) return `${minutes}m`;
   return `${hours}h ${String(minutes).padStart(2, '0')}m`;
 }

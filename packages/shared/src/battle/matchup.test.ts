@@ -8,7 +8,7 @@ import {
   type UnitStats,
 } from '../units/index.js';
 import { bareBattlefield } from './battlefield.js';
-import { effectiveStats } from './effects.js';
+import { contextBonusPercent, effectiveStats } from './effects.js';
 import { noTerritoryEffects } from '../city/index.js';
 import {
   ARMOR_FALLOFF,
@@ -506,14 +506,13 @@ describe('a wall is the least attractive target on the field', () => {
 });
 
 /**
- * `bulwark` has to reach toughness, not damage.
- *
- * Every modifier before it was an attack bonus, and pointing one at a sheet with 45 damage buys
- * 31 points of a stat nobody fields the unit for. Both channels are asserted: that the defensive
- * modifier moves hit points, and that an *offensive* one still does not, because a change that
- * routed every modifier to toughness would pass a test that only checked the first half.
+ * GUARD reaches both halves at once (maintainer, 2026-10-07): a quarter more damage and a
+ * quarter more toughness on the defending side, where Bulwark was toughness alone and Dug In
+ * damage alone. Both channels are asserted on a GUARD sheet, and an ordinary attack modifier is
+ * asserted to stay on attack, because a change that routed every modifier to both halves would
+ * pass a test that only checked the first.
  */
-describe('a defensive modifier makes a unit harder to kill, not harder to be hit by', () => {
+describe('GUARD makes a unit harder to kill and harder to be hit by, when it holds ground', () => {
   const holding = (id: string, defending: boolean) =>
     effectiveStats(
       unit(id),
@@ -522,18 +521,20 @@ describe('a defensive modifier makes a unit harder to kill, not harder to be hit
       noTerritoryEffects(),
     );
 
-  it('pays the wall in hit points for holding ground', () => {
-    const dug = holding('ironsides', true);
+  it('pays the wall a quarter more in hit points and in damage for holding ground', () => {
+    const guarded = holding('ironsides', true);
     const open = holding('ironsides', false);
-    expect(dug.vitality).toBeGreaterThan(open.vitality * 1.5);
-    expect(dug.reasons).toContain('Bulwark');
+    expect(guarded.vitality).toBeCloseTo(open.vitality * 1.25, 5);
+    expect(guarded.offense).toBeCloseTo(open.offense * 1.25, 5);
+    expect(guarded.reasons).toContain('GUARD');
   });
 
   it('leaves an attack modifier on attack', () => {
-    // Sluggers carry `dug_in`, which is the same context and the ordinary channel.
-    const dug = holding('sluggers', true);
-    const open = holding('sluggers', false);
-    expect(dug.offense).toBeGreaterThan(open.offense);
-    expect(dug.vitality).toBe(open.vitality);
+    // Demolishers carry `armor_piercing` alone: a context bonus that never touches hit points.
+    const unit = findUnit('demolishers')!;
+    expect(unit.modifiers).not.toContain('guard');
+    const bonus = contextBonusPercent(unit, ['vs_armor']);
+    expect(bonus.percent).toBeGreaterThan(0);
+    expect(bonus.toughness).toBe(0);
   });
 });

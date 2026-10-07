@@ -65,7 +65,8 @@ export type StackhouseFight = z.infer<typeof StackhouseFightSchema>;
 export const StackhouseBetSchema = z.object({
   battleId: IdSchema,
   side: BattleSideSchema,
-  stake: z.number().int().positive(),
+  /** What was charged: nothing on a bet placed in admin mode, which then pays out nothing. */
+  stake: z.number().int().nonnegative(),
   placedAt: IsoDateTimeSchema,
   place: z.string(),
   /** The name of the side the bet is on. */
@@ -86,7 +87,8 @@ export type StackhouseOutcome = z.infer<typeof StackhouseOutcomeSchema>;
 export const StackhouseResultSchema = z.object({
   place: z.string(),
   backing: z.string(),
-  stake: z.number().int().positive(),
+  /** What was charged, as on {@link StackhouseBetSchema}. */
+  stake: z.number().int().nonnegative(),
   outcome: StackhouseOutcomeSchema,
   /** Caps handed back: twice the stake on a win, the stake on a refund, nothing on a loss. */
   payout: z.number().int().nonnegative(),

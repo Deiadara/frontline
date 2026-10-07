@@ -3,7 +3,7 @@ import type { FactionMemberRow } from '../db/repos/factions.js';
 import type { Repositories } from '../db/repos/index.js';
 import { AppError } from '../errors.js';
 import { notify, notifyFaction } from '../social/notify.js';
-import { bringPostedUnitsHome } from './unpost.js';
+import { cutFactionTies } from './ties.js';
 
 /**
  * One member walking out of their faction: `POST /factions/leave`, and the Console's Clean slate,
@@ -46,15 +46,17 @@ export function leaveFaction(
       exceptUserId: held.userId,
     });
     const everyone = members.map((row) => row.userId);
-    bringPostedUnitsHome(repos, everyone, everyone);
+    // At the caller's instant, not the wall clock's (bug pass, 2026-10-06).
+    cutFactionTies(repos, everyone, everyone, now);
     repos.factions.disband(held.factionId);
     return;
   }
 
-  bringPostedUnitsHome(
+  cutFactionTies(
     repos,
     [held.userId],
     members.map((row) => row.userId).filter((id) => id !== held.userId),
+    now,
   );
   repos.factions.removeMember(held.userId);
   repos.factions.dropInvitesSentBy(held.userId);

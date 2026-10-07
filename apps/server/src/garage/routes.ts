@@ -20,6 +20,8 @@ import {
   mergeFleets,
   type Fleet,
   MAX_MUSTER_QUEUE,
+  MAX_PER_VEHICLE,
+  vehicleBatchCost,
   vehiclePartsCut,
 } from '@frontline/shared';
 import type { FastifyInstance } from 'fastify';
@@ -143,6 +145,40 @@ function blockerFor(
 /** What the page and the door both say when the district has no bed left for another machine. */
 const NO_UNIT_SLOTS_MESSAGE = 'Nowhere in the district to house the crew for another one';
 
+/**
+ * Why the yard will not take an order for `count` of a machine it would build one of, or null.
+ *
+ * The card's Max is `maxVehiclesBuildable` off the same three figures (`spareUnitSlots`, the
+ * per-kind room and the stockpile), so a batch the card offers is a batch this accepts; what
+ * reaches here is a typed number past it, or another tab spending first. Each refusal names the
+ * figure that stopped it, which is what a player short by one wants to read.
+ */
+function batchBlockerFor(
+  app: FastifyInstance,
+  base: Base,
+  id: string,
+  count: number,
+  out: Fleet,
+  spare: number,
+): string | null {
+  const spec = findVehicle(id);
+  if (!spec) return VEHICLE_REFUSAL_MESSAGES.unknown_vehicle;
+  const admin = app.config.admin;
+  const held = mergeFleets(mergeFleets(base.fleet, out), machinesOnTheBench(base))[spec.id] ?? 0;
+  const room = Math.max(0, MAX_PER_VEHICLE - held);
+  if (count > room) return `The yard has room for ${room} more of these, not ${count}`;
+  if (count > spare && !adminWaives('no_unit_slots', admin)) {
+    return `Nowhere in the district to house the crew for ${count} of them`;
+  }
+  if (
+    !adminWaives('cannot_afford', admin) &&
+    !canAfford(base.resources, vehicleBatchCost(price(app, base, spec.cost), count))
+  ) {
+    return `Not enough in the yard to build ${count}`;
+  }
+  return null;
+}
+
 export function projectGarage(app: FastifyInstance, base: Base): GarageResponse {
   const holds = holdsVehicleBlueprint(base);
   const out = vehiclesAbroad(app.repos, base);
@@ -151,6 +187,7 @@ export function projectGarage(app: FastifyInstance, base: Base): GarageResponse 
   const bench = machinesOnTheBench(base);
   return {
     resources: base.resources,
+    spareUnitSlots: spare,
     garageLevel: buildingLevel(base.buildings, 'garage'),
     fleet: base.fleet,
     capacity: fleetCapacity(base.fleet),
@@ -188,18 +225,18 @@ export function registerGarageRoutes(app: FastifyInstance): void {
     )();
   });
 
-  /** Build a machine. Counted, not fitted: the yard holds several of a kind. */
+  /** Build a batch of one machine. Counted, not fitted: the yard holds several of a kind. */
   app.post('/garage/build', { preHandler: app.authenticate }, (request): GarageMutationResponse => {
-    const { vehicleId } = parseBody(BuildVehicleRequestSchema, request.body);
+    const { vehicleId, count } = parseBody(BuildVehicleRequestSchema, request.body);
     return app.db.transaction(() => {
       const base = settledOwnBase(app, request.currentUser.id, new Date());
-      const blocker = blockerFor(
-        app,
-        base,
-        vehicleId,
-        vehiclesAbroad(app.repos, base),
-        districtUnitSlots(app.repos, base).spare,
-      );
+      const out = vehiclesAbroad(app.repos, base);
+      const spare = districtUnitSlots(app.repos, base).spare;
+      // One first, in the page's own words, then the batch: a card greyed for the plans should be
+      // refused for the plans and not for the size of the order typed into it.
+      const blocker =
+        blockerFor(app, base, vehicleId, out, spare) ??
+        batchBlockerFor(app, base, vehicleId, count, out, spare);
       if (blocker !== null) throw new AppError('WORKSHOP_REFUSED', blocker);
 
       const spec = findVehicle(vehicleId);
@@ -217,7 +254,8 @@ export function registerGarageRoutes(app: FastifyInstance): void {
       const queued = queueVehicle(app.repos, {
         base,
         vehicle: spec,
-        cost: price(app, base, spec.cost),
+        cost: vehicleBatchCost(price(app, base, spec.cost), count),
+        count,
         now: new Date(),
         admin: app.config.admin,
       });

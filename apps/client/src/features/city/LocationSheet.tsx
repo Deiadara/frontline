@@ -15,7 +15,7 @@ import {
   type LocationView,
   type Resources,
 } from '@frontline/shared';
-import { useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { CostLine } from '../../components/Resources';
 import { Button } from '../../components/ui/Button';
@@ -38,7 +38,8 @@ import { whenItHolds } from './characteristics';
 import { ForcePicker } from './ForcePicker';
 import { MoveDialog } from '../actions/MoveDialog';
 import { SpyDialog, spyStandingFigure, type SpyingProps } from './SpyPanel';
-import { ErrorNote } from '../../components/ui/ErrorNote';
+import { PressError } from '../../components/ui/PressError';
+import { DoorLadder, PamphletPicker, TollingSwitch, TrophyList } from './ReliquaryControls';
 
 /**
  * One location, on one sheet, laid out the same way for every location in the city (board
@@ -162,6 +163,12 @@ export function LocationSheet({
   );
 
   const upgrading = view.upgradingUntil !== null;
+  /*
+   * A refused cancel is about the upgrade it was pressed on (bug pass, 2026-10-06). The sheet
+   * outlives the upgrade, so the refusal stood beside the next one started here.
+   */
+  const resetCancel = cancelUpgrade.reset;
+  useEffect(() => resetCancel(), [view.upgradingUntil, resetCancel]);
   const district = findDistrict(districtId);
 
   return (
@@ -266,6 +273,7 @@ export function LocationSheet({
         <Characteristics
           labels={view.labels}
           when={whenItHolds(view.location.kind, weatherAt(now))}
+          noisyFromTower={view.noisyFromTower}
           data-testid={`characteristics-${view.location.id}`}
         />
         <FightsAs view={view} now={now} />
@@ -283,6 +291,15 @@ export function LocationSheet({
           />
         </dl>
       </Sheet>
+
+      {view.door !== null && (
+        // A unit door (Reliquary, 2026-10-07): what each level gives the unit it musters, with
+        // the level this ground has reached marked. Public like the level pips: a rival deciding
+        // whether to take a Shrine wants to know what the Saint walks out of it with.
+        <Sheet label={`${view.door.name}'s door`} icon="units">
+          <DoorLadder door={view.door} locationId={view.location.id} />
+        </Sheet>
+      )}
 
       {spyingOpen && (
         <SpyDialog
@@ -330,7 +347,11 @@ export function LocationSheet({
                 onCancel={() => cancelUpgrade.mutate({ locationId: view.location.id })}
                 data-testid={`cancel-upgrade-${view.location.id}`}
               />
-              {cancelUpgrade.error && <ErrorNote>{cancelUpgrade.error.message}</ErrorNote>}
+              {cancelUpgrade.error && (
+                <PressError onDismiss={cancelUpgrade.reset}>
+                  {cancelUpgrade.error.message}
+                </PressError>
+              )}
             </div>
           ) : view.upgrade === null ? (
             <p className="font-display text-[11px] uppercase tracking-[0.16em] text-ink-300">
@@ -355,8 +376,35 @@ export function LocationSheet({
                   {upgrade.isPending ? 'Working…' : 'Work it up'}
                 </Button>
               </div>
-              {upgrade.error && <ErrorNote>{upgrade.error.message}</ErrorNote>}
+              {upgrade.error && (
+                <PressError onDismiss={upgrade.reset}>{upgrade.error.message}</PressError>
+              )}
             </div>
+          )}
+          {view.switch !== null && (
+            <TollingSwitch
+              state={view.switch}
+              now={now}
+              baseId={baseId}
+              districtId={districtId}
+              locationId={view.location.id}
+            />
+          )}
+          {view.pamphlets !== null && (
+            <PamphletPicker
+              // Keyed on the pins and the lock, so a wall re-read after a write starts its
+              // pickers from what is on the wall now rather than from the last draft.
+              key={`${view.pamphlets.pins.join(',')}:${String(view.pamphlets.unlocked)}`}
+              wall={view.pamphlets}
+              caps={resources.caps}
+              now={now}
+              baseId={baseId}
+              districtId={districtId}
+              locationId={view.location.id}
+            />
+          )}
+          {view.trophies !== null && (
+            <TrophyList trophies={view.trophies} locationId={view.location.id} />
           )}
           {/* Garrisoning is walking units there, on the clock (maintainer, 2026-09-28: "Nothing
               sends units immediately, you need to move them"). The control opens the Move dialog
@@ -476,7 +524,11 @@ export function LocationSheet({
           pending={plant.isPending}
           error={plant.error}
           confirmLabel="Send them in"
-          onClose={() => setPlanting(false)}
+          onClose={() => {
+            setPlanting(false);
+            // The refusal goes with the picker it was said in (bug pass, 2026-10-06).
+            plant.reset();
+          }}
           onConfirm={(sending) =>
             plant.mutate(
               { locationId: view.location.id, army: sending },

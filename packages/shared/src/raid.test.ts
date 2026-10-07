@@ -21,6 +21,7 @@ import {
   RESOURCE_KG,
   disruptionFrom,
   disruptionPercentAt,
+  leadLootExtra,
   noDisruption,
   plunder,
   raidDisruptionPercent,
@@ -129,6 +130,23 @@ describe('what a raid can take', () => {
  * the hold on its own, but the wallet stays off the table: a district's caps are what its owner
  * spends on everything, and a raid is meant to cost them stock rather than options.
  */
+/** The officer's loot perk (maintainer, 2026-10-06): more of what was carried, from the victim. */
+describe('what a leading officer adds to the haul', () => {
+  it('takes the percentage of each line carried off', () => {
+    expect(leadLootExtra(stocked(), { scrap: 1_000, oil: 50 }, 12)).toEqual({ scrap: 120, oil: 6 });
+  });
+
+  it('never takes more than the victim still holds once the haul is out', () => {
+    const stock = { ...stocked(), scrap: 1_050, oil: 50 };
+    expect(leadLootExtra(stock, { scrap: 1_000, oil: 50 }, 12)).toEqual({ scrap: 50 });
+  });
+
+  it('adds nothing without the perk, and nothing to a line nobody carried', () => {
+    expect(leadLootExtra(stocked(), { scrap: 1_000 }, 0)).toEqual({});
+    expect(leadLootExtra(stocked(), {}, 12)).toEqual({});
+  });
+});
+
 describe('what a raid leaves in the till', () => {
   it('never carries out an excluded line, however much room it has', () => {
     const haul = plunder(stocked(), Number.MAX_SAFE_INTEGER, ['caps']);

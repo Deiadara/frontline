@@ -24,6 +24,12 @@ export interface VendorBid {
   /** The district that takes the goods if this wins, and whose caps pay for them. */
   baseId: string;
   amount: number;
+  /**
+   * Caps this bid took off the stockpile when it was placed (maintainer, 2026-10-06): the bid
+   * after the crew's ground, or nothing in admin mode. Handed back on a raise and to every bidder
+   * the close does not pick; the winner's is the price.
+   */
+  held: number;
   at: string;
 }
 
@@ -34,7 +40,7 @@ export interface VendorLotResult {
   lineId: string;
   /** Denormalised: the catalogue a barrow was drawn from can move under a results panel. */
   item: string;
-  /** Null when nobody in the ranking could pay. */
+  /** Null when nobody took it: no unit left on the line, or no bidder's district left. */
   winnerUserId: string | null;
   price: number | null;
   settledAt: string;
@@ -76,6 +82,7 @@ interface BidRow {
   user_id: string;
   base_id: string;
   amount: number;
+  held: number;
   at: string;
 }
 
@@ -97,6 +104,7 @@ function rowToBid(row: BidRow): VendorBid {
     userId: row.user_id,
     baseId: row.base_id,
     amount: row.amount,
+    held: row.held,
     at: row.at,
   };
 }
@@ -113,7 +121,7 @@ function rowToResult(row: ResultRow): VendorLotResult {
   };
 }
 
-const BID_COLUMNS = 'day, session, line_id, user_id, base_id, amount, at';
+const BID_COLUMNS = 'day, session, line_id, user_id, base_id, amount, held, at';
 const RESULT_COLUMNS = 'day, session, line_id, item, winner_user_id, price, settled_at';
 
 /**
@@ -143,11 +151,12 @@ export function createVendorAuctionsRepo(db: AppDatabase): VendorAuctionsRepo {
     `SELECT ${BID_COLUMNS} FROM vendor_bids WHERE day = ? AND session = ?`,
   );
   const placeBidStmt = db.prepare(
-    `INSERT INTO vendor_bids (day, session, line_id, user_id, base_id, amount, at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `INSERT INTO vendor_bids (day, session, line_id, user_id, base_id, amount, held, at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT (day, session, line_id, user_id) DO UPDATE SET
        base_id = excluded.base_id,
        amount = excluded.amount,
+       held = excluded.held,
        at = excluded.at,
        updated_at = excluded.updated_at`,
   );
@@ -192,6 +201,7 @@ export function createVendorAuctionsRepo(db: AppDatabase): VendorAuctionsRepo {
         bid.userId,
         bid.baseId,
         bid.amount,
+        bid.held,
         bid.at,
         bid.at,
       );

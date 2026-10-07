@@ -135,6 +135,21 @@ describe("a faction's file", () => {
 });
 
 describe('the roster on it', () => {
+  // Bug pass, 2026-10-06: the server sends join order, and a leader who took over later sat mid-list.
+  it('seats the table by rank, as the room does, whatever order the server sends', async () => {
+    await renderFile({ ...PROFILE, members: [...PROFILE.members].reverse() });
+    const seats = within(screen.getByTestId('faction-profile-members')).getAllByRole('listitem');
+    const order = seats.map((seat) =>
+      PROFILE.members.findIndex(
+        (member) =>
+          seat.querySelector(`[data-testid="faction-member-${member.username}"]`) !== null ||
+          seat.getAttribute('data-testid') === `faction-member-${member.username}`,
+      ),
+    );
+    expect(order).toEqual([0, 1, 2]);
+    expect([LEADER?.rank, CHIEF?.rank, MEMBER?.rank]).toEqual(['leader', 'chief', 'member']);
+  });
+
   it('draws every seat with its rank, its level and its infamy', async () => {
     await renderFile();
     const seats = within(screen.getByTestId('faction-profile-members')).getAllByRole('listitem');

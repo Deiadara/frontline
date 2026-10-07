@@ -87,14 +87,14 @@ export function Readings({
             testId="dial-units"
             icon="units"
             label="Unit Slots"
-            value={units.toLocaleString()}
+            value={units.toLocaleString('en-US')}
             note="The unit slots taken up by the battle units standing at home in every district at the table. Units out on a job, at a gate or posted on ground are not counted until they are back. It moves as crews muster units, send parties out and lose fights."
           />
           <Reading
             testId="dial-earned"
             icon="infamy"
             label="Earned"
-            value={Math.round(earned).toLocaleString()}
+            value={Math.round(earned).toLocaleString('en-US')}
             note="Infamy won in declared fights by the people at this table; jobs and battle missions do not add to it. It is what the standings rank factions by, and it is not the same as what anybody is holding in their pocket."
           />
           <Reading
@@ -129,7 +129,8 @@ export function Readings({
         >
           {shown.map((battle) => (
             <FightChip
-              key={battle.battleId}
+              // A fight two mates are in is listed once for each (`allyBattles`).
+              key={`${battle.battleId}:${battle.memberUserId}`}
               battle={battle}
               now={now}
               onOpen={() => onOpenFight(battle.battleId)}

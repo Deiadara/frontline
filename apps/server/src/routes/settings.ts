@@ -19,10 +19,9 @@ import type { UserRecord } from '../types.js';
 /**
  * The player's own record: what they are called, what they look like, and what clock they read.
  *
- * Three handlers rather than one `PATCH /settings` that takes everything. A password change needs
- * the old password and a profile change does not, and folding them together would either demand a
- * password to change an icon or accept a password change without one. They are different
- * transactions with different proofs, so they are different endpoints.
+ * Three handlers rather than one `PATCH /settings` that takes everything. A password change ends
+ * every other session and a profile change does not, so they are different transactions and
+ * different endpoints.
  */
 
 const BCRYPT_COST = 10;
@@ -177,29 +176,36 @@ export function registerSettingsRoutes(app: FastifyInstance): void {
      * landing in that gap (two tabs, one form each) would silently overwrite the first. The row is
      * the arbiter: if the hash moved while this request was hashing, this request lost, and says so.
      */
-    const fresh = app.repos.users.findById(record.id);
-    if (!fresh || fresh.passwordHash !== record.passwordHash) {
-      throw new AppError('INVALID_CREDENTIALS', 'Your password changed while this was in flight');
-    }
-    /*
-     * ...and the session with it (bug pass, 2026-09-28). `authenticate` checked the version before
-     * the hash, so a "log out everywhere" landing inside it left this request to set a password
-     * and sign itself a fresh token on a session its owner had just ended.
-     */
-    if (app.repos.users.sessionVersion(record.id) !== request.user.ver) {
-      throw new AppError('UNAUTHORIZED', 'This session has ended. Sign in again');
-    }
-    app.repos.users.setPasswordHash(record.id, passwordHash);
-    const version = app.repos.users.revokeSessions(record.id);
+    // One transaction for the checks and the three writes (bug pass, 2026-10-06): a new hash with
+    // the old sessions still open, or no line in the history, is not a state to stop in. The
+    // cookie goes out only once it has committed.
+    const { fresh, version } = app.db.transaction(() => {
+      const fresh = app.repos.users.findById(record.id);
+      if (!fresh || fresh.passwordHash !== record.passwordHash) {
+        throw new AppError('INVALID_CREDENTIALS', 'Your password changed while this was in flight');
+      }
+      /*
+       * ...and the session with it (bug pass, 2026-09-28). `authenticate` checked the version
+       * before the hash, so a "log out everywhere" landing inside it left this request to set a
+       * password and sign itself a fresh token on a session its owner had just ended.
+       */
+      if (app.repos.users.sessionVersion(record.id) !== request.user.ver) {
+        throw new AppError('UNAUTHORIZED', 'This session has ended. Sign in again');
+      }
+      app.repos.users.setPasswordHash(record.id, passwordHash);
+      const version = app.repos.users.revokeSessions(record.id);
+      app.repos.history.record({
+        actorId: record.id,
+        baseId: null,
+        kind: 'account.password_changed',
+        // Deliberately empty. That it happened is the fact worth keeping; nothing about *what* it
+        // changed to may ever reach a log line.
+        payload: {},
+      });
+      return { fresh, version };
+    })();
     issueSession(app, reply, record.id, version, request.sessionVia);
-    app.repos.history.record({
-      actorId: record.id,
-      baseId: null,
-      kind: 'account.password_changed',
-      // Deliberately empty. That it happened is the fact worth keeping; nothing about *what* it
-      // changed to may ever reach a log line.
-      payload: {},
-    });
-    return settingsFor({ ...record, passwordHash });
+    // Off the row read after the hash, so a profile edit made while it ran is in the answer.
+    return settingsFor({ ...fresh, passwordHash });
   });
 }

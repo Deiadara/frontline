@@ -27,6 +27,7 @@ const payload = (over: Partial<FactionResponse> = {}): FactionResponse => ({
   pending: [],
   battles: [],
   armies: [],
+  log: [],
   serverNow: NOW,
   ...over,
 });
@@ -53,18 +54,25 @@ const member = (username: string, joinedAt: string) => ({
   overseerName: null,
 });
 
-const battle = (battleId: string, scheduledFor: string, yourContribution = 0) => ({
-  battleId,
-  memberUserId: 'user-Sable',
-  memberName: 'Sable_Ninth',
-  districtName: 'Theirs',
+/** A fight called, logged when it was called (not at its mark). */
+const fight = (id: string, at: string, side: 'attacker' | 'defender' = 'attacker') => ({
+  id,
+  kind: 'fight' as const,
+  at,
+  userId: 'user-Sable',
+  name: 'Sable_Ninth',
   targetName: 'The Tideline Market',
-  districtLabel: 'neon-docks',
-  scheduledFor,
-  side: 'attacker' as const,
-  committed: 24,
-  yourContribution,
-  canReinforce: true,
+  side,
+  units: 0,
+});
+
+/** Help this reader sent, logged when it was sent. */
+const help = (id: string, at: string, units: number) => ({
+  ...fight(id, at),
+  kind: 'help' as const,
+  userId: 'user-me',
+  name: 'Nikos',
+  units,
 });
 
 describe('what the table has been up to', () => {
@@ -72,11 +80,11 @@ describe('what the table has been up to', () => {
     const entries = ledger(
       payload({
         members: [member('Sable_Ninth', '2026-08-05T00:00:00.000Z')],
-        battles: [battle('b1', '2026-08-14T03:30:00.000Z')],
+        log: [fight('b1', '2026-08-12T03:30:00.000Z')],
       }),
     );
     expect(entries.map((entry) => entry.at)).toEqual([
-      '2026-08-14T03:30:00.000Z',
+      '2026-08-12T03:30:00.000Z',
       '2026-08-05T00:00:00.000Z',
       '2026-08-01T00:00:00.000Z',
     ]);
@@ -97,28 +105,37 @@ describe('what the table has been up to', () => {
             sentAt: '2026-08-12T00:00:00.000Z',
           },
         ],
-        battles: [battle('b1', '2026-08-14T03:30:00.000Z', 12)],
+        log: [help('h1', '2026-08-12T09:00:00.000Z', 12), fight('b1', '2026-08-12T03:30:00.000Z')],
       }),
     );
     expect(entries.map((entry) => entry.text)).toEqual([
-      'Sable_Ninth called a fight at The Tideline Market',
       'You sent 12 to The Tideline Market',
+      'Sable_Ninth called a fight at The Tideline Market',
       'Nikos asked somebody in, and nobody has answered',
       'Sable_Ninth came to the table',
       'The Ninth Circle was put together',
     ]);
   });
 
-  it('leaves out help nobody sent', () => {
-    const entries = ledger(payload({ battles: [battle('b1', '2026-08-14T03:30:00.000Z', 0)] }));
-    expect(entries.map((entry) => entry.id)).toEqual(['fight-b1', 'founded']);
+  /*
+   * Dated when it happened, and kept after the fight (maintainer, 2026-10-06): the log no longer
+   * reads the open fights, so a fight that is over and gone from them is still on it.
+   */
+  it('keeps a fight that is over, at the time it was called', () => {
+    const entries = ledger(
+      payload({ battles: [], log: [fight('b1', '2026-08-03T10:00:00.000Z')] }),
+    );
+    expect(entries.map((entry) => [entry.id, entry.at])).toEqual([
+      ['fight-b1', '2026-08-03T10:00:00.000Z'],
+      ['founded', '2026-08-01T00:00:00.000Z'],
+    ]);
   });
 
   it('orders entries stamped with the same instant by what they are', () => {
     const entries = ledger(
       payload({
         members: [member('Nikos', '2026-08-01T00:00:00.000Z')],
-        battles: [battle('b1', '2026-08-01T00:00:00.000Z')],
+        log: [fight('b1', '2026-08-01T00:00:00.000Z')],
       }),
     );
     expect(entries.map((entry) => entry.id)).toEqual(['fight-b1', 'joined-user-Nikos', 'founded']);
@@ -127,7 +144,7 @@ describe('what the table has been up to', () => {
   it('says who is being come for rather than who called it, when it is not ours', () => {
     const entries = ledger(
       payload({
-        battles: [{ ...battle('b1', '2026-08-14T03:30:00.000Z'), side: 'defender' }],
+        log: [fight('b1', '2026-08-12T03:30:00.000Z', 'defender')],
       }),
     );
     expect(entries[0]?.text).toBe('Sable_Ninth is being come for at The Tideline Market');

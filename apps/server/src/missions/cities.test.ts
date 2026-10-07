@@ -282,11 +282,12 @@ describe('the walk to a job in another city', () => {
   });
 
   /*
-   * The Blockhouse's cut on a Terminus job (maintainer, 2026-09-30): quoted on the card and frozen
-   * at the launch, off the same city-scoped channel, so the send does not run on a different clock
-   * from the one the player was shown.
+   * A mission cut on a Terminus job: quoted on the card and frozen at the launch, off the same
+   * channel, so the send does not run on a different clock from the one the player was shown.
+   * The Marshalling Yards held whole pay it (12, everywhere); the Blockhouse paid a city-scoped
+   * 25 until it went over to ANTI-COMBINE (maintainer, 2026-10-07).
    */
-  it('quotes and launches a Terminus job on the Blockhouse’s cut', async () => {
+  it('quotes and launches a Terminus job on the Yards’ cut', async () => {
     const { app, repos, baseId, token, overseerId } = await makeStack('signalman');
     takeOnePlotIn(repos, baseId, 'coldwater-halt');
     const fresh = repos.bases.findById(baseId)!;
@@ -301,7 +302,7 @@ describe('the walk to a job in another city', () => {
     };
     const bare = await halt();
 
-    for (const location of TERMINUS.find((one) => one.id === 'blockhouse')!.locations) {
+    for (const location of TERMINUS.find((one) => one.id === 'marshalling-yards')!.locations) {
       const control = repos.city.control(location.id)!;
       repos.city.put({ ...control, holder: { kind: 'crew', baseId }, garrison: {} });
     }

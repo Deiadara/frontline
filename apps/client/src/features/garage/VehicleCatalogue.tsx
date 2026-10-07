@@ -1,7 +1,6 @@
 import { LoadFailure } from '../../components/ui/LoadFailure';
 import { useBuildVehicle, useGarage } from '../../lib/queries';
 import { VehicleCard } from './VehicleCard';
-import { ErrorNote } from '../../components/ui/ErrorNote';
 
 /**
  * The yard's catalogue, as the roster's last tab (GDD §B11, §C; maintainer request, 2026-09-08).
@@ -52,11 +51,13 @@ export function VehicleCatalogue() {
         className="mb-3 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1"
         data-testid="yard-standing"
       >
-        <p className="font-body text-[13px] leading-snug text-ink-300">
-          {data.garageLevel === 0
-            ? 'There is no Garage yet. Build one in the district before the yard is worth walking into.'
-            : `Garage at level ${data.garageLevel}. Every machine is gated on that, on the plans, and on what is in the stockpile.`}
-        </p>
+        {/* Only while there is no yard: with one standing, each card names the level it wants and
+            the sentence that used to sit here said nothing a card did not (maintainer, 2026-10-07). */}
+        {data.garageLevel === 0 && (
+          <p className="font-body text-[13px] leading-snug text-ink-300">
+            There is no Garage yet. Build one in the district before the yard is worth walking into.
+          </p>
+        )}
         <span
           className="shrink-0 font-display text-[12px] font-bold uppercase tracking-[0.14em] tabular-nums text-brass-300"
           data-testid="yard-seats"
@@ -76,14 +77,18 @@ export function VehicleCatalogue() {
             <VehicleCard
               vehicle={vehicle}
               resources={data.resources}
+              spareUnitSlots={data.spareUnitSlots}
               pending={build.isPending}
-              onBuild={() => build.mutate({ vehicleId: vehicle.id })}
+              // On the card that was pressed (bug pass, 2026-10-06): under the list of eight, a
+              // refusal for the first was off screen and the button just came back.
+              error={
+                build.variables?.vehicleId === vehicle.id ? (build.error?.message ?? null) : null
+              }
+              onBuild={(count) => build.mutate({ vehicleId: vehicle.id, count })}
             />
           </li>
         ))}
       </ul>
-
-      {build.error !== null && <ErrorNote>{build.error.message}</ErrorNote>}
     </>
   );
 }

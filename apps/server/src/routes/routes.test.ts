@@ -698,12 +698,12 @@ describe('crew names are unique in a city', () => {
     }
   });
 
-  /** A crew called `Player District II` is indistinguishable from the plot the map draws. */
-  it('refuses the names the map has reserved for the plots', async () => {
+  /** A crew called `Unclaimed Player District` is indistinguishable from an empty plot. */
+  it('refuses the name the map has reserved for an empty plot', async () => {
     const { app } = await makeApp();
     const mine = await register(app, 'nikos');
     await takeOverseer(app, mine.token);
-    for (const name of ['Player District', 'Player District II', 'player district iii']) {
+    for (const name of ['Unclaimed Player District', 'unclaimed  player district']) {
       const refused = await app.inject({
         method: 'POST',
         url: '/api/base/district-name',

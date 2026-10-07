@@ -284,7 +284,7 @@ describe('ground', () => {
       wokeSleepers: false,
     });
     expect(await empty()).not.toContain('steelbelt-press');
-    // ...and only ground in a city that is open: Saltmarch's empty plots are not on it.
+    // ...and only ground in a city that is open: Reliquary's empty plots are not on it.
     for (const id of await empty()) {
       const city = findDistrict(findLocation(id!)!.districtId)!.cityId;
       expect(cityIsOpen(city), id!).toBe(true);
@@ -310,6 +310,33 @@ describe('ground', () => {
     });
     expect(theirs.statusCode).toBe(400);
     expect(theirs.json<{ error: { message: string } }>().error.message).toMatch(/Call a fight/);
+  });
+
+  /*
+   * The quote answers with the send's own refusal (bug pass, 2026-10-06). It checked only what the
+   * crew had at the source, so the dialog drew a walking time to ground the send then refused.
+   */
+  it('refuses to quote a walk the send would refuse, with the same words', async () => {
+    const { me } = await makeWorld();
+    arm(me, { razors: 10 });
+    const body = {
+      from: { kind: 'district' },
+      to: { kind: 'location', locationId: 'steelbelt-press' },
+      army: { razors: 4 },
+      vehicles: {},
+    } as const;
+    const sent = await move(me, body);
+    const quoted = await me.app.inject({
+      method: 'POST',
+      url: '/api/actions/move/quote',
+      headers: auth(me.token),
+      payload: body,
+    });
+    expect(quoted.statusCode).toBe(sent.statusCode);
+    expect(quoted.json<{ error: { message: string } }>().error.message).toBe(
+      sent.json<{ error: { message: string } }>().error.message,
+    );
+    expect(quoted.json<{ error: { message: string } }>().error.message).toMatch(/Call a fight/);
   });
 
   /** The whole city is visible (2026-09-29), so an ally's ground is a destination wherever it is. */

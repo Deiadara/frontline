@@ -121,7 +121,7 @@ function takeEveryPlatform(repos: Repositories, baseId: string): number {
 }
 
 describe('what two Terminus districts are worth to a job', () => {
-  it('stacks the Blockhouse and the Yards to 37 on one channel', async () => {
+  it('pays the Yards on every board, and the Blockhouse in ANTI-COMBINE rather than on the clock', async () => {
     const { repos, base } = await world('yardmaster');
     const bare = standingEffectsFor(repos, base).missionSpeedPercent;
 
@@ -131,13 +131,13 @@ describe('what two Terminus districts are worth to a job', () => {
 
     takeTheWhole(repos, base.id, 'blockhouse');
     const both = standingEffectsFor(repos, repos.bases.findById(base.id)!);
-    expect(missionSpeedPercentIn(both, 'marshalling-yards') - bare).toBe(37);
     /*
-     * The Blockhouse's 25 is Terminus's work only (maintainer, 2026-09-30: "every job in this
-     * city"): an Ashfall board and the misc board see the Yards' 12 and no more.
+     * The Blockhouse held whole is a level of ANTI-COMBINE (maintainer, 2026-10-07); it paid 25
+     * on Terminus work until then. The Yards' 12 is everywhere, and nothing is scoped to a city.
      */
+    expect(both.antiCombineLevels - yardsOnly.antiCombineLevels).toBe(1);
+    expect(missionSpeedPercentIn(both, 'marshalling-yards') - bare).toBe(12);
     expect(both.missionSpeedPercent - bare).toBe(12);
-    expect(both.missionSpeedPercentByCity).toEqual({ [TERMINUS_CITY_ID]: 25 });
     expect(missionSpeedPercentIn(both, ASHFALL_WORK.id) - bare).toBe(12);
     expect(missionSpeedPercentIn(both, MISC_AREA_ID) - bare).toBe(12);
     /*
@@ -203,26 +203,27 @@ describe('what two Terminus districts are worth to a job', () => {
   });
 });
 
-describe('the Blockhouse’s cut, on the boards', () => {
-  it('says "in this city" on the card', () => {
-    expect(describeHoldBonus(unifiedBonusFor('blockhouse')!.bonus)).toBe(
-      '-20% mission time in this city (tapers, no hard stop)',
+describe('a district-scoped cut, on the boards', () => {
+  it('says "in this district" on the card, and the Blockhouse says ANTI-COMBINE', () => {
+    expect(describeHoldBonus({ kind: 'mission_speed', percent: 25, inDistrict: true })).toBe(
+      '-20% mission time in this district (tapers, no hard stop)',
     );
+    expect(describeHoldBonus(unifiedBonusFor('blockhouse')!.bonus)).toContain('ANTI-COMBINE');
     expect(describeHoldBonus(unifiedBonusFor('marshalling-yards')!.bonus)).not.toContain('city');
   });
 
-  it('quotes shorter jobs on a Terminus board and the same jobs on an Ashfall one', async () => {
+  it('quotes shorter jobs on the one board the cut is scoped to and the same jobs elsewhere', async () => {
     const { base } = await world('quoted');
     const yards = TERMINUS.find((one) => one.id === 'marshalling-yards')!;
     const open = new Map([yards, ASHFALL_WORK].map((one) => [one.id, { heldByCrew: 1 }]));
-    const quote = (citySpeedPercent: Record<string, number>) =>
+    const quote = (districtSpeedPercent: Record<string, number>) =>
       new Map(
         projectAreas([yards, ASHFALL_WORK], open, [], base, new Date(), {
-          citySpeedPercent,
+          districtSpeedPercent,
         }).map((area) => [area.id, area.offers.map((offer) => offer.durationMinutes)]),
       );
     const bare = quote({});
-    const held = quote({ [TERMINUS_CITY_ID]: 25 });
+    const held = quote({ [yards.id]: 25 });
     expect(bare.get(yards.id)!.length).toBeGreaterThan(0);
     held.get(yards.id)!.forEach((minutes, at) => {
       expect(minutes).toBeLessThan(bare.get(yards.id)![at]!);

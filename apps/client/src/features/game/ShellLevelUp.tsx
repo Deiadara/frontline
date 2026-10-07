@@ -54,7 +54,9 @@ export function ShellLevelUp({ levelUp: polled }: { levelUp: LevelUp | undefined
       data-testid="shell-level-up"
     >
       <div className="pointer-events-auto">
-        <LevelUpToast levelUp={levelUp} onDismiss={() => setLevelUp(null)} />
+        {/* Keyed by level, so a second level-up arriving under the first gets its own five
+            seconds rather than whatever was left of the first one's (bug pass, 2026-10-06). */}
+        <LevelUpToast key={levelUp.level} levelUp={levelUp} onDismiss={() => setLevelUp(null)} />
       </div>
     </div>
   );

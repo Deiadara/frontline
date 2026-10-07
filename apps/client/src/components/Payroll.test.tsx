@@ -9,6 +9,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as F from '../../e2e/fixtures';
+import { queryKeys } from '../lib/queries';
 import { PayrollBookDialog, RaisePayroll } from './Payroll';
 
 /**
@@ -142,6 +143,31 @@ describe('the payroll book window', () => {
           return path.endsWith('/bar/payroll') && init?.body === JSON.stringify({ fromSteps: 2 });
         }),
       ).toBe(true),
+    );
+  });
+
+  /*
+   * Bug pass, 2026-10-06: the window reads the ledger off the crew's standing, which does not poll,
+   * and a raise left it showing the old book and the old price for the next step.
+   */
+  it('reads the book again after a raise', async () => {
+    fetchMock.mockImplementation((path: string) =>
+      path.endsWith('/bar/payroll')
+        ? reply({ spent: 420, resources: book.resources, payroll: F.bar.payroll })
+        : new Promise(() => {}),
+    );
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    client.setQueryData(queryKeys.crewStanding, { held: true });
+    render(
+      <QueryClientProvider client={client}>
+        <PayrollBookDialog base={book} onClose={() => undefined} />
+      </QueryClientProvider>,
+    );
+    fireEvent.click(within(screen.getByTestId('payroll-dialog')).getByTestId('increase-payroll'));
+    await waitFor(() =>
+      expect(client.getQueryState(queryKeys.crewStanding)?.isInvalidated).toBe(true),
     );
   });
 });

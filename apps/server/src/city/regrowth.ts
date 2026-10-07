@@ -51,9 +51,33 @@ import type { Repositories } from '../db/repos/index.js';
  * was.
  */
 export function settleGarrisonRegrowth(repos: Repositories, now: Date): number {
+  const week = lastWeekBoundary(now);
+  // A read first (bug pass, 2026-10-06): this runs on every settle, every second and on every
+  // read path, and the week is claimed once. Opening a write transaction to find that out took
+  // the write lock thousands of times an hour for nothing.
+  if (repos.regrowth.claimed(week.toISOString())) return 0;
+  if (waitingOnLastWeek(repos, week, now)) return 0;
   // The claim and every garrison it rebuilds are one transaction: claimed and then half-done
   // would leave the rest of the week's regrowth skipped for good, since the week is taken.
   return repos.tx(() => regrowWeek(repos, now));
+}
+
+/**
+ * How long the rebuild waits on last week's fights before it runs anyway (maintainer, 2026-10-06).
+ */
+export const REGROWTH_WAIT_MS = 60 * 60 * 1000;
+
+/**
+ * Whether a fight marked at or before the Monday mark is still to run, inside the hour after it.
+ *
+ * `world/settle.ts` runs last week's fights just ahead of the rebuild, so this is only ever true
+ * when one of them threw. Rebuilt under it, the retried fight would be fought against Monday's
+ * garrison and then spend it (bug pass item 39). Waiting for good would let one fight that keeps
+ * failing hold the whole city's rebuild, so the wait ends an hour after the mark.
+ */
+function waitingOnLastWeek(repos: Repositories, week: Date, now: Date): boolean {
+  if (now.getTime() >= week.getTime() + REGROWTH_WAIT_MS) return false;
+  return repos.sieges.due(week.toISOString()).length > 0;
 }
 
 function regrowWeek(repos: Repositories, now: Date): number {

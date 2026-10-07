@@ -58,7 +58,9 @@ function HudDoor({
     <NavLink
       to={to}
       data-tip={label}
-      aria-label={`${label}: ${title}`}
+      // The count is in the name too: the badge is drawn `aria-hidden`, so a reader heard the door
+      // and never what was waiting behind it (bug pass, 2026-10-06).
+      aria-label={badge > 0 ? `${label}: ${title}. ${badge} waiting` : `${label}: ${title}`}
       data-testid={`hud-${label.toLowerCase()}`}
       className="group flex shrink-0 items-center focus-visible:outline-none"
     >

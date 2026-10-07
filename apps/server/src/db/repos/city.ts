@@ -2,6 +2,8 @@ import {
   withoutRetiredUnits,
   EVERY_LOCATION,
   LocationControlSchema,
+  groundStateOf,
+  MAX_LOCATION_LEVEL,
   findDistrict,
   findLocation,
   startingControl,
@@ -30,6 +32,8 @@ interface ControlRow {
   /** Absent on a schema before 0144, which a migration test reads through this repo. */
   upgrade_paid_json?: string | null;
   garrison_json: string;
+  /** Reliquary's state on the ground (0153): the switch, the pins and the trophies. */
+  ground_json?: string | null;
 }
 
 function rowToControl(row: ControlRow): LocationControl {
@@ -39,12 +43,34 @@ function rowToControl(row: ControlRow): LocationControl {
       row.holder_kind === 'crew'
         ? { kind: 'crew', baseId: row.holder_base_id }
         : { kind: row.holder_kind },
-    level: row.level,
+    // Clamped to today's ceiling (2026-10-06): a cap retuned below a level already stored made the
+    // row unparseable, and every settle in the game reads every row.
+    level: Math.min(row.level, MAX_LOCATION_LEVEL),
     upgradingUntil: row.upgrading_until,
     // Only while an upgrade is under way, so a row with nothing running reads as it always did.
     ...(row.upgrade_paid_json == null ? {} : { upgradePaid: readJson(row.upgrade_paid_json) }),
     garrison: withoutRetiredUnits(readJson(row.garrison_json)),
+    ...groundFields(row.ground_json),
   });
+}
+
+/** The ground-state fields stored on a row (0153), for the schema above to parse with the rest. */
+function groundFields(raw: string | null | undefined): object {
+  return raw == null ? {} : (readJson(raw) as object);
+}
+
+/** The ground-state fields of a row, as one JSON blob, or null when every one is at its default. */
+function groundJson(control: LocationControl): string | null {
+  const state = groundStateOf(control);
+  const bare =
+    !state.switchedOn &&
+    state.switchedAt === null &&
+    state.pamphlets.length === 0 &&
+    state.pamphletsPinnedAt === 0 &&
+    state.pamphletsSwappedAt === null &&
+    Object.keys(state.trophies).length === 0 &&
+    state.trophiesSince === null;
+  return bare ? null : JSON.stringify(state);
 }
 
 export interface CityRepo {
@@ -80,15 +106,16 @@ export function createCityRepo(db: AppDatabase): CityRepo {
     // column needs a migration number of its own. Their defaults (0, null) fill new rows.
     `INSERT INTO location_control
        (location_id, holder_kind, holder_base_id, level, upgrading_until, upgrade_paid_json,
-        garrison_json)
-     VALUES (?, ?, ?, ?, ?, ?, ?)
+        garrison_json, ground_json)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT (location_id) DO UPDATE SET
        holder_kind = excluded.holder_kind,
        holder_base_id = excluded.holder_base_id,
        level = excluded.level,
        upgrading_until = excluded.upgrading_until,
        upgrade_paid_json = excluded.upgrade_paid_json,
-       garrison_json = excluded.garrison_json`;
+       garrison_json = excluded.garrison_json,
+       ground_json = excluded.ground_json`;
   const garrisonStmt = db.prepare(
     'UPDATE location_control SET garrison_json = ? WHERE location_id = ?',
   );
@@ -104,6 +131,7 @@ export function createCityRepo(db: AppDatabase): CityRepo {
         ? null
         : JSON.stringify(control.upgradePaid),
       JSON.stringify(control.garrison),
+      groundJson(control),
     );
   };
 

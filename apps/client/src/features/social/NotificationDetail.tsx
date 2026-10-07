@@ -14,7 +14,7 @@ import {
   type ResourceKey,
 } from '@frontline/shared';
 import { Link } from 'react-router-dom';
-import { Button } from '../../components/ui/Button';
+import { Button, buttonSkin } from '../../components/ui/Button';
 import { Icon, type IconName } from '../../components/ui/Icon';
 import { ResourceIcon } from '../../components/Resources';
 import { Modal } from '../../components/ui/Modal';
@@ -82,8 +82,15 @@ export function NotificationDetail({
         </div>
 
         <div className="flex shrink-0 gap-2 border-t border-surface-600/60 px-5 py-3">
-          <Link to={entry.link} onClick={onClose} data-testid="detail-go">
-            <Button size="sm">Go there</Button>
+          {/* The link dressed as a button rather than a button inside a link, which is invalid
+              markup and two tab stops for one action (bug pass, 2026-10-06). */}
+          <Link
+            to={entry.link}
+            onClick={onClose}
+            className={buttonSkin({ size: 'sm' })}
+            data-testid="detail-go"
+          >
+            Go there
           </Link>
           <Button size="sm" variant="ghost" onClick={onClose}>
             Close
@@ -279,9 +286,9 @@ function HaulRow({
         </span>
         <span className="font-display text-[14px] font-bold tabular-nums">
           <span className={short ? 'text-brass-300' : 'text-ink-100'}>
-            {carried.toLocaleString()}
+            {carried.toLocaleString('en-US')}
           </span>
-          {known && <span className="text-ink-400"> of {earned.toLocaleString()}</span>}
+          {known && <span className="text-ink-400"> of {earned.toLocaleString('en-US')}</span>}
         </span>
         <WastedOn mission={mission} kind={kind} />
       </span>

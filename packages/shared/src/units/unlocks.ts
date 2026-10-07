@@ -6,6 +6,8 @@ import { buildingLevel, type Building } from '../building/state.js';
 import { findModification } from '../building/modifications.js';
 import { findVehicle, vehicleNoun } from '../building/vehicles.js';
 import { LOCATION_CATALOG, type LocationKind } from '../city/locations.js';
+import { notorietyToField } from '../economy/infamy.js';
+import { meetsNotoriety, notorietyTier } from '../economy/notoriety.js';
 import type { Inventory } from '../items/inventory.js';
 import { PLAYER_UNITS, isCombineUnit, type UnitRequirement, type UnitSpec } from './catalog.js';
 
@@ -39,14 +41,33 @@ export interface BlueprintRequirement {
   blueprintId: string;
 }
 
+/**
+ * §D7: the rank on the infamy ladder a unit asks for before it will muster, as a clause.
+ *
+ * Derived like the blueprint one, off `notorietyToField`, so it is written in one place. It used
+ * to be checked at the doors onto a field (a job, a raid, a stationing) instead, which let a
+ * crew muster a Colossus it was then refused the right to send anywhere (maintainer, 2026-10-07):
+ * the one door that matters is the muster, and a unit in the roster goes where the crew goes.
+ */
+export interface NotorietyRequirement {
+  kind: 'notoriety';
+  rank: number;
+}
+
 /** Everything that has to hold before a unit can be mustered: what a screen lists. */
-export type UnitUnlockClause = UnitRequirement | BlueprintRequirement;
+export type UnitUnlockClause = UnitRequirement | BlueprintRequirement | NotorietyRequirement;
 
 export interface UnlockContext {
   /** The crew's own structures. */
   buildings: readonly Building[];
   /** Location kinds this crew currently holds, anywhere in the city. */
   heldPlaceKinds: ReadonlySet<LocationKind>;
+  /**
+   * Units whose authored door this crew holds (a location carrying `unit_door` for them). Required
+   * like `buildableVehicles`, and for the same reason: a default of "none" would lock the Saint for
+   * ever for a caller that forgot to fill it in, with no error anywhere.
+   */
+  heldDoors: ReadonlySet<string>;
   /**
    * §B6: machines the Garage could turn out today, by vehicle id.
    *
@@ -58,6 +79,8 @@ export interface UnlockContext {
   buildableVehicles: ReadonlySet<string>;
   /** The inventory, which is where a finished blueprint document lives (§D10). */
   inventory: Inventory;
+  /** The crew's rank on the infamy ladder (`base.economy.notoriety`), for the §D7 clause. */
+  notoriety: number;
 }
 
 export function requirementMet(need: UnitUnlockClause, context: UnlockContext): boolean {
@@ -70,10 +93,17 @@ export function requirementMet(need: UnitUnlockClause, context: UnlockContext): 
       );
     case 'location':
       return context.heldPlaceKinds.has(need.locationKind);
+    case 'door':
+      return (
+        context.heldDoors.has(need.unitId) ||
+        (need.orKind !== undefined && context.heldPlaceKinds.has(need.orKind))
+      );
     case 'vehicle':
       return context.buildableVehicles.has(need.vehicleId);
     case 'blueprint':
       return isBlueprintUnlocked(context.inventory, need.blueprintId);
+    case 'notoriety':
+      return meetsNotoriety(context.notoriety, need.rank);
   }
 }
 
@@ -87,6 +117,12 @@ export function requirementMet(need: UnitUnlockClause, context: UnlockContext): 
 export function unitUnlockClauses(unit: UnitSpec): UnitUnlockClause[] {
   const document = blueprintForUnit(unit.id);
   const clauses: UnitUnlockClause[] = [...unit.requires];
+  // After the structures: a rank is earned over weeks and a Garage level in an afternoon, so a
+  // player reading a locked Colossus wants the things they can go and do first. Never on a
+  // Combine sheet, which no rank musters (`isUnitUnlocked`): a clause on one would describe a
+  // door that does not exist.
+  const rank = isCombineUnit(unit) ? 0 : notorietyToField(unit);
+  if (rank > 0) clauses.push({ kind: 'notoriety', rank });
   if (document) clauses.unshift({ kind: 'blueprint', blueprintId: document.id });
   return clauses;
 }
@@ -124,6 +160,10 @@ export function describeRequirement(need: UnitUnlockClause): string {
       return findModification(need.modificationId)?.name ?? need.modificationId;
     case 'location':
       return `Hold ${theLocation(need.locationKind)}`;
+    case 'door':
+      return need.orKind === undefined
+        ? `Hold ${DOOR_NAMES[need.unitId] ?? 'the ground that musters them'}`
+        : `Hold ${DOOR_NAMES[need.unitId] ?? 'the ground that musters them'} or ${theLocation(need.orKind)}`;
     case 'vehicle':
       /*
        * "A Scrappy buildable in the Garage", not "The Scrappys".
@@ -136,6 +176,10 @@ export function describeRequirement(need: UnitUnlockClause): string {
       return `A ${vehicleNoun(findVehicle(need.vehicleId)?.name ?? need.vehicleId)} buildable in the Garage`;
     case 'blueprint':
       return `The ${findBlueprint(need.blueprintId)?.name ?? need.blueprintId}`;
+    case 'notoriety':
+      // The rank's name, never its index (maintainer, 2026-10-07): the ladder is read by name
+      // everywhere else in the game.
+      return `A district with infamy level below ${notorietyTier(need.rank)} cannot muster this unit`;
   }
 }
 
@@ -167,4 +211,22 @@ export function heldPlaceKindsOf(
     if (isHeld(location.id)) kinds.add(location.kind);
   }
   return kinds;
+}
+
+/**
+ * The doors by name, for the clause a locked card prints. Authored on the map rather than on a
+ * kind (`unit_door`, Reliquary 2026-10-07), so the sentence names the place and the district.
+ */
+export const DOOR_NAMES: Readonly<Record<string, string>> = {
+  the_saint: "the Saint's Shrine in Saint's Rest",
+  the_condemned: "the Watch Cell in Saint's Rest",
+  the_crimson_dancer: 'the Crimson Stage in Bloodstone',
+  juggernauts: 'the Reliquary Lab in the Cloisters',
+};
+
+/** The units a location opens: by its kind, and by any door authored on it. */
+export function doorsOn(bonuses: readonly { kind: string; unitId?: string }[]): string[] {
+  return bonuses.flatMap((bonus) =>
+    bonus.kind === 'unit_door' && bonus.unitId !== undefined ? [bonus.unitId] : [],
+  );
 }

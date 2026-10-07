@@ -39,6 +39,13 @@ function viewOf(locationId: string, blurb: string | undefined): LocationView {
     reward: LOCATION_CATALOG[location.kind].reward,
     labels: [],
     unlocks: [],
+    holderFaction: null,
+    holderSide: 'enemy',
+    noisyFromTower: false,
+    switch: null,
+    pamphlets: null,
+    trophies: null,
+    door: null,
   };
 }
 
@@ -55,6 +62,25 @@ function draw(views: LocationView[]) {
 }
 
 describe('a sign on the painting', () => {
+  it("colours by side and wears the holder's mark (2026-10-07)", () => {
+    const [first, second] = blacksite.locations;
+    draw([
+      viewOf(first!.id, undefined),
+      {
+        ...viewOf(second!.id, undefined),
+        holder: { kind: 'unoccupied' },
+        holderSide: 'unoccupied',
+      },
+    ]);
+    const held = screen.getByTestId(`site-${first!.id}`).querySelector('span[data-side]');
+    expect(held).toHaveAttribute('data-side', 'enemy');
+    expect(held?.className).toContain('oxblood');
+    expect(held?.querySelector('[data-testid="insignia-government"]')).not.toBeNull();
+    const empty = screen.getByTestId(`site-${second!.id}`).querySelector('span[data-side]');
+    expect(empty).toHaveAttribute('data-side', 'unoccupied');
+    expect(empty?.querySelector('[data-testid^="insignia-"]')).toBeNull();
+  });
+
   it('prints the location’s own blurb over its kind’s when it has one', () => {
     const own = 'Glass on the yard side, and the Combine behind it.';
     draw([viewOf('blacksite-blackward', own)]);

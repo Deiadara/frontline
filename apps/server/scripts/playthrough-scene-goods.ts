@@ -346,7 +346,7 @@ async function scrapyard(h: Harness, a: Player, b: Player): Promise<void> {
         as: a,
         method: 'POST',
         route: '/api/base/modifications/clear',
-        body: { building: into.id, slot },
+        body: { building: into.id, slot, modification: card.id },
       });
       const left = cleared?.base.buildings.find((one) => one.kind === into.id)?.modifications ?? [];
       const had = structure?.modifications ?? [];

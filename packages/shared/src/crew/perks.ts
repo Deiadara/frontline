@@ -55,14 +55,10 @@ export type CrewOnlyBonus =
   | { kind: 'wage_discount'; percent: number }
   | { kind: 'payroll_step_discount'; percent: number }
   | { kind: 'intel_resistance'; percent: number }
-  | { kind: 'casualty_recovery'; percent: number }
+  // `casualty_recovery` and `mission_caps` are `HoldBonus` kinds since Reliquary's Infirmary
+  // Cloister and Candlemarket pay them off the ground (2026-10-07); a perk reaches them through
+  // the shared fold. Cap Counter's `mission_caps` was a `resource_yield` on caps before that.
   | { kind: 'cohesion'; percent: number }
-  /**
-   * More of a job's pay comes home as caps (maintainer, 2026-10-01). Cap Counter's home: it was a
-   * `resource_yield` on caps, and no structure makes caps, so it scaled only the few hourly caps
-   * the ground and the perks pay. Caps flow through jobs, so that is where it counts now.
-   */
-  | { kind: 'mission_caps'; percent: number }
   /*
    * The conditional ones (maintainer request).
    *

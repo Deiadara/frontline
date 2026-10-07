@@ -67,9 +67,8 @@ export const LETTERS_TO_ONE_PLAYER_PER_DAY = 10;
  * How many letters a mailbox keeps, and how many a sent folder keeps (maintainer, 2026-09-29).
  * Hard, so the inbox shows every letter there is and the unread badge counts nothing the player
  * cannot open. When a hundred-and-first arrives the oldest **read** letter goes first; unread
- * letters and invitations go only once nothing read is left (maintainer, 2026-10-02). Never below
- * `MESSAGES_PER_DAY`, because the day's limit is counted off the sent folder and a trim under it
- * would hand a sender back letters they had already spent.
+ * letters and invitations go only once nothing read is left (maintainer, 2026-10-02). Free to move
+ * on its own: both letter limits are counted off a send log no trim reaches (2026-10-06).
  */
 export const MAILBOX_LIMIT = 100;
 

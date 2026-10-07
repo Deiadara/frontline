@@ -1,15 +1,18 @@
 # The districts
 
-The world has five cities and they are at four different stages, which is worth knowing before
+The world has five cities and they are at three different stages, which is worth knowing before
 reading any of this.
 
-| City      | Ground                                                 | Documented here |
-| --------- | ------------------------------------------------------ | --------------- |
-| Ashfall   | Eight contested and four plots, playable               | Yes, first      |
-| Terminus  | Eight contested and four plots, playable               | Yes, at the end |
-| Saltmarch | Three contested and four plots, a sketch in `atlas.ts` | Not yet         |
-| Redline   | None. A name, a nickname and a blurb                   | Nothing to say  |
-| Deepcut   | None. A name, a nickname and a blurb                   | Nothing to say  |
+| City      | Ground                                                       | Documented here |
+| --------- | ------------------------------------------------------------ | --------------- |
+| Ashfall   | Eight contested and four plots, playable                     | Yes, first      |
+| Terminus  | Eight contested and four plots, playable                     | Yes, at the end |
+| Reliquary | Two of eight contested so far and four plots, being authored | Yes, last       |
+| Redline   | None. A name, a nickname and a blurb                         | Nothing to say  |
+| Deepcut   | None. A name, a nickname and a blurb                         | Nothing to say  |
+
+Saltmarch, a three-district sketch, held Reliquary's row until 2026-10-06 and was dropped when the
+maintainer chose to keep the world screen at five.
 
 Redline and Deepcut exist so the world screen can show five places (maintainer, 2026-09-24). A city
 can be a row in the list long before anybody draws its districts, and `atlas.test.ts` holds the one
@@ -18,8 +21,8 @@ rule that keeps that honest: a city with no ground may not be `open`. The city l
 
 Nothing about a map is generated: a map is only worth learning if it is the same map tomorrow.
 
-Ashfall's half of this file is written from `packages/shared/src/city/districts.ts` and Terminus's
-from `packages/shared/src/city/atlas.ts`. If a page and its source disagree, the source is right.
+Ashfall's half of this file is written from `packages/shared/src/city/districts.ts`, and Terminus's
+and Reliquary's from `packages/shared/src/city/atlas.ts`. If a page and its source disagree, the source is right.
 
 ## An id is the name on the tag
 
@@ -53,6 +56,26 @@ were asleep. There are four of them and they hold no capturable locations.
 is held by somebody, each is takeable on its own, and each pays for as long as you keep it. Take
 every location in a district and the district is yours, which pays again through that district's
 unified bonus. There are eight of them, holding 60 locations between them.
+
+**A faction holds a district together** (maintainer, 2026-10-07). The members between them need
+every location; then every member is paid the unified bonus, the gate is armed for all of them,
+and whatever a location pays stays with the member holding it. The named defender of a fight on a
+faction-held gate is the member holding the most locations there (ties to whoever held theirs
+longest). When a member leaves, is kicked, or the faction disbands, any district that was whole
+only because of them stops being whole: its gate falls to level 1 with any raise dropped, and the
+units mates had posted on their ground walk home. On the map, a district held whole by your crew
+or your faction wears a green tag and your faction's emblem; one held whole by anybody else (another
+crew, another faction, the looters or the Combine) wears a red tag and their mark; one nobody holds
+whole stays grey and bare. Location tags read the same way for their holder.
+
+**Five levels** (maintainer, 2026-10-06). Every location outside a crew's own district is worked up
+from 1 to 5, not 10: each level is worth a whole multiple of the first (a Market pays 30, 60, 90,
+120, 150 caps an hour), the kinds whose figure is a share of a fight climb a gentler ladder to four
+times (`COMBAT_LEVEL_SCALE`), and Reliquary's authored figures carry their own written ladder. The
+upgrade to level n costs and takes what the old upgrade to 2n did, so the last one is still 33.7
+times the kind's figure. Captured gates outside the home district cap at 5 too, each level priced
+and timed as two of the home Gate's and worth 5% of defence; the home district's own structures
+keep their 20 levels.
 
 Every unified bonus is deliberately something _other_ than what its own locations give, so a
 district is worth finishing rather than worth farming its best hold. `city.test.ts` fails the suite
@@ -98,20 +121,20 @@ only thing a crew can hit on shut ground. Chrome Row and Glasshouse Fields are t
 `Difficulty` is a number the server reads (garrison size, musters, spy counters, mission pay) and
 no screen prints (maintainer, 2026-09-30). Plots have none, so their cell is empty.
 
-| District                           | Kind        | Held by                | Difficulty | Position (x, y) | Holds | Open | Leader          |
-| ---------------------------------- | ----------- | ---------------------- | ---------- | --------------- | ----- | ---- | --------------- |
-| Neon Docks                         | contested   | Combine                | 1          | 0.15, 0.9       | 7     | 0    |                 |
-| Player District (`ashen-terraces`) | residential | independent            |            | 0.84, 0.62      | none  |      |                 |
-| Player District (`kettle-row`)     | residential | independent            |            | 0.38, 0.82      | none  |      |                 |
-| Steelbelt                          | contested   | Combine                | 2          | 0.63, 0.83      | 7     | 0    |                 |
-| Chrome Row                         | contested   | looters                | 4          | 0.3, 0.62       | 8     | 4    |                 |
-| The Undergrid                      | contested   | looters                | 5          | 0.55, 0.58      | 7     | 0    |                 |
-| The Annexes                        | contested   | Combine                | 6          | 0.76, 0.38      | 7     | 0    | The Syndic      |
-| Glasshouse Fields                  | contested   | Combine                | 3          | 0.1, 0.58       | 8     | 2    |                 |
-| Blacksite                          | contested   | Combine, seat of power | 8          | 0.33, 0.3       | 8     | 0    | The Executioner |
-| CCS                                | contested   | Combine, seat of power | 10         | 0.57, 0.13      | 8     | 0    | Directive Xero  |
-| Player District (`upper-roofs`)    | residential | independent            |            | 0.91, 0.79      | none  |      |                 |
-| Player District (`south-quay`)     | residential | independent            |            | 0.78, 0.93      | none  |      |                 |
+| District                                     | Kind        | Held by                | Difficulty | Position (x, y) | Holds | Open | Leader          |
+| -------------------------------------------- | ----------- | ---------------------- | ---------- | --------------- | ----- | ---- | --------------- |
+| Neon Docks                                   | contested   | Combine                | 1          | 0.15, 0.9       | 7     | 0    |                 |
+| Unclaimed Player District (`ashen-terraces`) | residential | independent            |            | 0.84, 0.62      | none  |      |                 |
+| Unclaimed Player District (`kettle-row`)     | residential | independent            |            | 0.38, 0.82      | none  |      |                 |
+| Steelbelt                                    | contested   | Combine                | 2          | 0.63, 0.83      | 7     | 0    |                 |
+| Chrome Row                                   | contested   | looters                | 4          | 0.3, 0.62       | 8     | 4    |                 |
+| The Undergrid                                | contested   | looters                | 5          | 0.55, 0.58      | 7     | 0    |                 |
+| The Annexes                                  | contested   | Combine                | 6          | 0.76, 0.38      | 7     | 0    | The Syndic      |
+| Glasshouse Fields                            | contested   | Combine                | 3          | 0.1, 0.58       | 8     | 2    |                 |
+| Blacksite                                    | contested   | Combine, seat of power | 8          | 0.33, 0.3       | 8     | 0    | The Executioner |
+| CCS                                          | contested   | Combine, seat of power | 10         | 0.57, 0.13      | 8     | 0    | Directive Xero  |
+| Unclaimed Player District (`upper-roofs`)    | residential | independent            |            | 0.91, 0.79      | none  |      |                 |
+| Unclaimed Player District (`south-quay`)     | residential | independent            |            | 0.78, 0.93      | none  |      |                 |
 
 ## The Combine
 
@@ -220,15 +243,15 @@ Garrison before anybody takes it: Civic Levy with a squad of Greycoats behind th
 
 **Unified bonus, Run of the Belt:** 2% off what mustering units costs, for holding every location in the district (it was 10 until the general muster cuts were cut, 2026-10-01).
 
-| Location           | Kind                  | What holding it pays                                                                                                   |
-| ------------------ | --------------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| No. 4 Press House  | Scrap Press           | Scrap, steadily, for as long as you hold it.                                                                           |
-| The Breaker's Yard | War Machine Graveyard | Hulls, plate and running gear, a gantry that will lift anything, and troops that come back from more than they should. |
-| Toolhouse Pawn     | Pawn Shop             | A smaller cut, and a fence who moves what a raid brings back.                                                          |
-| The Slag Bowl      | Skate Ground          | Everything you field moves faster.                                                                                     |
-| Furnace Row Pumps  | Gas Station           | Oil out of the ground, and the scrap off everything anybody abandoned on the forecourt.                                |
-| The Doghouse       | The Doghouse          | Working dogs, augmented, and handlers who have done this before.                                                       |
-| The Bone Market    | The Bone Market       | What you lose in a fight comes back as caps instead of coming back as nothing.                                         |
+| Location           | Kind                  | What holding it pays                                                                                                     |
+| ------------------ | --------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| No. 4 Press House  | Scrap Press           | Scrap, steadily, for as long as you hold it.                                                                             |
+| The Breaker's Yard | War Machine Graveyard | Hulls, plate and running gear, a gantry that will lift anything, and troops that come back from more than they should.   |
+| Toolhouse Pawn     | Pawn Shop             | A smaller cut, and a fence who moves what a raid brings back.                                                            |
+| The Slag Bowl      | Skate Ground          | Everything you field moves faster.                                                                                       |
+| Furnace Row Pumps  | Gas Station           | Oil out of the ground, and the scrap off everything anybody abandoned on the forecourt.                                  |
+| The Doghouse       | The Doghouse          | Working dogs, augmented, and handlers who have done this before.                                                         |
+| The Shift Canteen  | Soup Kitchen          | Supplies off the ration line, and a crew that has eaten fights like one. The Bone Market went to Reliquary (2026-10-06). |
 
 ### Chrome Row
 
@@ -355,7 +378,7 @@ The last district in the game. The other seat of power, difficulty 10, at the to
 
 Garrison before anybody takes it: Suppressors, Enforcers and Greycoats, and whatever the spire can wake.
 
-**Unified bonus, The Spire Is Taken:** 20% off market prices, for holding every location in the district.
+**Unified bonus, The Spire Is Taken:** one level of **ANTI-COMBINE** (+10% damage and vitality against the Combine) for holding every location in the district (maintainer, 2026-10-07: every city's last district pays this, and the levels stack to +30%). It was 20% off market prices until then.
 
 | Location                | Kind              | What holding it pays                                                                                               |
 | ----------------------- | ----------------- | ------------------------------------------------------------------------------------------------------------------ |
@@ -402,15 +425,12 @@ The tail of the market where the stalls give out and the cut comes back up to me
 
 ### What a plot is called
 
-All four are stored under the name `Player District` and none of them is drawn under it.
-`districtDisplayName` decides what a screen says: your own plot answers with your crew name, and
-everybody else's answers with a number, `Player District I`, `II`, `III`, in catalogue order.
-
-The numbering is viewer-relative, so it always runs from one with no gap: your own plot is not in
-the sequence. The other plots are numbered rather than named after whoever lives there on purpose.
-Only one crew on this map is you, and the map's job is to say "somebody plays there", not to publish
-another player's crew name to the whole city. Those names are reserved: a crew cannot call itself
-`Player District II`.
+All four are stored under the name `Unclaimed Player District` and a claimed one is never drawn
+under it. `districtDisplayName` decides what a screen says: a plot answers with the name of the crew
+living on it, yours or anybody's, and an empty one with `Unclaimed Player District` (maintainer,
+2026-10-06). Until then the other plots were numbered `Player District I`, `II`, `III` to keep a
+stranger's crew name off the map; the ruling is that a claimed plot is simply that crew's. The
+empty plot's name is reserved: a crew cannot call itself `Unclaimed Player District`.
 
 `kettle-row` is the starter district (`STARTER_DISTRICT_ID`) and `upper-roofs` is where the seeded
 AI rival lives (`BOT_DISTRICT_ID`). Neither is arbitrary. A starter home has to be ground nobody can
@@ -432,7 +452,8 @@ similar value, and why renaming ground has to leave its `kind` alone.
 | The Specter                       | `satellite_uplink`                   | Annexe Uplink, Command Uplink                                 |
 | The Abomination                   | `mad_scientist_lair`                 | The Laundry Stair, Undergrid                                  |
 | The Colossus                      | `construction_site`                  | The Unfinished Faculty (Annexes), The Unfinished Wing (Spire) |
-| The Saint                         | `tavern`                             | The Cracked Anvil, Chrome Row                                 |
+| The Saint                         | `tavern`                             | The Cracked Anvil, Chrome Row; the Wake House, Gravefields    |
+| Death Cloaks                      | `mausoleum`                          | One in every Reliquary district (the city is shut)            |
 | The Loose End                     | `rail_yard`                          | Hauler Yard, Glasshouse Fields                                |
 | The Cartographer                  | `rail_yard` + `satellite_uplink`     | Glasshouse Fields plus the Annexes or the Spire               |
 | Twins                             | `mad_scientist_lair` + `gene_clinic` | The Undergrid plus the Annexes or the Spire                   |
@@ -521,20 +542,20 @@ take one platform, which is what makes the line the thing Terminus crews actuall
 In catalogue order. `Open` is how many of a district's plots start unoccupied, which is what decides
 whether its gate is armed. Coldwater Halt and Bonded Row are the two ways in.
 
-| District                       | Kind        | Held by                | Difficulty | Position (x, y) | Holds | Open | Station |
-| ------------------------------ | ----------- | ---------------------- | ---------- | --------------- | ----- | ---- | ------- |
-| Coldwater Halt                 | contested   | looters                | 1          | 0.08, 0.9       | 7     | 3    | yes     |
-| Ironmouth                      | contested   | looters                | 2          | 0.22, 0.8       | 7     | 0    | yes     |
-| The Marshalling Yards          | contested   | looters                | 3          | 0.34, 0.7       | 7     | 0    | yes     |
-| Player District (`carriage`)   | residential | independent            |            | 0.14, 0.64      | none  |      |         |
-| Bonded Row                     | contested   | looters                | 4          | 0.47, 0.6       | 8     | 3    | yes     |
-| Player District (`watertower`) | residential | independent            |            | 0.38, 0.88      | none  |      |         |
-| Telemetry Hill                 | contested   | Combine                | 6          | 0.62, 0.34      | 7     | 0    | no      |
-| The Viaduct                    | contested   | Combine                | 7          | 0.58, 0.48      | 8     | 0    | yes     |
-| Player District (`embankment`) | residential | independent            |            | 0.7, 0.84       | none  |      |         |
-| The Last Platform              | contested   | Combine, seat of power | 9          | 0.8, 0.34       | 8     | 0    | yes     |
-| The Blockhouse                 | contested   | Combine, seat of power | 10         | 0.9, 0.16       | 8     | 0    | yes     |
-| Player District (`signalrow`)  | residential | independent            |            | 0.94, 0.56      | none  |      |         |
+| District                                 | Kind        | Held by                | Difficulty | Position (x, y) | Holds | Open | Station |
+| ---------------------------------------- | ----------- | ---------------------- | ---------- | --------------- | ----- | ---- | ------- |
+| Coldwater Halt                           | contested   | looters                | 1          | 0.08, 0.9       | 7     | 3    | yes     |
+| Ironmouth                                | contested   | looters                | 2          | 0.22, 0.8       | 7     | 0    | yes     |
+| The Marshalling Yards                    | contested   | looters                | 3          | 0.34, 0.7       | 7     | 0    | yes     |
+| Unclaimed Player District (`carriage`)   | residential | independent            |            | 0.14, 0.64      | none  |      |         |
+| Bonded Row                               | contested   | looters                | 4          | 0.47, 0.6       | 8     | 3    | yes     |
+| Unclaimed Player District (`watertower`) | residential | independent            |            | 0.38, 0.88      | none  |      |         |
+| Telemetry Hill                           | contested   | Combine                | 6          | 0.62, 0.34      | 7     | 0    | no      |
+| The Viaduct                              | contested   | Combine                | 7          | 0.58, 0.48      | 8     | 0    | yes     |
+| Unclaimed Player District (`embankment`) | residential | independent            |            | 0.7, 0.84       | none  |      |         |
+| The Last Platform                        | contested   | Combine, seat of power | 9          | 0.8, 0.34       | 8     | 0    | yes     |
+| The Blockhouse                           | contested   | Combine, seat of power | 10         | 0.9, 0.16       | 8     | 0    | yes     |
+| Unclaimed Player District (`signalrow`)  | residential | independent            |            | 0.94, 0.56      | none  |      |         |
 
 The layout is a climb west to east along the line, bottom left to top right, so difficulty and
 height run the same direction the way they do in Ashfall. Telemetry Hill is the one inversion: it
@@ -745,21 +766,12 @@ parade ground.
 Garrison before anybody takes it: Suppressors, Enforcers and Greycoats, and whatever Control can
 call down the line.
 
-**Unified bonus, Everything Leaves Through You:** **20% off the time every mission in Terminus
-takes**, for holding every location in the district (maintainer, 2026-09-24: "twenty per cent off
-the time every job in this city takes"; scoped to the city 2026-09-30). A job on another city's
-board or on the misc board gets nothing from it. Written in the catalogue as
-`{ kind: 'mission_speed', percent: 25, inOwnCity: true }`, because a speed channel is spent as
-`time / (1 + percent/100)` and 25 there is exactly a fifth off the clock; the card reads "-20%
-mission time in this city (tapers, no hard stop)". 25 is the knee of `missionSpeedCut`
-(2026-10-05), so the card alone is paid at face value. Not another research or morale line, which the Records Office and the
-Chapel already pay.
-
-The Marshalling Yards pay the same kind at 12, everywhere, and a crew holding both ends of the line
-gets both on Terminus work, summed and then tapered past the knee. That is allowed and it is the point: the rule the suite enforces is that
-a district's unified bonus may not be a kind that already appears _inside that district_, and
-nothing in the Blockhouse pays mission speed. Assembling both is the strongest economy in the game
-and costs the whole city.
+**Unified bonus, The Blockhouse Is Taken:** one level of **ANTI-COMBINE** (+10% damage and
+vitality against the Combine) for holding every location in the district (maintainer, 2026-10-07:
+every city's last district pays this, and the three levels stack to +30%). It replaced "Everything
+Leaves Through You", twenty per cent off the time every job in Terminus took; that by-city scope
+on `mission_speed` went with it, since nothing else paid it. The Marshalling Yards go on paying
+mission speed at 12, everywhere.
 
 | Location            | Kind                    | What holding it pays                                                                                              |
 | ------------------- | ----------------------- | ----------------------------------------------------------------------------------------------------------------- |
@@ -887,3 +899,240 @@ defect had already been fixed for the Combine legendary alone.
   the road out to the middle of one map and in from the middle of the other. Taking a foothold
   abroad should cost an afternoon; whether two hours is that afternoon is a guess until somebody
   plays it.
+
+# Reliquary
+
+`reliquary`, "the Old Quarter". The cathedral city the Combine never modernised, so it wired it
+instead: white stone and crimson banners, bells that are transmitters, a camera in every saint, and
+more dead than living. Every district, location and unified bonus was chosen by the maintainer,
+card by card, on 2026-10-06 and 2026-10-07; shut (`open: false`) until its art exists.
+
+## The ladder
+
+| District       | Held by                | Difficulty |
+| -------------- | ---------------------- | ---------- |
+| Candlemarket   | looters                | 1          |
+| Gravefields    | looters                | 2          |
+| Bellfounders   | looters                | 3          |
+| The Printworks | looters                | 4          |
+| Saint's Rest   | Combine                | 6          |
+| Bloodstone     | Combine                | 7          |
+| The Cloisters  | Combine, seat of power | 9          |
+| The Nave       | Combine, seat of power | 10         |
+
+The four plots are `almshouses`, `chantry-lane`, `lamplighters` and `waxworks`, and like every plot
+they carry no name until a crew moves in. Every contested district has a Mausoleum, and every
+contested district has a gate, which arms the way every captured gate does when the district is
+held whole.
+
+## The Mausoleums
+
+The city's one trait, as the railway is Terminus's. Every contested district here holds one
+**Mausoleum**, a location kind of its own, and it does three things:
+
+- Holding any one lets the crew muster the **Death Cloaks**: rabble, three unit slots each, 300
+  damage and 300 vitality, blunt, Collective, at home in Eerie and Dark ground and poor in Wet and
+  Hot.
+- Every Mausoleum held puts **+30 damage and +30 vitality** on each of them (their `faith` rule,
+  `FAITH_PER_MAUSOLEUM` in `battle/effects.ts`).
+- A crew may keep **fifty of them for every Mausoleum it holds** (`UnitSpec.capPerHold`), counted
+  everywhere its people stand and on the muster bench; the roster's Max knows the ceiling and the
+  route refuses past it (`at_the_cap`).
+
+A Mausoleum also houses six, because people live in the tombs.
+
+## What a plot here pays
+
+Where Ashfall's and Terminus's locations pay what their kind pays, most of Reliquary's carry their
+own figures (`LocationSchema.bonuses`, read through `baseBonusesOf`): the same kind of place, with
+its icon, its ground and its gating, worth what this map says it is. A figure the maintainer set
+level by level is written as a `ladder` on the bonus, five entries for the five levels, and a
+bonus marked `whenDistrictWhole` is paid only while the district is held whole. Seven kinds exist
+for this city alone (`workshop`, `shrine`, `bounty_wall`, `stage`, `trophy_hall`, `laboratory`,
+`stores`), each needing an icon before the city opens.
+
+Four units are raised on **doors** authored by name rather than by kind of place (`unit_door`,
+`UnitRequirement.door`): the Saint at his Shrine (his taverns no longer muster him), the Condemned
+at the Watch Cell (not the Fight Pit), the Crimson Dancer at her Stage (not the Fight Pit), and the
+Juggernauts at the Reliquary Lab or any gene clinic. The door's level is the unit's: each has a
+ladder of four steps on the unit's card (`doorSteps`), spent by the engine (`battle/doors.ts`).
+
+Three tags changed with the city. **GUARD** replaces Dug In and Bulwark on every sheet that held
+ground, and goes on the Cyberhounds too: a quarter more damage and a quarter more vitality in any
+fight on the defending side. **ANTI-COMBINE** is what every city's last district pays its holder:
++10% damage and vitality against the Combine, three levels stacking to +30%. The **Fight Pit** pays
+double infamy for every enemy unit that was intimidated before it died, and nothing else now.
+
+## Candlemarket
+
+`candlemarket`, called the Market. Difficulty 1 of 10, looter ground, at 0.12, 0.86 on the map.
+
+A street market in the shadow of the cathedral under strings of bulbs, selling wax, relics and
+knock-off implants, with a Combine confessional at the end that takes payment. The loud way in:
+three of seven plots open and no gate.
+
+**Unified bonus, Every Candle Lit:** +15% mission caps.
+
+| Location            | Kind              | What holding it pays                               |
+| ------------------- | ----------------- | -------------------------------------------------- |
+| The Wax Stalls      | Market            | 40 caps an hour (a Market elsewhere pays 30).      |
+| Pilgrim Hostels     | Fence Camp        | 50 unit slots, and no caps: beds and nothing else. |
+| The Chandlery       | Chemical Plant    | 20 oil an hour (14 elsewhere).                     |
+| Martyr's Plinth     | Statue in a Plaza | +10 morale, on rabble only.                        |
+| The Night Watch     | Watchtower        | +38 spy points, everywhere.                        |
+| Bulb-String Loft    | Pirate Radio      | +5 Communication and +5 Signals on every officer.  |
+| The Chandlers' Tomb | Mausoleum         | The Death Cloaks, and six beds.                    |
+
+## Gravefields
+
+`gravefields`, called the Fields. Difficulty 2 of 10, looter ground, at 0.3, 0.93 on the map.
+
+The terraced cemetery outside the walls, white stone gone grey and a red lamp on every tomb. The
+clans that live in the mausoleums bury the city and sell what the dead no longer need. Held end to
+end by the clans, so its gate is armed: Candlemarket is the way in, and this is the first thing
+taken from inside.
+
+**Unified bonus, Buried With Honours:** 3 XP for every unit slot of your own dead, after every fight.
+
+| Location           | Kind            | What holding it pays                                                                 |
+| ------------------ | --------------- | ------------------------------------------------------------------------------------ |
+| The Bone Market    | The Bone Market | 12% of fight losses back as caps (tapers). Moved here from the Steelbelt.            |
+| Mourners' Row      | Pawn Shop       | 2 HQ metal an hour: the dead's valuables end up here. No bigger truck.               |
+| The Wake House     | Downtown Tavern | +5 Empathy and +5 Resolve on every officer.                                          |
+| The Mausoleums     | Mausoleum       | The Death Cloaks, and six beds.                                                      |
+| Stonecutters' Shed | Scrap Press     | Scrap and planks, steadily.                                                          |
+| The Cemetery       | Graveyard       | +5% infamy from fights (declared battles and mission battle jobs), and nothing else. |
+
+## Bellfounders
+
+`bellfounders`, called the Foundry. Difficulty 3 of 10, looter ground, at 0.3, 0.62 on the map.
+
+The old foundry streets, where the cathedral's bells were cast and where the last of them still
+hangs. The furnaces pour plate now, and the quarter rings whether anybody wants it to or not.
+
+**Unified bonus, Cast in Bell Metal:** every modification a unit wears is also +3 armour, stacking,
+inside the 100 cap.
+
+| Location            | Kind            | What holding it pays                                                                                                                                                     |
+| ------------------- | --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| The Clapper Works   | Scrap Press     | Scrap and planks, as a Scrap Press pays.                                                                                                                                 |
+| The Casting Pit     | Foundry         | +3 armour on every Heavy-tier unit, rising 3, 4, 5, 6, 7 by level. No HQ metal.                                                                                          |
+| The Tolling Tower   | Broadcast Tower | A switch (12-hour cooldown): on, every location in Bellfounders is Noisy I, for everybody who fights there, and your own units ignore Noisy everywhere. No intimidation. |
+| The Apprentice Rows | Fence Camp      | 50 unit slots, no caps.                                                                                                                                                  |
+| The Straw Sack      | Workshop        | +5 loot slots on every carrier, rising 5, 6, 7, 8, 10 by level.                                                                                                          |
+| The Hammer Yard     | Workshop        | +10 damage on every blunt-damage unit, rising 10, 15, 20, 25, 30 by level. Not a Construction Site: it does not muster the Colossus and pays no build speed or planks.   |
+| The Founders' Tomb  | Mausoleum       | The Death Cloaks, and six beds.                                                                                                                                          |
+
+## The Printworks
+
+`printworks`, called the Presses. Difficulty 4 of 10, looter ground, at 0.54, 0.64 on the map.
+
+Four storeys of presses that print the city its scripture and its propaganda, and a cellar that
+prints everything else. The gutters run black and the walls are a street long of posters.
+
+**Unified bonus, Every Press Running:** +10% payroll.
+
+| Location                 | Kind              | What holding it pays                                                                                                                                                                                                                                                                 |
+| ------------------------ | ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| The Great Press          | Scrap Press       | Scrap and planks, as a Scrap Press pays.                                                                                                                                                                                                                                             |
+| The Boiler House         | Power Station     | 20 oil an hour.                                                                                                                                                                                                                                                                      |
+| The Scriptorium          | University        | A blueprint page a day, of a blueprint you have not finished, at odds by level (basic/intricate/advanced/masterpiece 70/25/5/0 at level 1 to 30/35/25/10 at level 5), and +5 Encyclopedia and +5 Logistics on every officer, rising to +10. No research speed.                       |
+| The Pamphlet Wall        | Broadcast Tower   | One pin a level: a pinned unit type fights you at -5% damage and -5% vitality, whoever fields it. Pins are set all at once and locked until the wall is next worked up; at level 5 with every pin set, one pin can be changed for 5,000 caps on a 12-hour cooldown. No intimidation. |
+| The Typesetters' Canteen | Soup Kitchen      | 14 supplies an hour and 15 unit slots. No morale.                                                                                                                                                                                                                                    |
+| The Distribution Tunnels | Smuggler's Tunnel | 10% off the time of missions on this district's board, rising to 30% by level (written 11, 18, 25, 33, 43 on the divisor channel).                                                                                                                                                   |
+| The Printers' Vault      | Mausoleum         | The Death Cloaks, and six beds.                                                                                                                                                                                                                                                      |
+
+## Saint's Rest
+
+`saints-rest`, called the Hill. Difficulty 6 of 10, Combine ground, at 0.1, 0.36 on the map.
+
+A walled hospice-monastery on the hill, white stone and crimson banners, the best-run sick ward in
+the city and the Saint's own shrine at the top of the steps. The Combine keeps it, and keeps it
+quiet.
+
+**Unified bonus, The Saint Walks With You:** units fighting in a force with the Saint get +2%
+damage and vitality while he is alive.
+
+| Location                | Kind         | What holding it pays                                                                                                                                                                                                                                                                                                                              |
+| ----------------------- | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| The Sisters' Dispensary | Black Clinic | Each day, a chance of one battle stim (an Adrenaline Syringes crate in the stash): 30% at level 1, 47, 65, 82, 100%. No standing stims.                                                                                                                                                                                                           |
+| The Infirmary Cloister  | Hospital     | +2% casualty recovery a level: 2, 4, 6, 8, 10. No unit vitality.                                                                                                                                                                                                                                                                                  |
+| The Saint's Shrine      | Shrine       | The Saint's one door. He costs 6,000 caps, 1,500 supplies and 600 HQ metal and takes 50 unit slots. Level 2: Holds the Line. Level 3: +10 evasion, speed and stealth. Level 4: INSPIRATION, every ally beside him ignores the ground that is bad for it. Level 5: +1 damage and vitality per unit slot beside him, to +1,000. His Dug In is gone. |
+| The Watch Cell          | Watchtower   | The Condemned's door (moved off the Fight Pit): +30 damage and vitality for every level above the first, and at level 5 LAST CHANCE, one strike more as they die, one time in five. No spy points.                                                                                                                                                |
+| The Exercise Yard       | Gym          | -5% training time a level, 5 to 25, and at level 5 one more training session a day.                                                                                                                                                                                                                                                               |
+| The Wellhouse           | Water Works  | 26 supplies an hour.                                                                                                                                                                                                                                                                                                                              |
+| The Saint's Inn         | Tavern       | +20 unit slots a level, 20 to 100, and the same again while the whole hill is held. No morale; it musters nobody.                                                                                                                                                                                                                                 |
+| The Pilgrims' Tomb      | Mausoleum    | The Death Cloaks, and six beds.                                                                                                                                                                                                                                                                                                                   |
+
+## Bloodstone
+
+`bloodstone`, called the Stone. Difficulty 7 of 10, Combine ground, at 0.62, 0.42 on the map. It
+was the Ossuary until the maintainer re-themed it (2026-10-06).
+
+The sellswords' quarter, licensed by the Combine and run by nobody. Contracts on a wall, blood on a
+stage, every strong crew in the city drinking in one hall, and the Crimson Dancer at the top of the
+bill.
+
+**Unified bonus, Her Blades Lead:** units fighting alongside the Crimson Dancer get +5 penetration
+while she is alive.
+
+| Location             | Kind                  | What holding it pays                                                                                                                                                                                                                                                                                             |
+| -------------------- | --------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| The Bounty Wall      | Bounty Wall           | Each battle job dealt on this district's board is golden with a chance of 20% at level 1, 40, 60, 80, 100%: a gold outline on the card, and +10% pay rising to +50%.                                                                                                                                             |
+| The Red Lantern      | Downtown Tavern       | 60 caps an hour. No morale.                                                                                                                                                                                                                                                                                      |
+| The Hiring Hall      | Fence Camp            | Rabble muster 4% cheaper a level, 4 to 20. No beds, no caps.                                                                                                                                                                                                                                                     |
+| The Crimson Stage    | Stage                 | The Crimson Dancer's door (moved off the Fight Pit). Level 2: +100 damage and vitality. Level 3: SPECTACLE, her kills pay double infamy. Level 4: Crammed and Wet no longer weaken her, and +100 evasion. Level 5: PAPERCUT, every attack strips 5 armour from every enemy unit for the rest of the fight, to 0. |
+| The Chop Shop        | War Machine Graveyard | One random component a day at levels 1 to 3, two from level 4, at rarities rising with level (the Scriptorium's table). No vitality, no seats for all.                                                                                                                                                           |
+| The Trophy Hall      | Trophy Hall           | A list of every unit in the game, ticked as each is killed while the hall is held (reset when it is lost and retaken). Each ticked type pays 10 HQ metal and 100 of every other resource a day, times 1, 1.5, 2, 2.5, 3 by level.                                                                                |
+| The Sellswords' Tomb | Mausoleum             | The Death Cloaks, and six beds.                                                                                                                                                                                                                                                                                  |
+
+## The Cloisters
+
+`cloisters`, called the Convent. Difficulty 9 of 10, a Combine seat of power, at 0.34, 0.24 on the
+map.
+
+A sealed convent-laboratory, four storeys of white wall with no doors on the outside. The sisters
+copy the Combine's papers by hand, grow its soldiers in the old embalming rooms, and have not
+spoken in forty years.
+
+**Unified bonus, The Sisters' Blessing:** +5 morale on every rabble unit.
+
+| Location               | Kind          | What holding it pays                                                                                                                                                                                                                                                                                                                                                                                                             |
+| ---------------------- | ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| The Reliquary Lab      | Laboratory    | A Juggernauts door (a gene clinic does as well; holding both stacks the clinic's vitality on top). They take 10 unit slots and lost Last Stand. Level 2: +20 range. Level 3: +100 vitality, and Wet, Cold and Snowy are home ground. Level 4: +50 damage and they taunt. Level 5: BLOWOUT, a dying Juggernaut deals its damage to enemy units covering up to its own unit slots, smallest units first, only units fully covered. |
+| The Chapter of Silence | Chapel        | +20 defensive spy points a level, 20 to 60. No officer lift, no steady nerve. The crew's own offensive and defensive totals are printed on the Master of Whispers' seat, the Spy Reports tab and the district reports.                                                                                                                                                                                                           |
+| The Novitiate          | Gym           | +3 to every physical attribute of every officer, rising 3, 4, 5, 6, 7 by level. No sessions.                                                                                                                                                                                                                                                                                                                                     |
+| The Cold Vault         | Nuclear Plant | Every other source of oil and HQ metal pays +2% more, rising 2, 3, 4, 5, 6 by level. No HQ metal of its own.                                                                                                                                                                                                                                                                                                                     |
+| The Choir Loft         | Planetarium   | +2% mission XP, rising 2, 3, 4, 5, 6 by level. No research speed, no spy points.                                                                                                                                                                                                                                                                                                                                                 |
+| The Cloister Wall      | High Ground   | Every unit with GUARD gets +10 range and +10 armour, rising to +20 by level (10, 13, 15, 18, 20). No defence percent.                                                                                                                                                                                                                                                                                                            |
+| The Sisters' Crypt     | Mausoleum     | The Death Cloaks, and six beds.                                                                                                                                                                                                                                                                                                                                                                                                  |
+
+## The Nave
+
+`nave`, called the Cathedral. Difficulty 10 of 10, the Combine's seat, at 0.5, 0.1 on the map.
+
+The great cathedral itself, the Combine's seat in the city. Eight hundred voices every night, a
+window the light through which falls on everything, and vaults under the floor deep enough for a
+siege.
+
+**Unified bonus, The Nave Is Taken:** one level of ANTI-COMBINE (+10% damage and vitality against
+the Combine), stacking with the Spire's and the Blockhouse's.
+
+| Location              | Kind       | What holding it pays                                                                                                                                                        |
+| --------------------- | ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| The Choir             | Cinema     | +5 Composure, Improvisation and Empathy on every officer, rising 5, 6, 7, 8, 10 by level. No morale.                                                                        |
+| The Rose Window       | Chapel     | Units you send into a faction mate's fight get +2% damage and vitality, rising 2, 4, 6, 8, 10 by level.                                                                     |
+| The Undercroft Stores | Stores     | +10% storage of HQ metal, planks, oil, scrap and supplies, rising 10, 13, 15, 18, 20 by level. Not caps.                                                                    |
+| The Collection Plate  | Market     | Every passively producing structure in your district makes +10% more per modification fitted on it, rising to +20% per modification by level (10, 13, 15, 18, 20). No caps. |
+| The Court of Arms     | Armory     | Unit modifications 10% cheaper in resources, rising 10, 14, 18, 22, 25 by level. No muster cut.                                                                             |
+| The Cathedral Close   | Fence Camp | 50 unit slots and 6 caps an hour, as a Fence Camp pays.                                                                                                                     |
+| The Bishops' Crypt    | Mausoleum  | The Death Cloaks, and six beds.                                                                                                                                             |
+
+## What this still needs
+
+- Art: a city plate, district plates and marks, and the seven new kind icons, before `open` can be
+  true.
+- Feats: a `mausoleums_held` ladder and a Death Cloaks feat, sized off the finished map the day
+  the city opens, the way the platforms chain was for Terminus. The feat world is built off open
+  cities, so a ladder written now would have a ceiling of nothing.
+- A seeded world, a mission board and a control ledger, which is what `open: true` costs.

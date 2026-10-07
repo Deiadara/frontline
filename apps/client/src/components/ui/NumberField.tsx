@@ -72,7 +72,25 @@ export function digitsOf(raw: string): string {
  */
 export function draftOf(raw: string, negative: boolean): string {
   const sign = negative && raw.trimStart().startsWith('-') ? '-' : '';
-  return sign + digitsOf(raw);
+  /*
+   * A decimal point cuts the figure (maintainer, 2026-10-06): "2.5" is 2. What follows the point
+   * stays in the box while it is typed, so "2." does not swallow the point and read the next digit
+   * as a tens; it counts for nothing, and leaving the field settles the figure whole. Before this,
+   * every non-digit was stripped, and "2.5" read 25.
+   */
+  const point = raw.indexOf('.');
+  if (point < 0) return sign + digitsOf(raw);
+  const after = raw
+    .slice(point + 1)
+    .replace(/\D/g, '')
+    .slice(0, MAX_DIGITS);
+  return `${sign}${digitsOf(raw.slice(0, point))}.${after}`;
+}
+
+/** The whole figure a draft stands for: everything before the point. */
+export function wholeOf(draft: string): string {
+  const point = draft.indexOf('.');
+  return point < 0 ? draft : draft.slice(0, point);
 }
 
 export function NumberField({
@@ -99,7 +117,12 @@ export function NumberField({
    */
   const [draft, setDraft] = useState<string | null>(null);
   useEffect(() => {
-    setDraft((current) => (current === null ? null : current === String(value) ? current : null));
+    // Compared as numbers, so a draft of "-0" (a delta's minus with its first zero) is kept.
+    setDraft((current) =>
+      current === null || wholeOf(current) === '' || Number(wholeOf(current)) !== value
+        ? null
+        : current,
+    );
   }, [value]);
 
   const step = (delta: number) => () => {
@@ -110,22 +133,27 @@ export function NumberField({
   const type = (raw: string) => {
     const next = draftOf(raw, min < 0);
     setDraft(next);
-    const digits = next.replace('-', '');
-    if (digits === '') return;
-    const typed = Number(next);
+    const whole = wholeOf(next);
+    if (whole.replace('-', '') === '') return;
+    const typed = Number(whole);
     /*
-     * Live for the screen, and the floor applied once the figure is as long as the floor: "7" in
-     * a field whose floor is 10 is a figure still being typed, but "75" is not, and "-5" against
-     * a floor of -3 is a delta the screen should refuse now rather than after the press. A lone
-     * zero is never clamped, or the zero a player typed over would come back as the floor.
+     * Live for the screen, and the floor applied only where no further digit could clear it. A
+     * positive figure under the floor is still being typed whatever its length: "100" against a
+     * Bar reserve of 120 is the start of "1000", and clamping it there put the reserve in the box
+     * with the caret after it, so the last zero made the bid 1200 (bug pass, 2026-10-06). A
+     * negative figure only moves away from zero as digits are added, so "-5" against a floor of
+     * -3 is a delta the screen refuses now rather than after the press.
      */
-    const settled = digits !== '0' && digits.length >= String(Math.abs(min)).length;
-    onChange(settled ? clamp(typed) : Math.min(max, typed));
+    onChange(typed < 0 ? clamp(typed) : Math.min(max, typed));
   };
 
   const settle = () => {
     setDraft(null);
-    onChange(clamp(draft === null || draft === '' ? value : Number(draft)));
+    // A bare minus is no figure at all: settling it as NaN read as the floor, which on a delta
+    // field is "withdraw everything".
+    const whole = draft === null ? '' : wholeOf(draft);
+    const empty = whole === '' || whole === '-';
+    onChange(clamp(empty ? value : Number(whole)));
   };
 
   const keys: KeyboardEventHandler<HTMLInputElement> = (event) => {

@@ -539,7 +539,8 @@ describe('a read taken at the target', () => {
     me.db
       .prepare('UPDATE spy_runs SET departed_at = ?')
       .run(new Date(arrived - run.travelMinutes * 60_000).toISOString());
-    expect(snapshotSpying(me.app.repos, new Date())).toBe(1);
+    const readAt = new Date();
+    expect(snapshotSpying(me.app.repos, readAt)).toBe(1);
 
     // The garrison walks off while the runners walk home.
     const press = me.app.repos.city.control('steelbelt-press')!;
@@ -549,7 +550,119 @@ describe('a read taken at the target', () => {
 
     const report = me.app.repos.spying.reportsFor(me.baseId, 10)[0]!;
     expect(report.exposed).toEqual({ razors: 50 });
-    expect(Date.parse(report.writtenAt)).toBeLessThanOrEqual(arrived + 1_000);
+    expect(report.writtenAt).toBe(readAt.toISOString());
+  });
+
+  /*
+   * After downtime the read is taken at the restart, and dated there (maintainer, 2026-10-06): the
+   * ground on the report is the ground as the restart found it, so its time has to be that too.
+   */
+  it('dates a read taken late, after a restart, when it was taken', async () => {
+    const { me, rival } = await makeWorld();
+    hire(me, 100);
+    openTier(me, 'total_intelligence');
+    theirPress(me, rival, { razors: 50 });
+    expect((await spy(me, PRESS, 'total_intelligence')).statusCode).toBe(200);
+    const run = me.app.repos.spying.activeFor(me.baseId)[0]!;
+    // They reached the Press an hour ago, while the server was down.
+    const arrived = Date.now() - 3_600_000;
+    me.db
+      .prepare('UPDATE spy_runs SET departed_at = ?')
+      .run(new Date(arrived - run.travelMinutes * 60_000).toISOString());
+    const restart = new Date();
+    expect(snapshotSpying(me.app.repos, restart)).toBe(1);
+    expect(me.app.repos.spying.snapshotOf(run.id)?.report.writtenAt).toBe(restart.toISOString());
+  });
+});
+
+/*
+ * Rows this build cannot read (bug pass, 2026-10-06). A unit retired while the runners were out
+ * made the stored read unparseable, and the settle threw on it every second for ever: the job
+ * held its party slot and the report never came home. A report row with a tier since renamed took
+ * the owner's battle board down.
+ */
+describe('a spy job across a change to the catalogue', () => {
+  /** Sent, arrived and read, so the stored read is on the row. Answers when the read was taken. */
+  async function readTaken(me: Stack, rival: Stack): Promise<number> {
+    hire(me, 100);
+    openTier(me, 'total_intelligence');
+    theirPress(me, rival, { razors: 50 });
+    expect((await spy(me, PRESS, 'total_intelligence')).statusCode).toBe(200);
+    const run = me.app.repos.spying.activeFor(me.baseId)[0]!;
+    const arrived = Date.now() - 1_000;
+    me.db
+      .prepare('UPDATE spy_runs SET departed_at = ?')
+      .run(new Date(arrived - run.travelMinutes * 60_000).toISOString());
+    const readAt = new Date();
+    expect(snapshotSpying(me.app.repos, readAt)).toBe(1);
+    return readAt.getTime();
+  }
+
+  it('files the read they took when a unit it saw has been retired since', async () => {
+    const { me, rival } = await makeWorld();
+    const readAt = await readTaken(me, rival);
+    me.db
+      .prepare(
+        "UPDATE spy_runs SET snapshot_json = json_set(snapshot_json, '$.report.exposed.retired_unit', 3)",
+      )
+      .run();
+    windBack(me);
+    settleSpying(me.app.repos, new Date());
+    expect(me.app.repos.spying.activeFor(me.baseId)).toEqual([]);
+    const [report] = me.app.repos.spying.reportsFor(me.baseId, 10);
+    expect(report!.exposed).toEqual({ razors: 50 });
+    // The read from the arrival, not one taken again at the settle.
+    expect(Date.parse(report!.writtenAt)).toBe(readAt);
+  });
+
+  it('still comes home, with a read taken again, when the stored one cannot be read', async () => {
+    const { me, rival } = await makeWorld();
+    await readTaken(me, rival);
+    me.db
+      .prepare(
+        "UPDATE spy_runs SET snapshot_json = json_set(snapshot_json, '$.report.tier', 'gone')",
+      )
+      .run();
+    windBack(me);
+    settleSpying(me.app.repos, new Date());
+    expect(me.app.repos.spying.activeFor(me.baseId)).toEqual([]);
+    expect(me.app.repos.spying.reportsFor(me.baseId, 10)).toHaveLength(1);
+  });
+
+  it('keeps every other job coming home past a run it cannot read', async () => {
+    const { me, rival } = await makeWorld();
+    await readTaken(me, rival);
+    me.db.prepare("UPDATE spy_runs SET tier = 'retired_tier'").run();
+    expect(() =>
+      me.app.repos.spying.due(new Date(Date.now() + 86_400_000).toISOString()),
+    ).not.toThrow();
+    expect(me.app.repos.spying.unread()).toEqual([]);
+  });
+
+  it('leaves out a report it cannot read, and serves the rest', async () => {
+    const { me, rival } = await makeWorld();
+    hire(me, 100);
+    openTier(me, 'total_intelligence');
+    theirPress(me, rival, { razors: 50 });
+    expect((await spy(me, PRESS, 'total_intelligence')).statusCode).toBe(200);
+    windBack(me);
+    settleSpying(me.app.repos, new Date());
+    const [filed] = me.app.repos.spying.reportsFor(me.baseId, 10);
+    // A copy of it under a tier this build has never heard of, as a renamed one would read.
+    me.db.exec(
+      `CREATE TEMP TABLE copy AS SELECT * FROM spy_reports WHERE id = '${filed!.id}';
+       UPDATE copy SET id = 'unreadable', tier = 'retired_tier';
+       INSERT INTO spy_reports SELECT * FROM copy;`,
+    );
+    expect(me.app.repos.spying.reportsFor(me.baseId, 10).map((report) => report.id)).toEqual([
+      filed!.id,
+    ]);
+    const board = await me.app.inject({
+      method: 'GET',
+      url: '/api/battles',
+      headers: auth(me.token),
+    });
+    expect(board.statusCode).toBe(200);
   });
 });
 

@@ -27,7 +27,8 @@ export type EventKind =
   | 'admin.knobs'
   | 'admin.grant'
   | 'admin.reset'
-  | 'backup.taken';
+  | 'backup.taken'
+  | 'daily.grant';
 
 export interface GameEvent {
   actorId: string | null;
@@ -41,6 +42,8 @@ export interface HistoryRepo {
   record(event: Omit<GameEvent, 'at'> & { at?: string }): void;
   /** Newest first. For the admin bench and for anybody reading a save after the fact. */
   recent(limit: number): GameEvent[];
+  /** Removes every event of `kind` older than `before`. For the trail's own housekeeping. */
+  forgetOlder(kind: EventKind, before: string): void;
 }
 
 export function createHistoryRepo(db: AppDatabase): HistoryRepo {
@@ -49,6 +52,7 @@ export function createHistoryRepo(db: AppDatabase): HistoryRepo {
      VALUES (?, ?, ?, ?, ?)`,
   );
   const recentStmt = db.prepare('SELECT * FROM game_events ORDER BY id DESC LIMIT ?');
+  const forgetStmt = db.prepare('DELETE FROM game_events WHERE kind = ? AND at < ?');
 
   return {
     record(event) {
@@ -63,6 +67,9 @@ export function createHistoryRepo(db: AppDatabase): HistoryRepo {
       } catch {
         // See the module note: the trail is never allowed to be the reason a move fails.
       }
+    },
+    forgetOlder(kind, before) {
+      forgetStmt.run(kind, before);
     },
     recent(limit) {
       const rows = recentStmt.all(limit) as {

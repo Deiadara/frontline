@@ -41,7 +41,7 @@ export function PartsBench({ held }: { held: ItemCost }) {
           className="font-display text-[10px] font-bold uppercase tracking-[0.16em] tabular-nums text-ink-300"
           data-testid="scrapyard-parts-total"
         >
-          {total} held
+          {total.toLocaleString('en-US')} held
         </span>
         <span aria-hidden className="absolute inset-x-4 -bottom-px h-px bg-surface-600/70" />
       </header>
@@ -84,7 +84,7 @@ export function PartsBench({ held }: { held: ItemCost }) {
                   className="shrink-0 font-stamp text-[16px] leading-none tabular-nums text-ink-100"
                   data-testid={`scrapyard-part-count-${id}`}
                 >
-                  {count}
+                  {count.toLocaleString('en-US')}
                 </span>
               </li>
             );

@@ -4,6 +4,7 @@ import {
   burnRefusal,
   BurnUpgradeRequestSchema,
   CancelMusterRequestSchema,
+  MUSTER_REFUSAL_TEXT,
   MusterUnitsRequestSchema,
   findUnit,
   isPlayerUnit,
@@ -32,11 +33,12 @@ import {
  */
 
 const REFUSAL_ERRORS: Record<MusterRefusal, { code: ErrorCode; message: string }> = {
-  locked: { code: 'UNIT_LOCKED', message: 'You cannot field those yet' },
-  queue_full: { code: 'MUSTER_QUEUE_FULL', message: 'The bench is full' },
-  already_have_one: { code: 'UNIT_LOCKED', message: 'There is only ever one of those' },
-  no_unit_slots: { code: 'NO_UNIT_SLOTS', message: 'Your district has nowhere to put any more' },
-  cannot_afford: { code: 'INSUFFICIENT_RESOURCES', message: 'You cannot cover the cost' },
+  locked: { code: 'UNIT_LOCKED', message: MUSTER_REFUSAL_TEXT.locked },
+  queue_full: { code: 'MUSTER_QUEUE_FULL', message: MUSTER_REFUSAL_TEXT.queue_full },
+  already_have_one: { code: 'UNIT_LOCKED', message: MUSTER_REFUSAL_TEXT.already_have_one },
+  at_the_cap: { code: 'UNIT_LOCKED', message: MUSTER_REFUSAL_TEXT.at_the_cap },
+  no_unit_slots: { code: 'NO_UNIT_SLOTS', message: MUSTER_REFUSAL_TEXT.no_unit_slots },
+  cannot_afford: { code: 'INSUFFICIENT_RESOURCES', message: MUSTER_REFUSAL_TEXT.cannot_afford },
 };
 
 const BURN_ERRORS: Record<BurnRefusal, { code: ErrorCode; message: string }> = {

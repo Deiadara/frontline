@@ -8,8 +8,8 @@ import { openDatabase, runMigrations, type AppDatabase } from '../db/index.js';
 
 /**
  * Settings is the one screen that can lock a player out of their own account, so the tests here
- * are mostly about the ways it must refuse: a username somebody else holds, a password change
- * without the old password, a timezone that is an offset rather than a zone.
+ * are mostly about the ways it must refuse: a username somebody else holds, a password that
+ * bcrypt would cut short, a timezone that is an offset rather than a zone.
  *
  * The defaults are pinned too. A row written before this feature existed has NULL where the glyph,
  * the display name and the clock go, and the schema is what turns those into a shield, a username
@@ -388,6 +388,34 @@ describe('POST /api/settings/password', () => {
       payload: { username: 'operator', password: 'a-much-longer-one' },
     });
     expect(fresh.statusCode).toBe(200);
+  });
+
+  /** Bug pass, 2026-10-06: the three writes were three commits, and a throw left the first. */
+  it('changes nothing when any part of the change fails', async () => {
+    const { app } = await makeApp();
+    const token = await register(app, 'operator');
+    vi.spyOn(app.repos.history, 'record').mockImplementation(() => {
+      throw new Error('the history table is full');
+    });
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/settings/password',
+      headers: auth(token),
+      payload: { newPassword: 'a-much-longer-one' },
+    });
+    expect(res.statusCode).toBe(500);
+    vi.restoreAllMocks();
+
+    // The old password still opens the account, and the session that asked is still open.
+    const login = await app.inject({
+      method: 'POST',
+      url: '/api/auth/login',
+      payload: { username: 'operator', password: PASSWORD },
+    });
+    expect(login.statusCode).toBe(200);
+    expect(
+      (await app.inject({ method: 'GET', url: '/api/settings', headers: auth(token) })).statusCode,
+    ).toBe(200);
   });
 
   it('refuses a new password shorter than the registration rule', async () => {

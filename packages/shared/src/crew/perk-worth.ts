@@ -69,6 +69,7 @@ export const PERK_BREADTH_BY_KIND: Readonly<Record<string, PerkBreadth>> = {
   defense_percent: 'everywhere',
   loot_capacity: 'everywhere',
   officer_group: 'everywhere',
+  officer_skill: 'everywhere',
   officer_attribute: 'everywhere',
   officer_threshold: 'everywhere',
   unit_slots: 'everywhere',
@@ -122,6 +123,8 @@ export const PERK_BREADTH_BY_KIND: Readonly<Record<string, PerkBreadth>> = {
   carriers_fight: 'rule',
   steady_nerve: 'rule',
   any_ride: 'rule',
+  // Ground only, never a perk: listed so a table that wants every hold kind has it.
+  faith: 'rule',
 };
 
 /**

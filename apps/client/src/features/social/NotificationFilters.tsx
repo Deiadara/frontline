@@ -9,7 +9,7 @@ import {
 } from '@frontline/shared';
 import { cn } from '../../lib/cn';
 import { useNotificationSettings, useNotifications } from '../../lib/queries';
-import { ErrorNote } from '../../components/ui/ErrorNote';
+import { PressError } from '../../components/ui/PressError';
 
 /**
  * Which kinds of notification reach this player.
@@ -39,7 +39,7 @@ export function NotificationFilters({ lede = true }: { lede?: boolean }) {
           click that missed, and the player walks away believing a kind is muted when it is not. The
           checkbox is not optimistic (`checked` is derived from `settings.muted`, which only moves on
           the mutation's `onSuccess`), so the message is the only signal there can be. */}
-      {save.error !== null && <ErrorNote>{save.error.message}</ErrorNote>}
+      {save.error && <PressError onDismiss={save.reset}>{save.error.message}</PressError>}
       {NOTIFICATION_GROUPS.map((group) => (
         <section key={group} className="flex flex-col gap-2">
           <h3 className="font-display text-[11px] font-bold uppercase tracking-[0.18em] text-brass-300">

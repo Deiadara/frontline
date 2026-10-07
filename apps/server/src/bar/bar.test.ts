@@ -48,7 +48,7 @@ import type { FastifyInstance } from 'fastify';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { buildApp } from '../app.js';
 import { loadConfig } from '../config.js';
-import { openDatabase, runMigrations, type AppDatabase } from '../db/index.js';
+import { openDatabase, replayMigrations, runMigrations, type AppDatabase } from '../db/index.js';
 import { createRepositories, type Repositories } from '../db/repos/index.js';
 import { crewEffectsFor } from '../crew/standing.js';
 import { districtUnitSlots } from '../district/unit-slots.js';
@@ -304,6 +304,8 @@ function fakeRepos(
 } {
   const written: Written = { hires: 0 };
   const bases = {
+    // The payroll ledger now reads the standing fold (B2), which walks every crew's seats.
+    listSummaries: () => [],
     updateResources: (_id: string, resources: { caps: number }) => {
       written.caps = resources.caps;
     },
@@ -1975,7 +1977,7 @@ describe('0006_recruitment.sql', () => {
   it('carries an officer stored before §H4 all the way to the perk-era schema', () => {
     const db = rewoundToBefore0006();
     plantBase(db, 'legacy-base', [{ ...legacyOfficer, askingWage: 44 }]);
-    expect(runMigrations(db, MIGRATIONS)).toEqual([
+    expect(replayMigrations(db, MIGRATIONS)).toEqual([
       '0006_recruitment.sql',
       '0043_officer_perks.sql',
     ]);
@@ -2017,7 +2019,7 @@ describe('0006_recruitment.sql', () => {
     );
     plantBase(db, 'empty-base', []);
     plantBase(db, 'kept-base', [already]);
-    runMigrations(db, MIGRATIONS);
+    replayMigrations(db, MIGRATIONS);
 
     expect(commandersOf(db, 'empty-base')).toEqual([]);
     expect(commandersOf(db, 'kept-base')[0]).toMatchObject({

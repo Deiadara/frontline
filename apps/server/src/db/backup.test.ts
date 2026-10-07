@@ -1,4 +1,4 @@
-import { mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -204,9 +204,31 @@ describe('a snapshot is checked and copied', () => {
     const db = liveDatabase(dir);
     const backups = path.join(dir, 'backups');
     const mirror = path.join(dir, 'elsewhere');
+    // The mirror is a mounted drive, so it is there before the server is (2026-10-06).
+    mkdirSync(mirror);
     const file = await takeBackup(db, backups, new Date(), mirror);
     expect(listBackups(mirror).map((backup) => backup.file)).toEqual([file]);
     expect(await checkSnapshot(path.join(mirror, file))).toBe('ok');
+  });
+
+  // Maintainer, 2026-10-06: a missing mirror is a drive that is not mounted. It was created on the
+  // local disk, and the copies filled the disk they were meant to be off.
+  it('never makes a mirror that is not there, and says the copy was skipped', async () => {
+    const dir = workspace();
+    const db = liveDatabase(dir);
+    const mirror = path.join(dir, 'unmounted');
+    const warned: string[] = [];
+    const stop = startBackupSchedule({
+      db,
+      directory: path.join(dir, 'backups'),
+      mirror,
+      intervalMs: 20,
+      onWarn: (message) => warned.push(message),
+    });
+    await until(() => warned.length > 0);
+    await stop();
+    expect(existsSync(mirror)).toBe(false);
+    expect(warned[0]).toMatch(/not mounted/);
   });
 });
 
@@ -254,6 +276,35 @@ describe('the schedule', () => {
     await until(() => listBackups(backups).length > 0);
     await stop();
     expect(listBackups(backups).length).toBeGreaterThan(0);
+  });
+
+  /** Bug pass, 2026-10-06: a mirror that cannot be written is not a failed snapshot. */
+  it('announces a snapshot the mirror could not take, and reports the mirror on its own', async () => {
+    const dir = workspace();
+    const db = liveDatabase(dir);
+    const backups = path.join(dir, 'backups');
+    // A file standing where the mirror should be: the copy cannot land, the primary can.
+    const mirror = path.join(dir, 'mirror');
+    writeFileSync(mirror, 'in the way');
+
+    const taken: string[] = [];
+    const errors: unknown[] = [];
+    const stop = startBackupSchedule({
+      db,
+      directory: backups,
+      mirror,
+      intervalMs: 10,
+      onBackup: (file) => taken.push(file),
+      onError: (error) => errors.push(error),
+    });
+    const mirrored = () =>
+      errors.some((error) => /was taken but not mirrored/.test(String((error as Error).message)));
+    await until(() => taken.length > 0 && mirrored());
+    await stop();
+
+    // The ten-millisecond ticks also report the ones they skip; the mirror's own report is there.
+    expect(listBackups(backups).length).toBeGreaterThan(0);
+    expect(mirrored()).toBe(true);
   });
 
   it('reports a failure instead of throwing out of the timer', async () => {

@@ -16,6 +16,7 @@ import {
   type MusterOrder,
   type UnitTier,
   musterCost,
+  type UnitsResponse,
 } from '@frontline/shared';
 import { useEffect, useMemo } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
@@ -41,7 +42,7 @@ import { BonusBreakdown } from './BonusBreakdown';
 import { UnitCard } from './UnitCard';
 import { PageShell, ScreenLoadSheet } from '../game/PageShell';
 import { VehicleCatalogue } from '../garage/VehicleCatalogue';
-import { ErrorNote } from '../../components/ui/ErrorNote';
+import { PressError } from '../../components/ui/PressError';
 
 /**
  * The tabs across the roster: the six tiers, then the machines (maintainer request, 2026-09-08).
@@ -86,6 +87,10 @@ export function UnitsPage() {
   const requested = params.get('tab');
   const tab: RosterTab = isRosterTab(requested) ? requested : 'carrier';
   const setTab = (next: RosterTab) => {
+    // A refusal belongs to the tab it happened on (bug pass, 2026-10-06): it followed the player
+    // across every tab until the next press.
+    muster.reset();
+    cancel.reset();
     setParams(next === 'carrier' ? {} : { tab: next }, { replace: true });
   };
 
@@ -324,7 +329,7 @@ export function UnitsPage() {
         {/* §A5: the cancel window is short and shuts the moment the first unit walks out, so
             `window_closed` is the refusal a player is most likely to meet. It used to be silent:
             the button un-dimmed, the order stayed, and nothing said why. */}
-        {cancel.error && <ErrorNote>{cancel.error.message}</ErrorNote>}
+        {cancel.error && <PressError onDismiss={cancel.reset}>{cancel.error.message}</PressError>}
 
         {bench.length === 0 ? (
           <p className="font-body text-[13px] leading-snug text-ink-300">
@@ -391,9 +396,9 @@ export function UnitsPage() {
             an ordinary thing to do rather than an edge case. Named against the unit that was
             pressed, the way the mission board attributes a refused launch. */}
         {muster.error && (
-          <ErrorNote>
+          <PressError>
             {findUnit(muster.variables?.unitId ?? '')?.name ?? 'That order'}: {muster.error.message}
-          </ErrorNote>
+          </PressError>
         )}
 
         {tab === 'vehicles' ? (
@@ -415,6 +420,8 @@ export function UnitsPage() {
                 atGate={data.gateArmy[unit.id] ?? 0}
                 abroad={data.abroad[unit.id] ?? 0}
                 carriersFight={data.carriersFight ?? false}
+                ignoredLabels={data.ignoredLabels}
+                antiCombineLevels={data.antiCombineLevels}
                 deltas={mustered[unit.id] ?? []}
                 // The crew-wide half of the Bonuses chip. The unit's own half rides on the row.
                 {...(data.musterBreakdown === undefined ? {} : { bonuses: data.musterBreakdown })}
@@ -429,7 +436,12 @@ export function UnitsPage() {
                   veteranPercent: data.musterVeteranReduction ?? 0,
                   // §B6, the same sum on the clock: crew-wide plus this unit's own ground.
                   speedPercent: data.musterSpeedBonus + (unit.homeSpeedBonus ?? 0),
-                  pending: muster.isPending,
+                  // What the route's own gates read, so Muster is greyed rather than refused.
+                  benchFull: bench.length >= MAX_MUSTER_QUEUE,
+                  held: heldEverywhere(data, unit.id),
+                  waived: me.data?.admin === true,
+                  // This card's order only: one press used to say "Working…" on every card.
+                  pending: muster.isPending && muster.variables?.unitId === unit.id,
                   onMuster: (count) =>
                     muster.mutate(
                       { unitId: unit.id, count },
@@ -525,8 +537,14 @@ function BenchRow({
 }
 
 /** The look every chip on the roster's head shares. */
+/*
+ * A fixed height and its own flex box, so every chip on the row is the same size (maintainer,
+ * 2026-10-07). Three of the four sit inside a `HoverCard` trigger and one does not, and an inline
+ * span with vertical padding measures differently inside a block button than it does as a flex
+ * item: the Veteran chip stood a few pixels taller than its neighbours and off their baseline.
+ */
 const TAG_CHIP =
-  'border border-surface-600 px-2 py-0.5 font-display text-[11px] uppercase tracking-[0.16em] text-ink-300';
+  'inline-flex h-6 items-center border border-surface-600 px-2 font-display text-[11px] uppercase leading-none tracking-[0.16em] text-ink-300';
 
 /**
  * One of the three figures on the roster's head, and the page behind it.
@@ -557,10 +575,30 @@ function Tag({
     <HoverCard
       size="window"
       label={label}
+      // `flex`, not the trigger's own `block`: a block button puts the chip on a line box with
+      // the button's own strut under it, which is the extra height `TAG_CHIP` is sized to avoid.
+      className="flex"
       data-testid={testId}
       card={<BonusBreakdown title={title} meaning={meaning} lines={lines} total={total} />}
     >
       {chip}
     </HoverCard>
+  );
+}
+
+/**
+ * How many of one unit the crew has anywhere, the bench included: what the route's one-of-a-kind
+ * check counts (`legendaryRoom`), so the card can grey Muster on the same answer.
+ */
+function heldEverywhere(data: UnitsResponse, unitId: string): number {
+  const queued = data.queue
+    .filter((order) => order.unitId === unitId)
+    .reduce((total, order) => total + order.count - order.delivered, 0);
+  return (
+    (data.army[unitId] ?? 0) +
+    (data.garrisoned[unitId] ?? 0) +
+    (data.abroad[unitId] ?? 0) +
+    (data.gateArmy[unitId] ?? 0) +
+    queued
   );
 }

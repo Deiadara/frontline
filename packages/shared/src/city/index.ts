@@ -11,3 +11,4 @@ export * from './rails.js';
 export * from './control.js';
 export * from './combine.js';
 export * from './gates.js';
+export * from './reliquary.js';

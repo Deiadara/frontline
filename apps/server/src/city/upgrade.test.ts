@@ -261,6 +261,10 @@ describe('working a location up (§A4)', () => {
     for (let level = 1; level < UPGRADE_SECONDS_SCALE.length; level += 1) {
       expect(upgradeSeconds(kind, level + 1)).toBeGreaterThan(upgradeSeconds(kind, level));
     }
+    // One step per upgrade on the five-level ladder, each the old nine-step clock's every second
+    // entry (maintainer, 2026-10-06): the climb to 5 takes what the climb to 10 took.
+    expect(UPGRADE_SECONDS_SCALE).toHaveLength(MAX_LOCATION_LEVEL - 1);
+    expect(UPGRADE_SECONDS_SCALE).toEqual([3, 5.9, 9.2, 11.5]);
     // The Bonefield is a war machine graveyard (defence 6); the Ramp is a skate ground (1).
     expect(upgradeSeconds('war_machine_graveyard', 1)).toBeGreaterThan(
       upgradeSeconds('skate_ground', 1),
@@ -373,21 +377,17 @@ describe('what a capture does to the work', () => {
 });
 
 /**
- * §D7 across two doors: `POST /battles/deploy` and `POST /actions/move` (which replaced
- * `POST /city/garrison` on 2026-09-28: standing a unit on ground is walking it there).
+ * §D7 sits on the muster now (maintainer, 2026-10-07), not on `POST /actions/move`.
  *
- * "A legend does not work for anybody the Combine has not opened a file on" is enforced by
- * `unitsBeyondNotoriety`, and `battle/deploy.ts` is the only caller in the codebase. Stationing a
- * unit on held ground is the other way to put one where it fights: `assemble` merges a location's
- * garrison into the defending force, so a Specter parked on a rooftop by a crew nobody has heard
- * of takes the field exactly as if it had been deployed, and the rank it will not work without is
- * never asked for.
+ * It used to stand on this door and the deployment's, which let a crew muster a legend it was
+ * then refused the right to put anywhere. A unit on the roster goes where the crew goes, so a
+ * name nobody has heard of stations a Specter like it stations a Razor. Pinned on the legend,
+ * which is the sheet the old door refused, so the gate cannot quietly come back here.
  */
 describe('who will stand on your ground (§D7)', () => {
-  it('will not garrison a unit the crew is not notorious enough to field', async () => {
+  it('garrisons a legend for a crew nobody has heard of', async () => {
     const stack = await makeStack();
     const base = stack.app.repos.bases.findById(stack.baseId)!;
-    // A legend on the roster, and a name nobody has heard of.
     stack.app.repos.bases.updateArmy(base.id, { the_specter: 1 }, base.musterQueue);
     stack.app.repos.bases.updateEconomy(base.id, { ...base.economy, notoriety: 0 });
     expect(NOTORIETY_TO_FIELD.legendary).toBeGreaterThan(0);
@@ -398,13 +398,15 @@ describe('who will stand on your ground (§D7)', () => {
       headers: auth(stack.token),
       payload: onto({ the_specter: 1 }),
     });
-    expect(res.statusCode).toBe(409);
-    // And they are still on the roster rather than on the roof.
-    expect(stack.app.repos.city.control(MINE)!.garrison.the_specter ?? 0).toBe(0);
-    expect(stack.app.repos.bases.findById(stack.baseId)!.army.the_specter).toBe(1);
+    expect(res.statusCode, res.body).toBe(200);
+    stack.db
+      .prepare('UPDATE unit_moves SET returns_at = ?')
+      .run(new Date(Date.now() - 1_000).toISOString());
+    settleMoves(stack.app.repos, new Date());
+    expect(stack.app.repos.city.control(MINE)!.garrison.the_specter).toBe(1);
   });
 
-  it('lets the same crew garrison anything its rank does cover', async () => {
+  it('garrisons anything else the same way', async () => {
     const stack = await makeStack();
     const base = stack.app.repos.bases.findById(stack.baseId)!;
     stack.app.repos.bases.updateArmy(base.id, { razors: 2 }, base.musterQueue);
@@ -529,11 +531,11 @@ describe('working up ground anywhere in the city', () => {
     const press = stack.app.repos.city.control(PRESS.locationId);
     if (!press) throw new Error('fixture: no Kessler Press');
     // Somebody else's ground, worked up by them. The number is the map's, not a secret.
-    stack.app.repos.city.put({ ...press, level: 6 });
+    stack.app.repos.city.put({ ...press, level: 4 });
 
     const view = await read(stack, PRESS.locationId);
     expect(view.holder.kind, 'fixture: the Press should not be ours').not.toBe('crew');
-    expect(view.level).toBe(6);
+    expect(view.level).toBe(4);
     // And there is no offer on it, because it is not ours to work on.
     const refused = await upgrade(stack, PRESS.locationId);
     expect(refused.statusCode).toBe(409);

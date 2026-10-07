@@ -21,7 +21,7 @@ import {
 } from '@frontline/shared';
 import { ledgerFor } from '../bar/hire.js';
 import { mergeArmies } from '../battle/forces.js';
-import { crewEffectsFor, officerFitReader, type OfficerFitReader } from '../crew/standing.js';
+import { officerFitReader, standingEffectsFor, type OfficerFitReader } from '../crew/standing.js';
 import { districtsHeldWhole } from '../city/gates.js';
 import { unitsAbroad } from '../district/unit-slots.js';
 import { garrisonedUnits } from '../units/roster.js';
@@ -157,7 +157,7 @@ export function featSnapshot(repos: Repositories, base: Base): FeatSnapshot {
   // --- the officers ---
   put('officers_held', base.commanders.length);
   // The book as the Bar reads it, the Fixer's share included (2026-10-04).
-  put('payroll_capacity', ledgerFor(base, crewEffectsFor(repos, base)).capacity);
+  put('payroll_capacity', ledgerFor(base, standingEffectsFor(repos, base)).capacity);
   /*
    * The best mark on the books, as an index on the ladder rather than a letter.
    *

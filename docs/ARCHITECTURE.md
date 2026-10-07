@@ -177,6 +177,13 @@ crews coming home, spy reports, and the two auction rooms. This is what makes a 
 home, and ground change hands while its owner is asleep. It is started in `index.ts` rather than
 in `buildApp` so a test that builds an app per case does not get fights resolving underneath it.
 
+A tick that arrives after a fight's mark (a restart, or a stage that threw) does not fight it in the
+world as the late tick finds it. The stages up to the battles are run once per overdue mark, oldest
+first, and the fight reads every clock at its mark: injuries, the walk home, a raid's disruption,
+the report's date, the gates and each crew's standing (maintainer, 2026-10-06). A pending fight or a
+deployment row this build cannot parse is logged through the tick's failure sink and dropped before
+anything else runs, with the units that still read walked home (`battle/unreadable.ts`).
+
 **A base's own economy is lazy.** Payroll, research, the build queue and production settle on the
 read path, from stored timestamps. A base nobody has looked at for three days owes exactly the
 same amount whenever it is next opened.

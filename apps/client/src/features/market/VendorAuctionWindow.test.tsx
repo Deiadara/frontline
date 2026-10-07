@@ -25,11 +25,28 @@ const offer = {
   },
 };
 
-function renderWindow(caps: number, bidCeiling: number, discountPercent?: number) {
+/** The same lot after this crew bid 800 and somebody else went to 900. */
+const outbid = {
+  ...offer,
+  auction: {
+    ...offer.auction,
+    leading: { username: 'rival', amount: 900, at: '2026-09-15T12:40:00.000Z', yours: false },
+    nextBid: 950,
+    bidders: 2,
+    yourBid: 800,
+  },
+};
+
+function renderWindow(
+  caps: number,
+  bidCeiling: number,
+  discountPercent?: number,
+  shown: typeof offer | typeof outbid = offer,
+) {
   return render(
     <QueryClientProvider client={new QueryClient()}>
       <VendorAuctionWindow
-        offer={offer}
+        offer={shown}
         now={new Date('2026-09-15T13:00:00.000Z')}
         caps={caps}
         bidCeiling={bidCeiling}
@@ -56,15 +73,25 @@ afterEach(() => {
 describe('a bid past what the crew can cover', () => {
   it('names the ceiling when the crew’s ground lifts it past the purse', () => {
     renderWindow(500, 700);
+    // On the greyed button's hover, not a line under it (maintainer, 2026-10-06).
     expect(screen.getByTestId('lot-place')).toBeDisabled();
-    expect(screen.getByTestId('lot-refusal')).toHaveTextContent(
-      'You have 500 caps, which covers a bid of up to 700 once your ground comes off.',
+    expect(screen.getByTestId('lot-place').getAttribute('data-tip')).toContain(
+      'You can put 500 caps on this lot, which covers a bid of up to 700 once your ground comes off.',
     );
   });
 
   it('asks for the whole figure when nothing comes off it', () => {
     renderWindow(500, 500);
-    expect(screen.getByTestId('lot-refusal')).toHaveTextContent('He will want the whole figure');
+    expect(screen.getByTestId('lot-place').getAttribute('data-tip')).toContain(
+      'a bid takes the whole figure when you place it',
+    );
+  });
+
+  // Held bids (2026-10-06): a raise hands the crew's 800 back before it takes the new figure.
+  it('counts the caps its own outbid bid is holding towards a raise', () => {
+    renderWindow(200, 200, undefined, outbid);
+    expect(screen.getByTestId('lot-place')).not.toHaveAttribute('data-tip');
+    expect(screen.getByTestId('lot-place')).toBeEnabled();
   });
 });
 

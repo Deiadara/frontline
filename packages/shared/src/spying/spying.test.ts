@@ -530,36 +530,44 @@ describe('the whole job', () => {
 });
 
 /**
- * Turning the runners round (`time/cancel.ts`): the first tenth of the whole job, which for a slow
- * chair is often longer than the walk out, so the walk home is the distance covered capped at the
- * way out.
+ * Turning the runners round (`time/cancel.ts`): the first tenth of the whole job, and never once
+ * they have reached the place (maintainer, 2026-10-06). A recall after the look threw the read away
+ * while a holder who caught them was never told.
  */
 describe('turning a spy job round', () => {
   const DEPART = Date.parse('2026-09-13T12:00:00.000Z');
   const slow = makeAttributes(0);
-  const TRAVEL = 5;
-  const run = {
+  const runOf = (travel: number) => ({
     departedAt: new Date(DEPART).toISOString(),
-    travelMinutes: TRAVEL,
-    returnsAt: new Date(DEPART + spyJobMinutes(TRAVEL, slow) * 60_000).toISOString(),
+    travelMinutes: travel,
+    returnsAt: new Date(DEPART + spyJobMinutes(travel, slow) * 60_000).toISOString(),
     recalledAt: null,
-  };
+  });
+  // Five out, four hours looking and five back: a tenth is 25 minutes, the walk out is five.
+  const TRAVEL = 5;
+  const run = runOf(TRAVEL);
 
-  it('shuts the window a tenth of the whole job, not a tenth of the way out', () => {
-    // Five out, four hours looking and five back is 250 minutes, a tenth of which is 25.
-    expect(spyRecallWindowMs(run, new Date(DEPART))).toBe(25 * 60_000);
-    const shut = DEPART + 25 * 60_000;
-    expect(spyRecallable(run, new Date(shut - 1_000))).toBe(true);
-    expect(spyRecallable(run, new Date(shut + 1_000))).toBe(false);
+  it('shuts the window a tenth of the whole job, when that comes before they arrive', () => {
+    const far = runOf(200);
+    const tenth = (spyJobMinutes(200, slow) * 60_000) / 10;
+    expect(tenth, 'fixture: the tenth must come first').toBeLessThan(200 * 60_000);
+    expect(spyRecallWindowMs(far, new Date(DEPART))).toBe(tenth);
+    expect(spyRecallable(far, new Date(DEPART + tenth - 1_000))).toBe(true);
+    expect(spyRecallable(far, new Date(DEPART + tenth + 1_000))).toBe(false);
   });
 
-  it('stays open after the runners have arrived', () => {
-    expect(spyRecallable(run, new Date(DEPART + TRAVEL * 60_000 + 60_000))).toBe(true);
+  it('shuts it when they arrive, when that comes before the tenth', () => {
+    expect(spyRecallWindowMs(run, new Date(DEPART))).toBe(TRAVEL * 60_000);
+    const arrival = DEPART + TRAVEL * 60_000;
+    expect(spyRecallable(run, new Date(arrival - 1_000))).toBe(true);
+    expect(spyRecallable(run, new Date(arrival + 1_000))).toBe(false);
   });
 
-  it('never sends them home for longer than the walk out took', () => {
+  it('sends them home as far as they had come', () => {
     const last = new Date(DEPART + spyRecallWindowMs(run, new Date(DEPART)) - 1);
-    expect(spyRecalledReturnsAt(run, last).getTime() - last.getTime()).toBe(TRAVEL * 60_000);
+    expect(spyRecalledReturnsAt(run, last).getTime() - last.getTime()).toBe(
+      last.getTime() - DEPART,
+    );
     const early = new Date(DEPART + 60_000);
     expect(spyRecalledReturnsAt(run, early).getTime() - early.getTime()).toBe(60_000);
   });

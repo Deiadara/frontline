@@ -5,6 +5,8 @@ import {
   noCrewEffects,
   notorietyEffects,
   territoryEffectsFor,
+  groundStateOf,
+  isHeldBy,
   type CrewMember,
   type Base,
   type CrewEffects,
@@ -42,6 +44,7 @@ import {
 } from '@frontline/shared';
 import type { Repositories } from '../db/repos/index.js';
 import { cardsAtTable } from '../factions/cards.js';
+import { alliesOf } from '../city/holding.js';
 import { overseerMember, seatedMember } from '../roles/duties.js';
 
 /**
@@ -70,8 +73,33 @@ export function standingEffectsFor(
   // Every location in the world, not Ashfall's sixty (2026-09-24). A crew that marched across and
   // took ground in Terminus was paid nothing for it: no unit slots, no travel off the clock, no
   // production, no intel resistance. The ground a crew holds is the ground it holds, wherever it is.
-  const territory = territoryEffectsFor(base.id, EVERY_LOCATION, repos.city.controls());
+  const controls = repos.city.controls();
+  const territory = territoryEffectsFor(
+    base.id,
+    EVERY_LOCATION,
+    controls,
+    alliesOf(repos, base.id),
+  );
   const total = combineEffects(territory, crewEffects(crewSheetsFor(repos, base, now)));
+  /*
+   * Reliquary's two lists off the control rows (2026-10-07). The crew ignores Noisy everywhere
+   * while a Tolling Tower it holds is switched on (maintainer: "your units' Loud debuffs are
+   * cancelled"), and the units pinned on its Pamphlet Walls fight it at a discount. Read here,
+   * where the fight, the roster and the city view all take their standing from, so a switch
+   * thrown on the tower's sheet reaches every one of them at once.
+   */
+  total.ignoredLabels = territory.noiseSwitches.some(
+    (locationId) => controls.get(locationId)?.switchedOn === true,
+  )
+    ? ['noisy']
+    : [];
+  total.pamphletUnits = [
+    ...new Set(
+      [...controls.values()]
+        .filter((control) => isHeldBy(control, base.id))
+        .flatMap((control) => groundStateOf(control).pamphlets),
+    ),
+  ];
   /*
    * The Garage is deliberately **not** folded in here (§C3).
    *
@@ -173,9 +201,16 @@ export function officerLiftRoom(repos: Repositories, base: Base, now: Date = new
   const rightHand =
     fit.find((officer) => officer.role === 'right_hand' && chairIsSettled(officer, now)) ?? null;
   const rightHandPoints = rightHand ? seatPoints(rightHand.attributes, 'right_hand') : null;
+  const ground = territoryEffectsFor(
+    base.id,
+    EVERY_LOCATION,
+    repos.city.controls(),
+    alliesOf(repos, base.id),
+  );
   return {
     fit,
-    byGroup: territoryEffectsFor(base.id, EVERY_LOCATION, repos.city.controls()).officerGroupFlat,
+    byGroup: ground.officerGroupFlat,
+    bySkill: ground.officerSkillFlat,
     fromTheLab: researchEffects(base.research.technologies),
     fromTheOverseer: overseer?.perks ?? [],
     overseerName: overseer?.name ?? 'your Overseer',
@@ -211,6 +246,8 @@ export interface LiftRoom {
    */
   fit: readonly SeatedOfficer<Commander>[];
   byGroup: TerritoryEffects['officerGroupFlat'];
+  /** The ground's points on named skills (the Bulb-String Loft, the Wake House), beside the groups. */
+  bySkill: TerritoryEffects['officerSkillFlat'];
   fromTheLab: CrewEffects;
   fromTheOverseer: readonly string[];
   overseerName: string;
@@ -290,7 +327,12 @@ export function liftedOfficerSheet(
   }
   // Outside the cap, like the grade (maintainer, 2026-10-05): a Chapel filled the officers' ten
   // points by level 3 and every level past it, and every teaching perk behind it, bought nothing.
-  sources.push({ from: 'the ground you hold', groupFlat: room.byGroup, uncapped: true });
+  sources.push({
+    from: 'the ground you hold',
+    groupFlat: room.byGroup,
+    attributeFlat: room.bySkill,
+    uncapped: true,
+  });
 
   const overseer = peerLift(room.fromTheOverseer);
   sources.push({

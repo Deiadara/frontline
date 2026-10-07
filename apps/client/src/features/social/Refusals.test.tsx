@@ -84,6 +84,7 @@ const onTheRoad: ActionsResponse = {
       arrivesAt: '2026-08-26T13:00:00.000Z',
       recallable: true,
       vehicles: {},
+      byRail: false,
     },
   ],
 };
@@ -98,7 +99,12 @@ describe('a recall the server will not take', () => {
     fetchMock.mockImplementation((path: string) =>
       path.endsWith('/actions/recall')
         ? refusal('WINDOW_CLOSED', 'Too late: they are past the point of turning back')
-        : reply(onTheRoad),
+        : // The road is three reads, and it waits for all three (bug pass, 2026-10-06).
+          path.includes('/missions')
+          ? reply({ ...F.missionsResponse(), missions: [] })
+          : path.endsWith('/battles')
+            ? reply(F.battles)
+            : reply(onTheRoad),
     );
 
     wrap(<ActionsPage />);

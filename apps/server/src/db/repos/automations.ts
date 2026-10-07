@@ -1,6 +1,7 @@
-import { AutomationSchema, type Automation } from '@frontline/shared';
+import { AutomationSchema, withoutRetiredUnits, type Automation } from '@frontline/shared';
 import type { Statement } from 'better-sqlite3';
 import type { AppDatabase } from '../index.js';
+import { readableRows } from './readable.js';
 
 /**
  * The Right Hand's standing orders (`automations/automations.ts`).
@@ -46,7 +47,9 @@ function toAutomation(row: Row): Automation {
     enabled: row.enabled !== 0,
     order: row.order_kind,
     step: row.step,
-    force: JSON.parse(row.force_json) as Record<string, number>,
+    // Retired units read as gone, as a sleeper cell's and a posting's do (bug pass, 2026-10-06): a
+    // party naming one stalled the runner for ever, and the switch-off resent it and was refused.
+    force: withoutRetiredUnits(JSON.parse(row.force_json)) as Record<string, number>,
     officerId: row.officer_id,
     unitSlots: row.unit_slots,
     optimiseFor: row.optimise_for,
@@ -95,15 +98,21 @@ export function createAutomationsRepo(db: AppDatabase): AutomationsRepo {
   );
 
   return {
+    /*
+     * Row by row (bug pass, 2026-10-06). A slot saved for a resource or an order this build has
+     * since renamed threw in `enabled()` and stopped every crew's standing orders, and in
+     * `forBase()` it answered 500 on the crew's own launches and on the screen that switches it
+     * off. Unreadable, a slot reads as unset: the next save writes over it (`put` upserts).
+     */
     forBase(baseId) {
-      return (forBaseStmt().all(baseId) as Row[]).map(toAutomation);
+      return readableRows(forBaseStmt().all(baseId) as Row[], 'standing order', toAutomation);
     },
     enabled() {
-      return (enabledStmt().all() as Row[]).map(toAutomation);
+      return readableRows(enabledStmt().all() as Row[], 'standing order', toAutomation);
     },
     get(baseId, slot) {
       const row = getStmt().get(baseId, slot) as Row | undefined;
-      return row ? toAutomation(row) : undefined;
+      return row ? readableRows([row], 'standing order', toAutomation)[0] : undefined;
     },
     put(automation) {
       putStmt().run({

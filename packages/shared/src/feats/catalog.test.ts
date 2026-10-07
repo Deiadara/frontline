@@ -900,8 +900,10 @@ describe('the opening', () => {
       modifications: [],
     })),
     heldPlaceKinds: new Set<LocationKind>(),
+    heldDoors: new Set<string>(),
     buildableVehicles: new Set<string>(),
     inventory: {},
+    notoriety: 0,
   };
 
   it('pays the very first feat in carriers a bare district can muster', () => {

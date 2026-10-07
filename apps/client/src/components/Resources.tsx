@@ -280,8 +280,8 @@ export function ResourceChip({ kind, value, capacity, deltas }: ResourceChipProp
   const shelf = typeof capacity === 'number' ? capacity : null;
   const reading =
     shelf === null
-      ? `${meta.label}: ${amount.toLocaleString()}`
-      : `${meta.label}: ${amount.toLocaleString()} of ${Math.round(shelf).toLocaleString()}`;
+      ? `${meta.label}: ${amount.toLocaleString('en-US')}`
+      : `${meta.label}: ${amount.toLocaleString('en-US')} of ${Math.round(shelf).toLocaleString('en-US')}`;
 
   /*
    * Icon left, reading right: rather than icon-and-number over a full-width bar.
@@ -408,11 +408,11 @@ export function ResourceChip({ kind, value, capacity, deltas }: ResourceChipProp
           figure={
             <span className="flex items-baseline gap-2">
               <span className={cn('font-display text-2xl font-bold tabular-nums', meta.color)}>
-                {amount.toLocaleString()}
+                {amount.toLocaleString('en-US')}
               </span>
               {shelf !== null && (
                 <span className="font-display text-base tabular-nums text-ink-300">
-                  / {Math.round(shelf).toLocaleString()}
+                  / {Math.round(shelf).toLocaleString('en-US')}
                 </span>
               )}
             </span>
@@ -484,7 +484,7 @@ export function CostLine({ cost, stock }: { cost: PartialResources; stock: Resou
           >
             <ResourceIcon kind={kind} />
             <span className="font-semibold tabular-nums">
-              {Math.round(amount).toLocaleString()}
+              {Math.round(amount).toLocaleString('en-US')}
             </span>
             <span className="text-[11px] uppercase tracking-[0.15em] opacity-70">{meta.label}</span>
           </span>
@@ -527,7 +527,7 @@ export function RewardLine({
           >
             <ResourceIcon kind={kind} className={md ? 'h-5 w-5' : 'h-4 w-4'} />
             <span className="font-semibold tabular-nums">
-              +{Math.round(amount).toLocaleString()}
+              +{Math.round(amount).toLocaleString('en-US')}
             </span>
             <span
               className={cn(

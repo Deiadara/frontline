@@ -85,11 +85,13 @@ function MemberRow({
           </p>
           <dl className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 font-body text-[12px] text-ink-200">
             <dt className="text-ink-400">Infamy</dt>
-            <dd className="tabular-nums">{Math.round(member.infamy).toLocaleString()}</dd>
+            <dd className="tabular-nums">{Math.round(member.infamy).toLocaleString('en-US')}</dd>
             <dt className="text-ink-400">Earned here</dt>
-            <dd className="tabular-nums">{Math.round(member.infamyEarned).toLocaleString()}</dd>
+            <dd className="tabular-nums">
+              {Math.round(member.infamyEarned).toLocaleString('en-US')}
+            </dd>
             <dt className="text-ink-400">Unit slots</dt>
-            <dd className="tabular-nums">{member.unitSlotsUsed.toLocaleString()}</dd>
+            <dd className="tabular-nums">{member.unitSlotsUsed.toLocaleString('en-US')}</dd>
             <dt className="text-ink-400">Since</dt>
             <dd className="tabular-nums">{dayInZone(new Date(member.joinedAt), zone)}</dd>
           </dl>
@@ -141,8 +143,10 @@ function MemberRow({
         </span>
 
         {/* The mark, the way an officer's is stamped: the grade the seat is being held at. In a
-            box of its own, because the stamp positions itself absolutely inside whatever holds it. */}
-        <span className="relative h-9 w-9 shrink-0">
+            box of its own, because the stamp positions itself absolutely inside whatever holds it.
+            Not pointable: the row is a hover card that already names the aspect and the mark, and
+            the stamp's own tip opened a second pill over it (bug pass, 2026-10-06). */}
+        <span className="pointer-events-none relative h-9 w-9 shrink-0">
           <MarkStamp
             mark={member.cardMark}
             className="inset-0 text-oxblood-300/90"
@@ -153,7 +157,7 @@ function MemberRow({
         <span className="flex shrink-0 flex-col items-end leading-tight">
           <span className="flex items-center gap-1 font-display text-[11px] font-bold tabular-nums text-ink-100">
             <Icon name="units" aria-hidden className="h-3 w-3 text-brass-300" />
-            {member.armySize.toLocaleString()}
+            {member.armySize.toLocaleString('en-US')}
           </span>
           <span className="flex items-center gap-1 font-display text-[10px] tabular-nums text-ink-300">
             <Icon name="level" aria-hidden className="h-2.5 w-2.5 text-brass-300" />

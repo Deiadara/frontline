@@ -93,6 +93,55 @@ describe('the number field', () => {
     expect(screen.getByTestId('read')).toHaveTextContent('-3');
   });
 
+  it('types a bid past a three-digit floor without the floor landing in the box', () => {
+    // A Bar reserve of 120: "100" is the start of "1000", not a bid under the reserve.
+    render(<Harness min={120} start={120} />);
+    const field = screen.getByLabelText('how many');
+    for (const typed of ['1', '10', '100', '1000']) {
+      fireEvent.change(field, { target: { value: typed } });
+      expect(field).toHaveValue(typed);
+    }
+    expect(screen.getByTestId('read')).toHaveTextContent('1000');
+    // Still floored on leaving.
+    fireEvent.change(field, { target: { value: '100' } });
+    fireEvent.blur(field);
+    expect(screen.getByTestId('read')).toHaveTextContent('120');
+  });
+
+  it('settles a bare minus as nothing typed, not as the floor', () => {
+    render(<Harness min={-40} max={10} start={0} />);
+    const field = screen.getByLabelText('how many');
+    fireEvent.change(field, { target: { value: '-' } });
+    fireEvent.blur(field);
+    expect(screen.getByTestId('read')).toHaveTextContent('0');
+    expect(field).toHaveValue('0');
+  });
+
+  it('keeps the minus on a delta whose first digit is zero', () => {
+    render(<Harness min={-40} max={10} start={5} />);
+    const field = screen.getByLabelText('how many');
+    fireEvent.change(field, { target: { value: '-0' } });
+    expect(field).toHaveValue('-0');
+    fireEvent.change(field, { target: { value: '-07' } });
+    expect(screen.getByTestId('read')).toHaveTextContent('-7');
+  });
+
+  // Maintainer, 2026-10-06: a decimal point cuts the figure. It read "2.5" as 25.
+  it('cuts a decimal at the point, typed or pasted', () => {
+    render(<Harness min={1} start={4} />);
+    const field = screen.getByLabelText('how many');
+    for (const typed of ['2', '2.', '2.5']) {
+      fireEvent.change(field, { target: { value: typed } });
+      expect(field).toHaveValue(typed);
+      expect(screen.getByTestId('read')).toHaveTextContent('2');
+    }
+    fireEvent.blur(field);
+    expect(field).toHaveValue('2');
+
+    fireEvent.change(field, { target: { value: '1.5k' } });
+    expect(screen.getByTestId('read')).toHaveTextContent('1');
+  });
+
   it('never keeps a minus where the floor is above zero', () => {
     render(<Harness min={1} start={4} />);
     const field = screen.getByLabelText('how many');

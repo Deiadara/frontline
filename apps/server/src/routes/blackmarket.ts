@@ -71,7 +71,7 @@ export function registerBlackMarketRoutes(app: FastifyInstance): void {
 
   app.get('/black-market', { preHandler: app.authenticate }, (request): BlackMarketResponse => {
     const now = new Date();
-    settleBlackMarketLots(app.repos, now, GAME_TIMEZONE, app.config.admin);
+    settleBlackMarketLots(app.repos, now, GAME_TIMEZONE);
     const base = ownBase(app, request.currentUser.id);
     const cityId = cityOrRefuse(base, cityQuery(request.query));
     return projectBlackMarket(app.repos, base, now, GAME_TIMEZONE, cityId);
@@ -96,7 +96,7 @@ export function registerBlackMarketRoutes(app: FastifyInstance): void {
       const now = new Date();
       // The close first, the way `/market/bid` does it: a bid landing just after midnight belongs
       // to today's shelf, and last night's lot has to be settled before anything is written.
-      settleBlackMarketLots(app.repos, now, GAME_TIMEZONE, app.config.admin);
+      settleBlackMarketLots(app.repos, now, GAME_TIMEZONE);
 
       return app.db.transaction(() => {
         const base = ownBase(app, request.currentUser.id);
@@ -126,7 +126,10 @@ export function registerBlackMarketRoutes(app: FastifyInstance): void {
         // The room the bid landed in, not the crew's own: a bid in Terminus used to answer with
         // Ashfall's five crates, so the lot the player had just bid on was not on the shelf they
         // got back and the screen showed somebody else's leader on it.
-        return { blackMarket: projectBlackMarket(app.repos, base, now, GAME_TIMEZONE, cityId) };
+        // Read again, because the bid took its infamy (held bids, 2026-10-06): drawn off the row
+        // read before it, the shelf quoted the wallet the crew had before it bid.
+        const after = ownBase(app, request.currentUser.id);
+        return { blackMarket: projectBlackMarket(app.repos, after, now, GAME_TIMEZONE, cityId) };
       })();
     },
   );

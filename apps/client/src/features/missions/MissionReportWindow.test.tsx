@@ -4,9 +4,6 @@ import {
   makeAttributes,
   type Mission,
   type MissionLeader,
-  findUnitModification,
-  missionCarry,
-  type UnitLoadouts,
 } from '@frontline/shared';
 import { render, screen, within } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
@@ -67,74 +64,6 @@ function mission(fields: Partial<Mission> = {}): Mission {
   };
 }
 
-/**
- * The bag the report says the crew could lift is the bag the settle paid against: with the crew's
- * brackets folded in. Three Razors and a Scavenger, once bare and once with a Hook and Line on the
- * Razors, must differ by exactly three cards' worth.
- */
-describe('what the report says the crew could lift', () => {
-  it('counts the brackets in, as the settle does', () => {
-    const one = mission();
-    const loadouts: UnitLoadouts = { razors: ['hook_and_line', null, null] };
-    const card = findUnitModification('hook_and_line')!;
-    expect(card.effect.lootCapacity, 'the fixture card must move the bag').toBeGreaterThan(0);
-
-    render(
-      <MissionReportWindow
-        mission={one}
-        leaders={[ROOK]}
-        overseerName="Rook"
-        loadouts={loadouts}
-        onClose={() => undefined}
-      />,
-    );
-    const note = screen.getByTestId(`mission-carry-${one.id}`);
-    expect(note).toHaveTextContent(`${missionCarry(one.force, loadouts)} loot they could lift`);
-    expect(missionCarry(one.force, loadouts)).toBe(
-      missionCarry(one.force) + 3 * (card.effect.lootCapacity ?? 0),
-    );
-  });
-
-  /**
-   * ...and the crew's own bag on top, which the settle also carries with (bug pass, 2026-09-29).
-   * Without it a crew holding the Pawn Shop read that it carried more than it could lift.
-   */
-  it('counts the crew’s own bag in, so a full haul never reads as more than the lift', () => {
-    const one = mission({ force: { scavengers: 2 } });
-    const bare = missionCarry(one.force);
-    // Everything the bigger bag brought home, which the bare sheets could not have lifted.
-    const carried = { ...one, rewards: { scrap: bare + 5 }, spoils: { scrap: bare + 5 } };
-    render(
-      <MissionReportWindow
-        mission={carried}
-        leaders={[ROOK]}
-        overseerName="Rook"
-        bagPercent={50}
-        onClose={() => undefined}
-      />,
-    );
-    const note = screen.getByTestId(`mission-carry-${one.id}`);
-    expect(note).toHaveTextContent('carried all');
-    expect(note).toHaveTextContent(`${missionCarry(one.force, {}, 50)} loot they could lift`);
-    expect(missionCarry(one.force, {}, 50)).toBeGreaterThan(bare + 5);
-  });
-
-  it('counts only whoever walked back from a fight', () => {
-    const one = mission({ force: { scavengers: 2, razors: 10 }, lost: { razors: 10 } });
-    render(
-      <MissionReportWindow
-        mission={{ ...one, rewards: { scrap: 1 }, spoils: { scrap: 1 } }}
-        leaders={[ROOK]}
-        overseerName="Rook"
-        onClose={() => undefined}
-      />,
-    );
-    expect(screen.getByTestId(`mission-carry-${one.id}`)).toHaveTextContent(
-      `${missionCarry({ scavengers: 2 })} loot they could lift`,
-    );
-  });
-});
-
 const show = (one: Mission) =>
   render(
     <MissionReportWindow
@@ -144,6 +73,30 @@ const show = (one: Mission) =>
       onClose={() => undefined}
     />,
   );
+
+/**
+ * What the crew could lift is the figure the settle kept on the run (bug pass, 2026-10-06). The
+ * report used to rebuild it from today's loadouts, bag and marks, so a crew whose kit changed
+ * since read "all 300 of it, out of the 200 they could lift". A run settled before the figure was
+ * kept drops the clause rather than guess.
+ */
+describe('what the report says the crew could lift', () => {
+  it('prints the figure the settle kept', () => {
+    const one = mission({ rewards: { scrap: 40 }, spoils: { scrap: 40 }, carryCapacity: 212.4 });
+    show(one);
+    expect(screen.getByTestId(`mission-carry-${one.id}`)).toHaveTextContent(
+      'They carried all 40 loot of it home, out of the 212 loot they could lift between them.',
+    );
+  });
+
+  it('drops the clause on a run settled before the figure was kept', () => {
+    const one = mission({ rewards: { scrap: 40 }, spoils: { scrap: 40 } });
+    show(one);
+    const note = screen.getByTestId(`mission-carry-${one.id}`);
+    expect(note).toHaveTextContent('They carried all 40 loot of it home.');
+    expect(note).not.toHaveTextContent('could lift');
+  });
+});
 
 describe('the haul, carried against earned', () => {
   it('says how much of the total came home when the crew could not carry it', () => {
@@ -289,7 +242,6 @@ describe('what the full stores threw away', () => {
         mission={one}
         leaders={[ROOK]}
         overseerName="Rook"
-        loadouts={{}}
         onClose={() => undefined}
       />,
     );
@@ -336,7 +288,6 @@ describe('the experience a run paid', () => {
         mission={one}
         leaders={[ROOK]}
         overseerName="Rook"
-        loadouts={{}}
         onClose={() => undefined}
       />,
     );

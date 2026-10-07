@@ -108,8 +108,8 @@ export function pickHomePlot(cityId: string, taken: Iterable<string>, seed: stri
   /*
    * Through the offer rather than straight to the free list, so the two cannot disagree.
    *
-   * Saltmarch is the case that makes this load-bearing: it is shut, and it has four authored
-   * plots in the atlas behind the shut door. A free-list check alone handed a crew a plot on a
+   * Reliquary is the case that makes this load-bearing (Saltmarch was, until it was dropped): it
+   * is shut, and it has four authored plots in the atlas behind the shut door. A free-list check alone handed a crew a plot on a
    * map with no server behind it.
    */
   const occupied = [...taken];

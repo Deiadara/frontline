@@ -49,9 +49,6 @@ import {
   type UnitLoadouts,
   type UnitsResponse,
   vehicleNoun,
-  meetsNotoriety,
-  notorietyToField,
-  notorietyTier,
   HOME_LOCKED_TEXT,
 } from '@frontline/shared';
 import { useEffect, useMemo, useState } from 'react';
@@ -71,6 +68,7 @@ import { DifficultyStamp } from './DifficultyStamp';
 import { MissionGauge, type GaugeReading } from './MissionGauge';
 import { crewLineRules } from './missionLines';
 import { ErrorNote } from '../../components/ui/ErrorNote';
+import { PressError } from '../../components/ui/PressError';
 
 /**
  * The mission board, one area at a time (GDD §E4, §A4).
@@ -317,12 +315,8 @@ export interface MissionBoardProps {
    * could lift" has to read them or it quotes a smaller bag than the job brings home.
    */
   bagPercent: number;
-  /**
-   * The crew's rank, which decides who will take a contract from it (`notorietyToField`): the
-   * launch refuses a party with anybody past it in, and the dialog let them be picked (bug pass,
-   * 2026-10-02).
-   */
-  notoriety: number;
+  /** The Straw Sack's bags: flat loot slots on every carrier, paid by the same settle. */
+  carrierFlat: number;
   marks: Readonly<Record<string, readonly string[]>>;
   /**
    * The two crew switches that lift a hard rule off a unit sheet (`UnitsResponse`).
@@ -364,16 +358,20 @@ export interface MissionBoardProps {
   automated: boolean;
   /** A raid lands on home within the hour, and the launch refuses every party until it has. */
   homeLocked?: boolean;
+  /** The card being launched right now, as `launchedCardKey` names it, or null. */
   pendingTemplateId: string | null;
   /**
-   * The last refusal, and which job it was for.
+   * The last refusal, and which card it was for (`launchedCardKey`).
    *
-   * Carried with its template rather than as a bare string, because the message has to land in
-   * the card the player pressed: the board is three cards wide and a refusal under the wrong one
-   * is a refusal nobody reads. Not keyed off `pending`, which is false again by the time the
-   * server has answered.
+   * Carried with its card rather than as a bare string, because the message has to land in the
+   * card the player pressed: the board is three cards wide and a refusal under the wrong one is a
+   * refusal nobody reads. Keyed by area and board key as well as template since 2026-10-06: a
+   * template repeats across areas and cities, and a refusal on one board printed on the same job
+   * on the next. Not keyed off `pending`, which is false again by the time the server has answered.
    */
   refusal: { templateId: string; message: string } | null;
+  /** The send window has opened: the page clears the last launch's refusal (bug pass, 2026-10-06). */
+  onOpenSend?: () => void;
   /**
    * `card` is the offer as the player read it: the server launches exactly that card, named by
    * its board key and grade, or refuses (maintainer, 2026-09-29).
@@ -387,6 +385,17 @@ export interface MissionBoardProps {
   ) => void;
 }
 
+/**
+ * One card on one board, as the page and the board both name it: the area, the board's key and
+ * the template. A template alone repeats across areas and cities.
+ */
+export function launchedCardKey(
+  areaId: string,
+  card: Pick<MissionOffer, 'templateId' | 'boardKey'>,
+): string {
+  return `${areaId}:${card.boardKey}:${card.templateId}`;
+}
+
 export function MissionBoard({
   areas,
   army,
@@ -396,7 +405,7 @@ export function MissionBoard({
   onQuoteFightLeaders,
   now,
   bagPercent,
-  notoriety,
+  carrierFlat,
   marks,
   carriersFight,
   anyRide,
@@ -408,10 +417,18 @@ export function MissionBoard({
   homeLocked = false,
   pendingTemplateId,
   refusal,
+  onOpenSend,
   onLaunch,
 }: MissionBoardProps) {
-  const [index, setIndex] = useState(0);
-  const [sending, setSending] = useState<MissionOffer | null>(null);
+  /*
+   * The board on show, by its area's id rather than its place in the list (bug pass, 2026-10-06).
+   * The list changes under this component whenever a district is taken or lost, and a position
+   * then pointed at a different district: the heading changed under the player, and a send window
+   * open at that moment launched the old card into the new area, which the server refused.
+   */
+  const [areaId, setAreaId] = useState<string | null>(null);
+  // The card being sent and the area it was read on, together, for the same reason.
+  const [sending, setSending] = useState<{ offer: MissionOffer; area: MissionArea } | null>(null);
 
   if (areas.length === 0) {
     return (
@@ -421,10 +438,10 @@ export function MissionBoard({
     );
   }
 
-  // Clamped rather than wrapped on the state itself: the list of open areas changes under this
-  // component whenever a district is taken or lost, and an index left past the end would render
-  // an empty board rather than the last one.
-  const at = Math.min(index, areas.length - 1);
+  // An area that has left the list (its last location lost) falls back to the first board rather
+  // than to an empty one.
+  const found = areaId === null ? -1 : areas.findIndex((one) => one.id === areaId);
+  const at = Math.max(0, found);
   const area = areas[at] as MissionArea;
 
   /*
@@ -439,7 +456,7 @@ export function MissionBoard({
    * questions now, so breaking it breaks something a test can see.
    */
   const boardAfter = (delta: number): number => Math.max(0, Math.min(areas.length - 1, at + delta));
-  const step = (delta: number) => setIndex(boardAfter(delta));
+  const step = (delta: number) => setAreaId((areas[boardAfter(delta)] as MissionArea).id);
 
   return (
     <div className="flex flex-col xl:min-h-0 xl:flex-1" data-testid="mission-board">
@@ -527,9 +544,14 @@ export function MissionBoard({
               heldBy={
                 automated ? 'The Right Hand has the board' : homeLocked ? HOME_LOCKED_TEXT : null
               }
-              pending={pendingTemplateId === offer.templateId}
-              refusal={refusal?.templateId === offer.templateId ? refusal.message : null}
-              onSend={() => setSending(offer)}
+              pending={pendingTemplateId === launchedCardKey(area.id, offer)}
+              refusal={
+                refusal?.templateId === launchedCardKey(area.id, offer) ? refusal.message : null
+              }
+              onSend={() => {
+                onOpenSend?.();
+                setSending({ offer, area });
+              }}
             />
           ))}
         </div>
@@ -537,8 +559,8 @@ export function MissionBoard({
 
       {sending && (
         <SendDialog
-          offer={sending}
-          areaName={area.name}
+          offer={sending.offer}
+          areaName={sending.area.name}
           army={army}
           fleet={fleet}
           loadouts={loadouts}
@@ -546,7 +568,7 @@ export function MissionBoard({
           now={now}
           {...(onQuoteFightLeaders ? { onQuoteFightLeaders } : {})}
           bagPercent={bagPercent}
-          notoriety={notoriety}
+          carrierFlat={carrierFlat}
           marks={marks}
           carriersFight={carriersFight}
           anyRide={anyRide}
@@ -555,7 +577,7 @@ export function MissionBoard({
           stores={stores}
           onClose={() => setSending(null)}
           onSend={(force, leaderId, vehicles) => {
-            onLaunch(area.id, sending, force, leaderId, vehicles);
+            onLaunch(sending.area.id, sending.offer, force, leaderId, vehicles);
             setSending(null);
           }}
         />
@@ -597,7 +619,15 @@ export function OfferCard({
 }) {
   return (
     <article
-      className="card-paper washed edge-lit flex h-full min-w-0 flex-col rounded-sm border border-surface-700 p-2.5"
+      className={cn(
+        'card-paper washed edge-lit flex h-full min-w-0 flex-col rounded-sm border p-2.5',
+        // The Bounty Wall's golden job (2026-10-07): a gold outline in place of the plain frame,
+        // same size, so the cards beside it do not move.
+        offer.golden
+          ? 'border-ember-100 shadow-[0_0_0_1px_rgba(255,209,102,0.6)]'
+          : 'border-surface-700',
+      )}
+      data-golden={offer.golden ? 'yes' : undefined}
       data-testid={readOnly ? `offer-view-${offer.templateId}` : `offer-${offer.templateId}`}
       // A fight is red and plain work is not: the one mark of kind the card wears since the
       // Standard and Battle keywords came off it (maintainer, 2026-09-23).
@@ -685,14 +715,29 @@ export function OfferCard({
           down by the same: 6rem and 6.75rem where they were 7 and 8. */}
       <div className="flex h-24 shrink-0 flex-col gap-1 overflow-hidden border-t border-surface-700/70 pt-1.5 xl:h-[6.25rem]">
         <span className="flex items-baseline justify-between gap-2 font-display text-[10px] uppercase tracking-[0.16em] text-ink-300 xl:text-[11px]">
-          <span className="shrink-0 whitespace-nowrap">Expected haul</span>
+          <span className="shrink-0 whitespace-nowrap">
+            Expected haul
+            {offer.golden && (
+              // On the label's line rather than a line of its own: the band's height is fixed
+              // and the haul under it already takes the rest.
+              <span
+                className="ml-1.5 text-ember-100"
+                data-testid={`golden-${offer.templateId}`}
+                data-tip="A golden job off the Bounty Wall: the bounty pays this much more"
+              >
+                +{offer.goldenPercent}% bounty
+              </span>
+            )}
+          </span>
           {/* Four figures once the pay is graded (2026-09-28): "to carry" came off so the line
               stays one line at the narrowest card, and the hover still says what the slots are. */}
           <span
             className="shrink-0 whitespace-nowrap tracking-[0.14em]"
             data-tip="Loot slots to carry. Send enough bags or you leave some of it on the floor"
           >
-            <span className="tabular-nums text-ink-200">{offer.payoutSlots.toLocaleString()}</span>{' '}
+            <span className="tabular-nums text-ink-200">
+              {offer.payoutSlots.toLocaleString('en-US')}
+            </span>{' '}
             loot slots
           </span>
         </span>
@@ -704,15 +749,15 @@ export function OfferCard({
           a player choosing between a safe job and a risky one is choosing between those two. */}
       <div
         className="flex h-6 items-center justify-between gap-2 border-t border-surface-700/70 pt-1.5"
-        data-tip={`${offer.failedXp.toLocaleString()} XP even if it goes wrong`}
+        data-tip={`${offer.failedXp.toLocaleString('en-US')} XP even if it goes wrong`}
       >
         <span className="font-display text-[10px] uppercase tracking-[0.16em] text-ink-300 xl:text-[11px]">
           Experience
         </span>
         <span className="font-display text-[12px] font-bold tabular-nums text-hextech-100 xl:text-[14px]">
-          +{offer.xp.toLocaleString()}
+          +{offer.xp.toLocaleString('en-US')}
           <span className="ml-1 font-display text-[10px] uppercase tracking-[0.14em] text-ink-300">
-            / {offer.failedXp.toLocaleString()} lost
+            / {offer.failedXp.toLocaleString('en-US')} lost
           </span>
         </span>
       </div>
@@ -735,7 +780,7 @@ export function OfferCard({
         ))}
       </div>
 
-      {!readOnly && refusal && <ErrorNote>{refusal}</ErrorNote>}
+      {!readOnly && refusal && <PressError>{refusal}</PressError>}
 
       {!readOnly && (
         <div className="mt-auto pt-2">
@@ -789,7 +834,7 @@ function SendDialog({
   onQuoteFightLeaders,
   now,
   bagPercent,
-  notoriety,
+  carrierFlat,
   marks,
   carriersFight,
   anyRide,
@@ -817,8 +862,8 @@ function SendDialog({
   now: Date;
   /** §A4: what the crew's holdings and perks add to every haul, as a percentage. */
   bagPercent: number;
-  /** The crew's rank: a unit past it will not take the contract, and the launch refuses it. */
-  notoriety: number;
+  /** The Straw Sack's bags: flat loot slots on every carrier. */
+  carrierFlat: number;
   /** ...and the marks they have been granted, which can add `picker` to a sheet that lacks it. */
   marks: Readonly<Record<string, readonly string[]>>;
   /** §E: this crew's porters stand in a line (`carriers_fight`), so "cannot fight" is not true. */
@@ -879,7 +924,7 @@ function SendDialog({
   // ...and with the crew's own bag on top of them. `lootCapacityPercent` (the Pawn Shop, the raid
   // modifications, `sig_scavenger_king`) and granted `picker` marks both pay the settle, so a board
   // that read the printed sheet quoted a smaller haul than the job brought home.
-  const carry = missionCarry(force, loadouts, bagPercent, lineRules);
+  const carry = missionCarry(force, loadouts, bagPercent, lineRules, carrierFlat);
   /*
    * §C3: the machines actually being driven, with the zeros taken out.
    *
@@ -1100,8 +1145,6 @@ function SendDialog({
    * walk and has no ceiling.
    */
   const ceilingFor = (unitId: string, atHome: number): number => {
-    // Nobody past the crew's rank: the launch refuses the whole party for one of them.
-    if (!meetsNotoriety(notoriety, notorietyToField(unitId))) return 0;
     if (!capped) return atHome;
     const slots = Math.max(1, findUnit(unitId)?.unitSlots ?? 1);
     if (ridingUnitSlots({ [unitId]: 1 }, anyRide) === 0) return atHome;
@@ -1149,7 +1192,7 @@ function SendDialog({
                 share of the card's own figure rather than two numbers to subtract. */}
             <Readout
               label="Carries"
-              value={`${carriedSlots.toLocaleString()} of ${paySlots.toLocaleString()} loot slots`}
+              value={`${carriedSlots.toLocaleString('en-US')} of ${paySlots.toLocaleString('en-US')} loot slots`}
               tone={carriedSlots >= paySlots ? 'good' : 'warn'}
               testId="send-carries"
             />
@@ -1344,22 +1387,19 @@ function SendDialog({
                             {/* This crew's own figure for one of them, cards, bag and marks on, the
                                 same `missionCarry` the header sums (bug pass, 2026-10-02). */}
                             {count} at home · carries{' '}
-                            {missionCarry({ [unit.id]: 1 }, loadouts, bagPercent, lineRules)} loot
-                            slots
+                            {missionCarry(
+                              { [unit.id]: 1 },
+                              loadouts,
+                              bagPercent,
+                              lineRules,
+                              carrierFlat,
+                            )}{' '}
+                            loot slots
                             {/* §E: the sheet says a porter cannot fight and `carriers_fight` says this
                           crew's can. The settle reads the crew (`standsInLine`), so the row does
                           too: a Scavenger that is going to stand in the line must not be labelled
                           as one that will not. */}
                             {standsInLine(unit, lineRules) ? '' : ' · cannot fight'}
-                            {!meetsNotoriety(notoriety, notorietyToField(unit.id)) && (
-                              <span
-                                className="text-oxblood-300"
-                                data-testid={`beyond-rank-${unit.id}`}
-                              >
-                                {' · '}will not sign for a crew under{' '}
-                                {notorietyTier(notorietyToField(unit.id))}
-                              </span>
-                            )}
                             {/* §C3: this one is not getting on the truck, so the column waits for it.
                           Only worth saying once something is loaded: with nothing picked everybody
                           walks and the note is noise on every row. */}
@@ -1543,6 +1583,8 @@ function UnitName({
           unit={option}
           garrisoned={roster.garrisoned[unitId] ?? 0}
           abroad={roster.abroad[unitId] ?? 0}
+          // The door's own, as the roster counts it (bug pass, 2026-10-06).
+          atGate={roster.gateArmy[unitId] ?? 0}
           carriersFight={roster.carriersFight ?? false}
         />
       }

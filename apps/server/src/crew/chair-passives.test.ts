@@ -9,6 +9,7 @@ import {
   baseUnitSlotBeds,
   buildingCost,
   buildingLevel,
+  cancelRefund,
   chairPassiveOf,
   createCommander,
   findLocation,
@@ -33,7 +34,7 @@ import { buildApp } from '../app.js';
 import { loadConfig } from '../config.js';
 import { openDatabase, runMigrations, type AppDatabase } from '../db/index.js';
 import { ledgerFor } from '../bar/hire.js';
-import { startUpgrade } from '../city/upgrade.js';
+import { cancelUpgrade, startUpgrade } from '../city/upgrade.js';
 import { buildQuotesFor } from '../district/build.js';
 import { districtUnitSlots } from '../district/unit-slots.js';
 import { professorXpPercent } from '../progression/award.js';
@@ -201,6 +202,22 @@ describe('each chair, from its seat points to where it is spent', () => {
         if (started.kind !== 'started') return;
         expect(started.control.upgradePaid).toEqual(
           upgradeCost(location.kind, control.level, expectedPercent(50, points)),
+        );
+
+        // A row from before the price was kept refunds off the same cut, not the full price
+        // (bug pass, 2026-10-06).
+        app.repos.city.put({ ...started.control, upgradePaid: null });
+        const cancelled = cancelUpgrade(app.repos, {
+          base: app.repos.bases.findById(base.id)!,
+          location,
+          control: app.repos.city.control(id)!,
+          now: new Date(),
+          acceptWaste: true,
+        });
+        expect(cancelled.kind).toBe('cancelled');
+        if (cancelled.kind !== 'cancelled') return;
+        expect(cancelled.refund).toEqual(
+          cancelRefund(upgradeCost(location.kind, control.level, expectedPercent(50, points))!),
         );
       });
 
@@ -480,6 +497,7 @@ describe('what the first pass of the definitive bug pass fixed', () => {
       veteranPercent: 50,
       speedPercent: 0,
       locationLevels: new Map(),
+      costPercentByTier: {},
     };
     const paid = musterCost(unit, 10, 0, 0, 50).caps ?? 0;
     expect(paid).toBeLessThan((unit.cost.caps ?? 0) * 10);

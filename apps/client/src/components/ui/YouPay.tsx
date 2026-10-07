@@ -19,7 +19,7 @@ export function YouPay({
       data-tip="What you pay if you win, after your discount"
       data-testid={testId}
     >
-      / {pay.toLocaleString()}
+      / {pay.toLocaleString('en-US')}
     </span>
   );
 }

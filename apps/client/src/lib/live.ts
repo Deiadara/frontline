@@ -79,6 +79,10 @@ const INVALIDATES: Record<LiveEventKind, readonly (readonly unknown[])[]> = {
     // board and its badge current without a poll of their own.
     queryKeys.feats,
     ['base'],
+    // A finished building or a crew home moves the crew's own file and its standings row, and no
+    // other event covered either (bug pass, 2026-10-06).
+    ['crew-profile'],
+    ['leaderboard'],
   ],
   /*
    * The shared world (broadcast to every tab, see `live/broadcast.ts` on the server). `['district']`
@@ -245,6 +249,10 @@ export function useLiveEvents(): LiveStatus {
     const sounds = createEventAnnouncer();
     /** The backoff sleep in flight, so unmounting does not leave up to 39s of timer behind. */
     let retry: ReturnType<typeof setTimeout> | undefined;
+    // The wait between attempts, released on cleanup as well as by its timer (bug pass,
+    // 2026-10-06): clearing the timer alone left the loop parked on a promise that never settled,
+    // holding this closure for the life of the tab after every sign-out.
+    let wake: (() => void) | undefined;
 
     async function connect(): Promise<void> {
       while (!cancelled) {
@@ -338,6 +346,7 @@ export function useLiveEvents(): LiveStatus {
         // which is the same answer: nothing worked.
         if (openedAt !== null && Date.now() - openedAt >= LIVE_STABLE_MS) attempt = 0;
         await new Promise<void>((resolve) => {
+          wake = resolve;
           retry = setTimeout(resolve, retryDelay(attempt++));
         });
       }
@@ -347,6 +356,7 @@ export function useLiveEvents(): LiveStatus {
     return () => {
       cancelled = true;
       clearTimeout(retry);
+      wake?.();
       sounds.cancel();
       for (const controller of controllers) controller.abort();
     };

@@ -84,3 +84,53 @@ describe('the chase line', () => {
     expect(screen.getByTestId('automation-0-optimise')).toBeInTheDocument();
   });
 });
+
+/*
+ * A running order whose party is out (maintainer, 2026-10-06). The leader was missing from the
+ * officer list while out, so the dropdown read "Choose the officer who leads", and units not at
+ * home were dropped from the party list though the order still names them.
+ */
+describe('an order with its party out', () => {
+  it('keeps the leader selected and marked out, and lists the units out on the run', () => {
+    useAutomations.mockReturnValue({
+      data: {
+        powers: {
+          unlocked: true,
+          slots: 1,
+          cooldownMs: 15 * 60_000,
+          bestFit: true,
+          optimise: false,
+          orders: ['missions'],
+        },
+        slots: [
+          {
+            id: 'auto-0',
+            baseId: 'base-1',
+            slot: 0,
+            kind: 'missions',
+            enabled: true,
+            order: 'missions',
+            step: 1,
+            force: { razors: 10, scrapers: 3 },
+            officerId: 'off-1',
+            unitSlots: null,
+            optimiseFor: null,
+            missionId: 'mission-1',
+            restingSince: null,
+            stalled: null,
+          },
+        ],
+        officers: [{ id: 'off-1', name: 'Vex', role: null, out: true }],
+        serverNow: '2026-09-28T12:00:00.000Z',
+      },
+    });
+    render(
+      <MemoryRouter>
+        <AutomationsPage />
+      </MemoryRouter>,
+    );
+    expect(screen.getByTestId('automation-0-officer')).toHaveTextContent('Vex (out)');
+    expect(screen.getByTestId('automation-0-home-razors')).toHaveTextContent('6 at home, 4 out');
+    expect(screen.getByTestId('automation-0-home-scrapers')).toHaveTextContent('0 at home, 3 out');
+  });
+});

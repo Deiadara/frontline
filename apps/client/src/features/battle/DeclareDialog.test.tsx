@@ -190,6 +190,18 @@ describe('what the call costs on another player', () => {
     expect(onConfirm).not.toHaveBeenCalled();
   });
 
+  /*
+   * Testing mode waives the price at the route, and the board says so (maintainer, 2026-10-06):
+   * the dialog greyed Call it for infamy that would never be charged.
+   */
+  it('lets a crew short of the price through when the board says it is waived', () => {
+    const { onConfirm } = open([EARLY, LATE], 0, target, { ...board, callPriceWaived: true });
+    expect(screen.queryByTestId('declare-unaffordable')).toBeNull();
+    expect(screen.getByTestId('declare-price')).toHaveTextContent('waived while testing');
+    fireEvent.click(screen.getByTestId('declare-confirm'));
+    expect(onConfirm).toHaveBeenCalledWith(EARLY);
+  });
+
   it('lets a crew with exactly the price through', () => {
     const { onConfirm } = open([EARLY, LATE], DECLARE_INFAMY_COST);
     expect(screen.queryByTestId('declare-unaffordable')).toBeNull();

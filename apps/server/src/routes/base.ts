@@ -203,12 +203,15 @@ export function registerBaseRoutes(app: FastifyInstance): void {
     '/base/modifications/clear',
     { preHandler: app.authenticate },
     (request): ModificationSlotResponse => {
-      const { building, slot } = parseBody(ClearModificationRequestSchema, request.body);
+      const { building, slot, modification } = parseBody(
+        ClearModificationRequestSchema,
+        request.body,
+      );
       return app.db.transaction(() => {
         const owned = app.repos.bases.findByOwnerId(request.currentUser.id);
         if (!owned) throw new AppError('NO_BASE', 'You do not have a base yet');
         const settled = settleBase(app.repos, owned, new Date());
-        const result = clearSlot(app.repos, settled.base, building, slot);
+        const result = clearSlot(app.repos, settled.base, building, slot, modification);
         if (result.kind === 'refused') {
           throw new AppError('SLOT_REFUSED', CLEAR_MESSAGES[result.reason]);
         }
@@ -278,6 +281,7 @@ const CLEAR_MESSAGES: Record<ClearSlotRefusal, string> = {
   no_structure: 'There is nothing standing there',
   bad_slot: 'There is no slot there',
   already_empty: 'That slot is already empty',
+  moved: 'That card is no longer in that slot. Look again before you dismantle',
 };
 
 /** §B4: why the burn could not be bought, with the number that makes it actionable. */

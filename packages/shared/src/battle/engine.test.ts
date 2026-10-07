@@ -675,8 +675,8 @@ describe('intimidation frightens in proportion to how many are doing it', () => 
     const reach = [1, 2, 4, 6, 10, 20].map((n) =>
       intimidationReach(formed({ juggernauts: n }), line),
     );
-    // Two Juggernauts are 12 slots, so they reach 18 of the 40.
-    expect(reach[1]).toBeCloseTo(18 / 40, 10);
+    // Two Juggernauts are 20 slots (ten each since 2026-10-07), so they reach 30 of the 40.
+    expect(reach[1]).toBeCloseTo(30 / 40, 10);
     for (let i = 1; i < reach.length; i += 1) expect(reach[i]!).toBeGreaterThan(reach[i - 1]!);
     expect(reach.at(-1)!).toBeLessThan(1);
   });
@@ -1202,13 +1202,15 @@ describe('counting the line honestly', () => {
     const reasons = (attacking: Army, defending: Army) =>
       fight(attacking, defending, 'slots').attacker.stacks[0]?.effective.reasons ?? [];
 
-    // Eight Juggernauts are 48 slots; sixteen Razors are 16. On heads that is 2:1 against them.
-    expect(fightingSlots(army({ juggernauts: 8 }), bareLineRules())).toBe(48);
-    expect(fightingSlots(army({ razors: 16 }), bareLineRules())).toBe(16);
-    expect(reasons(army({ juggernauts: 8 }), army({ razors: 16 }))).not.toContain(lastStand);
+    // Wardens rather than Juggernauts since 2026-10-07: the Juggernauts lost Last Stand with the
+    // Reliquary rework, and the Wardens are the two-slot heavy that kept it. Eight Wardens are 16
+    // slots; thirty-two Razors are 32. On heads that is 4:1 against them, and on slots it is 2:1.
+    expect(fightingSlots(army({ wardens: 8 }), bareLineRules())).toBe(16);
+    expect(fightingSlots(army({ razors: 12 }), bareLineRules())).toBe(12);
+    expect(reasons(army({ wardens: 8 }), army({ razors: 12 }))).not.toContain(lastStand);
 
-    // Eighty Razors really are half again the Juggernauts' weight, and it fires.
-    expect(reasons(army({ juggernauts: 8 }), army({ razors: 80 }))).toContain(lastStand);
+    // Twenty-four Razors really are half again the Wardens' weight, and it fires.
+    expect(reasons(army({ wardens: 8 }), army({ razors: 24 }))).toContain(lastStand);
   });
 });
 

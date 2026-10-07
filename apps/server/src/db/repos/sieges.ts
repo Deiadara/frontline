@@ -4,6 +4,7 @@ import {
   BattleAnalysisSchema,
   BattleDeploymentSchema,
   BattleSideSchema,
+  BattleTargetSchema,
   LocationHolderSchema,
   ScheduledBattleSchema,
   type BattleAnalysis,
@@ -81,6 +82,18 @@ function targetOf(row: BattleRow): BattleTarget {
   }
 }
 
+/** The rows this build can read, each one it cannot named in the log and left out. */
+function readableBattles(rows: readonly BattleRow[]): ScheduledBattle[] {
+  return rows.flatMap((row) => {
+    try {
+      return [rowToBattle(row)];
+    } catch (error) {
+      console.warn(`battle ${row.id}: stored fight is not readable by this build, skipping`, error);
+      return [];
+    }
+  });
+}
+
 function rowToBattle(row: BattleRow): ScheduledBattle {
   return ScheduledBattleSchema.parse({
     id: row.id,
@@ -121,6 +134,22 @@ export interface ResolvedBattle {
   analysis: BattleAnalysis;
 }
 
+/** A fight still to run that this build cannot read, and where it was, when that much reads. */
+export interface UnreadableFight {
+  id: string;
+  /** Null when the stored target is itself a kind this build does not have. */
+  target: BattleTarget | null;
+  error: unknown;
+}
+
+/** A deployment row on a fight still to run that this build cannot read. */
+export interface UnreadableDeployment {
+  battleId: string;
+  side: string;
+  baseId: string | null;
+  error: unknown;
+}
+
 export interface SiegeRepo {
   insert(battle: ScheduledBattle): void;
   find(id: string): ScheduledBattle | undefined;
@@ -130,6 +159,21 @@ export interface SiegeRepo {
   pending(): ScheduledBattle[];
   /** How many unresolved calls this crew already has out: the cap on declaring. */
   pendingCountFor(baseId: string): number;
+  /**
+   * The fights still to run, marked at or before `markBy`, that the twenty-slot rule has not
+   * judged yet (`battle/understrength.ts`). The world settle passes the tick plus the lock's hour.
+   */
+  awaitingStrengthCheck(markBy: string): ScheduledBattle[];
+  /** Records that the twenty-slot rule has judged this fight, so nothing after the lock can. */
+  markStrengthJudged(id: string): void;
+  /**
+   * Every fight still to run that this build cannot read, and every deployment row on a fight
+   * still to run that it cannot read (`battle/unreadable.ts`). The other reads skip the first and
+   * throw on the second; this is the one that names them so they can be dropped.
+   */
+  unreadable(): { fights: UnreadableFight[]; deployments: UnreadableDeployment[] };
+  /** Deletes one deployment row as stored, whatever is in it. `baseId` null is the NPC's row. */
+  dropDeployment(battleId: string, side: string, baseId: string | null): void;
   /** Finished fights this crew was in, most recent first. */
   resolvedFor(baseId: string, limit: number): ResolvedBattle[];
   /** Marks it run and files the ledger, in one statement. */
@@ -152,6 +196,13 @@ export interface SiegeRepo {
    * there is no such fight.
    */
   outcomeOf(id: string): { resolvedAt: string | null; winner: BattleSide | null } | undefined;
+  /**
+   * The targets of the fights this crew called and lost, marked after `since` (the losing caller's
+   * cooldown, `battle/declare.ts`). One indexed read of the crew's own calls, reading only the
+   * winner off each report; it used to parse the crew's last fifty reports in full on every call
+   * and miss a loss with fifty other fights after it (bug pass, 2026-10-06).
+   */
+  lostCallsSince(baseId: string, since: string): BattleTarget[];
 
   deployments(battleId: string): BattleDeployment[];
   /**
@@ -190,7 +241,13 @@ export interface SiegeRepo {
    * deployments, so a crew with one good leader could put them at the head of every battle it had
    * declared and collect their sheet and their perks in all of them at once.
    */
-  leadingElsewhere(officerId: string, exceptBattleId: string): string[];
+  /**
+   * The unresolved fights this crew has `officerId` named on, other than `exceptBattleId`. Keyed on
+   * the crew as well as the officer (bug pass, 2026-10-06): officer ids are unique within a crew,
+   * not across crews, and the console seats the same ids on every crew it builds, so one crew's
+   * fight held another crew's officer.
+   */
+  leadingElsewhere(officerId: string, exceptBattleId: string, baseId: string): string[];
 
   gate(districtId: string): DistrictGate | undefined;
   breakGate(districtId: string, until: string): void;
@@ -227,6 +284,17 @@ export function createSiegeRepo(db: AppDatabase): SiegeRepo {
   const pendingStmt = db.prepare(
     'SELECT * FROM scheduled_battles WHERE resolved_at IS NULL ORDER BY scheduled_for',
   );
+  // Prepared on first use: the column arrives in 0147, and some tests migrate only part way.
+  let awaitingStrengthStmt: Statement | undefined;
+  let markStrengthStmt: Statement | undefined;
+  const pendingDeploymentsStmt = db.prepare(
+    `SELECT d.* FROM battle_deployments d
+       JOIN scheduled_battles b ON b.id = d.battle_id
+      WHERE b.resolved_at IS NULL`,
+  );
+  const dropDeploymentStmt = db.prepare(
+    'DELETE FROM battle_deployments WHERE battle_id = ? AND side = ? AND base_id IS ?',
+  );
   const pendingCountStmt = db.prepare(
     'SELECT COUNT(*) AS n FROM scheduled_battles WHERE resolved_at IS NULL AND attacker_base_id = ?',
   );
@@ -241,6 +309,11 @@ export function createSiegeRepo(db: AppDatabase): SiegeRepo {
   );
   const resolveStmt = db.prepare(
     'UPDATE scheduled_battles SET resolved_at = ?, analysis_json = ? WHERE id = ?',
+  );
+  const lostCallsStmt = db.prepare(
+    `SELECT * FROM scheduled_battles
+     WHERE attacker_base_id = ? AND resolved_at IS NOT NULL AND analysis_json IS NOT NULL
+       AND scheduled_for > ?`,
   );
   const abandonStmt = db.prepare(
     'UPDATE scheduled_battles SET resolved_at = ?, analysis_json = NULL WHERE id = ?',
@@ -308,7 +381,7 @@ export function createSiegeRepo(db: AppDatabase): SiegeRepo {
     `SELECT d.battle_id AS battle_id
        FROM battle_deployments d
        JOIN scheduled_battles b ON b.id = d.battle_id
-      WHERE d.officer_id = ? AND d.battle_id != ? AND b.resolved_at IS NULL`,
+      WHERE d.officer_id = ? AND d.battle_id != ? AND d.base_id = ? AND b.resolved_at IS NULL`,
   );
 
   // Prepared on first use: the table arrives in 0140, and some tests migrate only part way.
@@ -338,6 +411,13 @@ export function createSiegeRepo(db: AppDatabase): SiegeRepo {
         battle.wokeSleepers ? 1 : 0,
       );
     },
+    lostCallsSince(baseId, since) {
+      return (lostCallsStmt.all(baseId, since) as BattleRow[]).flatMap((row) => {
+        const winner = (readJson(row.analysis_json ?? 'null') as { winner?: unknown } | null)
+          ?.winner;
+        return winner === 'defender' ? [targetOf(row)] : [];
+      });
+    },
     outcomeOf(id) {
       const row = findStmt.get(id) as BattleRow | undefined;
       if (!row) return undefined;
@@ -354,14 +434,54 @@ export function createSiegeRepo(db: AppDatabase): SiegeRepo {
       const row = findStmt.get(id) as BattleRow | undefined;
       return row ? rowToBattle(row) : undefined;
     },
+    // Both skip a row this build cannot read, as `resolvedFor` does (bug pass, 2026-10-06): one
+    // pending fight with a retired defender or target threw out of the whole read, which stopped
+    // every fight in the world resolving and answered 500 on the battle board for everybody.
     due(now) {
-      return (dueStmt.all(now) as BattleRow[]).map(rowToBattle);
+      return readableBattles(dueStmt.all(now) as BattleRow[]);
     },
     pending() {
-      return (pendingStmt.all() as BattleRow[]).map(rowToBattle);
+      return readableBattles(pendingStmt.all() as BattleRow[]);
     },
     pendingCountFor(baseId) {
       return (pendingCountStmt.get(baseId) as { n: number }).n;
+    },
+    awaitingStrengthCheck(markBy) {
+      awaitingStrengthStmt ??= db.prepare(
+        `SELECT * FROM scheduled_battles
+          WHERE resolved_at IS NULL AND strength_judged = 0 AND scheduled_for <= ?
+          ORDER BY scheduled_for`,
+      );
+      return readableBattles(awaitingStrengthStmt.all(markBy) as BattleRow[]);
+    },
+    markStrengthJudged(id) {
+      markStrengthStmt ??= db.prepare(
+        'UPDATE scheduled_battles SET strength_judged = 1 WHERE id = ?',
+      );
+      markStrengthStmt.run(id);
+    },
+    unreadable() {
+      const fights = (pendingStmt.all() as BattleRow[]).flatMap((row) => {
+        try {
+          rowToBattle(row);
+          return [];
+        } catch (error) {
+          const target = BattleTargetSchema.safeParse(targetOf(row));
+          return [{ id: row.id, target: target.success ? target.data : null, error }];
+        }
+      });
+      const deployments = (pendingDeploymentsStmt.all() as DeploymentRow[]).flatMap((row) => {
+        try {
+          rowToDeployment(row);
+          return [];
+        } catch (error) {
+          return [{ battleId: row.battle_id, side: row.side, baseId: row.base_id, error }];
+        }
+      });
+      return { fights, deployments };
+    },
+    dropDeployment(battleId, side, baseId) {
+      dropDeploymentStmt.run(battleId, side, baseId);
     },
     resolvedFor(baseId, limit) {
       return (resolvedStmt.all(baseId, baseId, limit) as BattleRow[]).flatMap((row) => {
@@ -459,10 +579,10 @@ export function createSiegeRepo(db: AppDatabase): SiegeRepo {
       putPeakStmt.run(battleId, baseId, peak.units, peak.unitSlots);
     },
 
-    leadingElsewhere(officerId, exceptBattleId) {
-      return (leadingElsewhereStmt.all(officerId, exceptBattleId) as { battle_id: string }[]).map(
-        (row) => row.battle_id,
-      );
+    leadingElsewhere(officerId, exceptBattleId, baseId) {
+      return (
+        leadingElsewhereStmt.all(officerId, exceptBattleId, baseId) as { battle_id: string }[]
+      ).map((row) => row.battle_id);
     },
 
     gate(districtId) {

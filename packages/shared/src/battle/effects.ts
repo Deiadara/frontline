@@ -1,4 +1,15 @@
-import { labelVerdict, type TerritoryEffects } from '../city/index.js';
+import {
+  labelEffectPercent,
+  labelText,
+  labelVerdict,
+  type EnvLabel,
+  type EnvLabelId,
+  type LabelVerdict,
+  type TerritoryEffects,
+  type UnitStatFlat,
+} from '../city/index.js';
+import { ANTI_COMBINE_PERCENT, PAMPHLET_PENALTY_PERCENT } from '../city/reliquary.js';
+import { NO_DOOR_PERKS, type DoorPerks } from './doors.js';
 import {
   UNIT_MODIFIERS,
   capRating,
@@ -38,6 +49,28 @@ export interface SideContext {
    * full at {@link OUTNUMBERED_FULL} to one or worse.
    */
   outnumbered: number;
+}
+
+/**
+ * What is true of *this* unit in *this* fight and of no other: the door its crew holds for it,
+ * who it is fighting and who it came with (Reliquary, 2026-10-07). Every field defaults to
+ * nothing, so the callers that build a sheet on bare ground pass nothing.
+ */
+export interface UnitFightContext {
+  /** The ladder of the door the crew holds for this unit (`battle/doors.ts`). */
+  door?: DoorPerks;
+  /** The other side is the Combine: ANTI-COMBINE pays per level held. */
+  againstCombine?: boolean;
+  /** The enemy has this unit's id pinned on a Pamphlet Wall. */
+  pamphleted?: boolean;
+  /** A Saint at a level-4 Shrine stands in the force: the labels that hurt this unit are ignored. */
+  inspired?: boolean;
+  /** Unit slots fighting beside this unit, for a congregation door. */
+  slotsBeside?: number;
+  /** Rose Window: this unit came from a faction mate, worth this much more offense and vitality. */
+  allyPercent?: number;
+  /** Modifications fitted on this unit, for the Bellfounders' armour per card. */
+  fittedCount?: number;
 }
 
 /** Facing this many times your own unit slots is where "when outnumbered" holds in full. */
@@ -166,8 +199,9 @@ export function contextBonusPercent(
     // `affects` is optional and defaults to damage: every modifier written before a defensive
     // sheet existed is an attack bonus and stays one.
     const worth = modifier.percent * (weights[modifier.context] ?? 1);
-    if (modifier.affects === 'toughness') toughness += worth;
-    else percent += worth;
+    // GUARD is both halves at once: the points land on damage and on toughness together.
+    if (modifier.affects === 'toughness' || modifier.affects === 'both') toughness += worth;
+    if (modifier.affects !== 'toughness') percent += worth;
     reasons.push(modifier.label);
   }
   return { percent, toughness, reasons };
@@ -186,6 +220,9 @@ export function contextBonusPercent(
  * input the engine did not read: a crew could buy Slaved Optics for every unit it owns and fight
  * exactly as well as one that had not, which made the whole workshop a number on a screen.
  */
+/** What each held Mausoleum puts on a `faith` unit's damage and vitality. See `effectiveStats`. */
+export const FAITH_PER_MAUSOLEUM = 30;
+
 export function effectiveStats(
   unit: UnitSpec,
   battlefield: Battlefield,
@@ -209,12 +246,16 @@ export function effectiveStats(
      * a bare `TerritoryEffects` should not have to invent a zero.
      */
     unitEvasionFlat?: number;
+    /** The Tolling Tower's gift, off the crew's control rows (`CrewOnlyEffects.ignoredLabels`). */
+    ignoredLabels?: readonly EnvLabelId[];
   },
   upgrades: FittedUpgrades = [],
+  fight: UnitFightContext = {},
 ): Effective {
   const contexts: CombatContext[] = [...battlefield.contexts];
   if (side.defending) contexts.push('defending');
   if (side.outnumbered > 0) contexts.push('outnumbered');
+  const door = fight.door ?? NO_DOOR_PERKS;
 
   const { percent, toughness, reasons } = contextBonusPercent(unit, contexts, {
     outnumbered: side.outnumbered,
@@ -232,7 +273,11 @@ export function effectiveStats(
    * top of this file: a player has to be able to add up why their Anodics are at +46% in a press
    * hall at four in the morning, and `1.25 × 1.26 × 1.04` is not something anybody adds up.
    */
-  const ground = labelVerdict(sheet, unit, battlefield.labels);
+  const ground = groundVerdict(sheet, unit, battlefield.labels, {
+    ignored: [...(territory.ignoredLabels ?? []), ...door.ignoredLabels],
+    home: door.homeLabels,
+    inspired: fight.inspired === true,
+  });
 
   /*
    * What a bonus scoped to *this unit's tier* is worth (`unit_tier` in `city/locations.ts`).
@@ -251,12 +296,44 @@ export function effectiveStats(
    * else for the reason at the top of this file.
    */
   const kind = territory.unitKindPercent?.[unit.id] ?? {};
+  /*
+   * Faith (`UnitSpec.faith`, maintainer 2026-10-06): thirty damage and thirty vitality on the
+   * sheet for every Mausoleum the crew holds, before any percentage. Flat and on the sheet
+   * because that is what was asked for: a Death Cloak under four tombs is a 420-point unit that
+   * the percentages then multiply, not a 300-point unit with a bigger percentage.
+   */
+  const faith = unit.faith === true ? FAITH_PER_MAUSOLEUM * (territory.mausoleums ?? 0) : 0;
+  /*
+   * The door's own points and the congregation, flat on the sheet like Faith, because that is
+   * what the ladder promises: a level-5 Condemned is a 240-vitality unit that the percentages
+   * then multiply. The congregation is capped before it lands, so a thousand-slot line beside the
+   * Saint is worth exactly the ceiling.
+   */
+  const congregation = Math.min(
+    door.congregationCap,
+    door.congregationPerSlot * Math.max(0, fight.slotsBeside ?? 0),
+  );
+  const doorFlatOffense = door.offense + congregation;
+  const doorFlatVitality = door.vitality + congregation;
+  /*
+   * The three percentages that depend on who is on the other side or who sent this unit, summed
+   * with everything else for the reason at the top of this file. ANTI-COMBINE pays per final
+   * district held and only against the regime; a pinned unit loses its points against the crew
+   * that pinned it; a faction mate's unit earns the Rose Window's points.
+   */
+  const antiCombine =
+    fight.againstCombine === true ? ANTI_COMBINE_PERCENT * (territory.antiCombineLevels ?? 0) : 0;
+  const pamphlet = fight.pamphleted === true ? -PAMPHLET_PENALTY_PERCENT : 0;
+  const ally = fight.allyPercent ?? 0;
+  const bothWays = antiCombine + pamphlet + ally;
+  const flats = statFlatsFor(unit, territory.unitStatFlats ?? []);
   const offenseBonus =
     percent +
     ground.percent +
     territory.unitOffensePercent +
     (tier.offense ?? 0) +
-    (kind.offense ?? 0);
+    (kind.offense ?? 0) +
+    bothWays;
 
   // Everything the holder built buys *toughness*, not damage: a wall does not make a rifle shoot
   // harder. This is the one place percentages land on vitality rather than on offense.
@@ -272,14 +349,18 @@ export function effectiveStats(
   // curve exists so no amount of building makes a district untakeable; a sheet that says it is
   // hard to shift is a unit you can be sent to kill, and it is bought one unit at a time.
   const ownToughness =
-    territory.unitVitalityPercent + (tier.vitality ?? 0) + (kind.vitality ?? 0) + toughness;
+    territory.unitVitalityPercent +
+    (tier.vitality ?? 0) +
+    (kind.vitality ?? 0) +
+    toughness +
+    bothWays;
   const vitalityBonus = ownToughness + heldDefense(held);
   const withoutGateBonus = ownToughness + heldDefense(heldWithoutGate);
   const withoutGate = 1 + withoutGateBonus / 100;
 
   return {
-    offense: sheet.offense * (1 + offenseBonus / 100),
-    vitality: sheet.vitality * (1 + vitalityBonus / 100),
+    offense: (sheet.offense + faith + doorFlatOffense + flats.offense) * (1 + offenseBonus / 100),
+    vitality: (sheet.vitality + faith + doorFlatVitality) * (1 + vitalityBonus / 100),
     // What the gate multiplied that by, for the one kind of attacker that does not meet it.
     gateToughness: withoutGate > 0 ? (1 + vitalityBonus / 100) / withoutGate : 1,
     // Armour is points on a 0..100 rating, not a multiplier: see `unitArmorPercent`. Still capped,
@@ -291,18 +372,29 @@ export function effectiveStats(
         (side.defending ? battlefield.baseDefense : 0) +
         territory.unitArmorPercent +
         (tier.armor ?? 0) +
-        (kind.armor ?? 0),
+        (kind.armor ?? 0) +
+        flats.armor +
+        // Bellfounders: every card fitted is plate as well (`modificationArmorFlat`).
+        (territory.modificationArmorFlat ?? 0) * (fight.fittedCount ?? upgrades.length),
     ),
     // Capped at 100 like every other speed in the game (`time/speed.ts`): the same number decides
     // this unit's road, and a unit cannot be quicker than the top of its own scale on one of them
     // and not the other. Deliberately unrounded, so the engagement terms keep their resolution.
-    speed: effectiveSpeed(sheet.speed, { percent: territory.unitSpeedPercent }),
-    range: sheet.range,
+    speed: effectiveSpeed(sheet.speed + door.speed + flats.speed, {
+      percent: territory.unitSpeedPercent,
+    }),
+    range: capRating(sheet.range + door.range + flats.range),
     // Points, not a multiplier, and clamped for the same reason armour is: no stack of bonuses may
     // produce a unit nothing can hit.
-    evasion: capRating(sheet.evasion + (territory.unitEvasionFlat ?? 0)),
-    penetration: sheet.penetration,
-    stealth: capRating(Math.round(sheet.stealth * (1 + territory.unitStealthPercent / 100))),
+    evasion: capRating(
+      sheet.evasion + (territory.unitEvasionFlat ?? 0) + door.evasion + flats.evasion,
+    ),
+    penetration: capRating(sheet.penetration + flats.penetration),
+    stealth: capRating(
+      Math.round(
+        (sheet.stealth + door.stealth + flats.stealth) * (1 + territory.unitStealthPercent / 100),
+      ),
+    ),
     /*
      * §A4: the ground's own menace, which until now was accumulated and read by nobody.
      *
@@ -313,9 +405,83 @@ export function effectiveStats(
      * for the same reason: no stack of bonuses may put a unit past the sheet's own ceiling.
      */
     intimidation: capRating(sheet.intimidation + territory.intimidationFlat),
-    morale: capRating(sheet.morale + territory.unitMoraleFlat),
+    morale: capRating(
+      sheet.morale + territory.unitMoraleFlat + (territory.unitTierMoraleFlat?.[unit.tier] ?? 0),
+    ),
     damageType: sheet.damageType,
     resistances: sheet.resistances,
-    reasons: [...reasons, ...ground.reasons, ...(held > 0 ? ['Holding built ground'] : [])],
+    reasons: [
+      ...reasons,
+      ...ground.reasons,
+      ...(held > 0 ? ['Holding built ground'] : []),
+      ...(antiCombine > 0 ? ['Anti-Combine'] : []),
+      ...(pamphlet < 0 ? ['Pamphleted'] : []),
+      ...(ally > 0 ? ['Fighting for an ally'] : []),
+      ...(doorFlatOffense > 0 || door.vitality > 0 ? ['Door'] : []),
+    ],
+  };
+}
+
+/** The stats a flat-point hold bonus can land on; one slot per stat, summed over the matches. */
+type StatFlats = Record<UnitStatFlat['stat'], number>;
+
+/**
+ * What the crew's flat-point bonuses are worth to this unit: every entry whose scope it fits.
+ * A scope left out matches everything; `rule: 'guard'` matches a sheet carrying GUARD.
+ */
+export function statFlatsFor(unit: UnitSpec, flats: readonly UnitStatFlat[]): StatFlats {
+  const out: StatFlats = {
+    armor: 0,
+    offense: 0,
+    range: 0,
+    evasion: 0,
+    speed: 0,
+    stealth: 0,
+    penetration: 0,
+  };
+  for (const flat of flats) {
+    if (flat.tier !== undefined && flat.tier !== unit.tier) continue;
+    if (flat.damageType !== undefined && flat.damageType !== unit.stats.damageType) continue;
+    if (flat.rule === 'guard' && !unit.modifiers.includes('guard')) continue;
+    out[flat.stat] += flat.flat;
+  }
+  return out;
+}
+
+/**
+ * The ground as this unit reads it, after what it is allowed to ignore.
+ *
+ * Three ways a label stops counting against a unit, all of them Reliquary's. `ignored` drops the
+ * label outright (the Tolling Tower's Noisy, the Dancer's Crammed and Wet). `home` flips a bad
+ * reading to a good one of the same size, which is what "home ground" has to mean for a unit the
+ * catalogue says hates the wet. `inspired` drops every label whose reading is negative, which is
+ * the Saint's INSPIRATION: the words are "ignores the ground that is bad for it", and a label that
+ * helps stays. Decided per label on the raw reading, so a label the unit is immune to is left as
+ * the zero it already was, and the floor `labelVerdict` keeps still applies to what is left.
+ */
+export function groundVerdict(
+  sheet: UnitStats,
+  unit: UnitSpec,
+  labels: readonly EnvLabel[],
+  rules: { ignored: readonly EnvLabelId[]; home: readonly EnvLabelId[]; inspired: boolean },
+): LabelVerdict {
+  const kept: EnvLabel[] = [];
+  let homePercent = 0;
+  const homeReasons: string[] = [];
+  for (const label of labels) {
+    if (rules.ignored.includes(label.id)) continue;
+    const reading = labelEffectPercent(sheet, unit, label);
+    if (reading < 0 && rules.home.includes(label.id)) {
+      homePercent -= reading;
+      homeReasons.push(`${labelText(label)} +${Math.round(-reading)}% (home ground)`);
+      continue;
+    }
+    if (reading < 0 && rules.inspired) continue;
+    kept.push(label);
+  }
+  const verdict = labelVerdict(sheet, unit, kept);
+  return {
+    percent: verdict.percent + homePercent,
+    reasons: [...verdict.reasons, ...homeReasons],
   };
 }

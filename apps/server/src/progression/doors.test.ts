@@ -1,3 +1,4 @@
+import { buildingLevel } from '@frontline/shared';
 import type { FastifyInstance } from 'fastify';
 import { afterEach, describe, expect, it } from 'vitest';
 import { buildApp } from '../app.js';
@@ -109,5 +110,37 @@ describe('a door the crew has not opened', () => {
       headers: { authorization: `Bearer ${token}` },
     });
     expect(shelf.statusCode, shelf.body.slice(0, 200)).toBe(200);
+  });
+});
+
+/*
+ * Bug pass, 2026-10-06: the crew door was read off the row before the settle, so a crew whose
+ * finished build banked the level that opens it was refused until some other read settled it.
+ */
+describe('a door opened by work that finished unread', () => {
+  it('lets the crew through on the request that banks it', async () => {
+    const { app, token } = await freshCrew();
+    const headers = { authorization: `Bearer ${token}` };
+    const base = app.repos.bases.findByOwnerId(app.jwt.decode<{ sub: string }>(token)?.sub ?? '')!;
+    expect(base.level).toBeLessThan(5);
+    app.repos.bases.updateDistrict(base.id, base.buildings, [
+      {
+        id: 'finished',
+        kind: 'lab',
+        level: buildingLevel(base.buildings, 'lab') + 1,
+        startedAt: new Date(Date.now() - 3_600_000).toISOString(),
+        durationSeconds: 60,
+        xp: 1_000_000,
+        paid: {},
+        parts: {},
+      },
+    ]);
+    const reassign = await app.inject({
+      method: 'POST',
+      url: '/api/crew/reassign',
+      headers,
+      payload: { officerId: 'nobody', role: 'fixer' },
+    });
+    expect(reassign.json<{ error?: { code: string } }>().error?.code).not.toBe('AREA_LOCKED');
   });
 });

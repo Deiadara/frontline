@@ -83,6 +83,8 @@ function bench(queue: MusterOrder[]): {
       musterCostReduction: 0,
       musterSpeedBonus: 0,
       built: [],
+      ignoredLabels: [],
+      antiCombineLevels: 0,
     },
     dataUpdatedAt: Date.parse(NOW),
     refetch,

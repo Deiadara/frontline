@@ -28,7 +28,7 @@ import { Readings } from './Readings';
 import { Room } from './Room';
 import { WindowHead } from './parts';
 import { refusalText } from './refusal';
-import { ErrorNote } from '../../components/ui/ErrorNote';
+import { PressError } from '../../components/ui/PressError';
 
 /**
  * The faction (§L): the back room, with the five of you at the table.
@@ -121,6 +121,14 @@ export function FactionPage() {
     reinforce.isPending;
 
   if (!data.faction) {
+    /*
+     * Out of the faction, every window it had open goes with it (bug pass, 2026-10-06). The page
+     * stays mounted across leaving and founding, so a file, the Book or the fights left open
+     * reopened by themselves over the next faction's room.
+     */
+    if (door !== null) setDoor(null);
+    if (fights !== null) setFights(null);
+    if (openMemberId !== null) setOpenMemberId(null);
     return (
       <PageShell title="Factions" fills wide>
         <FoundFaction data={data} />
@@ -184,10 +192,8 @@ export function FactionPage() {
           />
         </div>
 
-        {error && (
-          <ErrorNote backdrop className="pointer-events-auto mt-2 max-w-[34rem] self-center">
-            {refusalText(error.message)}
-          </ErrorNote>
+        {error && door === null && fights === null && openMember === null && (
+          <PressError>{refusalText(error.message)}</PressError>
         )}
       </div>
 
@@ -201,6 +207,7 @@ export function FactionPage() {
           onSeat={(card) => seatMember.mutate({ userId: openMember.userId, card })}
           onLeave={(successorId) => leave.mutate(successorId)}
           onClose={() => setOpenMemberId(null)}
+          refusal={error ? refusalText(error.message) : null}
         />
       )}
 
@@ -213,6 +220,7 @@ export function FactionPage() {
             reinforce.mutate({ battleId, army: { [unitId]: count } })
           }
           onClose={() => setFights(null)}
+          refusal={error ? refusalText(error.message) : null}
         />
       )}
 
@@ -243,6 +251,7 @@ export function FactionPage() {
           onDisband={() => disband.mutate(undefined)}
           onClose={() => setDoor(null)}
           busy={identity.isPending || describe.isPending || disband.isPending}
+          refusal={error ? refusalText(error.message) : null}
         />
       )}
 
@@ -264,7 +273,11 @@ export function FactionPage() {
               },
             )
           }
-          onClose={() => setDoor(null)}
+          onClose={() => {
+            // The last refusal was about the last name tried, not the next one.
+            invite.reset();
+            setDoor(null);
+          }}
         />
       )}
     </div>
@@ -311,7 +324,7 @@ function InviteWindow({
             className="rounded-sm border border-surface-500 bg-surface-900 px-2.5 py-2 font-body text-[14px] text-ink-100"
           />
         </label>
-        {refusal !== null && <ErrorNote>{refusal}</ErrorNote>}
+        {refusal !== null && <PressError>{refusal}</PressError>}
         <div className="flex gap-2">
           <Button
             disabled={busy || username.trim().length === 0}

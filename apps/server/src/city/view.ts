@@ -20,6 +20,8 @@ import {
   travelMinutesBetween,
   unifiedBonusFor,
   unitsUnlockedByLocation,
+  baseBonusesOf,
+  doorsOn,
   type Base,
   type CityResponse,
   type District,
@@ -37,8 +39,26 @@ import {
   upgradeNote,
   weatherAt,
   weatherLabels,
+  groundStateOf,
+  tollingTowerNoise,
+  PAMPHLET_SWAP_CAPS,
+  RESOURCE_KEYS,
+  TROPHY_PAY,
+  TROPHY_PAY_SCALE,
+  type FactionMark,
+  type PartialResources,
+  type EnvLabel,
 } from '@frontline/shared';
 import { standingEffectsFor } from '../crew/standing.js';
+import { seatsByBase, type TableSeat, wholeHolderOf } from './holding.js';
+import {
+  pamphletCapacity,
+  pamphletsUnlocked,
+  swapAvailableAt,
+  swappable,
+  switchChangesAt,
+} from './ground.js';
+import { spyPointsFor } from '../spying/spying.js';
 import { upgradeSeconds, upgradingSince } from './upgrade.js';
 import type { Repositories } from '../db/repos/index.js';
 import { isClosedPlot } from '../battle/ground.js';
@@ -72,6 +92,20 @@ export interface CityContext {
   playerOf: (baseId: string) => string | null;
   /** The last spy report this crew wrote on a location, or null (2026-09-22). */
   latestSpyReport: (locationId: string) => SpyReport | null;
+  /** Every crew's seat at a table, by base id (faction ruling, 2026-10-07). */
+  seats: Map<string, TableSeat>;
+  /** A table's name and badge for the tag, or null for a crew at none. */
+  factionMarkOf: (baseId: string) => FactionMark | null;
+}
+
+/** Whose side a holder is on, as the viewer sees it: the colour of the tag. */
+function sideOf(holder: LocationHolder, context: CityContext): LocationView['holderSide'] {
+  if (holder.kind === 'unoccupied') return 'unoccupied';
+  if (holder.kind !== 'crew') return 'enemy';
+  if (holder.baseId === context.base.id) return 'mine';
+  const mine = context.seats.get(context.base.id)?.factionId;
+  const theirs = context.seats.get(holder.baseId)?.factionId;
+  return mine !== undefined && mine === theirs ? 'ally' : 'enemy';
 }
 
 export function cityContextFor(repos: Repositories, base: Base): CityContext {
@@ -83,10 +117,23 @@ export function cityContextFor(repos: Repositories, base: Base): CityContext {
   // of them belong to the same two or three crews.
   const owners = new Map(summaries.map((summary) => [summary.id, summary.ownerId]));
   const players = new Map<string, string | null>();
+  const seats = seatsByBase(repos);
+  const marks = new Map<string, FactionMark | null>();
   return {
     base,
     controls,
     effects,
+    seats,
+    factionMarkOf: (baseId) => {
+      let mark = marks.get(baseId);
+      if (mark === undefined) {
+        const seat = seats.get(baseId);
+        const faction = seat ? repos.factions.find(seat.factionId) : undefined;
+        mark = faction ? { name: faction.name, badge: faction.badge } : null;
+        marks.set(baseId, mark);
+      }
+      return mark;
+    },
     nameOf: (baseId) => names.get(baseId) ?? 'a crew nobody knows',
     latestSpyReport: (locationId) =>
       repos.spying.latestFor(base.id, { kind: 'location', locationId }) ?? null,
@@ -129,8 +176,17 @@ function summarise(
   district: District,
   context: CityContext,
   resident: DistrictSummary['base'],
+  wholeHolder: LocationHolder | null,
 ): DistrictSummary {
   const home = findDistrict(context.base.districtId);
+  /*
+   * The tag's colour (maintainer, 2026-10-07): green when the viewer's own table holds the
+   * district whole, alone or together; red when anybody else does, the looters and the Combine
+   * included; no colour when nobody does. `ally` is on the schema and never written: a mate's
+   * district is the faction's, which is the viewer's.
+   */
+  const side = wholeHolder ? sideOf(wholeHolder, context) : null;
+  const wholeBy = side === null ? null : side === 'enemy' ? 'enemy' : 'mine';
 
   return {
     district,
@@ -142,6 +198,8 @@ function summarise(
         })
       : 0,
     holder: districtHolder(district, context.controls),
+    holderFaction: wholeHolder?.kind === 'crew' ? context.factionMarkOf(wholeHolder.baseId) : null,
+    wholeBy,
     held: {
       mine: district.locations.filter((location) => {
         const control = context.controls.get(location.id);
@@ -177,7 +235,12 @@ export function projectCity(
 
   return {
     districts: districtsOfCity(cityId).map((district) =>
-      summarise(district, context, residentSummary(summaries, district.id, base)),
+      summarise(
+        district,
+        context,
+        residentSummary(summaries, district.id, base),
+        wholeHolderOf(repos, district),
+      ),
     ),
     /*
      * §B7: the gates on ground this crew holds outright, in every city.
@@ -200,9 +263,15 @@ function projectLocation(
   context: CityContext,
   now: Date,
   admin: boolean,
+  /** The Tolling Tower's Noisy over the whole district while its switch is on, or none. */
+  towerNoise: readonly EnvLabel[],
 ): LocationView {
   const spec = LOCATION_CATALOG[location.kind];
   const mine = isHeldBy(control, context.base.id);
+  const ground = groundStateOf(control);
+  const bonuses = baseBonusesOf(location);
+  const door = bonuses.find((bonus) => bonus.kind === 'unit_door');
+  const doorUnit = door?.kind === 'unit_door' ? findUnit(door.unitId) : undefined;
   const nextCost = upgradeCost(
     location.kind,
     control.level,
@@ -245,7 +314,9 @@ function projectLocation(
     garrisonSize: mine ? garrisonSize(control) : null,
     garrison: mine ? control.garrison : null,
     latestSpyReport: mine ? null : context.latestSpyReport(location.id),
-    bonuses: bonusesAt(location.kind, control.level).map(describeHoldBonus),
+    bonuses: bonusesAt(location, control.level).map((bonus) =>
+      describeHoldBonus(bonus, (unitId) => findUnit(unitId)?.name ?? unitId),
+    ),
     reward: spec.reward,
     /*
      * What the ground is like *right now* (§A4).
@@ -255,9 +326,63 @@ function projectLocation(
      * same order. A screen that promised `Crammed IV, Wet II` and a fight that produced something
      * else would be worse than showing nothing.
      */
-    labels: mergeLabels(spec.labels, weatherLabels(weatherAt(now))),
-    unlocks: unitsUnlockedByLocation(location.kind).map((unit) => unit.name),
+    // ...and the tower's Noisy over the district while its switch is on (2026-10-06), which the
+    // fight folds in the same way (`battlefieldOf`).
+    labels: mergeLabels(spec.labels, weatherLabels(weatherAt(now)), towerNoise),
+    // By kind, and by any door authored on the ground itself (Reliquary, 2026-10-07).
+    unlocks: [
+      ...unitsUnlockedByLocation(location.kind).map((unit) => unit.name),
+      ...doorsOn(baseBonusesOf(location)).map((unitId) => findUnit(unitId)?.name ?? unitId),
+    ],
+    // Reliquary (2026-10-07): whose tag, and what the sheet's own controls stand at.
+    holderFaction:
+      control.holder.kind === 'crew' ? context.factionMarkOf(control.holder.baseId) : null,
+    holderSide: sideOf(control.holder, context),
+    noisyFromTower: towerNoise.length > 0,
+    // The switch's position is public (its noise is on the map); the cooldown is the holder's.
+    switch: bonuses.some((bonus) => bonus.kind === 'noise_switch')
+      ? { on: ground.switchedOn, changesAt: mine ? switchChangesAt(ground, now) : null }
+      : null,
+    // The pins are public (they say who fights the holder at a discount); the locks are the holder's.
+    pamphlets: bonuses.some((bonus) => bonus.kind === 'pamphlets')
+      ? {
+          pins: ground.pamphlets,
+          capacity: pamphletCapacity(control),
+          unlocked: mine && pamphletsUnlocked(control),
+          swapCostCaps: mine && swappable(control) ? PAMPHLET_SWAP_CAPS : null,
+          swapAvailableAt: mine && swappable(control) ? swapAvailableAt(ground, now) : null,
+        }
+      : null,
+    trophies:
+      mine && bonuses.some((bonus) => bonus.kind === 'trophies')
+        ? { counted: ground.trophies, perDay: trophyPayFor(ground.trophies, control.level) }
+        : null,
+    door: doorUnit
+      ? {
+          unitId: doorUnit.id,
+          name: doorUnit.name,
+          level: control.level,
+          steps: [...(doorUnit.doorSteps ?? [])],
+        }
+      : null,
   };
+}
+
+/**
+ * What a Trophy Hall pays a day (maintainer, 2026-10-06): for every unit type killed at least
+ * once while held, `TROPHY_PAY` scaled by the hall's level. The daily grant (lane B2) pays the
+ * same figure; this is the sheet's quote of it.
+ */
+export function trophyPayFor(trophies: Record<string, number>, level: number): PartialResources {
+  const types = Object.values(trophies).filter((count) => count > 0).length;
+  const scale = TROPHY_PAY_SCALE[level - 1] ?? 1;
+  const pay: PartialResources = {};
+  if (types === 0) return pay;
+  for (const key of RESOURCE_KEYS) {
+    const each = key === 'highQualityMetal' ? TROPHY_PAY.highQualityMetal : TROPHY_PAY.each;
+    pay[key] = Math.round(each * types * scale);
+  }
+  return pay;
 }
 
 function quoteSpy(
@@ -298,16 +423,17 @@ function combineLeaderView(
   };
 }
 
-/** The table the crew holding a district whole sits at, for its "Held by" plaque. */
-function factionOfHolder(
-  repos: Repositories,
-  holder: LocationHolder | null,
-): DistrictDetailResponse['holderFaction'] {
-  if (holder?.kind !== 'crew') return null;
-  const owner = repos.bases.findById(holder.baseId)?.ownerId;
-  const seat = owner ? repos.factions.membershipOf(owner) : undefined;
-  const faction = seat ? repos.factions.find(seat.factionId) : undefined;
-  return faction ? { name: faction.name, badge: faction.badge } : null;
+/**
+ * A resident's structures, or none when their row cannot be read (bug pass, 2026-10-06): a street
+ * drawn without its buildings, rather than a district page that answers 500 to everybody.
+ */
+function buildingsOf(repos: Repositories, baseId: string): Base['buildings'] {
+  try {
+    return repos.bases.findById(baseId)?.buildings ?? [];
+  } catch (error) {
+    console.warn(`base ${baseId}: row is not readable by this build, drawing no buildings`, error);
+    return [];
+  }
 }
 
 export function projectDistrict(
@@ -330,8 +456,7 @@ export function projectDistrict(
    * that is nobody's.
    */
   const closed = isClosedPlot(repos, district, base);
-  const standingThere =
-    closed || !resident ? [] : (repos.bases.findById(resident.id)?.buildings ?? []);
+  const standingThere = closed || !resident ? [] : buildingsOf(repos, resident.id);
   /*
    * The structures and their levels, and not the cards fitted to them. A card is what a crew bought,
    * not what a passer-by sees from the street, and two of them are a term of the spy contest: an
@@ -343,6 +468,8 @@ export function projectDistrict(
       ? standingThere
       : standingThere.map((building) => ({ ...building, modifications: [] }));
   const holder = districtHolder(district, context.controls);
+  const wholeHolder = wholeHolderOf(repos, district);
+  const towerNoise = tollingTowerNoise(district, context.controls);
 
   return {
     district,
@@ -355,10 +482,13 @@ export function projectDistrict(
       : 0,
     locations: district.locations.flatMap((location) => {
       const control = context.controls.get(location.id);
-      return control ? [projectLocation(location, control, context, now, admin)] : [];
+      return control ? [projectLocation(location, control, context, now, admin, towerNoise)] : [];
     }),
     holder,
-    holderFaction: factionOfHolder(repos, holder),
+    // The table holding it whole, alone or together, for the "Held by" plaque.
+    holderFaction: wholeHolder?.kind === 'crew' ? context.factionMarkOf(wholeHolder.baseId) : null,
+    // The reader's own totals, on their own district's reports (2026-10-07).
+    spyPoints: district.id === base.districtId ? spyPointsFor(repos, base, now) : undefined,
     // The Combine legendary over this ground, dead or alive: public, like the seat-of-power tag.
     combineLeader: combineLeaderView(district, [...context.controls.values()]),
     unified: unified ? { title: unified.title, effect: describeHoldBonus(unified.bonus) } : null,

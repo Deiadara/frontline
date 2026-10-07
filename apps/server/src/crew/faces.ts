@@ -1,5 +1,6 @@
 import { freePortraits, type Commander } from '@frontline/shared';
 import type { Repositories } from '../db/repos/index.js';
+import { settleEach } from '../world/guard.js';
 
 /**
  * One face per officer, across the whole city (maintainer request, 2026-09-11).
@@ -44,20 +45,28 @@ export function rosterFaces(
 export function backfillPortraits(repos: Repositories): number {
   const taken = takenFaces(repos);
   let assigned = 0;
-  for (const summary of repos.bases.listSummaries()) {
-    const base = repos.bases.findById(summary.id);
-    if (!base || base.commanders.every((officer) => officer.portraitId)) continue;
-    const bare = base.commanders.filter((officer) => !officer.portraitId);
-    const faces = freePortraits(
-      bare.map((officer) => officer.id),
-      taken,
-    );
-    const commanders: Commander[] = base.commanders.map((officer) =>
-      officer.portraitId ? officer : { ...officer, portraitId: faces.get(officer.id) ?? null },
-    );
-    for (const face of faces.values()) taken.add(face);
-    repos.bases.updateCommanders(base.id, commanders);
-    assigned += faces.size;
-  }
+  // Crew by crew, each guarded: one crew this build cannot read is logged and skipped, rather than
+  // stopping the server at boot for everybody (bug pass, 2026-10-06).
+  settleEach(
+    repos,
+    'boot: officer faces',
+    repos.bases.listSummaries(),
+    (summary) => summary.id,
+    (summary) => {
+      const base = repos.bases.findById(summary.id);
+      if (!base || base.commanders.every((officer) => officer.portraitId)) return;
+      const bare = base.commanders.filter((officer) => !officer.portraitId);
+      const faces = freePortraits(
+        bare.map((officer) => officer.id),
+        taken,
+      );
+      const commanders: Commander[] = base.commanders.map((officer) =>
+        officer.portraitId ? officer : { ...officer, portraitId: faces.get(officer.id) ?? null },
+      );
+      repos.bases.updateCommanders(base.id, commanders);
+      for (const face of faces.values()) taken.add(face);
+      assigned += faces.size;
+    },
+  );
   return assigned;
 }

@@ -15,9 +15,9 @@ The mission board used to carry a tag at the right of the "Board 1 of N" row rea
 - [Feats](#feats) (629 entries)
 - [Missions](#missions) (300 entries)
 - [Mission areas and districts](#mission-areas-and-districts) (13 entries)
-- [Locations](#locations) (107 entries)
+- [Locations](#locations) (115 entries)
 - [Environment labels and weather](#environment-labels-and-weather) (20 entries)
-- [Units](#units) (38 entries)
+- [Units](#units) (39 entries)
 - [Unit modifications](#unit-modifications) (35 entries)
 - [Vehicles](#vehicles) (7 entries)
 - [Buildings](#buildings) (11 entries)
@@ -32,7 +32,7 @@ The mission board used to carry a tag at the right of the "Board 1 of N" row rea
 - [Attributes and officer roles](#attributes-and-officer-roles) (48 entries)
 - [Notoriety tiers](#notoriety-tiers) (14 entries)
 - [Player level unlocks](#player-level-unlocks) (24 entries)
-- [Notification kinds](#notification-kinds) (22 entries)
+- [Notification kinds](#notification-kinds) (23 entries)
 - [Blueprint motifs](#blueprint-motifs) (111 entries)
 
 ## Blueprints and their pages
@@ -937,7 +937,7 @@ Every feat, its ladder, and what finishing it pays. A step with something in **A
 | `hauls_1` | Quiet Money | early | small | `hauls` | `first_jobs` | `missions_of_kind:standard` | 10 | resources | 468 |
 | `hauls_2` | The Long Way Round | mid | small | `hauls` | `hauls_1` | `missions_of_kind:standard` | 75 | resources | 2,500 |
 | `hauls_3` | Freight | late | medium | `hauls` | `hauls_2` | `missions_of_kind:standard` | 300 | resources, items | 103,200 |
-| `hauls_4` | Seven Hundred Quiet Ones | late | medium | `hauls` | `hauls_3` | `missions_of_kind:standard` | 700 | resources, units | 118,161 |
+| `hauls_4` | Seven Hundred Quiet Ones | late | medium | `hauls` | `hauls_3` | `missions_of_kind:standard` | 700 | resources, units | 118,160 |
 | `hauls_5` | The Freight Line | late | large | `hauls` | `hauls_4` | `missions_of_kind:standard` | 1,500 | resources, items | 189,900 |
 | `hauls_6` | Everything Moves Through You | late | large | `hauls` | `hauls_5` | `missions_of_kind:standard` | 3,000 | resources, items | 362,920 |
 | `hauls_7` | The Long Convoy | late | large | `hauls` | `hauls_6` | `missions_of_kind:standard` | 6,000 | resources, items | 464,200 |
@@ -1044,7 +1044,7 @@ Every feat, its ladder, and what finishing it pays. A step with something in **A
 | `deployed_1` | Send Somebody | early | small | `deployed` | - | `bodies_deployed` | 50 | resources, units | 261 |
 | `deployed_2` | A Column | mid | small | `deployed` | `deployed_1` | `bodies_deployed` | 500 | resources, units | 2,420 |
 | `deployed_3` | Numbers | late | medium | `deployed` | `deployed_2` | `bodies_deployed` | 5,000 | resources, units | 59,030 |
-| `deployed_4` | Fifteen Thousand Sent | late | medium | `deployed` | `deployed_3` | `bodies_deployed` | 15,000 | resources, units | 118,079 |
+| `deployed_4` | Fifteen Thousand Sent | late | medium | `deployed` | `deployed_3` | `bodies_deployed` | 15,000 | resources, units | 118,078 |
 | `deployed_5` | The Levy | late | large | `deployed` | `deployed_4` | `bodies_deployed` | 45,000 | resources, units | 189,420 |
 | `deployed_6` | More Than the District Holds | late | large | `deployed` | `deployed_5` | `bodies_deployed` | 130,000 | resources, units | 362,158 |
 | `deployed_7` | Everything You Ever Had | late | large | `deployed` | `deployed_6` | `bodies_deployed` | 380,000 | resources, units | 464,540 |
@@ -1203,15 +1203,15 @@ Every feat, its ladder, and what finishing it pays. A step with something in **A
 | `whole_4` | Eight Districts Whole | late | large | `whole` | `whole_3` | `districts_held_whole` | 8 | resources, units | 569,700 |
 | `whole_5` | Twelve, Across the Frontier | late | large | `whole` | `whole_4` | `districts_held_whole` | 12 | resources, items | 675,200 |
 | `workings_1` | Improvements | early | small | `workings` | - | `location_levels_raised` | 1 | resources, xp | 468 |
-| `workings_2` | Ten Levels of Sweat | mid | small | `workings` | `workings_1` | `location_levels_raised` | 10 | resources | 4,740 |
-| `workings_3` | Rent From Every Brick | late | small | `workings` | `workings_2` | `location_levels_raised` | 40 | resources, xp | 24,800 |
-| `workings_4` | Rebuilt in Your Image | late | medium | `workings` | `workings_3` | `location_levels_raised` | 120 | resources, units | 80,180 |
-| `pride_1` | Kept Up | mid | small | `pride` | - | `location_level_held` | 4 | resources, xp | 2,500 |
-| `pride_2` | The Showpiece | late | small | `pride` | `pride_1` | `location_level_held` | 7 | resources, items | 12,200 |
-| `pride_3` | Nothing Left to Fix | late | medium | `pride` | `pride_2` | `location_level_held` | 10 | resources, units | 37,980 |
+| `workings_2` | Ten Levels of Sweat | mid | small | `workings` | `workings_1` | `location_levels_raised` | 8 | resources | 4,740 |
+| `workings_3` | Rent From Every Brick | late | small | `workings` | `workings_2` | `location_levels_raised` | 24 | resources, xp | 24,800 |
+| `workings_4` | Rebuilt in Your Image | late | medium | `workings` | `workings_3` | `location_levels_raised` | 60 | resources, units | 80,180 |
+| `pride_1` | Kept Up | mid | small | `pride` | - | `location_level_held` | 2 | resources, xp | 2,500 |
+| `pride_2` | The Showpiece | late | small | `pride` | `pride_1` | `location_level_held` | 4 | resources, items | 12,200 |
+| `pride_3` | Nothing Left to Fix | late | medium | `pride` | `pride_2` | `location_level_held` | 5 | resources, units | 37,980 |
 | `walls_1` | A Wall of Your Own | mid | small | `walls` | - | `gate_levels_raised` | 1 | resources | 4,740 |
-| `walls_2` | Higher Every Week | late | small | `walls` | `walls_1` | `gate_levels_raised` | 10 | resources, xp | 24,800 |
-| `walls_3` | The Fortified Frontier | late | medium | `walls` | `walls_2` | `gate_levels_raised` | 30 | resources, units | 80,180 |
+| `walls_2` | Higher Every Week | late | small | `walls` | `walls_1` | `gate_levels_raised` | 8 | resources, xp | 24,800 |
+| `walls_3` | The Fortified Frontier | late | medium | `walls` | `walls_2` | `gate_levels_raised` | 20 | resources, units | 80,180 |
 | `gates_1` | Through the Gate | mid | medium | `gates` | - | `gates_breached` | 1 | resources, xp | 19,940 |
 | `gates_2` | Five Gates | late | medium | `gates` | `gates_1` | `gates_breached` | 5 | resources, xp | 115,800 |
 | `gates_3` | Every Door in the Wall | late | large | `gates` | `gates_2` | `gates_breached` | 15 | resources, xp | 180,200 |
@@ -1326,7 +1326,7 @@ Every feat, its ladder, and what finishing it pays. A step with something in **A
 | `kitted_1` | Taped Up | early | small | `kitted` | - | `unit_modifications_fitted` | 1 | items | 240 |
 | `kitted_2` | Three Full Racks | mid | small | `kitted` | `kitted_1` | `unit_modifications_fitted` | 9 | xp | 2,520 |
 | `kitted_3` | Nobody Standard | late | medium | `kitted` | `kitted_2` | `unit_modifications_fitted` | 20 | resources, items | 82,540 |
-| `kitted_4` | Thirty Cards in Brackets | late | medium | `kitted` | `kitted_3` | `unit_modifications_fitted` | 30 | resources, units | 118,079 |
+| `kitted_4` | Thirty Cards in Brackets | late | medium | `kitted` | `kitted_3` | `unit_modifications_fitted` | 30 | resources, units | 118,078 |
 | `kitted_5` | Nothing Off the Shelf | late | large | `kitted` | `kitted_4` | `unit_modifications_fitted` | 40 | resources, units | 189,420 |
 | `masterpiece_fitted` | Known By Name | late | small | - | - | `masterpieces_fitted` | 1 | resources, items | 7,700 |
 | `addons_1` | Fitted Out | early | small | `addons` | - | `addons_built` | 3 | items | 240 |
@@ -1895,8 +1895,8 @@ Pay premium is 9 percentage points per point of difficulty above 1. The misc boa
 | Id | Name | Nickname | Formal name | Kind | Allegiance | Difficulty | Pay premium | Locations | Blurb |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | `neon-docks` | Neon Docks | the Docks | - | contested | government | 1 | +0% | 7 | Container stacks and a waterfront the Combine stopped patrolling years ago. Cheap ground,… |
-| `ashen-terraces` | Player District | - | - | residential | independent | - | - | 0 | Stepped tenements up the northern slope, burnt once and rebuilt out of what was left. Who… |
-| `kettle-row` | Player District | - | - | residential | independent | - | - | 0 | A long terrace along the southern cut, boilers venting into the street. Warm, loud, and n… |
+| `ashen-terraces` | Unclaimed Player District | - | - | residential | independent | - | - | 0 | Stepped tenements up the northern slope, burnt once and rebuilt out of what was left. Who… |
+| `kettle-row` | Unclaimed Player District | - | - | residential | independent | - | - | 0 | A long terrace along the southern cut, boilers venting into the street. Warm, loud, and n… |
 | `steelbelt` | Steelbelt | the Belt | - | contested | government | 2 | +9% | 7 | Rolling mills, press houses and a furnace row that has not gone cold in thirty years. The… |
 | `chrome-row` | Chrome Row | the Old City Center | - | contested | independent | 4 | +27% | 8 | What is left of downtown: bank halls turned into markets, a picture house that never clos… |
 | `undergrid` | The Undergrid | the Power Spine | - | contested | independent | 5 | +36% | 7 | The Combine meters the whole undercity from down here. Bundled conduit running the walls… |
@@ -1904,67 +1904,75 @@ Pay premium is 9 percentage points per point of difficulty above 1. The misc boa
 | `glasshouse-fields` | Glasshouse Fields | the Green Belt | - | contested | government | 3 | +18% | 8 | State hydroponics behind a fence. Everything the undercity eats is grown here, and none o… |
 | `blacksite` | Blacksite | the Military District | - | contested | government | 8 | +63% | 8 | Hardened ferrocrete, layered berms, and a Combine rifle company that has never had to lea… |
 | `ccs` | CCS | the Spire | Civic Command Sector | contested | government | 10 | +81% | 8 | The surface spire the government rules from, and the household guard that has never been… |
-| `upper-roofs` | Player District | - | - | residential | independent | - | - | 0 | Roofs stacked on roofs above the wall, reached by ladders somebody bolted on in the dark.… |
-| `south-quay` | Player District | - | - | residential | independent | - | - | 0 | The tail of the market where the stalls give out and the cut comes back up to meet the st… |
+| `upper-roofs` | Unclaimed Player District | - | - | residential | independent | - | - | 0 | Roofs stacked on roofs above the wall, reached by ladders somebody bolted on in the dark.… |
+| `south-quay` | Unclaimed Player District | - | - | residential | independent | - | - | 0 | The tail of the market where the stalls give out and the cut comes back up to meet the st… |
 | `misc` | Miscellaneous board | - | - | board | - | 1 | +0% | 0 | Work with no address: scrap runs, expeditions, the board that is always open. |
 
 ## Locations
 
 Source: `packages/shared/src/city/locations.ts`, `packages/shared/src/city/districts.ts`
 
-47 kinds of ground, 60 of them placed on the map. Bonuses and labels are the level 1 figures.
+55 kinds of ground, 60 of them placed on the map. Bonuses and labels are the level 1 figures.
 
-#### Kinds (47)
+#### Kinds (55)
 
 | Kind | Label | Defense | Holding it pays | Ground | First upgrade | Blurb | Reward |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| `scrap_press` | Scrap Press | 2 | +24 scrap/h, +18 planks/h | Noisy III, Crammed II | 35 Caps, 70 Oil, 53 Scrap, 176 Planks, 18 HQ metal | Baling presses and a sorting floor that has not stopped since before the war. | Scrap, steadily, for as long as you hold it. |
-| `chemical_plant` | Chemical Plant | 4 | +14 oil/h | Toxic III, Crammed II, Noisy II | 37 Caps, 75 Oil, 56 Scrap, 187 Planks, 19 HQ metal | Cracking towers and a tank farm. Everything downwind of it tastes of it. | Oil, cracked on site. |
-| `power_station` | Substation | 5 | +20 oil/h | Noisy II, Crammed I | 51 Caps, 101 Oil, 76 Scrap, 253 Planks, 25 HQ metal | A Combine switching yard off the old trunk, with a bunded tank farm behind it for the sta… | Fuel by the drum, off the standby tanks nobody has come bac… |
-| `water_works` | Water Works | 3 | +26 supplies/h | Wet II, Crammed I, Noisy I | 33 Caps, 66 Oil, 50 Scrap, 165 Planks, 17 HQ metal | Intake screens, settling beds and a pumphouse under a corrugated roof. | Supplies, because clean water is most of what growing it ta… |
-| `foundry` | Foundry | 4 | +3 HQ metal/h | Hot II, Noisy III, Crammed II | 64 Caps, 128 Oil, 96 Scrap, 319 Planks, 32 HQ metal | Two cupola furnaces and a pour floor, running whenever there is fuel for it. | High-quality metal. Nothing else in the city makes it in qu… |
-| `gas_station` | Gas Station | 2 | +18 oil/h, +8 scrap/h | Open II, Toxic I | 26 Caps, 53 Oil, 40 Scrap, 132 Planks, 13 HQ metal | Four pumps under a sagging canopy, a shop with nothing in it, and tanks underneath that t… | Oil out of the ground, and the scrap off everything anybody… |
-| `nuclear_plant` | Abandoned Nuclear Plant | 7 | +5 HQ metal/h, oil goes 12% further | Toxic IV, Dark III, Crammed II, Eerie II | 88 Caps, 176 Oil, 132 Scrap, 440 Planks, 44 HQ metal | Two cooling towers, a turbine hall with the roof half off, and a reactor building nobody… | High-quality metal out of the turbine hall, and a fuelling… |
-| `soup_kitchen` | Soup Kitchen | 1 | +14 supplies/h, +6 unit morale, +15 unit slots | Crammed III, Noisy II | 22 Caps, 44 Oil, 33 Scrap, 110 Planks, 11 HQ metal | Trestle tables, a queue that starts before dawn, and two women who never sit down. | Supplies off the ration line, and a crew that has eaten fig… |
-| `refugee_camp` | Fence Camp | 1 | +50 unit slots, +6 caps/h | Crammed III, Open II, Noisy II, Cold I | 37 Caps, 75 Oil, 56 Scrap, 187 Planks, 19 HQ metal | Two thousand people along the green belt fence, in whatever they could carry, because the… | More people than any building in your district could house,… |
-| `market` | Market | 3 | +30 caps/h | Crammed II, Noisy III | 29 Caps, 57 Oil, 43 Scrap, 143 Planks, 14 HQ metal | Awnings, arguments, and a hundred people moving goods nobody has papers for. | A cut of everything that changes hands. |
-| `downtown_market` | Downtown Market | 4 | -10 points off market prices (tapers, no hard stop), +12 caps/h | Crammed II, Noisy III, Open I | 37 Caps, 75 Oil, 56 Scrap, 187 Planks, 19 HQ metal | The old exchange floor, still trading, with the board on the wall repainted every morning… | Every trade in the city is quoted to you at a better number… |
-| `pawn_shop` | Pawn Shop | 1 | +15% loot capacity | Crammed III, Dark I | 18 Caps, 35 Oil, 26 Scrap, 88 Planks, 9 HQ metal | A barred window, a long counter, and a back room with better stock. | A smaller cut, and a fence who moves what a raid brings bac… |
-| `bone_market` | The Bone Market | 3 | 12% of losses refunded (tapers, no hard stop) | Eerie II, Crammed II, Noisy I | 40 Caps, 79 Oil, 59 Scrap, 198 Planks, 20 HQ metal | Where the city sells what is left of people and machines. Brisk, unsentimental, and open… | What you lose in a fight comes back as caps instead of comi… |
-| `revolutionist_statue` | Statue of the Revolutionist | 5 | -15 points off black-market infamy (tapers, no hard stop), +6 intimidation | Open III, Elevated II | 29 Caps, 57 Oil, 43 Scrap, 143 Planks, 14 HQ metal | Nine metres of bronze with one arm raised, and a plinth the Combine has repeatedly failed… | Standing under it costs you less with the people who deal i… |
-| `high_ground` | High Ground | 4 | +12% defence (tapers, no hard stop) | Open III, Elevated III, Windy I | 46 Caps, 92 Oil, 69 Scrap, 231 Planks, 23 HQ metal | A roofline, a water tower, a spoil heap. Whatever counts as looking down around here. | Everything you hold in this city is harder to take off you. |
-| `barricade` | Barricade | 5 | +8% defence (tapers, no hard stop), Holds the Line for one unit | Crammed II, Open I | 57 Caps, 114 Oil, 86 Scrap, 286 Planks, 29 HQ metal | Sea containers, rubble and rebar, arranged by somebody who had thought about it. | A harder approach to everything behind it, held by people w… |
-| `watchtower` | Watchtower | 5 | +38 spy points | Elevated IV, Open II, Windy II, Crammed I | 53 Caps, 106 Oil, 79 Scrap, 264 Planks, 26 HQ metal | A lattice mast with a cabin on top, a working pair of glasses, and a line of sight over f… | Everything your spies do, they do better: everywhere in the… |
-| `sewer_junction` | Sewer Junction | 2 | +15% unit stealth | Crammed IV, Dark III, Wet II, Toxic I | 29 Caps, 57 Oil, 43 Scrap, 143 Planks, 14 HQ metal | A brick chamber where six storm drains meet. It goes everywhere. | Your people can get places without being seen getting there. |
-| `smugglers_tunnel` | Smuggler's Tunnel | 4 | -11% mission time (tapers, no hard stop) | Crammed IV, Dark IV, Eerie I | 55 Caps, 110 Oil, 83 Scrap, 275 Planks, 28 HQ metal | Cut by hand under the old customs line, shored with railway sleepers, and in continuous u… | Every crew you send anywhere is back sooner. There is a sho… |
-| `armory` | Armory | 6 | -1% muster cost, -20 points off unit modification cost (tapers, no hard stop) | Crammed III, Dark II | 59 Caps, 119 Oil, 89 Scrap, 297 Planks, 30 HQ metal | Racks, a workbench, and a door that took three people to open the first time. | Cheaper units, and a bench that will fit anything you can f… |
-| `war_machine_graveyard` | War Machine Graveyard | 6 | +10% unit vitality, anything can be put on a machine | Open III, Eerie II, Toxic I | 66 Caps, 132 Oil, 99 Scrap, 330 Planks, 33 HQ metal | A field of dead armour, half of it sunk, some of it not as dead as it looks. | Hulls, plate and running gear, a gantry that will lift anyt… |
-| `construction_site` | Construction Site | 6 | +10 points off the build clock, +22 planks/h | Open III, Elevated II, Noisy II, Windy I | 101 Caps, 202 Oil, 152 Scrap, 506 Planks, 51 HQ metal | A tower crane, a poured raft the size of a city block, and thirty years of nobody finishi… | Lifting gear nothing else in the city has. Some things can… |
-| `fight_pit` | Fight Pit | 2 | +8 unit morale, porters fight | Crammed III, Noisy IV | 29 Caps, 57 Oil, 43 Scrap, 143 Planks, 14 HQ metal | A sunk ring, a standing crowd, and a bookmaker who knows everyone. | Your people are harder to frighten, and everybody on the bo… |
-| `gym` | The Gym | 2 | +1 training session/day | Crammed III, Noisy II, Hot I | 31 Caps, 62 Oil, 46 Scrap, 154 Planks, 15 HQ metal | Chalk, cast iron and a single working fan. Everything in here has been repaired more than… | One more session in the day than the day has room for. |
-| `doghouse` | The Doghouse | 3 | +6 intimidation | Noisy III, Crammed II | 40 Caps, 79 Oil, 59 Scrap, 198 Planks, 20 HQ metal | Kennels under the flyover, a surgery at the back, and forty animals that go quiet when th… | Working dogs, augmented, and handlers who have done this be… |
-| `rail_yard` | Rail Yard | 4 | -20 points off vehicle cost (tapers, no hard stop), -10 points off the road (tapers, no hard stop) | Open III, Noisy II, Windy I | 59 Caps, 119 Oil, 89 Scrap, 297 Planks, 30 HQ metal | Sidings, a turntable, and rolling stock that will move if pushed hard enough. | Bogies, axles and drive parts by the wagonload: everything… |
-| `tram_depot` | Tram Depot | 3 | -18 points off the road (tapers, no hard stop), -4 min off every road | Crammed II, Noisy II, Dark I | 51 Caps, 101 Oil, 76 Scrap, 253 Planks, 25 HQ metal | Eight roads under one roof, half the fleet still on them, and overhead line that is live… | The city gets smaller. Everything you send anywhere leaves… |
-| `university` | University | 3 | +12 points off the research clock | Crammed II, Dark I | 35 Caps, 70 Oil, 53 Scrap, 176 Planks, 18 HQ metal | Lecture halls turned workshops, and a library nobody got round to burning. | Every research project finishes sooner. |
-| `planetarium` | Planetarium | 3 | +18 points off the research clock, +6 spy points | Dark IV, Crammed I, Eerie I | 42 Caps, 84 Oil, 63 Scrap, 209 Planks, 21 HQ metal | A dome, a projector the size of a car, and a hundred and eighty seats nobody has sat in f… | A room built for thinking in, and an optical bench worth mo… |
-| `satellite_uplink` | Satellite Uplink | 5 | +18 spy points | Open II, Elevated III, Windy II | 40 Caps, 79 Oil, 59 Scrap, 198 Planks, 20 HQ metal | A dish on a mast, aligned by hand, talking to something still in orbit. | What goes over the air in this city, your spies have alread… |
-| `broadcast_tower` | Broadcast Tower | 5 | +10 intimidation | Elevated III, Open II, Windy II | 33 Caps, 66 Oil, 50 Scrap, 165 Planks, 17 HQ metal | A mast with a working transmitter, and whoever holds it decides what the city hears. | Your name arrives before your people do. |
-| `broadcast_station` | Broadcast Station | 4 | +5 to officer social skills | Crammed II, Dark I | 29 Caps, 57 Oil, 43 Scrap, 143 Planks, 14 HQ metal | Two studios, a records library, and a switchboard that still connects to places nobody ca… | Everyone on your books gets better at the half of the job t… |
-| `pirate_radio` | Pirate Radio | 2 | +12 spy points, +3 intimidation | Crammed III, Elevated I, Dark II | 22 Caps, 44 Oil, 33 Scrap, 110 Planks, 11 HQ metal | A transmitter in a loft, a wire aerial over four roofs, and an operator who moves it ever… | You hear what the city is saying, and some of what it would… |
-| `gene_clinic` | Gene Clinic | 6 | +8% unit vitality | Crammed III, Cold I, Eerie I | 44 Caps, 88 Oil, 66 Scrap, 220 Planks, 22 HQ metal | Sealed theatres, cold storage, and a waiting room nobody waits in. | Work can be done on people here that cannot be done anywher… |
-| `hospital` | Hospital | 3 | +12% unit vitality | Crammed II, Noisy I | 37 Caps, 75 Oil, 56 Scrap, 187 Planks, 19 HQ metal | Four working theatres, a generator, and staff who stayed when the funding did not. | What comes back from a fight comes back in better shape. |
-| `black_clinic` | Black Clinic | 4 | +2 battle stims | Crammed III, Dark II, Toxic I | 33 Caps, 66 Oil, 50 Scrap, 165 Planks, 17 HQ metal | A basement with good lighting, a locked cabinet, and a doctor who lost their licence for… | Syringes. Handed out before a fight, they bring somebody ba… |
-| `mad_scientist_lair` | Mad Scientist's Lair | 7 | +8 points off the research clock, +6% unit offense | Crammed III, Toxic III, Dark III, Eerie III | 64 Caps, 128 Oil, 96 Scrap, 319 Planks, 32 HQ metal | Down a service stair behind a laundry: tanks, a generator, an operating table, and forty… | Everything needed to make something that should not exist,… |
-| `tavern` | Downtown Tavern | 3 | +5 unit morale | Crammed IV, Noisy IV, Dark II | 29 Caps, 57 Oil, 43 Scrap, 143 Planks, 14 HQ metal | Low ceiling, long bar, and a corner table that has been the same three people’s corner ta… | A room where the city’s hardest people drink, and somebody… |
-| `cinema` | Cinema | 2 | +12 unit morale | Dark IV, Crammed II | 22 Caps, 44 Oil, 33 Scrap, 110 Planks, 11 HQ metal | Eight hundred seats, a projector somebody has kept running out of stubbornness, and four… | Two hours somewhere else. A crew that gets that fights diff… |
-| `arcade` | The Arcade | 1 | -11% muster time | Crammed III, Noisy III, Dark II | 22 Caps, 44 Oil, 33 Scrap, 110 Planks, 11 HQ metal | Forty cabinets, nine of them working, and a change machine that has never been robbed. | Reflex work disguised as an evening off. Recruits come off… |
-| `skate_ground` | Skate Ground | 1 | +12% unit speed | Open III, Noisy I | 29 Caps, 57 Oil, 43 Scrap, 143 Planks, 14 HQ metal | A drained reservoir the kids took over, and then the couriers after them. | Everything you field moves faster. |
-| `chapel` | The Chapel | 2 | +5 to officer mental skills, a stack that breaks shakes nobody | Eerie II, Dark II, Crammed I, Cold I | 26 Caps, 53 Oil, 40 Scrap, 132 Planks, 13 HQ metal | Twelve pews, a working bell, and a man who has buried more of this district than anybody… | Everyone on your books holds together better under things t… |
-| `graveyard` | Graveyard | 3 | +15% infamy earned, +10 caps/h | Eerie IV, Dark II, Open II, Cold I | 22 Caps, 44 Oil, 33 Scrap, 110 Planks, 11 HQ metal | Terraced plots up the cut, the older half subsided, and a lodge at the gate with a light… | Holding this ground says something the city does not forget… |
-| `revolutionary_statue` | Statue in a Plaza | 4 | +10 unit morale | Open IV, Elevated II | 26 Caps, 53 Oil, 40 Scrap, 132 Planks, 13 HQ metal | The one in the middle of the district: a long coat, a raised fist, and a plinth every roa… | It is what they are fighting for. A crew that holds it walk… |
-| `glasshouse` | Hydroponics | 3 | +22 supplies/h | Hot III, Wet II, Crammed I | 35 Caps, 70 Oil, 53 Scrap, 176 Planks, 18 HQ metal | Glass houses on a steel frame, beds under grow-lamps, and pumps that never stop. Hot and… | Supplies straight off the beds, picked before they ever see… |
-| `combine_chapel` | The Chosen Chapel | 9 | +12 intimidation, +8 unit morale | Elevated III, Crammed II, Dark I | 92 Caps, 185 Oil, 139 Scrap, 462 Planks, 46 HQ metal | A chapel in name. Glass, steel and a long table under the vault, and the room the whole c… | Your name walks in ahead of your people, and nobody you sen… |
-| `rail_station` | Station | 4 | On the line: 15 min to any Station you hold, +2 unit slots | Open III, Windy II, Noisy I | 53 Caps, 106 Oil, 79 Scrap, 264 Planks, 26 HQ metal | A platform, a lamp and a board with the times chalked on it. Whoever holds it decides who… | Linked to any other Station you hold, at fifteen minutes fl… |
+| `scrap_press` | Scrap Press | 2 | +24 scrap/h, +18 planks/h | Noisy III, Crammed II | 158 Caps, 317 Oil, 238 Scrap, 792 Planks, 79 HQ metal | Baling presses and a sorting floor that has not stopped since before the war. | Scrap, steadily, for as long as you hold it. |
+| `chemical_plant` | Chemical Plant | 4 | +14 oil/h | Toxic III, Crammed II, Noisy II | 168 Caps, 337 Oil, 252 Scrap, 842 Planks, 84 HQ metal | Cracking towers and a tank farm. Everything downwind of it tastes of it. | Oil, cracked on site. |
+| `power_station` | Substation | 5 | +20 oil/h | Noisy II, Crammed I | 228 Caps, 455 Oil, 342 Scrap, 1139 Planks, 114 HQ metal | A Combine switching yard off the old trunk, with a bunded tank farm behind it for the sta… | Fuel by the drum, off the standby tanks nobody has come bac… |
+| `water_works` | Water Works | 3 | +26 supplies/h | Wet II, Crammed I, Noisy I | 149 Caps, 297 Oil, 223 Scrap, 743 Planks, 74 HQ metal | Intake screens, settling beds and a pumphouse under a corrugated roof. | Supplies, because clean water is most of what growing it ta… |
+| `foundry` | Foundry | 4 | +3 HQ metal/h | Hot II, Noisy III, Crammed II | 287 Caps, 574 Oil, 431 Scrap, 1436 Planks, 144 HQ metal | Two cupola furnaces and a pour floor, running whenever there is fuel for it. | High-quality metal. Nothing else in the city makes it in qu… |
+| `gas_station` | Gas Station | 2 | +18 oil/h, +8 scrap/h | Open II, Toxic I | 119 Caps, 238 Oil, 178 Scrap, 594 Planks, 59 HQ metal | Four pumps under a sagging canopy, a shop with nothing in it, and tanks underneath that t… | Oil out of the ground, and the scrap off everything anybody… |
+| `nuclear_plant` | Abandoned Nuclear Plant | 7 | +5 HQ metal/h, oil goes 12% further | Toxic IV, Dark III, Crammed II, Eerie II | 396 Caps, 792 Oil, 594 Scrap, 1980 Planks, 198 HQ metal | Two cooling towers, a turbine hall with the roof half off, and a reactor building nobody… | High-quality metal out of the turbine hall, and a fuelling… |
+| `soup_kitchen` | Soup Kitchen | 1 | +14 supplies/h, +6 unit morale, +15 unit slots | Crammed III, Noisy II | 99 Caps, 198 Oil, 149 Scrap, 495 Planks, 50 HQ metal | Trestle tables, a queue that starts before dawn, and two women who never sit down. | Supplies off the ration line, and a crew that has eaten fig… |
+| `refugee_camp` | Fence Camp | 1 | +50 unit slots, +6 caps/h | Crammed III, Open II, Noisy II, Cold I | 168 Caps, 337 Oil, 252 Scrap, 842 Planks, 84 HQ metal | Two thousand people along the green belt fence, in whatever they could carry, because the… | More people than any building in your district could house,… |
+| `market` | Market | 3 | +30 caps/h | Crammed II, Noisy III | 129 Caps, 257 Oil, 193 Scrap, 644 Planks, 64 HQ metal | Awnings, arguments, and a hundred people moving goods nobody has papers for. | A cut of everything that changes hands. |
+| `downtown_market` | Downtown Market | 4 | -10 points off market prices (tapers, no hard stop), +12 caps/h | Crammed II, Noisy III, Open I | 168 Caps, 337 Oil, 252 Scrap, 842 Planks, 84 HQ metal | The old exchange floor, still trading, with the board on the wall repainted every morning… | Every trade in the city is quoted to you at a better number… |
+| `pawn_shop` | Pawn Shop | 1 | +15% loot capacity | Crammed III, Dark I | 79 Caps, 158 Oil, 119 Scrap, 396 Planks, 40 HQ metal | A barred window, a long counter, and a back room with better stock. | A smaller cut, and a fence who moves what a raid brings bac… |
+| `bone_market` | The Bone Market | 3 | 12% of losses refunded (tapers, no hard stop) | Eerie II, Crammed II, Noisy I | 178 Caps, 356 Oil, 267 Scrap, 891 Planks, 89 HQ metal | Where the city sells what is left of people and machines. Brisk, unsentimental, and open… | What you lose in a fight comes back as caps instead of comi… |
+| `revolutionist_statue` | Statue of the Revolutionist | 5 | -15 points off black-market infamy (tapers, no hard stop), +6 intimidation | Open III, Elevated II | 129 Caps, 257 Oil, 193 Scrap, 644 Planks, 64 HQ metal | Nine metres of bronze with one arm raised, and a plinth the Combine has repeatedly failed… | Standing under it costs you less with the people who deal i… |
+| `high_ground` | High Ground | 4 | +12% defence (tapers, no hard stop) | Open III, Elevated III, Windy I | 208 Caps, 416 Oil, 312 Scrap, 1040 Planks, 104 HQ metal | A roofline, a water tower, a spoil heap. Whatever counts as looking down around here. | Everything you hold in this city is harder to take off you. |
+| `barricade` | Barricade | 5 | +8% defence (tapers, no hard stop), Holds the Line for one unit | Crammed II, Open I | 257 Caps, 515 Oil, 386 Scrap, 1287 Planks, 129 HQ metal | Sea containers, rubble and rebar, arranged by somebody who had thought about it. | A harder approach to everything behind it, held by people w… |
+| `watchtower` | Watchtower | 5 | +38 spy points | Elevated IV, Open II, Windy II, Crammed I | 238 Caps, 475 Oil, 356 Scrap, 1188 Planks, 119 HQ metal | A lattice mast with a cabin on top, a working pair of glasses, and a line of sight over f… | Everything your spies do, they do better: everywhere in the… |
+| `sewer_junction` | Sewer Junction | 2 | +15% unit stealth | Crammed IV, Dark III, Wet II, Toxic I | 129 Caps, 257 Oil, 193 Scrap, 644 Planks, 64 HQ metal | A brick chamber where six storm drains meet. It goes everywhere. | Your people can get places without being seen getting there. |
+| `smugglers_tunnel` | Smuggler's Tunnel | 4 | -11% mission time (tapers, no hard stop) | Crammed IV, Dark IV, Eerie I | 248 Caps, 495 Oil, 371 Scrap, 1238 Planks, 124 HQ metal | Cut by hand under the old customs line, shored with railway sleepers, and in continuous u… | Every crew you send anywhere is back sooner. There is a sho… |
+| `armory` | Armory | 6 | -1% muster cost, -20 points off unit modification cost (tapers, no hard stop) | Crammed III, Dark II | 267 Caps, 535 Oil, 401 Scrap, 1337 Planks, 134 HQ metal | Racks, a workbench, and a door that took three people to open the first time. | Cheaper units, and a bench that will fit anything you can f… |
+| `war_machine_graveyard` | War Machine Graveyard | 6 | +10% unit vitality, anything can be put on a machine | Open III, Eerie II, Toxic I | 297 Caps, 594 Oil, 446 Scrap, 1485 Planks, 149 HQ metal | A field of dead armour, half of it sunk, some of it not as dead as it looks. | Hulls, plate and running gear, a gantry that will lift anyt… |
+| `construction_site` | Construction Site | 6 | +10 points off the build clock, +22 planks/h | Open III, Elevated II, Noisy II, Windy I | 455 Caps, 911 Oil, 683 Scrap, 2277 Planks, 228 HQ metal | A tower crane, a poured raft the size of a city block, and thirty years of nobody finishi… | Lifting gear nothing else in the city has. Some things can… |
+| `fight_pit` | Fight Pit | 2 | +100% infamy for enemy units that were intimidated | Crammed III, Noisy IV | 129 Caps, 257 Oil, 193 Scrap, 644 Planks, 64 HQ metal | A sunk ring, a standing crowd, and a bookmaker who knows everyone. | Every enemy you frighten before the first shot is worth twi… |
+| `gym` | The Gym | 2 | +1 training session/day | Crammed III, Noisy II, Hot I | 139 Caps, 277 Oil, 208 Scrap, 693 Planks, 69 HQ metal | Chalk, cast iron and a single working fan. Everything in here has been repaired more than… | One more session in the day than the day has room for. |
+| `doghouse` | The Doghouse | 3 | +6 intimidation | Noisy III, Crammed II | 178 Caps, 356 Oil, 267 Scrap, 891 Planks, 89 HQ metal | Kennels under the flyover, a surgery at the back, and forty animals that go quiet when th… | Working dogs, augmented, and handlers who have done this be… |
+| `rail_yard` | Rail Yard | 4 | -20 points off vehicle cost (tapers, no hard stop), -10 points off the road (tapers, no hard stop) | Open III, Noisy II, Windy I | 267 Caps, 535 Oil, 401 Scrap, 1337 Planks, 134 HQ metal | Sidings, a turntable, and rolling stock that will move if pushed hard enough. | Bogies, axles and drive parts by the wagonload: everything… |
+| `tram_depot` | Tram Depot | 3 | -18 points off the road (tapers, no hard stop), -4 min off every road | Crammed II, Noisy II, Dark I | 228 Caps, 455 Oil, 342 Scrap, 1139 Planks, 114 HQ metal | Eight roads under one roof, half the fleet still on them, and overhead line that is live… | The city gets smaller. Everything you send anywhere leaves… |
+| `university` | University | 3 | +12 points off the research clock | Crammed II, Dark I | 158 Caps, 317 Oil, 238 Scrap, 792 Planks, 79 HQ metal | Lecture halls turned workshops, and a library nobody got round to burning. | Every research project finishes sooner. |
+| `planetarium` | Planetarium | 3 | +18 points off the research clock, +6 spy points | Dark IV, Crammed I, Eerie I | 188 Caps, 376 Oil, 282 Scrap, 941 Planks, 94 HQ metal | A dome, a projector the size of a car, and a hundred and eighty seats nobody has sat in f… | A room built for thinking in, and an optical bench worth mo… |
+| `satellite_uplink` | Satellite Uplink | 5 | +18 spy points | Open II, Elevated III, Windy II | 178 Caps, 356 Oil, 267 Scrap, 891 Planks, 89 HQ metal | A dish on a mast, aligned by hand, talking to something still in orbit. | What goes over the air in this city, your spies have alread… |
+| `broadcast_tower` | Broadcast Tower | 5 | +10 intimidation | Elevated III, Open II, Windy II | 149 Caps, 297 Oil, 223 Scrap, 743 Planks, 74 HQ metal | A mast with a working transmitter, and whoever holds it decides what the city hears. | Your name arrives before your people do. |
+| `broadcast_station` | Broadcast Station | 4 | +5 to officer social skills | Crammed II, Dark I | 129 Caps, 257 Oil, 193 Scrap, 644 Planks, 64 HQ metal | Two studios, a records library, and a switchboard that still connects to places nobody ca… | Everyone on your books gets better at the half of the job t… |
+| `pirate_radio` | Pirate Radio | 2 | +12 spy points, +3 intimidation | Crammed III, Elevated I, Dark II | 99 Caps, 198 Oil, 149 Scrap, 495 Planks, 50 HQ metal | A transmitter in a loft, a wire aerial over four roofs, and an operator who moves it ever… | You hear what the city is saying, and some of what it would… |
+| `gene_clinic` | Gene Clinic | 6 | +8% unit vitality | Crammed III, Cold I, Eerie I | 198 Caps, 396 Oil, 297 Scrap, 990 Planks, 99 HQ metal | Sealed theatres, cold storage, and a waiting room nobody waits in. | Work can be done on people here that cannot be done anywher… |
+| `hospital` | Hospital | 3 | +12% unit vitality | Crammed II, Noisy I | 168 Caps, 337 Oil, 252 Scrap, 842 Planks, 84 HQ metal | Four working theatres, a generator, and staff who stayed when the funding did not. | What comes back from a fight comes back in better shape. |
+| `black_clinic` | Black Clinic | 4 | +2 battle stims | Crammed III, Dark II, Toxic I | 149 Caps, 297 Oil, 223 Scrap, 743 Planks, 74 HQ metal | A basement with good lighting, a locked cabinet, and a doctor who lost their licence for… | Syringes. Handed out before a fight, they bring somebody ba… |
+| `mad_scientist_lair` | Mad Scientist's Lair | 7 | +8 points off the research clock, +6% unit offense | Crammed III, Toxic III, Dark III, Eerie III | 287 Caps, 574 Oil, 431 Scrap, 1436 Planks, 144 HQ metal | Down a service stair behind a laundry: tanks, a generator, an operating table, and forty… | Everything needed to make something that should not exist,… |
+| `tavern` | Downtown Tavern | 3 | +5 unit morale | Crammed IV, Noisy IV, Dark II | 129 Caps, 257 Oil, 193 Scrap, 644 Planks, 64 HQ metal | Low ceiling, long bar, and a corner table that has been the same three people’s corner ta… | A room where the city’s hardest people drink, and somebody… |
+| `cinema` | Cinema | 2 | +12 unit morale | Dark IV, Crammed II | 99 Caps, 198 Oil, 149 Scrap, 495 Planks, 50 HQ metal | Eight hundred seats, a projector somebody has kept running out of stubbornness, and four… | Two hours somewhere else. A crew that gets that fights diff… |
+| `arcade` | The Arcade | 1 | -11% muster time | Crammed III, Noisy III, Dark II | 99 Caps, 198 Oil, 149 Scrap, 495 Planks, 50 HQ metal | Forty cabinets, nine of them working, and a change machine that has never been robbed. | Reflex work disguised as an evening off. Recruits come off… |
+| `skate_ground` | Skate Ground | 1 | +12% unit speed | Open III, Noisy I | 129 Caps, 257 Oil, 193 Scrap, 644 Planks, 64 HQ metal | A drained reservoir the kids took over, and then the couriers after them. | Everything you field moves faster. |
+| `chapel` | The Chapel | 2 | +5 to officer mental skills, a stack that breaks shakes nobody | Eerie II, Dark II, Crammed I, Cold I | 119 Caps, 238 Oil, 178 Scrap, 594 Planks, 59 HQ metal | Twelve pews, a working bell, and a man who has buried more of this district than anybody… | Everyone on your books holds together better under things t… |
+| `graveyard` | Graveyard | 3 | +15% infamy earned, +10 caps/h | Eerie IV, Dark II, Open II, Cold I | 99 Caps, 198 Oil, 149 Scrap, 495 Planks, 50 HQ metal | Terraced plots up the cut, the older half subsided, and a lodge at the gate with a light… | Holding this ground says something the city does not forget… |
+| `revolutionary_statue` | Statue in a Plaza | 4 | +10 unit morale | Open IV, Elevated II | 119 Caps, 238 Oil, 178 Scrap, 594 Planks, 59 HQ metal | The one in the middle of the district: a long coat, a raised fist, and a plinth every roa… | It is what they are fighting for. A crew that holds it walk… |
+| `glasshouse` | Hydroponics | 3 | +22 supplies/h | Hot III, Wet II, Crammed I | 158 Caps, 317 Oil, 238 Scrap, 792 Planks, 79 HQ metal | Glass houses on a steel frame, beds under grow-lamps, and pumps that never stop. Hot and… | Supplies straight off the beds, picked before they ever see… |
+| `combine_chapel` | The Chosen Chapel | 9 | +12 intimidation, +8 unit morale | Elevated III, Crammed II, Dark I | 416 Caps, 832 Oil, 624 Scrap, 2079 Planks, 208 HQ metal | A chapel in name. Glass, steel and a long table under the vault, and the room the whole c… | Your name walks in ahead of your people, and nobody you sen… |
+| `rail_station` | Station | 4 | On the line: 15 min to any Station you hold, +2 unit slots | Open III, Windy II, Noisy I | 238 Caps, 475 Oil, 356 Scrap, 1188 Planks, 119 HQ metal | A platform, a lamp and a board with the times chalked on it. Whoever holds it decides who… | Linked to any other Station you hold, at fifteen minutes fl… |
+| `mausoleum` | Mausoleum | 3 | Death Cloaks mustered here, and +30 damage and vitality on each for every Mausoleum you hold, +6 unit slots | Eerie III, Dark II, Cold I, Crammed I | 178 Caps, 356 Oil, 267 Scrap, 891 Planks, 89 HQ metal | A family tomb the size of a chapel, white stone gone grey, a red lamp kept burning inside… | The Death Cloaks are raised here. Every Mausoleum you hold… |
+| `workshop` | Workshop | 3 | +5 loot slots on every carrier | Noisy II, Crammed II, Hot I | 158 Caps, 317 Oil, 238 Scrap, 792 Planks, 79 HQ metal | Benches, a forge hearth and a loft above it, and nothing in it that is not for sale. | Whatever this workshop makes, your people carry it. |
+| `shrine` | Shrine | 5 | The Saint mustered here, stronger at every level | Elevated II, Open I, Eerie I | 317 Caps, 634 Oil, 475 Scrap, 1584 Planks, 158 HQ metal | A relic under glass, a crimson cloth over it, and a queue up the hill to see it. | A saint answers to whoever keeps the shrine. |
+| `bounty_wall` | Bounty Wall | 3 | 20% of fight jobs here are golden, paying +10% | Crammed III, Noisy II | 198 Caps, 396 Oil, 297 Scrap, 990 Planks, 99 HQ metal | A wall of posted contracts, a clerk with a ledger, and crews reading it before dawn. | The best contracts in the district come to you first. |
+| `stage` | Stage | 2 | The Crimson Dancer mustered here, stronger at every level | Dark III, Crammed III, Noisy II | 297 Caps, 594 Oil, 446 Scrap, 1485 Planks, 149 HQ metal | Red lamps over a floor worn smooth, and a crowd that comes to watch somebody dance. | The Crimson Dancer answers to whoever keeps the stage. |
+| `trophy_hall` | Trophy Hall | 4 | a daily pay for every kind of unit you have killed while holding it | Eerie II, Dark II, Crammed I | 257 Caps, 515 Oil, 386 Scrap, 1287 Planks, 129 HQ metal | A long hall with every wall hung with what was taken off the dead, and a keeper who write… | Every kind of enemy you have put on the wall pays you, ever… |
+| `laboratory` | Laboratory | 6 | Juggernauts mustered here, stronger at every level | Crammed III, Cold II, Eerie II, Dark I | 396 Caps, 792 Oil, 594 Scrap, 1980 Planks, 198 HQ metal | Saints under glass, a centrifuge, and a theatre where the Combine does its quiet work. | What is grown here fights for whoever keeps it. |
+| `stores` | Stores | 4 | +10% storage, every shelf but caps | Dark III, Cold II, Crammed II | 218 Caps, 436 Oil, 327 Scrap, 1089 Planks, 109 HQ metal | Vaults under the floor, dry and deep, with room for a siege and a ledger for every sack. | Everything you keep, you keep more of. |
 
 #### Placed on the map (60)
 
@@ -1983,7 +1991,7 @@ Source: `packages/shared/src/city/locations.ts`, `packages/shared/src/city/distr
 | `steelbelt-ramp` | The Slag Bowl | `steelbelt` | `skate_ground` |
 | `steelbelt-pumps` | Furnace Row Pumps | `steelbelt` | `gas_station` |
 | `steelbelt-kennels` | The Doghouse | `steelbelt` | `doghouse` |
-| `steelbelt-bones` | The Bone Market | `steelbelt` | `bone_market` |
+| `steelbelt-canteen` | The Shift Canteen | `steelbelt` | `soup_kitchen` |
 | `chrome-row-exchange` | The Exchange | `chrome-row` | `downtown_market` |
 | `chrome-row-cathode` | Cathode Tower | `chrome-row` | `broadcast_tower` |
 | `chrome-row-overlook` | The Overlook | `chrome-row` | `high_ground` |
@@ -2078,7 +2086,7 @@ Four of the eleven sheet numbers are printed here. The rest (penetration, range,
 | `scavengers` | Scavengers | no | no | 1 | 5 | 60 | 0 | 30 | blunt | chemical +20, ballistic -25, blade -20, explosive -30 | 25 Caps, 15 Supplies | 30s | The Nexus at level 1 | - | Urban Bonus | They know which floors still hold weight and which pipes still have copper in them. Hand… |
 | `haulers` | Haulers | no | no | 2 | 5 | 75 | 2 | 22 | blunt | energy +20, explosive -30 | 60 Caps, 20 Supplies, 30 Planks | 2m | The Nexus at level 15 | Collective | - | Barrow, harness and a back that has done this for twenty years. Slow, patient, and they n… |
 
-#### Rabble (6)
+#### Rabble (7)
 
 | Id | Name | Unique | Fights | Unit slots | Damage | Vitality | Armour | Speed | Damage type | Answers / dreads | Cost | Muster time | Requires | Rules | Modifiers | Blurb |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -2087,7 +2095,8 @@ Four of the eleven sheet numbers are printed here. The rest (penetration, range,
 | `sparks` | Sparks | no | yes | 1 | 280 | 55 | 3 | 40 | blunt | energy +15, explosive -40, blunt -25 | 45 Caps, 5 Supplies, 20 Scrap | 50s | The Gauntlet at level 1; The Generator at level 2 | Collective | Urban Bonus | Young recruits with jury-rigged weapons. Hit hard once, then hope. |
 | `scrapers` | Scrapers | no | yes | 1 | 165 | 78 | 6 | 50 | blade | chemical +15, blade -30 | 50 Caps, 10 Supplies, 25 Scrap | 55s | The Gauntlet at level 2 | - | Urban Bonus, Ambush | Scavengers turned fighters. Light armour, quick hands, gone before the answer comes. |
 | `ash_walkers` | Ash Walkers | no | yes | 2 | 275 | 170 | 42 | 35 | chemical | chemical +90, ballistic -20, blade -25, explosive -25 | 190 Caps, 30 Supplies, 10 Oil, 20 Scrap | 4m | The Gauntlet at level 6; The Greenhouse at level 5 | - | Tunnel Rat, Urban Bonus | Chem-suited troops who go where the air is wrong and come back out of it. |
-| `the_condemned` | The Condemned | no | yes | 3 | 255 | 120 | 12 | 40 | blade | energy +20, ballistic -25 | 190 Caps, 120 Supplies | 10m | The Gauntlet at level 10; The Quarters at level 12; Hold The Fight Pit | - | Last Stand, Close Quarters | Death row, handed one last chance and a blade. Nothing left to threaten them with. |
+| `the_condemned` | The Condemned | no | yes | 3 | 255 | 120 | 12 | 40 | blade | energy +20, ballistic -25 | 190 Caps, 120 Supplies | 10m | The Gauntlet at level 10; The Quarters at level 12; Hold the Watch Cell in Saint's Rest | - | Last Stand, Close Quarters | Death row, handed one last chance and a blade. Nothing left to threaten them with. |
+| `death_cloaks` | Death Cloaks | no | yes | 3 | 300 | 300 | 20 | 20 | blunt | blade +10, explosive -20 | 120 Caps, 30 Supplies, 20 Scrap | 3m | The Gauntlet at level 3; Hold The Mausoleum | Faith, Collective | Close Quarters | Mourners who stopped leaving the tombs. Grey cloth over whatever they were buried in, a l… |
 
 #### Specialists (6)
 
@@ -2095,7 +2104,7 @@ Four of the eleven sheet numbers are printed here. The rest (penetration, range,
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | `ghosts` | Ghosts | no | yes | 2 | 310 | 115 | 15 | 50 | blade | energy +20, ballistic -25, blunt -20 | 230 Caps, 25 Supplies, 20 Oil | 3m | The Gauntlet at level 6 | - | Night Operations, Ambush | Lightly armed and hard to pin down. Fighting them is easy. Finding them is the job. |
 | `snipers` | Snipers | no | yes | 2 | 350 | 85 | 8 | 30 | ballistic | explosive +15, chemical -35 | 260 Caps, 40 Supplies, 60 Scrap, 12 HQ metal | 5m | The Sniper Blueprint; The Gauntlet at level 7; The Gate at level 7; Live-Fire Range | Opening Volley | Rooftop, Open Field | Long range, one shot, one kill. Everything else is spent waiting for it. |
-| `stitchers` | Stitchers | no | yes | 1 | 60 | 120 | 20 | 35 | blade | chemical +50, blade -30, blunt -30 | 220 Caps, 60 Supplies | 5m | The Gauntlet at level 7; The Infirmary at level 5 | Field Medic | Dug In | Field medics. Contribute nothing to a fight and decide how many walk out of it. |
+| `stitchers` | Stitchers | no | yes | 1 | 60 | 120 | 20 | 35 | blade | chemical +50, blade -30, blunt -30 | 220 Caps, 60 Supplies | 5m | The Gauntlet at level 7; The Infirmary at level 5 | Field Medic | GUARD | Field medics. Contribute nothing to a fight and decide how many walk out of it. |
 | `demolishers` | Demolishers | no | yes | 3 | 420 | 180 | 32 | 28 | explosive | explosive +45, energy -25 | 280 Caps, 40 Supplies, 80 Oil, 120 Scrap, 5 HQ metal | 6m | The Demolisher Blueprint; The Gauntlet at level 7; The Scrapyard at level 6; The Generator at level 8 | - | Breaching, Armour Piercing | Explosive ordnance experts. Uninterested in your people; very interested in your walls. |
 | `netrunners` | Netrunners | no | yes | 3 | 60 | 150 | 20 | 40 | energy | energy +40, explosive -20 | 300 Caps, 50 Supplies, 12 HQ metal | 6m | The Gauntlet at level 9; The Lab at level 8; Quantum Modeling | Jamming | Night Operations | Combat hackers who hijack enemy augmentations mid-fight. Nobody enjoys meeting them. |
 | `sleepers` | Sleepers | no | yes | 2 | 360 | 125 | 14 | 40 | blade | energy +15, explosive -30 | 340 Caps, 50 Supplies, 30 Oil | 6m | The Gauntlet at level 8; The Nexus at level 9; Encrypted Core | Goes to Ground | Ambush, Urban Bonus | Planted long ago, and useful exactly once. They are already inside. |
@@ -2106,8 +2115,8 @@ Four of the eleven sheet numbers are printed here. The rest (penetration, range,
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | `road_reavers` | Road Reavers | no | yes | 2 | 250 | 115 | 18 | 65 | ballistic | blade +35, explosive -25 | 180 Caps, 25 Supplies, 60 Oil, 90 Scrap | 3m | The Scrappy Blueprint; The Gauntlet at level 7; The Garage at level 4; A Scrappy buildable in the Garage | - | Open Field, Urban Bonus | Motorcycle raiders. Fast, loud, aggressive, and halfway home with your fuel. |
 | `kite_crews` | Kite Crews | no | yes | 2 | 290 | 135 | 16 | 85 | energy | blade +25, energy -40 | 280 Caps, 40 Supplies, 40 Scrap, 18 HQ metal | 5m | The Kite Crew Blueprint; The Gauntlet at level 8; The Lab at level 5; The Generator at level 8 | - | Rooftop, Open Field, Tracking | Drone operators working off rooftops. They see the fight before anybody is in it. |
-| `cyber_dogs` | Cyberhounds | no | yes | 2 | 290 | 90 | 8 | 90 | energy | explosive +15, chemical -45 | 190 Caps, 90 Supplies, 15 HQ metal | 7m | The Cyberhound Blueprint; The Infirmary at level 6; Hold The Doghouse | Collective | Ambush, Night Operations | Augmented working dogs off the kennels under the flyover. They find what is hiding and th… |
-| `hollow_men` | Hollow Men | no | yes | 5 | 345 | 225 | 45 | 45 | blunt | chemical +35, energy -45 | 650 Caps, 200 Supplies, 25 HQ metal | 14m | The Hollow Man Blueprint; The Gauntlet at level 12; The Infirmary at level 10; The Lab at level 13; Hold The Gene Clinic | - | Close Quarters, Terror | Shock troops with the fear surgically removed. It took the rest of it with it. |
+| `cyber_dogs` | Cyberhounds | no | yes | 2 | 290 | 90 | 8 | 90 | energy | explosive +15, chemical -45 | 190 Caps, 90 Supplies, 15 HQ metal | 7m | The Cyberhound Blueprint; The Infirmary at level 6; Hold The Doghouse | Collective | Ambush, Night Operations, GUARD | Augmented working dogs off the kennels under the flyover. They find what is hiding and th… |
+| `hollow_men` | Hollow Men | no | yes | 5 | 345 | 225 | 45 | 45 | blunt | chemical +35, energy -45 | 650 Caps, 200 Supplies, 25 HQ metal | 14m | The Hollow Man Blueprint; The Gauntlet at level 12; The Infirmary at level 10; The Lab at level 13; Hold The Gene Clinic; A district with infamy level below Whispered cannot muster this unit | - | Close Quarters, Terror | Shock troops with the fear surgically removed. It took the rest of it with it. |
 | `the_twins` | Twins | no | yes | 4 | 300 | 190 | 38 | 30 | chemical | ballistic +25, blade +20, energy -25 | 460 Caps, 75 Supplies, 90 Oil, 60 Scrap, 15 HQ metal | 9m | The Twins Blueprint; The Lab at level 12; Hold The Mad Scientist's Lair; Hold The Gene Clinic | - | Last Stand, Night Operations | One body, two minds, and neither of them sleeps. Nothing has ever got behind it. |
 
 #### Heavy (5)
@@ -2115,22 +2124,22 @@ Four of the eleven sheet numbers are printed here. The rest (penetration, range,
 | Id | Name | Unique | Fights | Unit slots | Damage | Vitality | Armour | Speed | Damage type | Answers / dreads | Cost | Muster time | Requires | Rules | Modifiers | Blurb |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | `breakers` | Breakers | no | yes | 2 | 225 | 122 | 24 | 40 | blade | explosive +35, energy -25 | 120 Caps, 20 Supplies, 15 Oil, 60 Scrap | 3m | The Gauntlet at level 4 | - | Close Quarters, Breaching | Door-kicking close-quarters specialists. Whatever is behind it, they go through it. |
-| `wardens` | Wardens | no | yes | 2 | 172 | 168 | 40 | 28 | blunt | blade +25, explosive -20 | 130 Caps, 20 Supplies, 80 Scrap | 3m | The Gauntlet at level 5 | Holds the Line | Dug In, Last Stand | Defensive specialists. Considerably better at holding a location than at taking one. |
-| `ironsides` | Ironsides | no | yes | 3 | 45 | 470 | 64 | 22 | blunt | ballistic +35, blade +35, blunt +35, explosive -30 | 200 Caps, 30 Supplies, 140 Scrap, 10 HQ metal | 4m | The Ironside Blueprint; The Gauntlet at level 5; The Scrapyard at level 5; The Gate at level 6 | Shield Line | Bulwark, Dug In | A shield wall of salvaged plate. It will not beat you. It will not move, either. |
-| `juggernauts` | Juggernauts | no | yes | 6 | 355 | 365 | 68 | 25 | explosive | ballistic +40, blade +50, blunt +25, energy -35 | 700 Caps, 105 Supplies, 200 Oil, 50 Scrap, 20 HQ metal | 15m | The Juggernaut Blueprint; The Gauntlet at level 11; The Generator at level 10; The Infirmary at level 9; Hold The Gene Clinic | - | Armour Piercing, Last Stand | Fully augmented heavy assault units. Barely human any more, and no longer bothered by it. |
-| `sluggers` | Sluggers | no | yes | 2 | 180 | 135 | 30 | 30 | ballistic | ballistic +35, explosive -25 | 210 Caps, 30 Supplies, 60 Scrap, 8 HQ metal | 4m | The Gauntlet at level 6; The Scrapyard at level 4 | - | Dug In, Armour Piercing | Scrap plate and a short slug gun. Stands where it is put and makes the room expensive. |
+| `wardens` | Wardens | no | yes | 2 | 172 | 168 | 40 | 28 | blunt | blade +25, explosive -20 | 130 Caps, 20 Supplies, 80 Scrap | 3m | The Gauntlet at level 5 | Holds the Line | GUARD, Last Stand | Defensive specialists. Considerably better at holding a location than at taking one. |
+| `ironsides` | Ironsides | no | yes | 3 | 45 | 470 | 64 | 22 | blunt | ballistic +35, blade +35, blunt +35, explosive -30 | 200 Caps, 30 Supplies, 140 Scrap, 10 HQ metal | 4m | The Ironside Blueprint; The Gauntlet at level 5; The Scrapyard at level 5; The Gate at level 6 | Shield Line | GUARD | A shield wall of salvaged plate. It will not beat you. It will not move, either. |
+| `juggernauts` | Juggernauts | no | yes | 10 | 355 | 365 | 68 | 25 | explosive | ballistic +40, blade +50, blunt +25, energy -35 | 700 Caps, 105 Supplies, 200 Oil, 50 Scrap, 20 HQ metal | 15m | The Juggernaut Blueprint; The Gauntlet at level 11; The Generator at level 10; The Infirmary at level 9; Hold the Reliquary Lab in the Cloisters or The Gene Clinic; A district with infamy level below Whispered cannot muster this unit | - | Armour Piercing | Fully augmented heavy assault units. Barely human any more, and no longer bothered by it. |
+| `sluggers` | Sluggers | no | yes | 2 | 180 | 135 | 30 | 30 | ballistic | ballistic +35, explosive -25 | 210 Caps, 30 Supplies, 60 Scrap, 8 HQ metal | 4m | The Gauntlet at level 6; The Scrapyard at level 4 | - | GUARD, Armour Piercing | Scrap plate and a short slug gun. Stands where it is put and makes the room expensive. |
 
 #### Legendary (7)
 
 | Id | Name | Unique | Fights | Unit slots | Damage | Vitality | Armour | Speed | Damage type | Answers / dreads | Cost | Muster time | Requires | Rules | Modifiers | Blurb |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `the_specter` | The Specter | yes | yes | 8 | 475 | 300 | 35 | 80 | energy | ballistic +45, chemical -30 | 1500 Caps, 225 Supplies, 300 Oil, 250 HQ metal | 1h | The Specter Blueprint; The Lab at level 15; Shielded Datacore; Hold The Satellite Uplink | Undetectable | Ambush, Night Operations | Experimental full-spectrum cloak. Invisible until it strikes, and then briefly visible. |
-| `the_abomination` | The Abomination | yes | yes | 10 | 500 | 700 | 55 | 40 | chemical | ballistic +30, chemical +100, explosive -25 | 1400 Caps, 400 Supplies, 200 HQ metal | 1h 10m | The Abomination Blueprint; The Lab at level 16; The Infirmary at level 9; Hold The Mad Scientist's Lair | - | Terror, Close Quarters | A failed experiment that became a weapon. Unstable, devastating, and not steerable. |
-| `the_colossus` | The Colossus | yes | yes | 12 | 490 | 1000 | 95 | 15 | explosive | ballistic +70, blade +80, explosive +40, blunt +40, energy -30 | 2200 Caps, 330 Supplies, 600 Oil, 900 Scrap, 400 HQ metal | 1h 30m | The Colossus Blueprint; The Garage at level 10; The Generator at level 14; Hold The Construction Site | Too big to ride, Wall Breaker | Armour Piercing | A single massive machine that functions like a walking fortress. It arrives slowly. |
-| `the_saint` | The Saint | yes | yes | 6 | 275 | 265 | 30 | 45 | blunt | blade +45, chemical -25 | 1200 Caps, 300 Supplies, 120 HQ metal | 50m | The Gauntlet at level 12; The Quarters at level 12; The Infirmary at level 10; Hold The Downtown Tavern | Holds the Line, Steadying Presence | Last Stand, Dug In | A legendary fighter whose presence alone steadies everyone who can see them. |
-| `the_cartographer` | The Cartographer | yes | yes | 5 | 300 | 270 | 28 | 88 | ballistic | explosive +40, blade -20 | 1000 Caps, 150 Supplies, 150 Oil, 100 HQ metal | 45m | The Lab at level 12; Hold The Rail Yard; Hold The Satellite Uplink | - | Urban Bonus, Night Operations, Tracking | Has walked every street in this city and remembers which ones are still there. |
-| `the_crimson_dancer` | The Crimson Dancer | yes | yes | 6 | 490 | 250 | 18 | 92 | blade | blade +30, explosive -35 | 1400 Caps, 260 Supplies, 180 Oil, 200 HQ metal | 55m | The Crimson Dancer Blueprint; The Gauntlet at level 14; The Lab at level 12; The Quarters at level 15; Hold The Fight Pit | Opening Volley | Close Quarters, Terror | Went into the Fight Pit a dancer and came out on blades. Still counts the beats. |
-| `the_loose_end` | The Loose End | yes | yes | 7 | 700 | 200 | 8 | 95 | blade | ballistic +15, explosive -40 | 1600 Caps, 240 Supplies, 220 Oil, 260 HQ metal | 1h | The Loose End Blueprint; The Gauntlet at level 16; The Garage at level 9; The Generator at level 16; Hold The Rail Yard | - | Close Quarters, Ambush | Walked out of a contract nobody walks out of. The chain-blade was the severance. |
+| `the_specter` | The Specter | yes | yes | 8 | 475 | 300 | 35 | 80 | energy | ballistic +45, chemical -30 | 1500 Caps, 225 Supplies, 300 Oil, 250 HQ metal | 1h | The Specter Blueprint; The Lab at level 15; Shielded Datacore; Hold The Satellite Uplink; A district with infamy level below Feared cannot muster this unit | Undetectable | Ambush, Night Operations | Experimental full-spectrum cloak. Invisible until it strikes, and then briefly visible. |
+| `the_abomination` | The Abomination | yes | yes | 10 | 500 | 700 | 55 | 40 | chemical | ballistic +30, chemical +100, explosive -25 | 1400 Caps, 400 Supplies, 200 HQ metal | 1h 10m | The Abomination Blueprint; The Lab at level 16; The Infirmary at level 9; Hold The Mad Scientist's Lair; A district with infamy level below Feared cannot muster this unit | - | Terror, Close Quarters | A failed experiment that became a weapon. Unstable, devastating, and not steerable. |
+| `the_colossus` | The Colossus | yes | yes | 12 | 490 | 1000 | 95 | 15 | explosive | ballistic +70, blade +80, explosive +40, blunt +40, energy -30 | 2200 Caps, 330 Supplies, 600 Oil, 900 Scrap, 400 HQ metal | 1h 30m | The Colossus Blueprint; The Garage at level 10; The Generator at level 14; Hold The Construction Site; A district with infamy level below Feared cannot muster this unit | Too big to ride, Wall Breaker | Armour Piercing | A single massive machine that functions like a walking fortress. It arrives slowly. |
+| `the_saint` | The Saint | yes | yes | 50 | 275 | 265 | 30 | 45 | blunt | blade +45, chemical -25 | 6000 Caps, 1500 Supplies, 600 HQ metal | 50m | The Gauntlet at level 12; The Quarters at level 12; The Infirmary at level 10; Hold the Saint's Shrine in Saint's Rest; A district with infamy level below Feared cannot muster this unit | Steadying Presence | Last Stand | A legendary fighter whose presence alone steadies everyone who can see them. |
+| `the_cartographer` | The Cartographer | yes | yes | 5 | 300 | 270 | 28 | 88 | ballistic | explosive +40, blade -20 | 1000 Caps, 150 Supplies, 150 Oil, 100 HQ metal | 45m | The Lab at level 12; Hold The Rail Yard; Hold The Satellite Uplink; A district with infamy level below Feared cannot muster this unit | - | Urban Bonus, Night Operations, Tracking | Has walked every street in this city and remembers which ones are still there. |
+| `the_crimson_dancer` | The Crimson Dancer | yes | yes | 6 | 490 | 250 | 18 | 92 | blade | blade +30, explosive -35 | 1400 Caps, 260 Supplies, 180 Oil, 200 HQ metal | 55m | The Crimson Dancer Blueprint; The Gauntlet at level 14; The Lab at level 12; The Quarters at level 15; Hold the Crimson Stage in Bloodstone; A district with infamy level below Feared cannot muster this unit | Opening Volley | Close Quarters, Terror | Went onto the Crimson Stage a dancer and came off it on blades. Still counts the beats. |
+| `the_loose_end` | The Loose End | yes | yes | 7 | 700 | 200 | 8 | 95 | blade | ballistic +15, explosive -40 | 1600 Caps, 240 Supplies, 220 Oil, 260 HQ metal | 1h | The Loose End Blueprint; The Gauntlet at level 16; The Garage at level 9; The Generator at level 16; Hold The Rail Yard; A district with infamy level below Feared cannot muster this unit | - | Close Quarters, Ambush | Walked out of a contract nobody walks out of. The chain-blade was the severance. |
 
 #### The Combine (7)
 
@@ -2139,12 +2148,12 @@ Met, never held. No price, no clock and no gate: see `UnitSpec.faction`.
 | Id | Name | Unique | Fights | Unit slots | Damage | Vitality | Armour | Speed | Damage type | Answers / dreads | Cost | Muster time | Requires | Rules | Modifiers | Blurb |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | `civic_levy` | Civic Levy | no | yes | 1 | 132 | 68 | 4 | 40 | blade | energy +10, explosive -30 | free | 0s | - | - | Urban Bonus | Conscripts with a fortnight of drill and a surplus blade each. They are the Combine on ev… |
-| `greycoat` | Greycoat | no | yes | 1 | 112 | 80 | 12 | 38 | ballistic | blade +10, chemical -20 | free | 0s | - | - | Dug In | Low-ranking government infantry, named for the coat. A rifle, a helmet, a number, and ord… |
+| `greycoat` | Greycoat | no | yes | 1 | 112 | 80 | 12 | 38 | ballistic | blade +10, chemical -20 | free | 0s | - | - | GUARD | Low-ranking government infantry, named for the coat. A rifle, a helmet, a number, and ord… |
 | `street_enforcers` | Street Enforcers | no | yes | 2 | 262 | 126 | 30 | 42 | energy | ballistic +20, blade +20, energy -15, chemical -25 | free | 0s | - | - | Urban Bonus, Close Quarters | Police infantry with more plate than the Greycoats and less patience. Used for raids and… |
-| `suppressor` | Suppressor | no | yes | 4 | 400 | 245 | 45 | 24 | ballistic | blade +30, energy +10, explosive -15 | free | 0s | - | - | Open Field, Dug In | Automatic weapons on a tripod and a crew that has been told the street is closed. Area de… |
-| `syndic` | Syndic | yes | yes | 5 | 220 | 240 | 35 | 35 | ballistic | blade +20, chemical -20 | free | 0s | - | - | Dug In, Last Stand | The government liaison embedded with the industrial facilities and the private troops tha… |
+| `suppressor` | Suppressor | no | yes | 4 | 400 | 245 | 45 | 24 | ballistic | blade +30, energy +10, explosive -15 | free | 0s | - | - | Open Field, GUARD | Automatic weapons on a tripod and a crew that has been told the street is closed. Area de… |
+| `syndic` | Syndic | yes | yes | 5 | 220 | 240 | 35 | 35 | ballistic | blade +20, chemical -20 | free | 0s | - | - | GUARD, Last Stand | The government liaison embedded with the industrial facilities and the private troops tha… |
 | `executioner` | Executioner | yes | yes | 6 | 380 | 320 | 42 | 44 | blade | ballistic +25, energy -20 | free | 0s | - | - | Close Quarters, Terror | The anti-personnel specialist the Blacksite sends when arrests are no longer required. Wo… |
-| `directive_xero` | Directive Xero | yes | yes | 10 | 400 | 520 | 60 | 30 | energy | ballistic +35, blade +35, chemical +20, explosive -15 | free | 0s | - | Holds the Line | Last Stand, Dug In | The Combine, in one person, in the Chosen Chapel at the top of the city. Nobody who stand… |
+| `directive_xero` | Directive Xero | yes | yes | 10 | 400 | 520 | 60 | 30 | energy | ballistic +35, blade +35, chemical +20, explosive -15 | free | 0s | - | Holds the Line | Last Stand, GUARD | The Combine, in one person, in the Chosen Chapel at the top of the city. Nobody who stand… |
 
 #### Sheet numbers (11)
 
@@ -2162,7 +2171,7 @@ Met, never held. No price, no clock and no gate: see `UnitSpec.faction`.
 | `lootCapacity` | Loot |
 | `intimidation` | Intimidation |
 
-#### Rules on a sheet (12)
+#### Rules on a sheet (13)
 
 | Flag | Label | Tone | Description |
 | --- | --- | --- | --- |
@@ -2172,6 +2181,7 @@ Met, never held. No price, no clock and no gate: see `UnitSpec.faction`.
 | `strikes_first` | Opening Volley | positive | Fires one volley before either line is in position, attacking or defending. |
 | `stalwart` | Holds the Line | positive | Never breaks while more than half of them are still standing. |
 | `steadies` | Steadying Presence | positive | While it stands and has not broken, nobody else on its side drops below wavering: nobody… |
+| `faith` | Faith | positive | This unit gains +30 vitality and +30 damage for each Mausoleum you control, and you may k… |
 | `wall_breaker` | Wall Breaker | positive | Enemy gates and traps are rendered useless for the fight. Traps are consumed while the ga… |
 | `pack` | Collective | positive | This unit fights harder and carries more loot when there is more of them. |
 | `jammer` | Jamming | positive | Weakens every figure the enemy's modifications add by the jam percent. Against Wonders of… |
@@ -2179,7 +2189,7 @@ Met, never held. No price, no clock and no gate: see `UnitSpec.faction`.
 | `sleeper` | Goes to Ground | positive | Can be planted unseen on ground you do not hold, and is already standing there when you c… |
 | `unspyable` | Undetectable | positive | Cannot be spied, you only find out about it from battle reports. |
 
-#### Modifiers (14)
+#### Modifiers (13)
 
 | Id | Label | When | Points | Affects | Description |
 | --- | --- | --- | --- | --- | --- |
@@ -2193,8 +2203,7 @@ Met, never held. No price, no clock and no gate: see `UnitSpec.faction`.
 | `tracking` | Tracking | vs_evasive | +50% | evasion | Reads the movement, not the target. Enemies dodge half as much of its fire. |
 | `terror` | Terror | vs_low_morale | +35% | offense | Hits a shaken enemy (morale under 60) 14% harder, and a wavering one (under 35) 35% harde… |
 | `last_stand` | Last Stand | outnumbered | +25% | offense | Hits harder the more it is outnumbered, in full at two to one. Nothing left to lose. |
-| `dug_in` | Dug In | defending | +30% | offense | Hits harder when defending. Better behind cover than in front of it. |
-| `bulwark` | Bulwark | defending | +70% | toughness | Far harder to kill when defending. Getting through them takes time nobody has. |
+| `guard` | GUARD | defending | +25% | both | Hits harder and is harder to kill when defending: a quarter more damage and vitality on a… |
 | `ambush` | Ambush | urban | +25% | offense | Hits harder in the streets, and when attacking gets a free exchange before the enemy is r… |
 | `rooftop` | Rooftop | urban | +15% | offense | Hits harder in the streets, firing from above. |
 
@@ -3137,7 +3146,7 @@ Source: `packages/shared/src/social/notifications.ts`
 | `reinforcement_arrived` | Reinforcements | no | An ally is sending units to a fight of yours. |
 | `mission_home` | Crews coming home | no | A job is finished and the crew is back. |
 
-#### The district (12)
+#### The district (13)
 
 | Kind | Label | Always on | Blurb |
 | --- | --- | --- | --- |
@@ -3151,6 +3160,7 @@ Source: `packages/shared/src/social/notifications.ts`
 | `market_countered` | Counters to your listings | no | Somebody answered a listing of yours with an offer of their own. |
 | `stackhouse_settled` | The Stackhouse | no | A bet you placed on a fight has come in, or has not. |
 | `page_found` | Pages found | no | A blueprint page came into the inventory. |
+| `daily_grant` | Daily takes | no | Ground you hold paid its daily pages, stim or parts. |
 | `spy_report` | Spy reports | no | A job you paid for has come back, with a report or without one, or the courier's daily re… |
 | `spied_on` | Spies on your ground | no | Somebody has been looking at a place you hold, and their runners were seen. |
 

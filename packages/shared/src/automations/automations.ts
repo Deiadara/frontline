@@ -137,6 +137,32 @@ export function automationPowers(technologies: readonly string[]): AutomationPow
 }
 
 /**
+ * Why a standing order is past the crew's ladder, in the words the save refuses with, or null.
+ *
+ * One list for the save and the tick (bug pass, 2026-10-06). The tick re-read only the unlock and
+ * the slot count, so a slot saved as "battles" under a rung since renamed or retired kept calling
+ * fights; it stalls now with the same sentence the save would have said.
+ */
+export function automationRungRefusal(
+  powers: AutomationPowers,
+  held: {
+    slot: number;
+    order: AutomationOrder;
+    unitSlots: number | null;
+    optimiseFor: string | null;
+  },
+): string | null {
+  if (!powers.unlocked) return 'The Open Door, on the Right Hand track, opens this';
+  if (held.slot >= powers.slots) return 'You have not earned that slot yet';
+  if (!powers.orders.includes(held.order)) return 'You have not earned that order yet';
+  if (held.unitSlots !== null && !powers.bestFit) {
+    return 'Naming a size instead of a party is a later rung';
+  }
+  if (held.optimiseFor !== null && !powers.optimise) return 'Chasing one resource is a later rung';
+  return null;
+}
+
+/**
  * One standing order.
  *
  * `force` and `unitSlots` are the two ways to say who goes, and exactly one is set. `force` is the

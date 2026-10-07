@@ -12,6 +12,7 @@ import { ApiRequestError } from '../../lib/api';
 import { cn } from '../../lib/cn';
 import { useBattles } from '../../lib/queries';
 import { ErrorNote } from '../../components/ui/ErrorNote';
+import { PressError } from '../../components/ui/PressError';
 import { usePlayerZone } from '../settings/usePlayerZone';
 
 /**
@@ -115,8 +116,11 @@ export function DeclareDialog({
   const board = useBattles();
   const zone = usePlayerZone();
   const cost = board.data ? callPriceOf(target, board.data.callPrices) : null;
+  // Testing mode waives the price (maintainer, 2026-10-06): the board says so, and a call the
+  // route would take is never greyed for infamy it will not charge.
+  const waived = board.data?.callPriceWaived === true;
   const charged = cost !== null && cost > 0;
-  const affordable = cost !== null && infamy >= cost;
+  const affordable = cost !== null && (waived || infamy >= cost);
 
   const days = slots.reduce<{ day: string; slots: string[] }[]>((groups, slot) => {
     const day = dayLabel(slot, zone);
@@ -238,7 +242,9 @@ export function DeclareDialog({
                 : 'border-oxblood-500/40 bg-oxblood-500/10 text-oxblood-100',
             )}
           >
-            <span>Cost to call: {cost} infamy</span>
+            <span>
+              Cost to call: {cost} infamy{waived ? ' (waived while testing)' : ''}
+            </span>
             <span className="tabular-nums text-ink-300">Your name: {Math.round(infamy)}</span>
           </p>
         )}
@@ -250,17 +256,24 @@ export function DeclareDialog({
           Cancel
         </Button>
         {/* Why it cannot go, on the button row and to its left (maintainer, 2026-09-25). */}
-        {((charged && !affordable) || (error !== null && error !== undefined)) && (
+        {((charged && !affordable) || board.isError || (error !== null && error !== undefined)) && (
           <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+            {/* The price could not be read, so "Call it" waits on it with nothing saying why
+                (bug pass, 2026-10-06). */}
+            {board.isError && cost === null && (
+              <ErrorNote data-testid="declare-no-price">
+                The price of a call could not be read. Try again in a moment.
+              </ErrorNote>
+            )}
             {charged && !affordable && (
               <ErrorNote data-testid="declare-unaffordable">
                 {DECLARE_UNAFFORDABLE_MESSAGE}
               </ErrorNote>
             )}
             {error !== null && error !== undefined && (
-              <ErrorNote>
+              <PressError>
                 {error instanceof ApiRequestError ? error.message : 'That did not go through'}
-              </ErrorNote>
+              </PressError>
             )}
           </div>
         )}

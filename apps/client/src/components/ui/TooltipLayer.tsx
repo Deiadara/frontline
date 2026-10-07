@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { cn } from '../../lib/cn';
+import { isReturnedFocus } from './Modal';
 
 /**
  * Every `data-tip` in the game, drawn once.
@@ -62,6 +63,13 @@ export function TooltipLayer() {
      * way in for the keyboard, which is what it is here for.
      */
     let pressedAt = -Infinity;
+    /*
+     * The element the tip is naming. A tip clears on that element's `pointerout`, and an element
+     * that leaves the page sends none: a muster's call-off mark unmounts itself when its window
+     * runs out, and its tip stayed on screen under a resting pointer (bug pass, 2026-10-06). The
+     * next pointer move over anything else checks whether the named element is still there.
+     */
+    let named: Element | null = null;
     const PRESS_FOCUS_MS = 500;
     const press = (event: Event): void => {
       pressedAt = event.timeStamp;
@@ -69,11 +77,17 @@ export function TooltipLayer() {
     };
     const open = (event: Event): void => {
       if (event.type === 'focusin' && event.timeStamp - pressedAt < PRESS_FOCUS_MS) return;
+      // Nor a closing window handing focus back to its opener (`Modal`).
+      if (event.type === 'focusin' && isReturnedFocus(event.target)) return;
       const target = event.target;
       if (!(target instanceof Element)) return;
       const host = target.closest('[data-tip]');
       const text = host?.getAttribute('data-tip')?.trim();
-      if (!host || !text) return;
+      if (!host || !text) {
+        if (named !== null && !named.isConnected) clear();
+        return;
+      }
+      named = host;
       setTip({ text, anchor: host.getBoundingClientRect() });
     };
     /*
@@ -95,6 +109,10 @@ export function TooltipLayer() {
           return;
         }
       }
+      clear();
+    };
+    const clear = (): void => {
+      named = null;
       setTip(null);
     };
 

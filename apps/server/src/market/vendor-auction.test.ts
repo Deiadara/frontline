@@ -1,6 +1,5 @@
 import {
   DEFAULT_CITY_ID,
-  EVERY_LOCATION,
   ITEM_CATALOG,
   MAX_LOCATION_LEVEL,
   discountedCaps,
@@ -30,9 +29,10 @@ import { snapshotFor } from '../feats/project.js';
  * The Runner's barrow, as an auction ( maintainer 2026-09-08).
  *
  * The ranking and the visit are pinned in `packages/shared`; what is here is the part only a server
- * can be wrong about: that a bid is stored against the right visit, that the close moves goods and
- * caps **once**, that a crew who cannot pay at the close passes the lot on rather than going
- * overdrawn, and that everybody who bid is told how it ended.
+ * can be wrong about: that a bid is stored against the right visit, that a bid takes its caps when
+ * it is placed and a raise hands the old ones back (held bids, maintainer 2026-10-06), that the
+ * close moves goods **once** and hands every losing hold back, and that everybody who bid is told
+ * how it ended.
  *
  * Everything is driven through the functions the routes call, with an explicit `now`. The Runner's
  * hours are a function of the game day, so a test that went over HTTP would get whatever hour the
@@ -151,7 +151,7 @@ function capsOf(app: FastifyInstance, crew: Crew): number {
 function bid(
   app: FastifyInstance,
   crew: Crew,
-  lot: { lineId: string; amount: number; now: Date },
+  lot: { lineId: string; amount: number; now: Date; admin?: boolean },
 ): ReturnType<typeof placeVendorBid> {
   return placeVendorBid(app.repos, {
     base: baseOf(app, crew),
@@ -159,6 +159,7 @@ function bid(
     lineId: lot.lineId,
     amount: lot.amount,
     now: lot.now,
+    ...(lot.admin !== undefined && { admin: lot.admin }),
   });
 }
 
@@ -191,7 +192,24 @@ describe('bidding on a lot', () => {
     expect(lot?.yourBid).toBe(line.price);
     expect(lot?.bidders).toBe(1);
     expect(lot?.nextBid).toBe(nextLotBid(line.price, line.price));
-    // Nothing is escrowed at the bid: caps move at the close and only at the close.
+    // Held when placed (maintainer, 2026-10-06): the caps leave the stockpile with the bid.
+    expect(capsOf(app, ana)).toBe(1_000_000 - line.price);
+    expect(app.repos.vendorAuctions.bidsFor(day, 0, line.id)[0]?.held).toBe(line.price);
+  });
+
+  it('holds nothing in admin mode, and the lot is then won for nothing', async () => {
+    const app = await makeApp();
+    const ana = await signIn(app, 'ana');
+    const day = aDayWhere(() => true);
+    const line = vendorStockFor(day)[0]!;
+
+    expect(
+      bid(app, ana, { lineId: line.id, amount: line.price, now: duringVisit(day, 0), admin: true }),
+    ).toEqual({ kind: 'placed' });
+    expect(capsOf(app, ana)).toBe(1_000_000);
+    settleVendorAuctions(app.repos, afterVisit(day, 0));
+
+    expect(baseOf(app, ana).inventory[line.item as keyof Base['inventory']]).toBe(1);
     expect(capsOf(app, ana)).toBe(1_000_000);
   });
 
@@ -362,6 +380,27 @@ describe('bidding on a lot', () => {
     expect(lot?.yourBid).toBe(raised);
     expect(lot?.bidders).toBe(2);
     expect(lot?.leading?.amount).toBe(raised);
+    // The raise handed the first hold back and took the new one: one lot holds once.
+    expect(capsOf(app, ana)).toBe(1_000_000 - raised);
+    expect(capsOf(app, bex)).toBe(1_000_000 - nextLotBid(line.price, line.price));
+  });
+
+  it('lets a raise spend the caps its own earlier bid is holding', async () => {
+    const app = await makeApp();
+    const day = aDayWhere(() => true);
+    const line = vendorStockFor(day)[0]!;
+    const now = duringVisit(day, 0);
+    const second = nextLotBid(line.price, line.price);
+    const raised = nextLotBid(line.price, second);
+    // Exactly the raise and no more: the first bid's hold has to come back for it to clear.
+    const ana = await signIn(app, 'ana', raised);
+    const bex = await signIn(app, 'bex');
+
+    expect(bid(app, ana, { lineId: line.id, amount: line.price, now })).toEqual({ kind: 'placed' });
+    bid(app, bex, { lineId: line.id, amount: second, now });
+    expect(capsOf(app, ana)).toBe(raised - line.price);
+    expect(bid(app, ana, { lineId: line.id, amount: raised, now })).toEqual({ kind: 'placed' });
+    expect(capsOf(app, ana)).toBe(0);
   });
 });
 
@@ -382,7 +421,7 @@ describe('the close', () => {
     expect(baseOf(app, bex).inventory[line.item as keyof Base['inventory']]).toBe(1);
     expect(capsOf(app, bex)).toBe(1_000_000 - winning);
     expect(baseOf(app, ana).inventory[line.item as keyof Base['inventory']] ?? 0).toBe(0);
-    expect(capsOf(app, ana), 'a losing bid took caps off the crew that made it').toBe(1_000_000);
+    expect(capsOf(app, ana), 'a losing bid kept the caps it held').toBe(1_000_000);
     // The city's counter moved, which is what makes a line one visit shorter.
     expect(app.repos.market.vendorSold(day, line.id)).toBe(1);
   });
@@ -493,7 +532,12 @@ describe('the close', () => {
     expect(bid(app, ana, { lineId: line.id, amount: ceiling, now })).toEqual({ kind: 'placed' });
   });
 
-  it('passes the lot down when the leading crew cannot cover their bid', async () => {
+  /**
+   * The bid paid for itself when it was placed (held bids, maintainer 2026-10-06), so a leader who
+   * spent the rest of their caps afterwards still takes the lot. Before, the close asked again
+   * whether they could pay and passed the lot down to the next crew.
+   */
+  it('gives the lot to the leader even after they spent everything else', async () => {
     const app = await makeApp();
     const ana = await signIn(app, 'ana');
     const bex = await signIn(app, 'bex');
@@ -504,102 +548,26 @@ describe('the close', () => {
 
     bid(app, ana, { lineId: line.id, amount: line.price, now });
     bid(app, bex, { lineId: line.id, amount: winning, now });
-    // Nothing is escrowed at the bid, so a crew can spend its way out of a lot it is leading.
-    app.repos.bases.updateResources(bex.baseId, { ...baseOf(app, bex).resources, caps: 1 });
-    settleVendorAuctions(app.repos, afterVisit(day, 0));
-
-    expect(baseOf(app, ana).inventory[line.item as keyof Base['inventory']]).toBe(1);
-    expect(capsOf(app, ana)).toBe(1_000_000 - line.price);
-    expect(baseOf(app, bex).inventory[line.item as keyof Base['inventory']] ?? 0).toBe(0);
-    expect(capsOf(app, bex), 'the crew that passed was charged anyway').toBe(1);
-
-    const results = latestLotResultsFor(app.repos, bex.userId, afterVisit(day, 0), DEFAULT_CITY_ID);
-    expect(results).toHaveLength(1);
-    expect(results[0]).toMatchObject({ outcome: 'passed', winner: 'ana', price: line.price });
-  });
-
-  /**
-   * Two crews over the winner and neither could pay. The second of them was told it lost, beside a
-   * price under its own bid (bug pass, 2026-09-29): passed is anybody the close walked past.
-   */
-  it('tells every crew the close walked past that it passed, not only the top one', async () => {
-    const app = await makeApp();
-    const ana = await signIn(app, 'ana');
-    const bex = await signIn(app, 'bex');
-    const cal = await signIn(app, 'cal');
-    const day = aDayWhere(() => true);
-    const line = vendorStockFor(day)[0]!;
-    const now = duringVisit(day, 0);
-    const second = nextLotBid(line.price, line.price);
-    const third = nextLotBid(line.price, second);
-
-    expect(bid(app, ana, { lineId: line.id, amount: line.price, now }).kind).toBe('placed');
-    expect(bid(app, bex, { lineId: line.id, amount: second, now }).kind).toBe('placed');
-    expect(bid(app, cal, { lineId: line.id, amount: third, now }).kind).toBe('placed');
-    for (const crew of [bex, cal]) {
-      app.repos.bases.updateResources(crew.baseId, { ...baseOf(app, crew).resources, caps: 0 });
-    }
+    app.repos.bases.updateResources(bex.baseId, { ...baseOf(app, bex).resources, caps: 0 });
     const closed = afterVisit(day, 0);
     settleVendorAuctions(app.repos, closed);
-
-    const outcome = (crew: Crew) =>
-      latestLotResultsFor(app.repos, crew.userId, closed, DEFAULT_CITY_ID)[0];
-    expect(outcome(ana)).toMatchObject({ outcome: 'won', winner: 'ana' });
-    expect(outcome(cal)).toMatchObject({ outcome: 'passed', winner: 'ana', yourBid: third });
-    expect(outcome(bex)).toMatchObject({ outcome: 'passed', winner: 'ana', yourBid: second });
-    // The bell as well: "went to ana" under a bid over ana's reads as a broken barrow.
-    for (const crew of [bex, cal]) {
-      const [told] = bells(app, crew, 'market_outbid');
-      expect(told?.title).toMatch(
-        new RegExp(
-          `^You could not take .+ at the close, so ana did at ${line.price.toLocaleString('en')} caps$`,
-        ),
-      );
-    }
-  });
-
-  /**
-   * The leading crew is settled before it is asked to pay (audit, 2026-09-28): caps its own
-   * ground made since it last looked are caps it has. Read raw, the lot went to the next bid down.
-   */
-  it('counts what the leading crew made since it last looked towards the charge', async () => {
-    const app = await makeApp();
-    const ana = await signIn(app, 'ana');
-    const bex = await signIn(app, 'bex');
-    const day = aDayWhere(() => true);
-    const line = vendorStockFor(day)[0]!;
-    const now = duringVisit(day, 0);
-    const close = afterVisit(day, 0);
-    const winning = nextLotBid(line.price, line.price);
-
-    bid(app, ana, { lineId: line.id, amount: line.price, now });
-    bid(app, bex, { lineId: line.id, amount: winning, now });
-    // Bex is broke on the row and holds a Market that has been paying caps into the till since.
-    const market = EVERY_LOCATION.find((location) => location.kind === 'market')!;
-    const control = app.repos.city.control(market.id)!;
-    app.repos.city.put({ ...control, holder: { kind: 'crew', baseId: bex.baseId }, garrison: {} });
-    const held = baseOf(app, bex);
-    app.repos.bases.updateResources(bex.baseId, { ...held.resources, caps: 0 });
-    const hours = Math.ceil(winning / 10) + 10;
-    app.repos.bases.updateEconomy(bex.baseId, {
-      ...held.economy,
-      productionSettledAt: new Date(close.getTime() - hours * 3_600_000).toISOString(),
-    });
-
-    settleVendorAuctions(app.repos, close);
 
     expect(baseOf(app, bex).inventory[line.item as keyof Base['inventory']]).toBe(1);
+    expect(capsOf(app, bex), 'the close charged the winner a second time').toBe(0);
     expect(baseOf(app, ana).inventory[line.item as keyof Base['inventory']] ?? 0).toBe(0);
+    expect(capsOf(app, ana)).toBe(1_000_000);
+    expect(latestLotResultsFor(app.repos, ana.userId, closed, DEFAULT_CITY_ID)[0]).toMatchObject({
+      outcome: 'lost',
+      winner: 'bex',
+      price: winning,
+    });
   });
 
   /**
-   * Nobody could pay, and the two crews are told two different things.
-   *
-   * `passed` and `unsold` are the same lot seen from two places: the crew that was top of the
-   * ranking could not cover its own bid, and the crew under it was never reached. Collapsing them
-   * into one word would tell the leader they were outbid by nobody.
+   * Nothing left on the line when he packs up: nobody takes it, and every hold goes back. The result
+   * row is still written, or the lot would settle again on every read for ever.
    */
-  it('records a lot nobody could pay for, and tells them it went unsold', async () => {
+  it('hands every hold back on a lot with nothing left to hand over', async () => {
     const app = await makeApp();
     const ana = await signIn(app, 'ana');
     const bex = await signIn(app, 'bex');
@@ -610,41 +578,17 @@ describe('the close', () => {
 
     bid(app, ana, { lineId: line.id, amount: line.price, now });
     bid(app, bex, { lineId: line.id, amount: winning, now });
-    for (const crew of [ana, bex]) {
-      app.repos.bases.updateResources(crew.baseId, { ...baseOf(app, crew).resources, caps: 0 });
-    }
-    const closed = afterVisit(day, 0);
-    settleVendorAuctions(app.repos, closed);
+    app.repos.market.recordVendorSale(day, line.id, line.stock, now.toISOString());
+    settleVendorAuctions(app.repos, afterVisit(day, 0));
 
-    const result = app.repos.vendorAuctions.results(day, 0)[0];
-    expect(
-      result,
-      'an unsold lot left no result row and would settle again for ever',
-    ).toBeDefined();
-    expect(result).toMatchObject({ winnerUserId: null, price: null, item: line.item });
-    expect(app.repos.market.vendorSold(day, line.id)).toBe(0);
-    expect(baseOf(app, ana).inventory[line.item as keyof Base['inventory']] ?? 0).toBe(0);
+    expect(app.repos.vendorAuctions.results(day, 0)[0]).toMatchObject({
+      winnerUserId: null,
+      price: null,
+      item: line.item,
+    });
+    expect(capsOf(app, ana)).toBe(1_000_000);
+    expect(capsOf(app, bex)).toBe(1_000_000);
     expect(baseOf(app, bex).inventory[line.item as keyof Base['inventory']] ?? 0).toBe(0);
-
-    // The bells say the two different things too (bug pass, 2026-09-29): bex led and could not pay.
-    const [unsold] = bells(app, ana, 'market_outbid');
-    expect(unsold?.title).toContain('went unsold');
-    const [passed] = bells(app, bex, 'market_outbid');
-    expect(passed?.title).toMatch(
-      /^You could not take .+ at the close, and nobody else could either$/,
-    );
-    expect(latestLotResultsFor(app.repos, bex.userId, closed, DEFAULT_CITY_ID)[0]).toMatchObject({
-      outcome: 'passed',
-      price: null,
-      winner: null,
-      yourBid: winning,
-    });
-    expect(latestLotResultsFor(app.repos, ana.userId, closed, DEFAULT_CITY_ID)[0]).toMatchObject({
-      outcome: 'unsold',
-      price: null,
-      winner: null,
-      yourBid: line.price,
-    });
   });
 
   it('settles a lot once, however many times it is asked to', async () => {
@@ -676,7 +620,8 @@ describe('the close', () => {
     settleVendorAuctions(app.repos, now);
 
     expect(app.repos.vendorAuctions.results(day, 0)).toEqual([]);
-    expect(capsOf(app, ana)).toBe(1_000_000);
+    // Held, not refunded: the visit is still on and the bid still stands.
+    expect(capsOf(app, ana)).toBe(1_000_000 - line.price);
   });
 
   it('takes a one-of-a-kind line off the barrow and leaves a spare one up again', async () => {
@@ -731,6 +676,7 @@ describe('the barrow over HTTP', () => {
     // A visit two days in the past, so it has certainly closed whatever hour the suite runs at.
     const day = new Date(Date.now() - 2 * 86_400_000).toISOString().slice(0, 10);
     const line = vendorStockFor(day)[0]!;
+    // A held bid as `placeVendorBid` leaves one: the row, and the caps already off the stockpile.
     app.repos.vendorAuctions.placeBid({
       day,
       session: 0,
@@ -738,7 +684,12 @@ describe('the barrow over HTTP', () => {
       userId: ana.userId,
       baseId: ana.baseId,
       amount: line.price,
+      held: line.price,
       at: duringVisit(day, 0).toISOString(),
+    });
+    app.repos.bases.updateResources(ana.baseId, {
+      ...baseOf(app, ana).resources,
+      caps: 1_000_000 - line.price,
     });
 
     const res = await app.inject({ method: 'GET', url: '/api/market', headers: auth(ana.token) });
@@ -791,7 +742,10 @@ describe('the barrow over HTTP', () => {
     const lot = after.vendor.stock.find((entry) => entry.line.id === offer.line.id)?.auction;
     expect(lot?.yourBid).toBe(offer.auction.nextBid);
     expect(lot?.leading?.yours).toBe(true);
-    expect(after.caps, 'a bid took caps before the close').toBe(view.caps);
+    // The answer is drawn after the hold, so the screen's caps drop on the press.
+    expect(after.caps).toBe(
+      view.caps - discountedCaps(offer.auction.nextBid, view.marketDiscountPercent),
+    );
     void now;
   });
 });

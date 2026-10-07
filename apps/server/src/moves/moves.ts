@@ -17,7 +17,6 @@ import {
   roadMinutes,
   samePlace,
   travelMinutesBetween,
-  unitsBeyondNotoriety,
   type Army,
   type Base,
   type Fleet,
@@ -391,60 +390,10 @@ export function sendMove(
   },
 ): SendMoveResult {
   const { base, from, to, now } = input;
-  const army: Army = Object.fromEntries(
-    Object.entries(input.army).filter(([, count]) => count > 0),
-  );
-  const vehicles: Fleet = Object.fromEntries(
-    Object.entries(input.vehicles).filter(([, count]) => (count ?? 0) > 0),
-  );
-  if (samePlace(from, to)) return { kind: 'refused', reason: 'same_place' };
-  if (armySize(army) === 0) return { kind: 'refused', reason: 'nobody_sent' };
-  // The streets are where the game walks a column home from, never where a player sends one.
-  if (to.kind === 'street') return { kind: 'refused', reason: 'no_road' };
-
-  const unheld = holdingsRefusal(repos, base, from, army, vehicles);
-  if (unheld) return { kind: 'refused', reason: unheld };
-  /*
-   * The last hour before a fight on the place this column leaves (`battle/lock.ts`): a location,
-   * the gate before a call on it, or the district before a raid (maintainer, 2026-09-28). It read
-   * only locations, so a crew could walk its whole gate garrison home a minute before the gate
-   * fight and meet the attacker with an empty door.
-   */
-  if (placeLocked(repos, base, from, now)) return { kind: 'refused', reason: 'garrison_locked' };
-
-  if (to.kind === 'location') {
-    const location = findLocation(to.locationId);
-    const control = location ? repos.city.control(location.id) : undefined;
-    if (!location || !control) return { kind: 'refused', reason: 'no_road' };
-    /*
-     * Saltmarch's plots have control rows like anybody's, and most of the Tidewalk is empty, so a
-     * column walked there claimed ground in a city no screen draws and opened its Bar, its mission
-     * board and its back room to the crew (bug pass, 2026-09-29). Only the way in is shut: a column
-     * already standing there may still walk home.
-     */
-    if (!cityIsOpen(findDistrict(location.districtId)?.cityId ?? '')) {
-      return { kind: 'refused', reason: 'city_closed' };
-    }
-    const allies = crewsInFactionWith(repos, base);
-    const holder = control.holder;
-    const welcome =
-      holder.kind === 'unoccupied' ||
-      (holder.kind === 'crew' && (holder.baseId === base.id || allies.has(holder.baseId)));
-    if (!welcome) return { kind: 'refused', reason: 'held_by_others' };
-    if (holder.kind === 'unoccupied' && fightCalledOn(repos, location.id)) {
-      return { kind: 'refused', reason: 'under_fire' };
-    }
-    // A garrison is a line, and a legend will not stand on it for a nobody (§D7).
-    const lineRules: LineRules = {
-      carriersFight: standingEffectsFor(repos, base).carriersFight,
-      unitMarks: {},
-    };
-    if (!isFightingForce(army, lineRules))
-      return { kind: 'refused', reason: 'not_a_fighting_force' };
-    if (unitsBeyondNotoriety(army, base.economy.notoriety).length > 0) {
-      return { kind: 'refused', reason: 'needs_infamy' };
-    }
-  }
+  const army = withoutEmpty(input.army);
+  const vehicles = withoutEmpty(input.vehicles);
+  const refusal = moveRefusal(repos, { base, from, to, army, vehicles, now });
+  if (refusal) return { kind: 'refused', reason: refusal };
 
   /*
    * The ride is taken only if one was asked for and one was on offer; otherwise the column walks,
@@ -482,6 +431,71 @@ export function sendMove(
   };
   repos.moves.insert(move);
   return { kind: 'sent', move, base: paid };
+}
+
+/** A count map with its zero rows dropped: what the send and the quote both judge. */
+export function withoutEmpty<T extends Record<string, number | undefined>>(counts: T): T {
+  return Object.fromEntries(Object.entries(counts).filter(([, count]) => (count ?? 0) > 0)) as T;
+}
+
+/**
+ * Why a column could not go, or null.
+ *
+ * One function for the send and the quote (bug pass, 2026-10-06). The quote checked only what
+ * the crew had at the source, so the dialog drew a time for a walk the send then refused: the
+ * same place, a shut city, ground somebody else holds. It answers with the send's own refusal now
+ * and the dialog keeps Send greyed with it.
+ */
+export function moveRefusal(
+  repos: Repositories,
+  input: { base: Base; from: MovePlace; to: MovePlace; army: Army; vehicles: Fleet; now: Date },
+): MoveRefusal | null {
+  const { base, from, to, army, vehicles, now } = input;
+  if (samePlace(from, to)) return 'same_place';
+  if (armySize(army) === 0) return 'nobody_sent';
+  // The streets are where the game walks a column home from, never where a player sends one.
+  if (to.kind === 'street') return 'no_road';
+
+  const unheld = holdingsRefusal(repos, base, from, army, vehicles);
+  if (unheld) return unheld;
+  /*
+   * The last hour before a fight on the place this column leaves (`battle/lock.ts`): a location,
+   * the gate before a call on it, or the district before a raid (maintainer, 2026-09-28). It read
+   * only locations, so a crew could walk its whole gate garrison home a minute before the gate
+   * fight and meet the attacker with an empty door.
+   */
+  if (placeLocked(repos, base, from, now)) return 'garrison_locked';
+
+  if (to.kind === 'location') {
+    const location = findLocation(to.locationId);
+    const control = location ? repos.city.control(location.id) : undefined;
+    if (!location || !control) return 'no_road';
+    /*
+     * A shut city's plots have control rows like anybody's, and some of them are empty, so a
+     * column walked there claimed ground in a city no screen draws and opened its Bar, its mission
+     * board and its back room to the crew (bug pass, 2026-09-29). Only the way in is shut: a column
+     * already standing there may still walk home.
+     */
+    if (!cityIsOpen(findDistrict(location.districtId)?.cityId ?? '')) {
+      return 'city_closed';
+    }
+    const allies = crewsInFactionWith(repos, base);
+    const holder = control.holder;
+    const welcome =
+      holder.kind === 'unoccupied' ||
+      (holder.kind === 'crew' && (holder.baseId === base.id || allies.has(holder.baseId)));
+    if (!welcome) return 'held_by_others';
+    if (holder.kind === 'unoccupied' && fightCalledOn(repos, location.id)) {
+      return 'under_fire';
+    }
+    // A garrison is a line: scavengers do not hold ground.
+    const lineRules: LineRules = {
+      carriersFight: standingEffectsFor(repos, base).carriersFight,
+      unitMarks: {},
+    };
+    if (!isFightingForce(army, lineRules)) return 'not_a_fighting_force';
+  }
+  return null;
 }
 
 /** Lift the column off its source. */
@@ -542,7 +556,13 @@ function landAt(repos: Repositories, base: Base, to: MovePlace, army: Army, now:
       }
       // Claimed on arrival, unless a fight was called on it while the column walked: then they
       // turn round and come home, the way a column to ground nobody will have them on does.
-      if (control.holder.kind === 'unoccupied' && !fightCalledOn(repos, to.locationId)) {
+      // Never in a shut city (bug pass, 2026-10-06): the send refuses one, but a column recalled
+      // on its walk home from ground the closed-city sweep handed back lands where it started.
+      if (
+        control.holder.kind === 'unoccupied' &&
+        !fightCalledOn(repos, to.locationId) &&
+        cityIsOpen(findDistrict(findLocation(to.locationId)?.districtId ?? '')?.cityId ?? '')
+      ) {
         // Claimed on arrival: no fight, the level as it stands. `putControl` settles the crew's
         // production first, so the ground pays from the moment they stood on it and not before.
         putControl(
@@ -648,7 +668,13 @@ function returnVehicles(repos: Repositories, base: Base, vehicles: Fleet): void 
 /** Every column whose mark has passed lands where it was going, or back where it came from. */
 export function settleMoves(repos: Repositories, now: Date): number {
   const due = repos.moves.due(now.toISOString());
-  return settleEach(
+  /*
+   * Columns held back behind a fight still to run are not moves (bug pass, 2026-10-06): `settleEach`
+   * counts every row that does not throw, so a held column read as one that landed and fired a
+   * world broadcast on every tick it waited.
+   */
+  let held = 0;
+  const settled = settleEach(
     repos,
     'moves',
     due,
@@ -688,7 +714,10 @@ export function settleMoves(repos: Repositories, now: Date): number {
        * down this same tick and the column lands on whatever the fight left, on the next one.
        * The twin of the check `settleMovements` makes for a column walking to a fight.
        */
-      if (armySize(move.army) > 0 && fightDueBefore(repos, base, landed, move.arrivesAt)) return;
+      if (armySize(move.army) > 0 && fightDueBefore(repos, base, landed, move.arrivesAt)) {
+        held += 1;
+        return;
+      }
       repos.moves.markSettled(move.id, now.toISOString());
       landAt(repos, base, landed, move.army, now);
       driveVehiclesHome(repos, repos.bases.findById(base.id) ?? base, move, landed, now);
@@ -697,6 +726,7 @@ export function settleMoves(repos: Repositories, now: Date): number {
       if (move.byRail === true && landed === move.to) tallyRailJourney(repos, base.id);
     },
   );
+  return settled - held;
 }
 
 /** Whether a fight still to be run on this place had its mark before `arrivesAt`. */

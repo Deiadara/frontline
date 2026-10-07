@@ -41,14 +41,14 @@ import { PageShell, ScreenLoadSheet } from '../game/PageShell';
 import { useServerClock } from '../missions/useServerClock';
 import { signOut } from '../../lib/api';
 import { ErrorNote } from '../../components/ui/ErrorNote';
+import { PressError } from '../../components/ui/PressError';
 
 /**
  * The player's own file.
  *
  * Four panels, and they are four panels because they are four different transactions: who you are
  * to other people, what clock you read the game in, how loud it is, and the credential you log in
- * with. Folding them into one form with one Save would mean either asking for a password to
- * change an icon, or accepting a password change without asking for the old one.
+ * with. Folding them into one form with one Save would send a password with every icon change.
  *
  * Each panel says what it did and stops there. A settings screen that navigates away on success is
  * a settings screen that makes you go back to check.
@@ -97,7 +97,7 @@ const INPUT_BAD = 'shadow-[0_0_0_1px_rgb(154_58_58_/_0.75)]';
 /** A short line under a form that says what just happened. Green for done, red for refused. */
 function Result({ error, done }: { error: Error | null; done: string | null }) {
   if (error) {
-    return <ErrorNote>{error.message}</ErrorNote>;
+    return <PressError>{error.message}</PressError>;
   }
   if (done !== null) {
     return (

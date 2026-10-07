@@ -88,5 +88,8 @@ export function offerOfMission(
     payoutSlots: Math.round(payoutSlots(rewards, RESOURCE_KG)),
     ...offerXp(xp, xpBonusPercent),
     leanings: [...leaningsFor(template)],
+    // The Bounty Wall's gold is frozen on the run at launch; the card of a run out carries it back.
+    golden: (mission.goldenPercent ?? 0) > 0,
+    goldenPercent: mission.goldenPercent ?? 0,
   };
 }

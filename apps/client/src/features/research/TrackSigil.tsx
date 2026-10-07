@@ -1,3 +1,4 @@
+import { useId } from 'react';
 import { OFFICER_ROLE_LABELS, type OfficerRole } from '@frontline/shared';
 import { cn } from '../../lib/cn';
 
@@ -91,6 +92,9 @@ export function TrackSigil({
   /** The roundel around the glyph. Dropped where the tile already draws a frame of its own. */
   ringed?: boolean;
 }) {
+  // One filter per instance (bug pass, 2026-10-06): a fixed id repeated on every copy is a
+  // duplicate in the document, and each copy resolves to whichever was mounted first.
+  const ink = `track-ink-${useId().replace(/:/g, '')}`;
   return (
     <svg
       viewBox="0 0 100 100"
@@ -100,7 +104,7 @@ export function TrackSigil({
     >
       <defs>
         {/* The same pad-and-paper roughening the officer mark uses, so the two read as one hand. */}
-        <filter id="track-ink" x="-25%" y="-25%" width="150%" height="150%">
+        <filter id={ink} x="-25%" y="-25%" width="150%" height="150%">
           <feTurbulence type="fractalNoise" baseFrequency="0.85" numOctaves="3" seed="11" />
           <feDisplacementMap
             in="SourceGraphic"
@@ -111,7 +115,7 @@ export function TrackSigil({
         </filter>
       </defs>
       <g
-        filter="url(#track-ink)"
+        filter={`url(#${ink})`}
         fill="none"
         stroke="currentColor"
         strokeLinecap="round"

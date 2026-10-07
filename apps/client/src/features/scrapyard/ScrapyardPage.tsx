@@ -22,6 +22,7 @@ import {
   SCRAPYARD_LEVEL_FOR_RARITY,
   nextScrapyardUnlock,
   scrapyardUnlockLadder,
+  type AddonKind,
   type Base,
   type BuildingKind,
   type ItemId,
@@ -58,7 +59,7 @@ import { BENCH_BOARD, BENCH_TRAY, SLOT_WELL } from './template';
 import { ItemWindow } from '../market/MarketPage';
 import { RARITY_TEXT, RarityTag } from './rarity';
 import { YardGlyph, YardPlate, type YardMark } from './YardGlyph';
-import { ErrorNote } from '../../components/ui/ErrorNote';
+import { PressError } from '../../components/ui/PressError';
 
 /**
  * The Scrapyard (§B9, §E1 to §E4, §I3b; reworked at the maintainer's request, 2026-09-10).
@@ -312,7 +313,13 @@ export function ScrapyardPage() {
    * pick the Gauntlet, look at Refits, come back, and you were on the Nexus. A rail of eleven
    * doors is exactly the place not to lose which one was open.
    */
-  const setView = (id: ViewId) =>
+  const setView = (id: ViewId) => {
+    // A refusal belongs to the bench it happened on (bug pass, 2026-10-06): it used to follow the
+    // player to every other tab until the next press anywhere.
+    build.reset();
+    burn.reset();
+    clear.reset();
+    setLostSlot(false);
     setParams(
       {
         ...(id === 'modifications' ? {} : { view: id }),
@@ -321,6 +328,7 @@ export function ScrapyardPage() {
       },
       { replace: true },
     );
+  };
   const setStructure = (kind: BuildingKind) =>
     setParams(
       {
@@ -387,7 +395,27 @@ export function ScrapyardPage() {
   const target = view === 'modifications' ? structure : view === 'refits' ? openUnit : null;
   const shown = (entries: readonly ScrapyardEntry[], on: string | null = target) =>
     readyOnly ? entries.filter((entry) => buildable(entry, on)) : entries;
-  const ready = readyIn(held(data.entries), target);
+  // This bench's cards only (bug pass, 2026-10-06): traps are ready whatever the target, so they
+  // swelled the badge on the other two benches past what the filter then listed.
+  const ready = readyIn(
+    held(data.entries).filter((entry) =>
+      view === 'modifications'
+        ? entry.kind === 'modification'
+        : view === 'refits'
+          ? entry.kind === 'upgrade'
+          : entry.kind === 'trap',
+    ),
+    target,
+  );
+  /*
+   * Any write to the yard in flight, and every press waits on it (bug pass, 2026-10-06). A dismantle
+   * names its bracket by position, read off the last `/me`, and the server closes the gap behind
+   * one it takes out: a second dismantle sent before the first came back named the card after it,
+   * and destroyed that one.
+   */
+  const writing = build.isPending || clear.isPending || burn.isPending;
+  // The card being cut, so one press does not say "Cutting..." on every card on the bench.
+  const cutting = build.isPending ? (build.variables?.id ?? null) : null;
   const base = me.data?.base ?? null;
 
   /*
@@ -414,11 +442,12 @@ export function ScrapyardPage() {
   const dismantle = ({ entry, target }: { entry: ScrapyardEntry; target: string }): void => {
     if (entry.kind === 'upgrade') {
       // The unit the bench is open on: the same card may be on other sheets, each paid for.
+      setLostSlot(false);
       burn.mutate({ unitId: target, upgradeId: entry.id });
     } else {
       const slot = slotOf(entry);
       setLostSlot(slot < 0);
-      if (slot >= 0) clear.mutate({ building: structure, slot });
+      if (slot >= 0) clear.mutate({ building: structure, slot, modification: entry.id });
     }
     setAsking(null);
   };
@@ -586,16 +615,16 @@ export function ScrapyardPage() {
         </div>
       </div>
 
-      {build.error !== null && <ErrorNote className="shrink-0">{build.error.message}</ErrorNote>}
+      {build.error && <PressError onDismiss={build.reset}>{build.error.message}</PressError>}
       {/* A dismantle the server refused, or one whose bracket this screen could not find: the
           confirm closes at once, so without these the press looked taken and nothing happened. */}
       {(burn.error ?? clear.error) && (
-        <ErrorNote className="shrink-0">{(burn.error ?? clear.error)?.message}</ErrorNote>
+        <PressError>{(burn.error ?? clear.error)?.message}</PressError>
       )}
       {lostSlot && (
-        <ErrorNote className="shrink-0">
+        <PressError>
           That card is not in a bracket any more. The yard has moved on; look again.
-        </ErrorNote>
+        </PressError>
       )}
 
       <div className="min-h-0 flex-1" data-testid="scrapyard-workspace">
@@ -610,21 +639,27 @@ export function ScrapyardPage() {
             onStructure={setStructure}
             readyOnly={readyOnly}
             stock={data.resources}
-            pending={build.isPending}
+            pending={writing}
+            cutting={cutting}
             onBuild={(entry) => setAsking({ entry, target: structure, act: 'bolt' })}
             onDismantle={(entry) => setAsking({ entry, target: structure, act: 'dismantle' })}
           />
         )}
         {view === 'refits' && (
           <UnitBench
-            entries={shown(entriesOf('upgrade'), openUnit)}
+            // Unfiltered: the rail's counts are every card's, and the bench filters its own tray
+            // (bug pass, 2026-10-06). Handed the filtered list, the open unit's door read "0 of 3
+            // worn" and every other door counted cards ready for a different unit.
+            entries={entriesOf('upgrade')}
+            readyOnly={readyOnly}
             heldCount={entriesOf('upgrade').length}
             keptBack={keptBack('upgrade')}
             rail={unitRail}
             unitId={openUnit}
             onUnit={setUnit}
             stock={data.resources}
-            pending={build.isPending}
+            pending={writing}
+            cutting={cutting}
             onBuild={(entry) => setAsking({ entry, target: openUnit ?? '', act: 'bolt' })}
             onDismantle={(entry) => setAsking({ entry, target: openUnit ?? '', act: 'dismantle' })}
           />
@@ -635,7 +670,8 @@ export function ScrapyardPage() {
             heldCount={entriesOf('trap').length}
             keptBack={keptBack('trap')}
             stock={data.resources}
-            pending={build.isPending}
+            pending={writing}
+            cutting={cutting}
             onBuild={onBuild}
           />
         )}
@@ -781,6 +817,7 @@ function ModificationsBench({
   readyOnly,
   stock,
   pending,
+  cutting,
   onBuild,
   onDismantle,
 }: {
@@ -793,6 +830,8 @@ function ModificationsBench({
   readyOnly: boolean;
   stock: Resources;
   pending: boolean;
+  /** The card the yard is cutting right now, which alone reads "Cutting...". */
+  cutting: string | null;
   onBuild: (entry: ScrapyardEntry) => void;
   onDismantle: (entry: ScrapyardEntry) => void;
 }) {
@@ -881,6 +920,7 @@ function ModificationsBench({
                 target={targetOf(entry, structure)}
                 stock={stock}
                 pending={pending}
+                cutting={cutting}
                 onBuild={() => onBuild(entry)}
                 onDismantle={() => onDismantle(entry)}
                 // How many other structures are already wearing one, which is the fact a player
@@ -1102,8 +1142,10 @@ function UnitBench({
   rail,
   unitId,
   onUnit,
+  readyOnly,
   stock,
   pending,
+  cutting,
   onBuild,
   onDismantle,
 }: {
@@ -1116,8 +1158,12 @@ function UnitBench({
   /** The one the bench is open on, or null when the catalogue fits nothing at all. */
   unitId: string | null;
   onUnit: (unitId: string) => void;
+  /** Only the cards the yard would cut for the open unit, in the tray; the rail counts them all. */
+  readyOnly: boolean;
   stock: Resources;
   pending: boolean;
+  /** The card the yard is cutting right now, which alone reads "Cutting...". */
+  cutting: string | null;
   onBuild: (entry: ScrapyardEntry) => void;
   onDismantle: (entry: ScrapyardEntry) => void;
 }) {
@@ -1131,7 +1177,10 @@ function UnitBench({
    */
   const forUnit = (one: string) =>
     entries.filter((entry) => entry.targets.some((target) => target.id === one));
-  const chosen = unitId === null ? [] : forUnit(unitId);
+  const chosen =
+    unitId === null
+      ? []
+      : forUnit(unitId).filter((entry) => !readyOnly || buildable(entry, unitId));
 
   /*
    * The roster, for the card a door shows on hover.
@@ -1202,6 +1251,7 @@ function UnitBench({
                 target={targetOf(entry, unitId)}
                 stock={stock}
                 pending={pending}
+                cutting={cutting}
                 onBuild={() => onBuild(entry)}
                 onDismantle={() => onDismantle(entry)}
                 ownedLabel={entry.owned > 1 ? `On ${entry.owned} sheets` : null}
@@ -1433,6 +1483,7 @@ function TrapsBench({
   keptBack,
   stock,
   pending,
+  cutting,
   onBuild,
 }: {
   entries: readonly ScrapyardEntry[];
@@ -1441,6 +1492,8 @@ function TrapsBench({
   keptBack: number;
   stock: Resources;
   pending: boolean;
+  /** The card the yard is cutting right now, which alone reads "Cutting...". */
+  cutting: string | null;
   onBuild: (entry: ScrapyardEntry) => void;
 }) {
   return (
@@ -1486,6 +1539,7 @@ function TrapsBench({
                 target={null}
                 stock={stock}
                 pending={pending}
+                cutting={cutting}
                 onBuild={() => onBuild(entry)}
                 onDismantle={() => undefined}
                 ownedLabel={null}
@@ -1581,10 +1635,25 @@ function Stamp({
  * same thing in the same place, so a player comparing two of them is comparing the contents rather
  * than hunting for where the price went.
  *
- * `minmax(reserve, auto)` is a floor, not a clamp. The reserve is what the region needs in the
- * usual case at 1280, which is the narrowest column the game is drawn at; a bill that wraps to a
- * second line still gets its second line rather than being cut off, and `BENCH_TRAY` carries that
- * extra height to every other card on the bench.
+ * `minmax(reserve, auto)` is a floor, not a clamp. The reserve is what the region needs at 1280,
+ * which is the narrowest column the game is drawn at; a bill that wraps to a second line still
+ * gets its second line rather than being cut off, and `BENCH_TRAY` carries that extra height to
+ * every other card on the bench.
+ *
+ * The bill and the requirements are reserved at their fullest, not their usual, case (bug pass,
+ * 2026-10-06). `BENCH_TRAY` cuts every card to the tallest one on the bench, and **Ready to
+ * build** takes cards off the bench: with the two rows reserved for a one-line bill and a one-line
+ * requirement, hiding the ADVANCED cards (a blueprint plus four gates, five lines) re-cut every
+ * card that stayed by 35px on the structures bench and 45px on the unit bench, so the whole sheet
+ * jumped on a press of the filter. A bill is a cost line plus a line of parts (5rem) on the unit
+ * bench, and a requirement list is at most five lines of 11px text (5.25rem); a card is the same
+ * height whoever else is on the bench once both rows hold that much.
+ *
+ * Only the unit bench has a parts line. A modification's or a trap's bill is the cost line alone,
+ * and reserving the parts line under it left three rems of air between the scrap and the
+ * requirements on every card of the structures bench (maintainer, 2026-10-07: "about half as
+ * much"). Those benches reserve a cost line and half the old slack instead; every card on a bench
+ * is of one kind, so the fence stays level.
  *
  * `content-start` with a `1fr` last track is what decides where the slack goes. Left at the default
  * the grid stretched every `auto` track a little, which put the same six regions at six slightly
@@ -1592,8 +1661,13 @@ function Stamp({
  * in it than on the trap with three. Pinned to the start, each region is exactly its reserve or
  * exactly its content, and all of the slack lands in the footer track under the button.
  */
-const CARD_ROWS =
-  '[grid-template-rows:minmax(3rem,auto)_minmax(2.25rem,auto)_minmax(3.25rem,auto)_minmax(3.25rem,auto)_minmax(1.25rem,auto)_minmax(2.4375rem,1fr)] content-start';
+const CARD_ROWS: Record<AddonKind, string> = {
+  upgrade:
+    '[grid-template-rows:minmax(3rem,auto)_minmax(2.25rem,auto)_minmax(3.25rem,auto)_minmax(5rem,auto)_minmax(5.25rem,auto)_minmax(2.4375rem,1fr)] content-start',
+  modification:
+    '[grid-template-rows:minmax(3rem,auto)_minmax(2.25rem,auto)_minmax(3.25rem,auto)_minmax(3.5rem,auto)_minmax(5.25rem,auto)_minmax(2.4375rem,1fr)] content-start',
+  trap: '[grid-template-rows:minmax(3rem,auto)_minmax(2.25rem,auto)_minmax(3.25rem,auto)_minmax(3.5rem,auto)_minmax(5.25rem,auto)_minmax(2.4375rem,1fr)] content-start',
+};
 
 /**
  * One entry on any bench: the mark, what it is, what it does, what it costs, and the one control.
@@ -1606,6 +1680,7 @@ function EntryCard({
   target,
   stock,
   pending,
+  cutting,
   onBuild,
   onDismantle,
   ownedLabel,
@@ -1620,7 +1695,10 @@ function EntryCard({
    */
   target: TargetRow | null;
   stock: Resources;
+  /** Any write to the yard in flight: every press waits, a dismantle included (see the page). */
   pending: boolean;
+  /** The card being cut, which alone says so. */
+  cutting: string | null;
   onBuild: () => void;
   onDismantle: () => void;
   /** What owning one reads as on this bench: "Built", "Cut ×2". Traps count on the mark instead. */
@@ -1646,7 +1724,7 @@ function EntryCard({
       data-testid={`addon-${entry.id}`}
       className={cn(
         'relative grid h-full min-w-0 gap-1.5 rounded-sm border p-3 transition-colors',
-        CARD_ROWS,
+        CARD_ROWS[entry.kind],
         SLOT_WELL,
         fitted || owned
           ? 'border-bile-300/50'
@@ -1772,7 +1850,7 @@ function EntryCard({
               data-testid={`addon-build-${entry.id}`}
               onClick={onBuild}
             >
-              {pending
+              {cutting === entry.id
                 ? 'Cutting…'
                 : entry.kind === 'trap'
                   ? 'Put one together'

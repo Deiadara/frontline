@@ -52,6 +52,8 @@ const units: UnitsResponse = {
   musterCostReduction: 0,
   musterSpeedBonus: 0,
   built: [],
+  ignoredLabels: [],
+  antiCombineLevels: 0,
 };
 
 /** The same crew with porters on the roster, for the two cases below. */

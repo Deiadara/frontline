@@ -37,9 +37,10 @@ import { alignmentReader } from '../battle/alignment.js';
 import { defendingBaseOf } from '../battle/ground.js';
 import { REFUSAL_MESSAGES } from '../battle/routes.js';
 import { settleBase } from '../district/settle.js';
-import { bringPostedUnitsHome } from '../factions/unpost.js';
+import { cutFactionTies } from '../factions/ties.js';
 import { leaveFaction } from '../factions/leave.js';
 import { requireAreaFor } from '../progression/doors.js';
+import { logHelpSent } from '../factions/log.js';
 
 /**
  * Factions (maintainer request): the team a player belongs to.
@@ -337,16 +338,17 @@ export function registerFactionRoutes(app: FastifyInstance): void {
         const held = membership(userId);
         if (!canAdminister(held.rank)) refuse('not_allowed');
 
+        const now = new Date();
         notifyFaction(app.repos, held.factionId, {
           kind: 'faction_left',
           title: `${displayNameOf(request.currentUser)} disbanded the faction`,
           body: 'The faction they led is gone.',
           link: '/game/faction',
-          at: new Date(),
+          at: now,
           exceptUserId: userId,
         });
         const everyone = app.repos.factions.members(held.factionId).map((row) => row.userId);
-        bringPostedUnitsHome(app.repos, everyone, everyone);
+        cutFactionTies(app.repos, everyone, everyone, now);
         app.repos.factions.disband(held.factionId);
         return answer(userId);
       })();
@@ -375,13 +377,14 @@ export function registerFactionRoutes(app: FastifyInstance): void {
             // One question, two ranks, answered in the domain: a chief may remove a member and
             // nobody else, and nobody removes the leader. See `canKick`.
             if (!canKick(held.rank, target.rank)) refuse('not_allowed');
-            bringPostedUnitsHome(
+            cutFactionTies(
               app.repos,
               [targetId],
               app.repos.factions
                 .members(held.factionId)
                 .map((row) => row.userId)
                 .filter((id) => id !== targetId),
+              now,
             );
             app.repos.factions.removeMember(targetId);
             /*
@@ -514,6 +517,11 @@ export function registerFactionRoutes(app: FastifyInstance): void {
     (request): FactionMutationResponse => {
       const { battleId, army } = parseBody(ReinforceRequestSchema, request.body);
       const userId = request.currentUser.id;
+      // Nobody sent is not help (bug pass, 2026-10-06): an empty army wrote an empty row, put the
+      // caller on the fight's side and told the ally "help is coming" with nothing on the road.
+      if (Object.values(army).every((count) => (count ?? 0) <= 0)) {
+        throw new AppError('VALIDATION_ERROR', 'Send at least one unit');
+      }
 
       return app.db.transaction(() => {
         // Only a crew at a table sends help; which side is read off the table below.
@@ -551,10 +559,13 @@ export function registerFactionRoutes(app: FastifyInstance): void {
           changes: army,
           perimeterChanges: {},
           now,
+          // Testing mode's five-second roads, as every other column gets (bug pass, 2026-10-06).
+          admin: app.config.admin,
         });
         if (result.kind === 'refused') {
           throw new AppError('BATTLE_REFUSED', REFUSAL_MESSAGES[result.reason]);
         }
+        logHelpSent(app.repos, { battle, sender: settled, side, army, now });
 
         /*
          * The ally hears about it, because a column arriving is a fact about *their* fight.

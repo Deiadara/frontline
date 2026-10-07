@@ -22,23 +22,33 @@ import { ErrorNote } from '../../components/ui/ErrorNote';
  *
  * ## Where the names come from
  *
- * The same board the standings draw, which is every crew in the city, so what this field can see
- * is exactly what the standings search can see. The writer's own name is left out: the server
- * refuses a letter to yourself and there is no reason to offer the choice.
+ * The server, asked as the reader types (`usePlayerLookup`; maintainer, 2026-10-06), out of every
+ * player in the game. It used to be the standings board, which stops at the top hundred, so the
+ * exact name of anybody ranked lower read as "no such player". `entries` is the latest answer, and
+ * it is filtered here against what is typed now, so an answer to the text a key ago never offers a
+ * name the field no longer matches. The writer's own name is left out: the server refuses a letter
+ * to yourself and there is no reason to offer the choice.
  *
  * ## A name that matches nobody
  *
  * Said here, under the field, while the reader is still typing: `no_such_player` in the server's
- * own words. It used to be the server's answer to the finished letter, drawn on the page behind
- * the composer where the reader was not looking.
+ * own words. Not while an answer is still on its way, or every name would read as nobody for a
+ * moment. Drawn where the list drops down, over the page rather than in it, so nothing below moves.
  */
 export function RecipientPicker({
   entries,
+  searching = false,
+  onQueryChange,
   exclude,
   chosen,
   onChange,
 }: {
+  /** The lookup's latest answer to what is typed. */
   entries: readonly PlayerStanding[];
+  /** A lookup for the text in the field is still on its way. */
+  searching?: boolean;
+  /** Told what is typed, so the page can ask the server. */
+  onQueryChange?: (query: string) => void;
   /** The writer's own name, never offered. */
   exclude: string | null;
   chosen: readonly string[];
@@ -54,7 +64,7 @@ export function RecipientPicker({
   const offered = entries.filter((entry) => entry.username !== exclude);
   const suggestions = suggestPlayers(offered, query, 6);
   const open = !shut && suggestions.length > 0;
-  const nobody = query.trim() !== '' && suggestions.length === 0;
+  const nobody = query.trim() !== '' && !searching && suggestions.length === 0;
   const full = chosen.length >= MESSAGE_RECIPIENTS_MAX;
 
   // A press anywhere else puts the list away; a press inside keeps it, so several names can be
@@ -76,6 +86,7 @@ export function RecipientPicker({
     setQuery(next);
     setActive(0);
     setShut(false);
+    onQueryChange?.(next);
   };
 
   const toggle = (username: string) => {
@@ -173,9 +184,11 @@ export function RecipientPicker({
       </div>
 
       {nobody && (
-        <ErrorNote data-testid="recipient-no-match">
-          {MESSAGE_REFUSAL_TEXT.no_such_player}
-        </ErrorNote>
+        <div className="absolute left-0 top-full z-20 mt-1">
+          <ErrorNote data-testid="recipient-no-match" backdrop>
+            {MESSAGE_REFUSAL_TEXT.no_such_player}
+          </ErrorNote>
+        </div>
       )}
       {full && (
         <p data-testid="recipient-full" className="font-body text-[12px] text-ink-400">

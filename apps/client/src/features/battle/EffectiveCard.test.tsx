@@ -105,4 +105,24 @@ describe('Last Stand on the card', () => {
     expect(double).toBeGreaterThan(even);
     expect(even).toBe(offense(wardensAgainst(20)));
   });
+
+  /*
+   * Bug pass, 2026-10-06: the engine weighs the line, which is the deployment and whoever stands
+   * on the ground with it, and keeps the ring apart. The card counted the ring in and the garrison
+   * out.
+   */
+  it('leaves the ring out of the count and puts the ground’s own garrison in it', () => {
+    const outnumbered = offense(wardensAgainst(80));
+    const even = offense(wardensAgainst(40));
+    const withRing: BattleView = {
+      ...wardensAgainst(80),
+      muster: { army: { wardens: 20 }, perimeter: { wardens: 40 }, size: 60 },
+    };
+    expect(offense(withRing)).toBe(outnumbered);
+    const heldByGarrison: BattleView = {
+      ...wardensAgainst(80),
+      muster: { army: { wardens: 20 }, perimeter: {}, size: 20, standing: { wardens: 20 } },
+    };
+    expect(offense(heldByGarrison)).toBe(even);
+  });
 });

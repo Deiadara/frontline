@@ -1,4 +1,10 @@
-import { canOpenLot, formatClock, nextLotBid, type LotAuction } from '@frontline/shared';
+import {
+  canOpenLot,
+  formatClock,
+  largestBidWithin,
+  nextLotBid,
+  type LotAuction,
+} from '@frontline/shared';
 import { useEffect, useState } from 'react';
 import { ResourceIcon } from '../../components/Resources';
 import { Button } from '../../components/ui/Button';
@@ -7,7 +13,7 @@ import { NumberField } from '../../components/ui/NumberField';
 import { YouPay } from '../../components/ui/YouPay';
 import { cn } from '../../lib/cn';
 import { countdownText, LAST_CALL_MS } from '../bar/AuctionParts';
-import { ErrorNote } from '../../components/ui/ErrorNote';
+import { PressError } from '../../components/ui/PressError';
 
 /**
  * The furniture a lot's bidding screen is made of (maintainer, 2026-09-17).
@@ -178,7 +184,7 @@ export function LotStanding({
           className="font-display text-[34px] font-bold leading-none tabular-nums text-brass-100"
           data-testid="lot-leading"
         >
-          {(auction.leading?.amount ?? auction.reserve).toLocaleString()}
+          {(auction.leading?.amount ?? auction.reserve).toLocaleString('en-US')}
         </span>
       </span>
       <span className="min-w-0 truncate font-body text-[12px] leading-snug text-ink-200">
@@ -229,7 +235,7 @@ export function LotHistory({ auction, zone }: { auction: LotAuction; zone: strin
                 {bid.yours ? 'You' : bid.username}
               </span>
               <span className="shrink-0 font-display text-[13px] font-bold tabular-nums text-ink-100">
-                {bid.amount.toLocaleString()}
+                {bid.amount.toLocaleString('en-US')}
               </span>
               <span className="w-10 shrink-0 text-right font-body text-[11px] tabular-nums text-ink-400">
                 {formatClock(new Date(bid.at), zone)}
@@ -264,7 +270,11 @@ export function LotBidPanel({
 }: {
   auction: LotAuction;
   name: string;
-  /** What the crew has to spend. A bid it cannot cover is warned about here and refused there. */
+  /**
+   * What the crew has to spend, off its stock now. A bid it cannot cover is warned about here and
+   * refused there. Its own bid on this lot is holding more (held bids, 2026-10-06), which a raise
+   * hands back first: the panel adds that itself.
+   */
   purse: number;
   /**
    * The most the table takes from this crew, which is past the purse when the crew's own standing
@@ -278,8 +288,8 @@ export function LotBidPanel({
   error: Error | null;
   /**
    * What to say when the figure is past what the crew can bid. Each counter names its own purse.
-   * Handed the ceiling as well: past the purse it is the crew's own discount doing the talking, and
-   * "he will want the whole figure" is then false.
+   * Handed the purse with this crew's hold on the lot added back, and the ceiling: past that purse
+   * it is the crew's own discount doing the talking.
    */
   shortMessage: (purse: number, most: number) => string;
   /** {@link pastLotCap}: the crew already has money on every lot it may hold here. */
@@ -306,12 +316,27 @@ export function LotBidPanel({
       : atLotCap
         ? 'You have money on every lot you can hold. Let one close first.'
         : null;
-  const most = bidCeiling ?? purse;
+  /*
+   * A raise hands this crew's own hold on the lot back before it takes the new one, so what it can
+   * spend here is the stock plus that hold. The hold is read as the current discount would price
+   * the standing bid; the server keeps the exact figure and is the authority if the two differ.
+   */
+  const holding = auction.yourBid === null ? 0 : (payFor?.(auction.yourBid) ?? auction.yourBid);
+  const spendable = purse + holding;
+  const most =
+    holding > 0 ? largestBidWithin(spendable, payFor ?? ((bid) => bid)) : (bidCeiling ?? purse);
   const short = amount > most;
   const stepFrom = (value: number) => Math.max(1, nextLotBid(auction.reserve, value) - value);
   // Never past the field's own ceiling: a button that types a figure the field refuses is a
   // button that does nothing visible.
   const ceiling = Math.max(auction.nextBid, most, auction.reserve);
+  const placeRefusal = short
+    ? shortMessage(spendable, most)
+    : amount < auction.nextBid
+      ? auction.leading === null
+        ? `He will not take under ${auction.reserve.toLocaleString('en-US')}.`
+        : `Somebody is at ${auction.leading.amount.toLocaleString('en-US')}. You need at least ${auction.nextBid.toLocaleString('en-US')}.`
+      : null;
   const raiseBy = (percent: number) => () =>
     setAmount((current) => Math.min(ceiling, Math.ceil(current * (1 + percent / 100))));
 
@@ -356,8 +381,11 @@ export function LotBidPanel({
           </Button>
         ))}
       </div>
+      {/* Short, or under what the lot needs: greyed with the reason on hover rather than a line
+          that appeared under the button as the figure was typed (maintainer, 2026-10-06). */}
       <Button
-        disabled={refusal !== null || short || pending}
+        disabled={refusal !== null || pending}
+        refusal={refusal === null ? placeRefusal : null}
         onClick={() => onPlace(amount)}
         data-testid="lot-place"
       >
@@ -371,22 +399,7 @@ export function LotBidPanel({
           {refusal}
         </p>
       )}
-      {refusal === null && short && (
-        <p
-          className="font-body text-[12px] leading-relaxed text-oxblood-300"
-          data-testid="lot-refusal"
-        >
-          {shortMessage(purse, most)}
-        </p>
-      )}
-      {refusal === null && !short && amount < auction.nextBid && (
-        <p className="font-body text-[12px] leading-relaxed text-brass-100" data-testid="lot-under">
-          {auction.leading === null
-            ? `He will not take under ${auction.reserve.toLocaleString()}.`
-            : `Somebody is at ${auction.leading.amount.toLocaleString()}. You need at least ${auction.nextBid.toLocaleString()}.`}
-        </p>
-      )}
-      {error !== null && <ErrorNote>{error.message}</ErrorNote>}
+      {error !== null && <PressError>{error.message}</PressError>}
     </div>
   );
 }

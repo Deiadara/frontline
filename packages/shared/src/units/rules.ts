@@ -70,6 +70,11 @@ export const UNIT_RULES = {
     description:
       'While it stands and has not broken, nobody else on its side drops below wavering: nobody beside it runs.',
   },
+  faith: {
+    label: 'Faith',
+    description:
+      'This unit gains +30 vitality and +30 damage for each Mausoleum you control, and you may keep fifty more of them for each.',
+  },
   wall_breaker: {
     label: 'Wall Breaker',
     description:
@@ -106,9 +111,10 @@ export type UnitRuleId = keyof typeof UNIT_RULES;
  * The rules a location, a perk or a research rung may hand to a unit that does not carry it.
  *
  * Every rule but the Wall Breaker, which belongs to the Colossus alone (maintainer, 2026-09-26),
+ * the Death Cloaks' Faith (2026-10-06), which only means something on a unit raised in a tomb,
  * and the Saint's Steadying Presence (2026-10-05), which is what makes the one legendary worth it:
  * nullifying every gate and trap in a fight is the one-of-a-kind machine's whole point, and a type
  * rather than a convention is what stops a perk written next month from handing it to a Razor.
  */
-export type GrantableUnitMark = Exclude<UnitRuleId, 'wall_breaker' | 'steadies'>;
+export type GrantableUnitMark = Exclude<UnitRuleId, 'wall_breaker' | 'steadies' | 'faith'>;
 export const UNIT_RULE_IDS = Object.keys(UNIT_RULES) as UnitRuleId[];

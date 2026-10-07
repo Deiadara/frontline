@@ -18,6 +18,7 @@ import {
   trainingsLeft,
   type Base,
   type Commander,
+  type LeaderHold,
   type OfficerMark,
   type Overseer,
   type TrainingGain,
@@ -27,8 +28,14 @@ import {
 } from '@frontline/shared';
 import type { Repositories } from '../db/repos/index.js';
 import { notifyBase } from '../social/notify.js';
+import { officerDuty } from './duty.js';
 import { projectCrewOfficer } from './roster.js';
-import { liftedOfficerSheet, liftedOverseerSheet, officerLiftRoom } from './standing.js';
+import {
+  liftedOfficerSheet,
+  liftedOverseerSheet,
+  officerLiftRoom,
+  standingEffectsFor,
+} from './standing.js';
 
 /**
  * Paying out the drilling (§F2).
@@ -161,6 +168,10 @@ export function overseerOf(repos: Repositories, base: Base): Overseer | undefine
  * their spy work already read (maintainer, 2026-09-30), so a Right Hand who makes everybody
  * quicker on the road makes them quicker at the bench too. The Overseer is lifted by the Right
  * Hand alone, as everywhere else. The route stores the answer on the session when it starts.
+ *
+ * Then the ground's cut (`trainingTimePercent`, the Exercise Yard, maintainer 2026-10-06): off
+ * everybody's clock alike, after the sheet has set it, so a held yard shortens the Overseer's hour
+ * as much as a recruit's.
  */
 export function drillSecondsBySubject(
   repos: Repositories,
@@ -169,12 +180,21 @@ export function drillSecondsBySubject(
   now: Date,
 ): Map<string, number> {
   const room = officerLiftRoom(repos, base, now);
+  const ground = standingEffectsFor(repos, base, now).trainingTimePercent;
+  const onTheGround = (sheetSeconds: number): number =>
+    Math.max(1, Math.round(sheetSeconds * (1 - Math.min(100, Math.max(0, ground)) / 100)));
   const seconds = new Map<string, number>();
   if (overseer) {
-    seconds.set(OVERSEER_SUBJECT, drillSeconds(liftedOverseerSheet(overseer.attributes, room)));
+    seconds.set(
+      OVERSEER_SUBJECT,
+      onTheGround(drillSeconds(liftedOverseerSheet(overseer.attributes, room))),
+    );
   }
   for (const officer of base.commanders) {
-    seconds.set(officer.id, drillSeconds(liftedOfficerSheet(officer, room).attributes));
+    seconds.set(
+      officer.id,
+      onTheGround(drillSeconds(liftedOfficerSheet(officer, room).attributes)),
+    );
   }
   return seconds;
 }
@@ -223,6 +243,8 @@ export function projectTraining(
   sessionSeconds: ReadonlyMap<string, number> = new Map(),
   /** Each person's stamp, from {@link officerMarksBySubject}. Absent is no stamp. */
   marks: ReadonlyMap<string, OfficerMark> = new Map(),
+  /** Who is away from the floor, from {@link drillHolds}. Absent is free. */
+  holds: ReadonlyMap<string, LeaderHold> = new Map(),
 ): TrainingResponse {
   const state = rollDay(base.training, now);
   const subjects: TrainingSubject[] = [];
@@ -245,6 +267,7 @@ export function projectTraining(
       lastAttribute: state.last[OVERSEER_SUBJECT] ?? null,
       // The player is never a casualty: §D4 is about officers, and the Overseer leads nothing.
       injuredUntil: null,
+      held: holds.get(OVERSEER_SUBJECT) ?? null,
       sessionSeconds: sessionSeconds.get(OVERSEER_SUBJECT) ?? TRAINING_SECONDS,
     });
   }
@@ -265,9 +288,9 @@ export function projectTraining(
       perks: officer.perks,
       session: sessionFor(state, officer.id) ?? null,
       lastAttribute: state.last[officer.id] ?? null,
-      // §D4: an injured officer still trains. What is off is their services to the crew, and an
-      // hour in a bed reading is exactly the hour somebody laid up has going spare.
       injuredUntil: officer.injuredUntil,
+      // Out on a run, held for a fight or laid up: none of them drills (maintainer, 2026-10-06).
+      held: holds.get(officer.id) ?? null,
       sessionSeconds: sessionSeconds.get(officer.id) ?? TRAINING_SECONDS,
     });
   }
@@ -281,4 +304,22 @@ export function projectTraining(
     sessionSeconds: TRAINING_SECONDS,
     subjects,
   };
+}
+
+/**
+ * Who is away from the training floor, by subject: an officer leading a run, held for a fight or
+ * laid up, and the Overseer out leading a run (maintainer, 2026-10-06). The bench is not a hold:
+ * somebody benched still drills.
+ */
+export function drillHolds(repos: Repositories, base: Base, now: Date): Map<string, LeaderHold> {
+  const holds = new Map<string, LeaderHold>();
+  for (const officer of base.commanders) {
+    const duty = officerDuty(repos, base, officer, now);
+    if (duty !== null && duty.held !== 'bench') holds.set(officer.id, duty.held);
+  }
+  const overseerOut = repos.missions
+    .listActiveByBaseId(base.id)
+    .some((entry) => entry.mission.overseerLed);
+  if (overseerOut) holds.set(OVERSEER_SUBJECT, 'run');
+  return holds;
 }

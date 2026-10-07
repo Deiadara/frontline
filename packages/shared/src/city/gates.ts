@@ -31,8 +31,21 @@ import type { Building } from '../building/state.js';
 /** A gate that has just come into somebody's hands is a gate, not a hole. */
 export const CAPTURED_GATE_START_LEVEL = 1;
 
-/** The same ceiling every structure has. The maintainer asked for "up to MAX level". */
-export const CAPTURED_GATE_MAX_LEVEL = BUILDING_MAX_LEVEL;
+/**
+ * Five, like every location outside the home district (maintainer, 2026-10-06). Each level is
+ * priced and timed as two of the home Gate's (`capturedGateStep`), so the climb is as steep as
+ * every other climb on captured ground, and worth 5% of defence a level where the home Gate's
+ * twenty levels pay 2.5% each: a maxed captured gate is half a maxed home one.
+ */
+export const CAPTURED_GATE_MAX_LEVEL = 5;
+
+/** The home Gate's level a captured gate's level is priced and timed as. */
+export function capturedGateStep(toLevel: number): number {
+  return Math.min(BUILDING_MAX_LEVEL, toLevel * 2);
+}
+
+/** What a captured gate level is worth: twice the home Gate's rate, over a quarter of the levels. */
+export const CAPTURED_GATE_DEFENSE_PERCENT_PER_LEVEL = GATE_DEFENSE_PERCENT_PER_LEVEL * 2;
 
 export const CapturedGateSchema = z.object({
   districtId: IdSchema,
@@ -73,7 +86,7 @@ export interface GatePricing {
 export function capturedGateCost(toLevel: number, pricing: GatePricing = {}): PartialResources {
   const bill = buildingCost(
     'gate',
-    toLevel,
+    capturedGateStep(toLevel),
     pricing.buildings ?? [],
     pricing.crewCostPercent ?? 0,
     pricing.engineerPercent ?? 0,
@@ -87,12 +100,12 @@ export function capturedGateCost(toLevel: number, pricing: GatePricing = {}): Pa
 }
 
 export function capturedGateSeconds(toLevel: number): number {
-  return buildingBuildSeconds('gate', toLevel, []);
+  return buildingBuildSeconds('gate', capturedGateStep(toLevel), []);
 }
 
 /** §B7: what a captured gate adds to the defence of everybody fighting behind it. */
 export function capturedGateDefensePercent(level: number): number {
-  return Math.max(0, level) * GATE_DEFENSE_PERCENT_PER_LEVEL;
+  return Math.max(0, level) * CAPTURED_GATE_DEFENSE_PERCENT_PER_LEVEL;
 }
 
 /** Why a crew cannot raise this gate right now, already worded, or null when they can. */

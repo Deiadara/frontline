@@ -27,7 +27,7 @@ import { RARITY_TEXT } from '../../lib/rarity';
 import { useMarket, useReimagine } from '../../lib/queries';
 import { formatRemaining } from '../base/format';
 import { PageGlyph } from './BlueprintGlyph';
-import { ErrorNote } from '../../components/ui/ErrorNote';
+import { PressError } from '../../components/ui/PressError';
 
 /**
  * The Reimagining tab (§G2, §G3): three pages into the machine, one you have never seen out.
@@ -236,10 +236,10 @@ function Bench({ inventory, context }: { inventory: Inventory; context: Reimagin
                   crew passed the check the page could make and something changed underneath it.
                   Unseating the Researcher in another tab is the ordinary way to get here. */}
               {trade.error !== null && (
-                <ErrorNote>
+                <PressError>
                   {REIMAGINING_REFUSAL_MESSAGES[trade.error.message as ReimaginingRefusal] ??
                     trade.error.message}
-                </ErrorNote>
+                </PressError>
               )}
             </div>
           )}
@@ -686,7 +686,10 @@ function Tray({
         >
           {held.map((entry) => {
             const inMachine = slots.filter((pageId) => pageId === entry.page.id).length;
-            const left = entry.held - inMachine;
+            // Floored (bug pass, 2026-10-06): a copy sold in another tab shrinks `held` under pages
+            // already in the machine, which read "x-1" and left the tile pressable. The lever is
+            // refused by `reimaginingRefusal` either way.
+            const left = Math.max(0, entry.held - inMachine);
             return (
               <li key={entry.page.id}>
                 <button

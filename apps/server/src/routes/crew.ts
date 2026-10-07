@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify';
-import { requireAreaFor } from '../progression/doors.js';
+import { requireArea } from '../progression/doors.js';
 import {
   LEADER_HOLD_MESSAGES,
   ReassignOfficerRequestSchema,
@@ -9,9 +9,8 @@ import {
 import { AppError, parseBody } from '../errors.js';
 import { projectCrew } from '../crew/roster.js';
 import { ownBase } from './own-base.js';
-import { settleBase } from '../district/settle.js';
 import { officerDuty } from '../crew/duty.js';
-import { resolveDueMissions } from '../missions/resolve.js';
+import { settleAndResolveMissions } from '../missions/resolve.js';
 
 /**
  * The crew (GDD §C2, §G).
@@ -37,7 +36,6 @@ export function registerCrewRoutes(app: FastifyInstance): void {
    * rather than something a route quietly does for them.
    */
   app.post('/crew/reassign', { preHandler: app.authenticate }, (request): CrewMutationResponse => {
-    requireAreaFor(app.repos, request.currentUser.id, 'crew');
     const { officerId, role } = parseBody(ReassignOfficerRequestSchema, request.body);
     const now = new Date();
     return app.db.transaction(() => {
@@ -52,8 +50,17 @@ export function registerCrewRoutes(app: FastifyInstance): void {
        */
       // The runs as well, so a leader whose crew walked in while the player was reading the
       // roster is free to move on this very request rather than held by a run that is over.
-      const settled = settleBase(app.repos, ownBase(app, request.currentUser.id), now).base;
-      const base = resolveDueMissions(app.repos, settled, now).base;
+      // Through the guarded pair (bug pass, 2026-10-06): a bare `resolveDueMissions` let one run
+      // that throws answer 500 on every reassign for that crew, which is the lock-out
+      // `settleAndResolveMissions` exists to prevent on every other screen.
+      const base = settleAndResolveMissions(
+        app.repos,
+        ownBase(app, request.currentUser.id),
+        now,
+      ).base;
+      // The door after the settle, as the drill route reads it (bug pass, 2026-10-06): off the raw
+      // row, a level banked by a build that finished unread was refused until another read.
+      requireArea(base, 'crew');
       const officer = base.commanders.find((candidate) => candidate.id === officerId);
       if (!officer) throw new AppError('NOT_FOUND', 'Nobody on your books by that id');
       if (officer.role === role) return { crew: projectCrew(app.repos, base) };

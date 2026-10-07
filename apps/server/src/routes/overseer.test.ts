@@ -342,6 +342,24 @@ describe('the invitation a new crew is given', () => {
     expect(await invitesIn(app, token)).toHaveLength(1);
   });
 
+  /** Bug pass, 2026-10-06: the letter was dated at the wall clock, not at the award's instant. */
+  it('is dated at the moment the level was crossed', async () => {
+    const app = await seededApp();
+    const registered = await app.inject({
+      method: 'POST',
+      url: '/api/auth/register',
+      payload: { username: 'dated_one', password: 'hunter2pass' },
+    });
+    const token = registered.json<{ token: string }>().token;
+    await chooseOverseer(app, token);
+    const { sub } = app.jwt.decode<{ sub: string }>(token) ?? { sub: '' };
+    const crossedAt = new Date('2026-10-01T03:00:00.000Z');
+    const base = app.repos.bases.findByOwnerId(sub)!;
+    awardPlayerXp(app.repos, base, 'missionCompleted', 0, 20_000, crossedAt);
+    const [invite] = app.repos.factions.invitesFor(sub);
+    expect(invite?.sentAt).toBe(crossedAt.toISOString());
+  });
+
   it('is refused to a crew under level 10', async () => {
     const app = await seededApp();
     const registered = await app.inject({

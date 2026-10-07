@@ -21,7 +21,7 @@ export function UnclaimedPlotWindow({
   travelMinutes,
   onClose,
 }: {
-  /** What the map calls it: `Player District II`. See `districtDisplayName`. */
+  /** What the map calls it: `Unclaimed Player District`. See `districtDisplayName`. */
   name: string;
   blurb: string;
   travelMinutes: number;

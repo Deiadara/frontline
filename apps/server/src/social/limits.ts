@@ -25,15 +25,57 @@ const before = (now: Date, ms: number): string => new Date(now.getTime() - ms).t
 /**
  * Whether this account has used up the day's letters.
  *
+ * Counted off the send log (maintainer, 2026-10-06), which deleting or trimming letters cannot
+ * touch: counted off the sent folder, a trim under the day would have handed sends back.
+ *
  * An invitation is a letter (maintainer, 2026-09-29): it puts a row and a bell in somebody's
- * mailbox like any other, so it spends one of the hundred. It has no sent copy, which is what the
- * day used to be counted off, so it is counted off its own ledger and added.
+ * mailbox like any other, so it spends one of the hundred. It is logged in its own ledger rather
+ * than as a letter, so it is counted off that and added.
  */
 export function outOfLettersToday(repos: Repositories, userId: string, now: Date): boolean {
   const since = before(now, DAY_MS);
   const sent =
-    repos.social.sentSince(userId, since) + repos.social.invitationLettersSince(userId, since);
+    repos.social.lettersSentSince(userId, since) +
+    repos.social.invitationLettersSince(userId, since);
   return sent >= MESSAGES_PER_DAY;
+}
+
+/** Letters from one sender that reached one reader's mailbox in the last day, deleted or not. */
+export function lettersToThemToday(
+  repos: Repositories,
+  senderUserId: string,
+  recipientUserId: string,
+  now: Date,
+): number {
+  return repos.social.lettersToSince(senderUserId, recipientUserId, before(now, DAY_MS));
+}
+
+/** One letter for the send log: who wrote it, the mailboxes it reached, and whether it is counted. */
+export interface LoggedLetter {
+  letterId: string;
+  senderUserId: string;
+  /** Every mailbox it actually landed in. A reader who blocked the sender is not one. */
+  reached: readonly string[];
+  /** Whether it spends one of the day's hundred. An invitation is counted off its own ledger. */
+  countsForTheDay: boolean;
+  sentAt: Date;
+}
+
+/**
+ * Writes a letter into the send log both letter limits read, and forgets what neither reaches.
+ *
+ * A log rather than a count of what sits in the mailboxes (maintainer, 2026-10-06): the mailbox
+ * trim hard-deletes what its reader threw away, so a spammer's ten letters, once deleted, stopped
+ * counting, and the reader deleting spam was what reopened the gate.
+ */
+export function logLetter(repos: Repositories, letter: LoggedLetter): void {
+  repos.social.forgetLetterSendsBefore(before(letter.sentAt, DAY_MS));
+  const sentAt = letter.sentAt.toISOString();
+  const row = { letterId: letter.letterId, senderUserId: letter.senderUserId, sentAt };
+  if (letter.countsForTheDay) repos.social.logLetterSend({ ...row, recipientUserId: null });
+  for (const recipientUserId of letter.reached) {
+    repos.social.logLetterSend({ ...row, recipientUserId });
+  }
 }
 
 /** Who is inviting whom, for the per-player limits. */

@@ -7,11 +7,12 @@ import {
 } from '@frontline/shared';
 import type { Repositories } from '../db/repos/index.js';
 import { walkHome } from '../moves/moves.js';
+import { settleEach } from '../world/guard.js';
 
 /**
  * Ground a crew holds in a city that is not open yet goes back to the atlas (maintainer, 2026-09-29).
  *
- * Saltmarch's ground is real rows on the control map, and until the doors into a closed city were
+ * A shut city's ground (Saltmarch's then, Reliquary's now) is real rows on the control map, and until the doors into a closed city were
  * shut, a column could walk onto an empty plot there and claim it. The door is shut now
  * (`city_closed` on the move, the plant and the spy), and the rooms refuse a closed city whatever
  * is held in it (`canEnterCity`). What is left is the rows already claimed: this hands each one
@@ -29,20 +30,29 @@ export function releaseClosedCityGround(
     const controls = repos.city.controls();
     let locations = 0;
     let unitsSentHome = 0;
-    for (const location of EVERY_LOCATION) {
-      const district = findDistrict(location.districtId);
-      if (!district || cityIsOpen(district.cityId)) continue;
-      const control = controls.get(location.id);
-      if (control?.holder.kind !== 'crew') continue;
+    // Plot by plot, each a savepoint: one holder this build cannot read is logged and its plot
+    // left for the next boot, rather than stopping the server (bug pass, 2026-10-06).
+    settleEach(
+      repos,
+      'boot: closed-city ground',
+      EVERY_LOCATION,
+      (location) => location.id,
+      (location) => {
+        const district = findDistrict(location.districtId);
+        if (!district || cityIsOpen(district.cityId)) return;
+        const control = controls.get(location.id);
+        if (control?.holder.kind !== 'crew') return;
 
-      unitsSentHome += sendHome(repos, location, control.holder.baseId, control.garrison, now);
-      for (const posting of repos.alliedGarrisons.at(location.id)) {
-        unitsSentHome += sendHome(repos, location, posting.baseId, posting.army, now);
-      }
-      repos.alliedGarrisons.clearAt(location.id);
-      repos.city.put(startingControl(location, district));
-      locations += 1;
-    }
+        let sent = sendHome(repos, location, control.holder.baseId, control.garrison, now);
+        for (const posting of repos.alliedGarrisons.at(location.id)) {
+          sent += sendHome(repos, location, posting.baseId, posting.army, now);
+        }
+        repos.alliedGarrisons.clearAt(location.id);
+        repos.city.put(startingControl(location, district));
+        unitsSentHome += sent;
+        locations += 1;
+      },
+    );
     return { locations, unitsSentHome };
   });
 }

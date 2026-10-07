@@ -19,6 +19,8 @@ export interface RegrowthRepo {
    * comes up inside a week nobody has claimed and pays it on its first tick.
    */
   claim(mark: string, at: string): boolean;
+  /** Whether this week's regrowth has already been claimed. A read, so it opens no write. */
+  claimed(mark: string): boolean;
 }
 
 export function createRegrowthRepo(db: AppDatabase): RegrowthRepo {
@@ -29,6 +31,7 @@ export function createRegrowthRepo(db: AppDatabase): RegrowthRepo {
    * throws `no such table` before those tests can assert anything at all.
    */
   let claimStmt: Statement | null = null;
+  let claimedStmt: Statement | null = null;
 
   return {
     claim(mark, at) {
@@ -36,6 +39,10 @@ export function createRegrowthRepo(db: AppDatabase): RegrowthRepo {
         'INSERT INTO garrison_regrowth (mark, at) VALUES (?, ?) ON CONFLICT (mark) DO NOTHING',
       );
       return claimStmt.run(mark, at).changes === 1;
+    },
+    claimed(mark) {
+      claimedStmt ??= db.prepare('SELECT 1 FROM garrison_regrowth WHERE mark = ?');
+      return claimedStmt.get(mark) !== undefined;
     },
   };
 }

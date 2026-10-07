@@ -156,12 +156,18 @@ describe('two days of a district, settled once, every minute and at odd instants
     expect(lump.buildings.find((one) => one.kind === 'greenhouse')?.level).toBe(8);
   });
 
+  /*
+   * 2,880 settles, each reading every control row in the world six times over (`standingEffectsFor`
+   * and `unit-slots.ts`, through `repos.city.controls()`), which is 1.7 ms a settle with Reliquary's
+   * 128 rows on the map (2026-10-07) and 5 s for the loop: the default timeout to the millisecond,
+   * and over it under a full-suite load. The loop is the point of the case, so it gets the room.
+   */
   it('banks the same totals settled every minute', async () => {
     const { app, id } = await district(buildings, empty, queue, disruption);
     let last = read(app, id);
     for (let t = MINUTE; t <= DAYS; t += MINUTE) last = settleAt(app, id, at(t));
     expect(stockOf(last)).toEqual(expected);
-  });
+  }, 30_000);
 
   it('banks the same totals settled at odd instants, including sub-second rereads', async () => {
     const { app, id } = await district(buildings, empty, queue, disruption);

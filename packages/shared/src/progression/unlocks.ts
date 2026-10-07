@@ -252,7 +252,8 @@ export function areaLockCaption(area: GatedArea): string {
     case 'officer':
       return 'Hire one';
     case 'notoriety':
-      return `Rank ${requirement.rank}`;
+      // The rank's name, never its index (maintainer, 2026-10-07): the ladder is read by name.
+      return notorietyTier(requirement.rank);
     case 'research':
       return 'Research';
   }

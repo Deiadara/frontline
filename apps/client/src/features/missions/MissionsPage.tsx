@@ -41,7 +41,7 @@ import {
   useMissions,
   useRecallMission,
 } from '../../lib/queries';
-import { MissionBoard } from './MissionBoard';
+import { MissionBoard, launchedCardKey } from './MissionBoard';
 import { boardIsAutomated } from '@frontline/shared';
 import { MissionReportWindow } from './MissionReportWindow';
 import { landedOf } from './WastedAtTheGate';
@@ -51,7 +51,7 @@ import { PageShell } from '../game/PageShell';
 import { CityPicker } from '../city/CityPicker';
 import { useCityRoom } from '../city/useCityRoom';
 import { Tutorial } from '../tutorial/Tutorial';
-import { ErrorNote } from '../../components/ui/ErrorNote';
+import { PressError } from '../../components/ui/PressError';
 
 const PHASE_LABEL: Record<MissionPhase, string> = {
   outbound: 'Outbound',
@@ -125,6 +125,8 @@ function InFlightRow({
   carry: {
     loadouts: Base['unitLoadouts'];
     bagPercent: number;
+    /** The Straw Sack's bags: flat slots on every carrier. */
+    carrierFlat: number;
     rules: LineRules;
     capsPercent: number;
     /** What the return adds to the frozen XP (`MissionsResponse.xpBonusPercent`). */
@@ -145,7 +147,13 @@ function InFlightRow({
           xp: offer.xp,
           rewards: carriedHome(
             withMissionCaps(offer.rewards, carry.capsPercent),
-            missionCarry(mission.force, carry.loadouts, carry.bagPercent, carry.rules),
+            missionCarry(
+              mission.force,
+              carry.loadouts,
+              carry.bagPercent,
+              carry.rules,
+              carry.carrierFlat,
+            ),
             RESOURCE_KG,
           ),
         };
@@ -229,7 +237,7 @@ function InFlightRow({
             </span>
             <RewardLine rewards={worth.rewards} />
             <span className="font-display text-[11px] font-bold tabular-nums text-hextech-100">
-              +{worth.xp.toLocaleString()} XP
+              +{worth.xp.toLocaleString('en-US')} XP
             </span>
           </div>
         )}
@@ -256,25 +264,15 @@ function InFlightRow({
 /** A crew that has come home, with what it actually banked. */
 function ReturnedRow({
   mission,
-  leaders,
-  overseerName,
-  bagPercent,
-  rules,
+  onOpen,
 }: {
   mission: Mission;
-  leaders: readonly MissionLeader[];
-  overseerName: string;
-  /** The crew's own bag and line rules, which the settle carried with: see the report window. */
-  bagPercent: number;
-  rules: LineRules;
+  /** Opens this crew's report. The page holds which one is open: see `reportId`. */
+  onOpen: () => void;
 }) {
-  // The crew's brackets, for the bag the report says the crew could lift; the settle read the
-  // same map, so the two agree unless a card has moved since.
-  const me = useMe();
   const template = findMissionTemplate(mission.templateId);
   const name = template?.name ?? mission.templateId;
   const failed = mission.outcome === 'failure';
-  const [open, setOpen] = useState(false);
 
   /*
    * Nobody came back to tell it.
@@ -319,7 +317,7 @@ function ReturnedRow({
     >
       <button
         type="button"
-        onClick={() => setOpen(true)}
+        onClick={onOpen}
         aria-haspopup="dialog"
         aria-label={`${name}: what happened`}
         data-testid={`mission-open-${mission.id}`}
@@ -348,17 +346,6 @@ function ReturnedRow({
         {/* What went into the stores: a full yard threw part of the carry away at the gate. */}
         <RewardLine rewards={landedOf(mission)} />
       </button>
-      {open && (
-        <MissionReportWindow
-          mission={mission}
-          leaders={leaders}
-          overseerName={overseerName}
-          loadouts={me.data?.base?.unitLoadouts ?? {}}
-          bagPercent={bagPercent}
-          rules={rules}
-          onClose={() => setOpen(false)}
-        />
-      )}
     </li>
   );
 }
@@ -484,6 +471,13 @@ export function MissionsPage() {
   const missions = data?.missions ?? [];
   const active = missions.filter((mission) => mission.status === 'active');
   const returned = recentlyReturned(missions);
+  /*
+   * The report on screen, by mission id and read off every mission rather than off the six on the
+   * list (bug pass, 2026-10-06). It was held inside its row, and the list keeps only the latest six,
+   * so a crew banking while the oldest report was open pushed its row off and closed it mid-read.
+   */
+  const [reportId, setReportId] = useState<string | null>(null);
+  const report = reportId === null ? undefined : missions.find((one) => one.id === reportId);
   const limit = data?.activeLimit ?? 0;
   /*
    * What the two side panels say before there is a board to count from. "Every crew is home" and
@@ -605,11 +599,13 @@ export function MissionsPage() {
                       now={now}
                       leaders={leaders}
                       overseerName={overseerName}
-                      pending={recall.isPending}
+                      // This crew's recall only: one press used to grey every crew's.
+                      pending={recall.isPending && recall.variables?.missionId === mission.id}
                       onRecall={() => recall.mutate({ missionId: mission.id })}
                       carry={{
                         loadouts: me.data?.base?.unitLoadouts ?? {},
                         bagPercent: standing.data?.haulPercent ?? 0,
+                        carrierFlat: standing.data?.carrierFlat ?? 0,
                         rules: crewLineRules(
                           roster.data?.carriersFight ?? false,
                           standing.data?.marks ?? {},
@@ -621,7 +617,12 @@ export function MissionsPage() {
                   ))}
                 </ul>
               )}
-              {recall.error && <ErrorNote className="mx-3 mb-2">{recall.error.message}</ErrorNote>}
+              {/* Only while the crew it was about is still out: a refusal about a crew that has
+                  since come home is about nothing on this panel (bug pass, 2026-10-06). */}
+              {recall.error &&
+                landing.some((mission) => mission.id === recall.variables?.missionId) && (
+                  <PressError>{recall.error.message}</PressError>
+                )}
             </Panel>
 
             <Panel
@@ -649,16 +650,18 @@ export function MissionsPage() {
                     <ReturnedRow
                       key={mission.id}
                       mission={mission}
-                      leaders={leaders}
-                      overseerName={overseerName}
-                      bagPercent={standing.data?.haulPercent ?? 0}
-                      rules={crewLineRules(
-                        roster.data?.carriersFight ?? false,
-                        standing.data?.marks ?? {},
-                      )}
+                      onOpen={() => setReportId(mission.id)}
                     />
                   ))}
                 </ul>
+              )}
+              {report && (
+                <MissionReportWindow
+                  mission={report}
+                  leaders={leaders}
+                  overseerName={overseerName}
+                  onClose={() => setReportId(null)}
+                />
               )}
             </Panel>
           </div>
@@ -705,7 +708,7 @@ export function MissionsPage() {
                   onQuoteFightLeaders={quoteFightLeaders}
                   // §A4: the crew's own bag, so the dialog quotes the haul the settle will pay.
                   bagPercent={standing.data?.haulPercent ?? 0}
-                  notoriety={me.data?.base?.economy.notoriety ?? 0}
+                  carrierFlat={standing.data?.carrierFlat ?? 0}
                   marks={standing.data?.marks ?? {}}
                   carriersFight={roster.data?.carriersFight ?? false}
                   anyRide={roster.data?.anyRide ?? false}
@@ -717,13 +720,19 @@ export function MissionsPage() {
                   automated={automated}
                   homeLocked={data.homeLocked === true}
                   pendingTemplateId={
-                    launch.isPending ? (launch.variables?.templateId ?? null) : null
+                    launch.isPending && launch.variables
+                      ? launchedCardKey(launch.variables.areaId, launch.variables)
+                      : null
                   }
                   refusal={
                     launch.error && launch.variables
-                      ? { templateId: launch.variables.templateId, message: launch.error.message }
+                      ? {
+                          templateId: launchedCardKey(launch.variables.areaId, launch.variables),
+                          message: launch.error.message,
+                        }
                       : null
                   }
+                  onOpenSend={() => launch.reset()}
                   onLaunch={(areaId, card, force, leaderId, vehicles) =>
                     launch.mutate(
                       {

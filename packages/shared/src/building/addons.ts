@@ -231,17 +231,21 @@ export function withSlotEmptied(
 }
 
 /** Why a slot cannot be emptied. */
-export type ClearSlotRefusal = 'no_structure' | 'bad_slot' | 'already_empty';
+export type ClearSlotRefusal = 'no_structure' | 'bad_slot' | 'already_empty' | 'moved';
 
 export function clearSlotRefusal(
   kind: BuildingKind,
   slot: number,
   buildings: readonly Building[],
+  modification: string,
 ): ClearSlotRefusal | null {
   const standing = findBuilding(buildings, kind);
   if (!standing) return 'no_structure';
   if (!Number.isInteger(slot) || slot < 0 || slot >= MAX_MODIFICATION_SLOTS) return 'bad_slot';
-  return standing.modifications[slot] === undefined ? 'already_empty' : null;
+  const held = standing.modifications[slot];
+  if (held === undefined) return 'already_empty';
+  // The card the player pressed is no longer in that bracket: refuse rather than take another.
+  return held === modification ? null : 'moved';
 }
 
 // --- §B9: what the Scrapyard shows ------------------------------------------------------------

@@ -18,7 +18,7 @@ import { NumberField } from '../../components/ui/NumberField';
 import { ApiRequestError } from '../../lib/api';
 import { useMoveQuote, useMoveUnits } from '../../lib/queries';
 import { formatDuration } from '../base/format';
-import { ErrorNote } from '../../components/ui/ErrorNote';
+import { PressError } from '../../components/ui/PressError';
 
 /**
  * Moving units between the crew's places (maintainer ruling, 2026-09-22).
@@ -102,8 +102,15 @@ export function MoveDialog({
   const standing = standingAt(roster, from);
   const fromDistrict = from.kind === 'district';
   const fleet = fromDistrict ? roster.fleet : {};
+  /*
+   * What is picked, capped at what is still standing there (bug pass, 2026-10-06). A type with one
+   * fewer standing than picked used to drop out of the order whole, while its field still showed
+   * the old count: one Razor lost at the gate and none of them went.
+   */
   const sending: Army = Object.fromEntries(
-    Object.entries(force).filter(([id, count]) => count > 0 && (standing[id] ?? 0) >= count),
+    Object.entries(force)
+      .map(([id, count]) => [id, Math.min(count, standing[id] ?? 0)] as const)
+      .filter(([, count]) => count > 0),
   );
   const vehicles: Fleet = fromDistrict
     ? Object.fromEntries(Object.entries(riding).filter(([, count]) => (count ?? 0) > 0))
@@ -218,7 +225,7 @@ export function MoveDialog({
                     label={`How many ${unit.name}`}
                     min={0}
                     max={count}
-                    value={force[unit.id] ?? 0}
+                    value={Math.min(force[unit.id] ?? 0, count)}
                     onChange={(next) =>
                       setForce((held) => ({ ...held, [unit.id]: Math.min(count, next) }))
                     }
@@ -313,11 +320,11 @@ export function MoveDialog({
         {/* Why it cannot go, on the button row and to its left (maintainer, 2026-09-25). */}
         {move.error !== null && (
           <div className="mr-auto flex min-w-0 flex-col gap-1.5">
-            <ErrorNote>
+            <PressError>
               {move.error instanceof ApiRequestError
                 ? move.error.message
                 : 'That did not go through'}
-            </ErrorNote>
+            </PressError>
           </div>
         )}
         <Button variant="ghost" size="sm" onClick={onClose}>
@@ -325,7 +332,9 @@ export function MoveDialog({
         </Button>
         <Button
           size="sm"
-          disabled={!legal || move.isPending || quote.isError}
+          disabled={!legal || move.isPending}
+          // The quote is judged by the send's own rules, so its refusal is the send's.
+          refusal={quote.isError ? quote.error.message : null}
           onClick={() =>
             move.mutate(
               { from, to, army: sending, vehicles, byRail: onTheTrain },

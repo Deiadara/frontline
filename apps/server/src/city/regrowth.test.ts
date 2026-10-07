@@ -16,13 +16,14 @@ import {
   emptyDeployment,
   findDistrict,
   findLocation,
+  lastWeekBoundary,
   skirmishOutcome,
   startingGarrison,
   type Army,
   type SkirmishEngine,
   type SkirmishInput,
 } from '@frontline/shared';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { startingBase } from '../crew/starting.js';
 import { openDatabase, runMigrations, type AppDatabase } from '../db/index.js';
 import { createRepositories, type Repositories } from '../db/repos/index.js';
@@ -77,6 +78,15 @@ describe('the weekly regrowth', () => {
     repos.city.setGarrison(DOCKS_PLOT, {});
     settleGarrisonRegrowth(repos, MONDAY);
     expect(garrisonAt(DOCKS_PLOT)).toEqual(authored(DOCKS_PLOT));
+  });
+
+  /** Bug pass, 2026-10-06: every settle opened a write transaction to learn the week was taken. */
+  it('opens no write once the week is claimed', () => {
+    settleGarrisonRegrowth(repos, MONDAY);
+    const tx = vi.spyOn(repos, 'tx');
+    expect(settleGarrisonRegrowth(repos, MONDAY)).toBe(0);
+    expect(tx).not.toHaveBeenCalled();
+    tx.mockRestore();
   });
 
   it('rebuilds the squatters as well as the regime', () => {
@@ -221,6 +231,10 @@ describe('a fight called for last week and settled after the mark', () => {
     });
     // Worn down over the week.
     repos.city.setGarrison(DOCKS_PLOT, { civic_levy: 2 });
+    // A world that has been running: the week now ending was rebuilt at its own start. A late
+    // settle runs the world up to each overdue mark first (2026-10-06), and a week with no rebuild
+    // on the books would be rebuilt there, ahead of the Sunday fight.
+    repos.regrowth.claim(lastWeekBoundary(SUNDAY).toISOString(), SUNDAY.toISOString());
 
     let seen: SkirmishInput | null = null;
     const engine: SkirmishEngine = {

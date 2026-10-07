@@ -205,6 +205,18 @@ describe('an officer who is already committed', () => {
  * now, with the mark they are free at where the server knows one, and the launch says the same
  * sentence the other two doors do.
  */
+/** What the training floor says to a drill for the stack's officer: its refusal, or null. */
+async function drillRefusal(stack: Stack): Promise<string | null> {
+  openDoors(stack.app, stack.token, 'training');
+  const drilled = await stack.app.inject({
+    method: 'POST',
+    url: '/api/training',
+    headers: auth(stack.token),
+    payload: { subjectId: stack.officerId, attribute: 'strength' },
+  });
+  return drilled.statusCode === 200 ? null : drilled.json<ApiError>().error.message;
+}
+
 describe('what holds a leader, on the wire and at the launch', () => {
   it('a declared fight, which has no clock on it until it settles', async () => {
     const stack = await makeStack();
@@ -224,6 +236,8 @@ describe('what holds a leader, on the wire and at the launch', () => {
     const sent = await launch(stack, stack.officerId);
     expect(sent.statusCode, sent.body.slice(0, 300)).toBe(409);
     expect(sent.json<ApiError>().error.message).toBe('Halvard Nyx is at a fight');
+    // ...and nobody held for a fight drills (maintainer, 2026-10-06).
+    expect(await drillRefusal(stack)).toBe('Held for a fight');
   });
 
   it('a bed, until they are well again (\u00a7D4)', async () => {
@@ -243,6 +257,8 @@ describe('what holds a leader, on the wire and at the launch', () => {
     const sent = await launch(stack, stack.officerId);
     expect(sent.statusCode, sent.body.slice(0, 300)).toBe(409);
     expect(sent.json<ApiError>().error.message).toBe('Halvard Nyx is still laid up');
+    // ...and a sickbed shuts the training floor too (maintainer, 2026-10-06).
+    expect(await drillRefusal(stack)).toBe('Laid up');
   });
 });
 

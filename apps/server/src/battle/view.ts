@@ -1,4 +1,6 @@
 import {
+  GAME_TIMEZONE,
+  dayInZone,
   estimatedForce,
   unitSlotsUsed,
   type LineRules,
@@ -10,7 +12,6 @@ import {
   TRAP_CATALOG,
   trapEffectLine,
   declarableSlots,
-  districtHolder,
   districtIsShut,
   gateIsBroken,
   deploymentIsOpen,
@@ -53,6 +54,7 @@ import {
   armySize,
   battleBoostSlots,
   gateDefensePercent,
+  tollingTowerNoise,
 } from '@frontline/shared';
 import {
   crewEffectsFor,
@@ -61,6 +63,7 @@ import {
   standingEffectsFor,
 } from '../crew/standing.js';
 import type { Repositories } from '../db/repos/index.js';
+import { wholeHolderOf } from '../city/holding.js';
 import { sideForce } from './side.js';
 import { spyRunViews } from '../spying/spying.js';
 import { moveViews } from '../moves/moves.js';
@@ -120,10 +123,14 @@ function musterOf(
   presence: Presence,
 ) {
   const deployment = sideForce(repos, battle.id, side, battle.scheduledFor);
+  // The ring and the count realigned too, as the mark moves them (bug pass, 2026-10-06): only the
+  // army was, so an ally who had left the faction still stood in this side's ring and its total.
+  const army = realigned(deployment.army, side, presence);
+  const perimeter = realignedRing(deployment.perimeter, side, presence);
   return {
-    army: realigned(deployment.army, side, presence),
-    perimeter: deployment.perimeter,
-    size: deployedSize(deployment),
+    army,
+    perimeter,
+    size: deployedSize({ army, perimeter }),
     standing: standingFor(repos, battle, side, presence),
   };
 }
@@ -184,6 +191,17 @@ function forceAtTheMark(
  * on `side` comes off it, and one whose crew has crossed over from the other side is on it. The
  * board used to count a crew that had left the faction until the moment the settle parked it.
  */
+/**
+ * The ring as the mark leaves it (`musterAtTheMark`): a row that changes sides takes its ring out
+ * of this one, and brings it in only when it joins the defence, the one side that keeps a ring.
+ */
+function realignedRing(rowed: Army, side: BattleSide, presence: Presence): Army {
+  return presence.misaligned.reduce<Army>((ring, { row, side: fightsFor }) => {
+    if (row.side === side) return removeForce(ring, row.perimeter);
+    return fightsFor === side && side === 'defender' ? mergeArmies(ring, row.perimeter) : ring;
+  }, rowed);
+}
+
 function realigned(rowed: Army, side: BattleSide, presence: Presence): Army {
   return presence.misaligned.reduce<Army>((army, { row, side: fightsFor }) => {
     if (row.side === side) return removeForce(army, row.army);
@@ -221,7 +239,10 @@ function readEnemy(
   if (!report) {
     return { size: null, quality: 'No spy report on this ground. Send one from the district.' };
   }
-  const day = report.writtenAt.slice(0, 10);
+  // The reader's own calendar day, as every other date on the board is printed (bug pass,
+  // 2026-10-06): the UTC date put a report written at half past one in Athens on the day before.
+  const zone = repos.users.findById(base.ownerId)?.timezone ?? GAME_TIMEZONE;
+  const day = dayInZone(new Date(report.writtenAt), zone);
   /*
    * The Whole Wire's exact slots, wherever a report carries them (bug pass, 2026-10-01). They are
    * printed on a failed report too, which is the point of the rung, and the board used to call
@@ -335,7 +356,11 @@ function viewOf(repos: Repositories, base: Base, battle: ScheduledBattle, now: D
      * The deployment screen forecasts on it. Not a secret from either side: where the fight is and
      * what that ground is like is the one thing a declaration makes public.
      */
-    battlefield: battlefieldOf(battle, district?.name ?? 'somewhere'),
+    battlefield: battlefieldOf(
+      battle,
+      district?.name ?? 'somewhere',
+      district ? tollingTowerNoise(district, repos.city.controls()) : [],
+    ),
     // A bystander is not buying anything for a fight they are not in, and sending them the shelf
     // would be sending them the caller's own research and officer list.
     boosts:
@@ -659,7 +684,6 @@ function boostsFor(
  * only the gate" comes from the same reading of the control table the declaration rules use.
  */
 function gatesFor(repos: Repositories, now: Date): DistrictGateView[] {
-  const controls = repos.city.controls();
   // Read once for the whole city rather than per district: this runs for every district a crew can
   // see on every read of the board, and the lookup behind it is a scan.
   const lived = districtsLivedIn(repos);
@@ -671,7 +695,7 @@ function gatesFor(repos: Repositories, now: Date): DistrictGateView[] {
       // The same two facts `districtStandingFor` reads, through the same functions: a home is shut
       // by its resident and contested ground by its holder, and the screen has to be told so or it
       // would offer a fight the declaration rules refuse.
-      shut: districtIsShut(districtHolder(district, controls), isInhabited(district, lived)),
+      shut: districtIsShut(wholeHolderOf(repos, district), isInhabited(district, lived)),
       brokenUntil: gate && gateIsBroken(gate, now) ? gate.brokenUntil : null,
     };
   });
@@ -741,6 +765,7 @@ export function projectActions(repos: Repositories, base: Base, now: Date): Acti
         vehicles:
           repos.sieges.deployment(movement.battleId, movement.side, base.id)?.vehicles ?? {},
         recallable: movementCancellable(movement, now),
+        byRail: movement.byRail === true,
       };
     }),
     spyRuns: spyRunViews(repos, base),
@@ -804,7 +829,13 @@ export function projectActions(repos: Repositories, base: Base, now: Date): Acti
   };
 }
 
-export function projectBattles(repos: Repositories, base: Base, now: Date): BattlesResponse {
+export function projectBattles(
+  repos: Repositories,
+  base: Base,
+  now: Date,
+  /** Testing mode, which waives the price of a call (`declareBattle`). */
+  admin = false,
+): BattlesResponse {
   // Every call in the world: the whole city is visible (2026-09-29), and a call is public the
   // moment it is made. It used to be narrowed to the districts this crew had scouted.
   const coming = repos.sieges.pending().map((battle) => viewOf(repos, base, battle, now));
@@ -816,6 +847,7 @@ export function projectBattles(repos: Repositories, base: Base, now: Date): Batt
     slots: declarableSlots(now).map((slot) => slot.toISOString()),
     infamy: base.economy.infamy,
     callPrices: callPricesFor(repos),
+    callPriceWaived: admin,
     gates: gatesFor(repos, now),
     structures: structuresOf(base),
     serverNow: now.toISOString(),

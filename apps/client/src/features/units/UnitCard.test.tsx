@@ -3,6 +3,8 @@ import {
   isCombatUnit,
   ENV_LABEL_CATALOG,
   ENV_LABEL_IDS,
+  MUSTER_MAX_BATCH,
+  MUSTER_REFUSAL_TEXT,
   UNIT_MODIFIERS,
   COMBAT_CONTEXT_LABELS,
   UNIT_HEADLINE_KEYS,
@@ -77,6 +79,8 @@ function optionFor(spec: UnitSpec): UnitOption {
     cost: spec.cost,
     musterSeconds: spec.musterSeconds,
     unitSlots: spec.unitSlots,
+    doorLevel: null,
+    doorSteps: [],
     unlocked: true,
     missing: [],
     owned: 0,
@@ -569,5 +573,161 @@ describe('the lock on a carrier’s fighting numbers', () => {
       expect(screen.queryByTestId('carrier-combat-locked'), `carriersFight=${bought}`).toBeNull();
       view.unmount();
     }
+  });
+});
+
+/**
+ * The ground's own ceiling on a unit (`UnitOption.room`, 2026-10-06): fifty Death Cloaks a
+ * Mausoleum. **Max** is the smaller of what the crew can afford and house and what the tombs allow,
+ * so it can never offer a batch the route then refuses as `at_the_cap`.
+ */
+describe('a unit the ground caps', () => {
+  const rich = {
+    resources: {
+      caps: 1e9,
+      supplies: 1e9,
+      oil: 1e9,
+      scrap: 1e9,
+      highQualityMetal: 1e9,
+      planks: 1e9,
+    },
+    spare: 300,
+    discountPercent: 0,
+    veteranPercent: 0,
+    suppliesPercent: 0,
+    speedPercent: 0,
+    pending: false,
+    onMuster: () => {},
+  };
+  const cloaks = findUnit('death_cloaks') as UnitSpec;
+
+  it('lets Max go no further than the room the tombs leave', () => {
+    draw(
+      <UnitCard
+        unit={{ ...optionFor(cloaks), unlocked: true, missing: [], room: 7 }}
+        garrisoned={0}
+        abroad={0}
+        muster={rich}
+      />,
+    );
+    fireEvent.click(screen.getByTestId(`max-${cloaks.id}`));
+    expect(screen.getByTestId(`count-${cloaks.id}`)).toHaveValue('7');
+  });
+
+  /** Bug pass, 2026-10-06: Max wrote the figure once and went on asking for it after a muster. */
+  it('keeps Max at the most there is room for as that falls, until a number is typed', () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    // The whole tree each time: a rerender replaces what `draw` wraps the card in.
+    const card = (room: number) => (
+      <QueryClientProvider client={client}>
+        <MemoryRouter>
+          <UnitCard
+            unit={{ ...optionFor(cloaks), unlocked: true, missing: [], room }}
+            garrisoned={0}
+            abroad={0}
+            muster={rich}
+          />
+        </MemoryRouter>
+      </QueryClientProvider>
+    );
+    const view = render(card(7));
+    fireEvent.click(screen.getByTestId(`max-${cloaks.id}`));
+    expect(screen.getByTestId(`count-${cloaks.id}`)).toHaveValue('7');
+    // A muster took four of the seven places.
+    view.rerender(card(3));
+    expect(screen.getByTestId(`count-${cloaks.id}`)).toHaveValue('3');
+    // A typed number is the player's, and stays put.
+    fireEvent.change(screen.getByTestId(`count-${cloaks.id}`), { target: { value: '2' } });
+    fireEvent.blur(screen.getByTestId(`count-${cloaks.id}`));
+    view.rerender(card(1));
+    expect(screen.getByTestId(`count-${cloaks.id}`)).toHaveValue('2');
+  });
+
+  it('reads the beds alone for a unit with no such ceiling', () => {
+    draw(
+      <UnitCard
+        unit={{ ...optionFor(cloaks), unlocked: true, missing: [] }}
+        garrisoned={0}
+        abroad={0}
+        muster={rich}
+      />,
+    );
+    fireEvent.click(screen.getByTestId(`max-${cloaks.id}`));
+    // Three hundred spare slots at three a head is a hundred, and a batch is fifty at most.
+    expect(screen.getByTestId(`count-${cloaks.id}`)).toHaveValue(String(MUSTER_MAX_BATCH));
+  });
+});
+
+/*
+ * Muster is greyed with the reason on hover whenever the route would refuse the order (maintainer,
+ * 2026-10-06), in the route's own words. Only a race gets as far as a refusal now.
+ */
+describe('a Muster the route would refuse', () => {
+  const razors = findUnit('razors') as UnitSpec;
+  const legend = UNIT_CATALOG.find((one) => one.unique) as UnitSpec;
+  const base = {
+    resources: {
+      caps: 1e9,
+      supplies: 1e9,
+      oil: 1e9,
+      scrap: 1e9,
+      highQualityMetal: 1e9,
+      planks: 1e9,
+    },
+    spare: 300,
+    discountPercent: 0,
+    veteranPercent: 0,
+    suppliesPercent: 0,
+    speedPercent: 0,
+    pending: false,
+    onMuster: () => {},
+  };
+  const card = (spec: UnitSpec, over: Record<string, unknown> = {}, room?: number) =>
+    draw(
+      <UnitCard
+        unit={{
+          ...optionFor(spec),
+          unlocked: true,
+          missing: [],
+          ...(room === undefined ? {} : { room }),
+        }}
+        garrisoned={0}
+        abroad={0}
+        muster={{ ...base, ...over }}
+      />,
+    );
+  const button = (spec: UnitSpec) => screen.getByTestId(`muster-${spec.id}`);
+
+  it('goes when nothing is in the way', () => {
+    card(razors);
+    expect(button(razors)).toBeEnabled();
+    expect(button(razors)).not.toHaveAttribute('data-tip');
+  });
+
+  for (const [why, over, words] of [
+    ['the bench is full', { benchFull: true }, MUSTER_REFUSAL_TEXT.queue_full],
+    ['there are no beds', { spare: 0 }, MUSTER_REFUSAL_TEXT.no_unit_slots],
+    ['the stores are short', { resources: {} }, MUSTER_REFUSAL_TEXT.cannot_afford],
+  ] as const) {
+    it(`is greyed, and says why, when ${why}`, () => {
+      card(razors, over);
+      expect(button(razors)).toBeDisabled();
+      expect(button(razors)).toHaveAttribute('data-tip', words);
+    });
+  }
+
+  it('is greyed for a second one-of-a-kind, testing mode or not', () => {
+    card(legend, { held: 1, waived: true });
+    expect(button(legend)).toHaveAttribute('data-tip', MUSTER_REFUSAL_TEXT.already_have_one);
+  });
+
+  it('is greyed past the ceiling the held ground sets', () => {
+    card(razors, {}, 0);
+    expect(button(razors)).toHaveAttribute('data-tip', MUSTER_REFUSAL_TEXT.at_the_cap);
+  });
+
+  it('goes in testing mode past the gates it waives', () => {
+    card(razors, { benchFull: true, spare: 0, resources: {}, waived: true });
+    expect(button(razors)).toBeEnabled();
   });
 });

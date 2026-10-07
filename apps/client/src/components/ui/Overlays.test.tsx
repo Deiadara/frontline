@@ -1,6 +1,6 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import { useState } from 'react';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { HoverCard } from './HoverCard';
 import { Modal } from './Modal';
 import { TooltipLayer } from './TooltipLayer';
@@ -44,6 +44,83 @@ describe('what floats over what', () => {
     // The backdrop carries the dialog's layer; the panel inside it is positioned within.
     const backdrop = screen.getByTestId('window').parentElement;
     expect(floatingLayer(tip)).toBeGreaterThan(floatingLayer(backdrop));
+  });
+});
+
+/**
+ * A tip whose element leaves the page (bug pass, 2026-10-06). The element sends no `pointerout` on
+ * its way out, so the tip used to stay over whatever took its place.
+ */
+describe('a name for something that is gone', () => {
+  function Expiring() {
+    const [shown, setShown] = useState(true);
+    return (
+      <>
+        <TooltipLayer />
+        {shown && (
+          <span data-tip="Call it off: 50% back" data-testid="mark">
+            x
+          </span>
+        )}
+        <button type="button" onClick={() => setShown(false)}>
+          Expire
+        </button>
+        <p data-testid="underneath">plain text</p>
+      </>
+    );
+  }
+
+  it('goes with the first pointer move after its element has gone', () => {
+    render(<Expiring />);
+    fireEvent.pointerOver(screen.getByTestId('mark'));
+    expect(screen.getByTestId('tooltip')).toHaveTextContent('Call it off');
+    // Removed without any pointer event reaching it, as a timer would remove it.
+    act(() => screen.getByRole('button', { name: 'Expire' }).click());
+    expect(screen.queryByTestId('mark')).toBeNull();
+    fireEvent.pointerOver(screen.getByTestId('underneath'));
+    expect(screen.queryByTestId('tooltip')).toBeNull();
+  });
+});
+
+/**
+ * Pressing the control inside an interactive card while its trigger held focus (bug pass,
+ * 2026-10-06). The trigger's blur started the leave timer and the card went before the press.
+ */
+describe('an interactive card whose trigger has focus', () => {
+  it('stays while focus moves into it, and still goes when focus moves elsewhere', () => {
+    vi.useFakeTimers();
+    try {
+      render(
+        <>
+          <HoverCard
+            label="Infamy"
+            interactive
+            onActivate={() => {}}
+            card={<button type="button">Upgrade Tier</button>}
+          >
+            Infamy
+          </HoverCard>
+          <button type="button">elsewhere</button>
+        </>,
+      );
+      const trigger = screen.getByRole('button', { name: 'Infamy' });
+      fireEvent.focus(trigger);
+      const inside = screen.getByRole('button', { name: 'Upgrade Tier' });
+      fireEvent.blur(trigger, { relatedTarget: inside });
+      act(() => {
+        vi.advanceTimersByTime(1000);
+      });
+      expect(screen.queryByRole('button', { name: 'Upgrade Tier' })).not.toBeNull();
+
+      fireEvent.focus(trigger);
+      fireEvent.blur(trigger, { relatedTarget: screen.getByRole('button', { name: 'elsewhere' }) });
+      act(() => {
+        vi.advanceTimersByTime(1000);
+      });
+      expect(screen.queryByRole('button', { name: 'Upgrade Tier' })).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

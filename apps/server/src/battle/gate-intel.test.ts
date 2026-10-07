@@ -295,6 +295,16 @@ describe('the board', () => {
     expect(namedOnly.enemyArmy).toEqual({ razors: 20 });
     expect(namedOnly.enemyIntel).toMatch(/against the units it named/);
 
+    // Dated on the reader's calendar, not UTC's (bug pass, 2026-10-06): half past ten at night in
+    // UTC is the next day in Athens, where this reader's clock is.
+    app.repos.spying.insertReport({
+      ...latest,
+      id: 'run-board-late',
+      writtenAt: '2030-01-15T22:30:00.000Z',
+    });
+    const late = await board();
+    expect(late.enemyIntel).toMatch(/spy report of 2030-01-16/);
+
     // The defender reads nothing of the column coming at them: nobody spies a road.
     const theirs = (
       await app.inject({ method: 'GET', url: '/api/battles', headers: auth(defender.token) })

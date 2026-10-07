@@ -199,7 +199,10 @@ describe('the Bone Market pays for what a fight cost', () => {
   it('turns the attacker’s dead into caps', async () => {
     const stack = await makeStack();
     stack.app.repos.bases.updateArmy(stack.baseId, { razors: 20 }, []);
-    give(stack, 'steelbelt-bones');
+    // The Bone Market is in Bonded Row now (2026-10-06), so it no longer opens the Steelbelt's
+    // seam as a side effect; a plot is vacated for that instead.
+    give(stack, 'bonded-row-rendering');
+    vacate(stack, 'steelbelt-pawn');
 
     const target: BattleTarget = {
       kind: 'location',

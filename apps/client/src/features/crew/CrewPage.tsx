@@ -23,12 +23,14 @@ import { OverseerPortrait } from '../overseer/OverseerPortrait';
 import { AttributeSheet } from '../overseer/AttributeSheet';
 import { PerkTags } from '../../components/PerkTags';
 import { cn } from '../../lib/cn';
-import { useCrew, useReassignOfficer, useReleaseOfficer } from '../../lib/queries';
+import { useCrew, useCrewStanding, useReassignOfficer, useReleaseOfficer } from '../../lib/queries';
+import { SpyPointsLine } from '../../components/SpyPointsLine';
 import { PayrollMeter } from '../../components/Payroll';
 import { PageShell } from '../game/PageShell';
 import { ScreenLoad } from '../../components/ui/LoadFailure';
-import { ErrorNote } from '../../components/ui/ErrorNote';
+import { PressError } from '../../components/ui/PressError';
 import { formatRemaining } from '../base/format';
+import { useServerClock } from '../missions/useServerClock';
 
 /**
  * The crew (GDD §C1, §C2): the seventeen chairs, and who is sitting in them.
@@ -372,6 +374,7 @@ function ChairWindow({
   bench,
   faces,
   pending,
+  error,
   onAssign,
   onClose,
 }: {
@@ -379,6 +382,8 @@ function ChairWindow({
   bench: readonly CrewOfficer[];
   faces: ReadonlyMap<string, string>;
   pending: boolean;
+  /** The last refusal, drawn in the window: the page behind it is under the backdrop. */
+  error: string | null;
   onAssign: (officerId: string) => void;
   onClose: () => void;
 }) {
@@ -438,7 +443,7 @@ function ChairWindow({
                         </span>
                         <span className="font-display text-[10px] uppercase tracking-[0.14em] text-ink-400">
                           <span className="tabular-nums">
-                            {officer.weeklyWage.toLocaleString()}
+                            {officer.weeklyWage.toLocaleString('en-US')}
                           </span>{' '}
                           caps
                         </span>
@@ -448,6 +453,7 @@ function ChairWindow({
                 ))}
               </ul>
             )}
+            {error !== null && <PressError>{error}</PressError>}
           </div>
         </div>
       </div>
@@ -472,6 +478,7 @@ function OfficerWindow({
   portraitId,
   filledRoles,
   pending,
+  error,
   onReassign,
   onClose,
 }: {
@@ -479,6 +486,8 @@ function OfficerWindow({
   portraitId: string | null;
   filledRoles: readonly OfficerRole[];
   pending: boolean;
+  /** The last refusal of a reassignment, drawn in the window rather than behind it. */
+  error: string | null;
   onReassign: (role: OfficerRole | null) => void;
   onClose: () => void;
 }) {
@@ -531,7 +540,7 @@ function OfficerWindow({
                 On the books
               </span>
               <span className="mt-1 font-display text-[15px] font-bold tabular-nums text-brass-300">
-                {officer.weeklyWage.toLocaleString()}
+                {officer.weeklyWage.toLocaleString('en-US')}
                 <span className="ml-1 text-[10px] font-normal tracking-[0.12em] text-ink-400">
                   caps
                 </span>
@@ -572,7 +581,9 @@ function OfficerWindow({
                 <>
                   <p className="font-body text-[12px] leading-snug text-ink-300">
                     Ending it costs{' '}
-                    <span className="tabular-nums text-oxblood-300">{fee.toLocaleString()}</span>{' '}
+                    <span className="tabular-nums text-oxblood-300">
+                      {fee.toLocaleString('en-US')}
+                    </span>{' '}
                     caps, paid now. Their chair opens immediately.
                   </p>
                   <div className="flex gap-1.5">
@@ -590,7 +601,15 @@ function OfficerWindow({
                     >
                       {release.isPending ? 'Ending it…' : 'Yes, let them go'}
                     </Button>
-                    <Button size="sm" variant="ghost" onClick={() => setEnding(false)}>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => {
+                        // The refusal belonged to that attempt: asking again starts clean.
+                        release.reset();
+                        setEnding(false);
+                      }}
+                    >
                       Keep them
                     </Button>
                   </div>
@@ -598,7 +617,9 @@ function OfficerWindow({
                       cannot cover what letting them go would cost" and "Nobody on your books by
                       that id"), and a 500 or a dropped connection produces neither: printing the
                       caps explanation for all three sent a player to check a number that was fine. */}
-                  {release.error !== null && <ErrorNote>{release.error.message}</ErrorNote>}
+                  {release.error && (
+                    <PressError onDismiss={release.reset}>{release.error.message}</PressError>
+                  )}
                 </>
               ) : (
                 <button
@@ -609,7 +630,7 @@ function OfficerWindow({
                 >
                   Let go
                   <span className="font-display text-[11px] tabular-nums text-ink-400">
-                    {fee.toLocaleString()} caps
+                    {fee.toLocaleString('en-US')} caps
                   </span>
                 </button>
               )}
@@ -638,7 +659,9 @@ function OfficerWindow({
                 data-testid="reassign-role"
               />
             </div>
+            {error !== null && <PressError>{error}</PressError>}
             {officer.passive != null && <ChairPassive passive={officer.passive} />}
+            {officer.role === 'master_of_whispers' && <WhispersPoints />}
             {officer.chairFrom != null && <ChairSettling from={officer.chairFrom} />}
             {/* Edged by the chair they are actually sitting in: every row is coloured by how much
                 this position cares about that skill, which is the whole reason a sheet is worth
@@ -664,6 +687,13 @@ function OfficerWindow({
 }
 
 /** What a chair pays the crew, in the server's words (`describeChairPassive`). */
+/** The crew's spy points, on the one chair that runs them (maintainer, 2026-10-07). */
+function WhispersPoints() {
+  const points = useCrewStanding().data?.spyPoints;
+  if (points === undefined) return null;
+  return <SpyPointsLine points={points} />;
+}
+
 function ChairPassive({ passive }: { passive: string }) {
   return (
     <p
@@ -681,7 +711,10 @@ function ChairPassive({ passive }: { passive: string }) {
  * refetches on every move, and a minute of drift on a six-hour wait is not worth a server clock.
  */
 function ChairSettling({ from }: { from: string }) {
-  const left = Date.parse(from) - Date.now();
+  // Ticking (bug pass, 2026-10-06): read once at render, the line froze at "another 5h 59m" in a
+  // window left open and never went away when the six hours were up.
+  const now = useServerClock(undefined, undefined);
+  const left = Date.parse(from) - now.getTime();
   // A window left open past the hour would otherwise promise "another 0s".
   if (!(left > 0)) return null;
   return (
@@ -831,8 +864,8 @@ function CrewPayroll({ ledger }: { ledger: PayrollLedger }) {
           Payroll
         </span>
         <span className="font-display text-[13px] font-bold tabular-nums text-brass-300">
-          {ledger.committed.toLocaleString()}
-          <span className="text-ink-300"> / {ledger.capacity.toLocaleString()}</span>
+          {ledger.committed.toLocaleString('en-US')}
+          <span className="text-ink-300"> / {ledger.capacity.toLocaleString('en-US')}</span>
           <span className="ml-1 text-[10px] font-normal uppercase tracking-[0.12em] text-ink-400">
             caps
           </span>
@@ -891,7 +924,11 @@ function Layout({ data }: { data: CrewResponse }) {
       {/* Reassignment is refused by an ordinary race: somebody took the chair in another tab. The
           mutation was read only for `isPending`, so a refusal left the window open with nothing
           said, and the window staying open was the whole of the feedback. */}
-      {reassign.error !== null && <ErrorNote>{reassign.error.message}</ErrorNote>}
+      {/* In the window when one is open (bug pass, 2026-10-06): drawn here, it sat under the
+          backdrop of the window that had just been refused. Cleared when a window closes. */}
+      {reassign.error !== null && chair === null && open === undefined && (
+        <PressError>{reassign.error.message}</PressError>
+      )}
 
       {chair !== null && (
         <ChairWindow
@@ -899,10 +936,14 @@ function Layout({ data }: { data: CrewResponse }) {
           bench={bench}
           faces={faces}
           pending={reassign.isPending}
+          error={reassign.error?.message ?? null}
           onAssign={(officerId) => {
             reassign.mutate({ officerId, role: chair }, { onSuccess: () => setChair(null) });
           }}
-          onClose={() => setChair(null)}
+          onClose={() => {
+            reassign.reset();
+            setChair(null);
+          }}
         />
       )}
 
@@ -916,8 +957,12 @@ function Layout({ data }: { data: CrewResponse }) {
           portraitId={open.portraitId ?? faces.get(open.officerId) ?? null}
           filledRoles={seated(data.officers)}
           pending={reassign.isPending}
+          error={reassign.error?.message ?? null}
           onReassign={(role) => reassign.mutate({ officerId: open.officerId, role })}
-          onClose={() => setOpened(null)}
+          onClose={() => {
+            reassign.reset();
+            setOpened(null);
+          }}
         />
       )}
 

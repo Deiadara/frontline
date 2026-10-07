@@ -82,7 +82,7 @@ export function GoodChip({
           CHIP_SIZE[size].figure,
         )}
       >
-        {amount.toLocaleString()}
+        {amount.toLocaleString('en-US')}
       </span>
     </span>
   );

@@ -42,13 +42,13 @@ afterEach(async () => {
 
 const auth = (token: string): { authorization: string } => ({ authorization: `Bearer ${token}` });
 
-async function makeApp(): Promise<FastifyInstance> {
+async function makeApp(admin = false): Promise<FastifyInstance> {
   const config = loadConfig({
     DATABASE_PATH: ':memory:',
     JWT_SECRET: 'test-secret',
-    ADMIN: 'false',
+    ADMIN: String(admin),
   });
-  expect(config.admin, 'this whole file is about the mode being off').toBe(false);
+  expect(config.admin, 'the mode is what the case asked for').toBe(admin);
   const db = openDatabase(config.databasePath);
   runMigrations(db);
   const app = await buildApp({ config, db, logger: false });
@@ -94,6 +94,21 @@ beforeAll(() => {
 
 afterAll(() => {
   vi.useRealTimers();
+});
+
+/*
+ * The battles board says when a call's price is waived (maintainer, 2026-10-06), so the declare
+ * dialog lets a short crew's call through in testing mode instead of greying a call the route takes.
+ */
+describe('the price of a call on the battles board', () => {
+  it('is waived in testing mode and charged otherwise', async () => {
+    for (const admin of [true, false]) {
+      const app = await makeApp(admin);
+      const { token } = await makePlayer(app, admin ? 'tester' : 'player');
+      const board = await app.inject({ method: 'GET', url: '/api/battles', headers: auth(token) });
+      expect(board.json<{ callPriceWaived?: boolean }>().callPriceWaived).toBe(admin);
+    }
+  });
 });
 
 describe('the gates admin mode waives, met by an ordinary player', () => {

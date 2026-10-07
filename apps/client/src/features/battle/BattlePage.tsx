@@ -35,6 +35,7 @@ import { Panel } from '../../components/ui/Panel';
 import { PanelSection } from '../../components/ui/PanelSection';
 import { FileSection } from '../overseer/FileSection';
 import { cn } from '../../lib/cn';
+import { SpyPointsLine } from '../../components/SpyPointsLine';
 import {
   useActions,
   useBattles,
@@ -63,7 +64,7 @@ import { DeployDialog, type DeployMode } from './DeployDialog';
 import { UnitChip } from '../units/UnitChip';
 import { EffectiveCard } from './EffectiveCard';
 import { Tutorial } from '../tutorial/Tutorial';
-import { ErrorNote } from '../../components/ui/ErrorNote';
+import { PressError } from '../../components/ui/PressError';
 import { usePlayerZone } from '../settings/usePlayerZone';
 
 /**
@@ -171,7 +172,6 @@ export function BattlePage() {
   const army = me.data?.base?.army ?? {};
   /** §C3: the workshop's brackets, which move a unit's speed and therefore the column's clock. */
   const loadouts = me.data?.base?.unitLoadouts ?? {};
-  const notoriety = me.data?.base?.economy.notoriety ?? 0;
   /*
    * §A4: the crew's bag channel, so the deploy window's loot figure is the one the settler spends.
    *
@@ -243,9 +243,13 @@ export function BattlePage() {
     >
       {/* First visit to this screen raises its card, once. */}
       <Tutorial screen="battles" />
-      {battles.isError ? (
+      {battles.isError && !data ? (
         /*
          * A failure said out loud, with a way to try again.
+         *
+         * Only with nothing to show (bug pass, 2026-10-06). A failed *background* poll keeps the
+         * last board, and swapping it for this unmounted the open fight: the chosen boost, an open
+         * Confirm and the scroll position all went, then the next poll put the board back.
          *
          * This branch is why a single unreadable row in an account's battle history made the whole
          * screen unreachable *silently*: the page drew every state that was not data as "Reading
@@ -375,11 +379,20 @@ export function BattlePage() {
           )}
           {tab === 'spies' && (
             <div className="min-h-0 flex-1 overflow-y-auto">
+              {/* The crew's own points, on this tab's heading line only (maintainer, 2026-10-07):
+                  the menu line says it while the menu is open and nowhere else on the page. */}
+              {data.spyPoints !== undefined && (
+                <SpyPointsLine points={data.spyPoints} className="mb-2" />
+              )}
               <SpyReports reports={data.spyReports} onRead={setReadingSpy} />
             </div>
           )}
           {tab === 'inventory' && (
-            <BoostStash stash={stash} inventory={me.data?.base?.inventory ?? {}} />
+            // In a scroller like every other tab (bug pass, 2026-10-06): the sheet is
+            // `overflow-hidden`, so on a short screen the trap rack was cut off with no way to it.
+            <div className="min-h-0 flex-1 overflow-y-auto">
+              <BoostStash stash={stash} inventory={me.data?.base?.inventory ?? {}} />
+            </div>
           )}
 
           {tab === 'ground' && (
@@ -393,11 +406,11 @@ export function BattlePage() {
       {deploying !== null && deployingView !== null && (
         <DeployDialog
           view={deployingView}
-          walking={columnsTo(road.data?.movements, deployingView.battle.id)}
+          walking={seatedColumnsTo(road.data?.movements, deployingView.battle.id)}
           army={army}
           loadouts={loadouts}
           bagPercent={standing.data?.haulPercent ?? 0}
-          notoriety={notoriety}
+          carrierFlat={standing.data?.carrierFlat ?? 0}
           mode={deploying.mode}
           pending={deploy.isPending}
           error={deploy.error}
@@ -585,6 +598,19 @@ function columnsTo(movements: readonly MovementView[] | undefined, battleId: str
       (total, movement) => mergeCounts(mergeCounts(total, movement.army), movement.perimeter),
       {},
     );
+}
+
+/**
+ * This crew's columns to one fight that the machines carry, one army a column: the seats are
+ * booked per column (`seatsAsked` on the server), and a column on the train takes none.
+ */
+function seatedColumnsTo(
+  movements: readonly MovementView[] | undefined,
+  battleId: string,
+): readonly Army[] {
+  return (movements ?? [])
+    .filter((movement) => movement.battleId === battleId && !movement.byRail)
+    .map((movement) => mergeCounts(movement.army, movement.perimeter));
 }
 
 function mergeCounts(into: Army, force: Army): Army {
@@ -931,7 +957,7 @@ function VehiclePicker({
             </ul>
           )}
         </PanelSection>
-        {take.error && <ErrorNote>{take.error.message}</ErrorNote>}
+        {take.error && <PressError onDismiss={take.reset}>{take.error.message}</PressError>}
       </div>
     </FileSection>
   );
@@ -1021,7 +1047,7 @@ function LeadPicker({ view, now }: { view: BattleView; now: number }) {
           onChange={(officerId) => lead.mutate({ battleId: view.battle.id, officerId })}
           data-testid="lead-officer-picker"
         />
-        {lead.error && <ErrorNote>{lead.error.message}</ErrorNote>}
+        {lead.error && <PressError onDismiss={lead.reset}>{lead.error.message}</PressError>}
       </div>
     </FileSection>
   );
@@ -1485,14 +1511,14 @@ function NameBuys({ view, infamy }: { view: BattleView; infamy: number }) {
                   {choice.effect}
                 </p>
                 <p className="mt-0.5 font-display text-[11px] uppercase tracking-[0.14em] text-ink-300">
-                  {choice.held ? choice.source : `${choice.cost.toLocaleString()} infamy`} · reaches{' '}
-                  {choice.reach}% of your force
+                  {choice.held ? choice.source : `${choice.cost.toLocaleString('en-US')} infamy`} ·
+                  reaches {choice.reach}% of your force
                 </p>
               </div>
             )}
           </div>
         </PanelSection>
-        {buy.error && <ErrorNote>{buy.error.message}</ErrorNote>}
+        {buy.error && <PressError onDismiss={buy.reset}>{buy.error.message}</PressError>}
       </div>
 
       {confirming && (
@@ -1501,7 +1527,7 @@ function NameBuys({ view, infamy }: { view: BattleView; infamy: number }) {
           body={
             confirming.held
               ? `Take ${confirming.name} into this fight? It leaves the bag the moment the fight goes off, whichever way it goes, and it cannot be taken back out.`
-              : `Spend ${confirming.cost.toLocaleString()} infamy on ${confirming.name} for this fight? The name is burned: it cannot be swapped, cleared or refunded.`
+              : `Spend ${confirming.cost.toLocaleString('en-US')} infamy on ${confirming.name} for this fight? The name is burned: it cannot be swapped, cleared or refunded.`
           }
           confirm={confirming.held ? 'Take it in' : 'Burn it'}
           testId="confirm-boost"
@@ -1646,7 +1672,7 @@ function TrapPicker({ view }: { view: BattleView }) {
             )}
           </div>
         </PanelSection>
-        {set.error && <ErrorNote>{set.error.message}</ErrorNote>}
+        {set.error && <PressError onDismiss={set.reset}>{set.error.message}</PressError>}
       </div>
     </FileSection>
   );
@@ -1673,7 +1699,7 @@ function hintFor(option: BattleBoostOption): string {
   const reach = option.reach === 0 ? 'reaches nothing you sent' : `reaches ${option.reach}%`;
   // A crate's price is not on this line because it has already been paid. What a player wants to
   // know about one is how many are left in the bag, which is what `source` carries for held boosts.
-  const price = option.held ? option.source : `${option.cost.toLocaleString()} infamy`;
+  const price = option.held ? option.source : `${option.cost.toLocaleString('en-US')} infamy`;
   return `${price} · ${option.effect} · ${reach}`;
 }
 
@@ -1720,7 +1746,9 @@ function Reports({
                     : 'border-oxblood-500/70 bg-oxblood-300/10 text-oxblood-300',
                 )}
               >
-                {report.won ? 'Held' : 'Lost'}
+                {/* A won attack is a win, not a hold (bug pass, 2026-10-06): the report it opens
+                    says "Won" and "Captured". */}
+                {report.won ? (report.side === 'attacker' ? 'Won' : 'Held') : 'Lost'}
               </span>
               <span className="min-w-0 flex-1">
                 <span className="block truncate font-display text-[13px] tracking-[0.06em] text-ink-100">

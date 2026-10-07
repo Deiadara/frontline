@@ -470,10 +470,11 @@ describe('what territory is worth (§A4)', () => {
   });
 
   /*
-   * The Blockhouse pays "twenty per cent off the time every job in this city takes" (maintainer,
-   * 2026-09-30), so its cut is Terminus's and lands in the city channel, not the global one.
+   * A mission cut scoped to a district (the Printworks' tunnels) lands in the district channel and
+   * pays on that board alone; the Blockhouse, which paid a city-scoped cut until it went over to
+   * ANTI-COMBINE (maintainer 2026-10-07), pays no clock at all.
    */
-  it('pays the Blockhouse’s mission speed on Terminus work only', () => {
+  it('pays a district-scoped mission cut on one board, and the Blockhouse in ANTI-COMBINE', () => {
     const blockhouse = ALL_DISTRICTS.find((d) => d.id === 'blockhouse')!;
     const everywhere = ALL_DISTRICTS.flatMap((d) => d.locations);
     const held = new Map(
@@ -492,14 +493,23 @@ describe('what territory is worth (§A4)', () => {
       ]),
     );
     const effects = territoryEffectsFor(MINE, everywhere, held);
+    // The Blockhouse held whole is a level of ANTI-COMBINE now, and no mission cut at all.
+    expect(effects.antiCombineLevels).toBe(1);
     expect(effects.missionSpeedPercent).toBe(0);
-    expect(effects.missionSpeedPercentByCity).toEqual({ [blockhouse.cityId]: 25 });
     const terminusWork = ALL_DISTRICTS.find(
       (d) => d.cityId === blockhouse.cityId && d.id !== blockhouse.id && d.kind === 'contested',
     )!;
     const ashfallWork = CONTESTED_DISTRICTS[0]!;
     expect(ashfallWork.cityId).not.toBe(blockhouse.cityId);
-    expect(missionSpeedPercentIn(effects, terminusWork.id)).toBe(25);
+    expect(missionSpeedPercentIn(effects, terminusWork.id)).toBe(0);
+    // One district's board, and no other, for a cut scoped to it.
+    applyHoldBonus(
+      effects,
+      { kind: 'mission_speed', percent: 11, inDistrict: true },
+      { districtId: terminusWork.id },
+    );
+    expect(missionSpeedPercentIn(effects, terminusWork.id)).toBe(11);
+    expect(missionSpeedPercentIn(effects, blockhouse.id)).toBe(0);
     expect(missionSpeedPercentIn(effects, ashfallWork.id)).toBe(0);
     // And a bonus that pays everywhere still does, on every board.
     const global = applyHoldBonus(noTerritoryEffects(), { kind: 'mission_speed', percent: 10 });
@@ -779,11 +789,12 @@ describe("the city's geography", () => {
  *
  * A residential district is a plot, not a place with a history. It used to carry an authored name
  * anyway (the Terraces, the Row) and the map printed it whoever was standing there. What a plot is
- * called now depends on **who is looking**: yours carries your crew's name, live, and everybody
- * else's is a number. Both the map and the district screen read this one function so they cannot
- * disagree about what a place is called.
+ * called now is **whoever lives there**: your crew's name on yours, live, the resident's on
+ * everybody else's, and `Unclaimed Player District` on an empty one (maintainer, 2026-10-06; they
+ * were numbered I, II, III before). Both the map and the district screen read this one function so
+ * they cannot disagree about what a place is called.
  */
-describe('a plot is called after you, or numbered', () => {
+describe('a plot is called after whoever lives there', () => {
   const residential = CITY_DISTRICTS.filter((district) => district.kind === 'residential');
   const contested = CITY_DISTRICTS.filter((district) => district.kind === 'contested');
   const mine = residential[1]!;
@@ -801,33 +812,22 @@ describe('a plot is called after you, or numbered', () => {
     );
   });
 
-  /** The numbering runs from one with no gap in it, whichever plot happens to be yours. */
-  it('numbers everybody else I, II, III, in order and without gaps', () => {
-    for (const home of residential) {
-      const viewer = { ownDistrictId: home.id, ownName: 'EterosEgw' };
-      const others = residential.filter((district) => district.id !== home.id);
-      expect(
-        others.map((district) => districtDisplayName(district, viewer)),
-        `viewed from ${home.id}`,
-      ).toEqual(['Player District I', 'Player District II', 'Player District III']);
-    }
-  });
-
-  /**
-   * The point of numbering rather than naming: a stranger's crew name is not published to the
-   * whole city just because they live somewhere.
-   */
-  it('never prints another crew’s name on their plot', () => {
-    const viewer = { ownDistrictId: mine.id, ownName: 'EterosEgw' };
+  it('calls another crew’s plot after that crew', () => {
+    const viewer = { ownDistrictId: mine.id, ownName: 'EterosEgw', residentName: 'The Tenth' };
     for (const district of residential) {
       if (district.id === mine.id) continue;
-      expect(districtDisplayName(district, viewer)).toMatch(/^Player District /);
+      expect(districtDisplayName(district, viewer)).toBe('The Tenth');
     }
+    // Your own plot is yours whatever the city read says is living there.
+    expect(districtDisplayName(mine, viewer)).toBe('EterosEgw');
   });
 
-  it('falls back to the plot’s own name when nobody is looking', () => {
+  it('calls an empty plot unclaimed, whoever is looking', () => {
+    const viewer = { ownDistrictId: mine.id, ownName: 'EterosEgw', residentName: null };
     for (const district of residential) {
-      expect(districtDisplayName(district), district.id).toMatch(/^Player District/);
+      if (district.id === mine.id) continue;
+      expect(districtDisplayName(district, viewer)).toBe('Unclaimed Player District');
+      expect(districtDisplayName(district), district.id).toBe('Unclaimed Player District');
     }
   });
 
@@ -857,13 +857,16 @@ describe('a plot is called after you, or numbered', () => {
     expect(sameDistrictName('Vex', 'Vexx')).toBe(false);
   });
 
-  /** The reserved plot numbers are dodged through the same gap, so they close through it too. */
-  it('reserves the plot numbers however they are spaced', () => {
-    for (const name of ['Player District II', 'player  district  ii', ' PLAYER DISTRICT II ']) {
+  /** The empty plot's name is dodged through the same gap, so it closes through it too. */
+  it('reserves the empty plot’s name however it is spaced', () => {
+    for (const name of [
+      'Unclaimed Player District',
+      'unclaimed  player  district',
+      ' UNCLAIMED PLAYER DISTRICT ',
+    ]) {
       expect(isReservedDistrictName(name), name).toBe(true);
     }
-    // I..X are reserved as headroom for plots not drawn yet, so the first free one is XI.
-    expect(isReservedDistrictName('Player District XI')).toBe(false);
+    expect(isReservedDistrictName('Player District')).toBe(false);
     expect(isReservedDistrictName('The Ninth Street Crew')).toBe(false);
   });
 
@@ -901,8 +904,8 @@ describe('a crew name a reader can actually tell apart', () => {
   });
 
   it('does not let an invisible character take a reserved plot name', () => {
-    expect(isReservedDistrictName('Player District II')).toBe(true);
-    expect(isReservedDistrictName(`Player${ZERO_WIDTH} District II`)).toBe(true);
+    expect(isReservedDistrictName('Unclaimed Player District')).toBe(true);
+    expect(isReservedDistrictName(`Unclaimed${ZERO_WIDTH} Player District`)).toBe(true);
   });
 
   it('folds compatibility forms, which paint the same word', () => {

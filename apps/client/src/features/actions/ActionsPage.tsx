@@ -55,7 +55,7 @@ import { Row, Section } from './rows';
 import { AutomationsPage } from './AutomationsPage';
 import { HomeMark, OutMark, OrdersMark, WorkMark } from './CensusMarks';
 import { fightPhase, onTheRoad, ownAt, roadCounts, roadIsEmpty, roadRows, type Road } from './road';
-import { ErrorNote } from '../../components/ui/ErrorNote';
+import { PressError } from '../../components/ui/PressError';
 
 /**
  * Actions (§A4): everybody who is not where they started, live.
@@ -178,6 +178,37 @@ export function ActionsPage() {
   const recallSpy = useRecallSpy();
   const recallMove = useRecallMove();
   const recallCell = useRecallSleepers();
+  /*
+   * The road is three reads, and it is only known when all three are in (bug pass, 2026-10-06).
+   * Gated on the first alone, a cold open said "Nobody is out" until the jobs and the fights
+   * arrived, and a failed read of either kept saying it while crews were out.
+   */
+  const loaded = data !== undefined && missions.data !== undefined && battles.data !== undefined;
+  const failed =
+    (query.isError && !data) ||
+    (missions.isError && !missions.data) ||
+    (battles.isError && !battles.data);
+  /*
+   * A refusal stands while the row it was about is on the road, and goes with it (bug pass,
+   * 2026-10-06): it used to stay above the list after the row had gone.
+   */
+  const recallErrors = [
+    recall.error && road.columns.some((one) => one.id === recall.variables?.movementId)
+      ? recall.error
+      : null,
+    recallJob.error && road.jobs.some((one) => one.id === recallJob.variables?.missionId)
+      ? recallJob.error
+      : null,
+    recallSpy.error && road.spies.some((one) => one.id === recallSpy.variables?.runId)
+      ? recallSpy.error
+      : null,
+    recallMove.error && road.moves.some((one) => one.id === recallMove.variables?.moveId)
+      ? recallMove.error
+      : null,
+    recallCell.error && road.cells.some((one) => one.cellId === recallCell.variables?.cellId)
+      ? recallCell.error
+      : null,
+  ];
   const { pathname } = useLocation();
   const page: MonitorPage = pathname.endsWith('/units')
     ? 'census'
@@ -199,7 +230,7 @@ export function ActionsPage() {
      */
     <PageShell
       title="The Monitor"
-      action={page === 'road' && data ? <Counts road={road} /> : null}
+      action={page === 'road' && loaded ? <Counts road={road} /> : null}
       wide
       fills
     >
@@ -210,9 +241,10 @@ export function ActionsPage() {
        * player has to go back up for, and the whole reason these two are one section is that
        * moving between them should cost nothing.
        */}
-      <div
+      {/* Navigation, not a tab list: these are links between pages, and a `tablist` with no tabs
+          in it told a reader there were controls that do not exist (bug pass, 2026-10-06). */}
+      <nav
         className="flex shrink-0 flex-wrap items-center gap-2"
-        role="tablist"
         aria-label="The Monitor"
         data-testid="monitor-tabs"
       >
@@ -221,10 +253,10 @@ export function ActionsPage() {
             key={entry.id}
             page={entry}
             active={page === entry.id}
-            count={entry.id === 'road' && data ? roadRows(road) : null}
+            count={entry.id === 'road' && loaded ? roadRows(road) : null}
           />
         ))}
-      </div>
+      </nav>
 
       {page === 'census' ? (
         <Census />
@@ -232,12 +264,16 @@ export function ActionsPage() {
         <InProgressPage />
       ) : page === 'automations' ? (
         <AutomationsPage />
-      ) : !data ? (
+      ) : !loaded ? (
         <ScreenLoad
           what="The road"
           loading="Counting heads…"
-          isError={query.isError}
-          onRetry={() => void query.refetch()}
+          isError={failed}
+          onRetry={() => {
+            void query.refetch();
+            void missions.refetch();
+            void battles.refetch();
+          }}
           detail="Nothing has been lost. Every column still gets where it was going."
         />
       ) : roadIsEmpty(road) ? (
@@ -263,9 +299,8 @@ export function ActionsPage() {
               built and `/actions` polls at 5s, while the row's own `canRecall` is recomputed every
               second: for up to five seconds after the window shuts the row reads "0s left to
               decide" beside a live button. `DeclareDialog` renders this same mutation's error. */}
-          {[recall, recallJob, recallSpy, recallMove, recallCell].map(
-            (write, index) =>
-              write.error && <ErrorNote key={index}>{write.error.message}</ErrorNote>,
+          {recallErrors.map(
+            (error, index) => error && <PressError key={index}>{error.message}</PressError>,
           )}
 
           {road.columns.length > 0 && (
@@ -281,7 +316,9 @@ export function ActionsPage() {
                     key={movement.id}
                     movement={movement}
                     now={now}
-                    pending={recall.isPending}
+                    // This row's own press only (bug pass, 2026-10-06): one recall greyed every row,
+                    // and the windows are a tenth of the walk.
+                    pending={recall.isPending && recall.variables.movementId === movement.id}
                     onRecall={() => recall.mutate({ movementId: movement.id })}
                   />
                 ))}
@@ -302,7 +339,7 @@ export function ActionsPage() {
                     key={cell.cellId}
                     cell={cell}
                     now={now}
-                    pending={recallCell.isPending}
+                    pending={recallCell.isPending && recallCell.variables.cellId === cell.cellId}
                     onRecall={() => recallCell.mutate({ cellId: cell.cellId })}
                   />
                 ))}
@@ -358,7 +395,7 @@ export function ActionsPage() {
                     key={mission.id}
                     mission={mission}
                     now={now}
-                    pending={recallJob.isPending}
+                    pending={recallJob.isPending && recallJob.variables.missionId === mission.id}
                     onRecall={() => recallJob.mutate({ missionId: mission.id })}
                     xpBonusPercent={missions.data?.xpBonusPercent ?? 0}
                   />
@@ -380,7 +417,7 @@ export function ActionsPage() {
                     key={move.id}
                     move={move}
                     now={now}
-                    pending={recallMove.isPending}
+                    pending={recallMove.isPending && recallMove.variables.moveId === move.id}
                     onRecall={() => recallMove.mutate({ moveId: move.id })}
                   />
                 ))}
@@ -396,7 +433,7 @@ export function ActionsPage() {
                     key={run.id}
                     run={run}
                     now={now}
-                    pending={recallSpy.isPending}
+                    pending={recallSpy.isPending && recallSpy.variables.runId === run.id}
                     onRecall={() => recallSpy.mutate({ runId: run.id, districtId: run.districtId })}
                   />
                 ))}
@@ -758,7 +795,7 @@ function Job({
           </span>
           <RewardLine rewards={card.rewards} />
           <span className="font-display text-[11px] font-bold tabular-nums text-hextech-100">
-            +{card.xp.toLocaleString()} XP
+            +{card.xp.toLocaleString('en-US')} XP
           </span>
         </div>
       )}
@@ -868,8 +905,8 @@ function SpyJob({
   const turned = run.recalledAt !== null;
   return (
     <Row
-      testId="spy-run"
-      name={`${SPY_TIER_SPECS[run.tier].label} · ${run.capsPaid.toLocaleString()} caps`}
+      testId={`spy-run-${run.id}`}
+      name={`${SPY_TIER_SPECS[run.tier].label} · ${run.capsPaid.toLocaleString('en-US')} caps`}
       status={turned ? 'Turned round' : 'Spying'}
     >
       <Route
@@ -894,7 +931,7 @@ function SpyJob({
             label="Turn the runners round"
             pending={pending}
             onCancel={onRecall}
-            data-testid="recall-spy"
+            data-testid={`recall-spy-${run.id}`}
           />
         </div>
       )}

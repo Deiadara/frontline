@@ -289,6 +289,50 @@ test('the unit bench groups its cards by rarity, every card the same height', as
 });
 
 /**
+ * Pressing **Ready to build** does not re-cut the cards (bug pass, 2026-10-06).
+ *
+ * `BENCH_TRAY` sizes every card to the tallest one on the bench, and the filter takes cards off the
+ * bench. With the bill and the requirement rows reserved for their usual one line, the ADVANCED
+ * cards (a blueprint plus four gates) were the tallest thing on it, and hiding them shrank every
+ * card that stayed by 35px on the structures bench and 45px on the unit bench. The template now
+ * reserves both rows at their fullest, so a card is the same height whoever else is beside it.
+ *
+ * Measured on both benches because they wrap different rows: the unit bench's bill carries a line
+ * of parts the structures bench never has.
+ */
+for (const bench of [
+  { view: 'modifications', tray: 'scrapyard-nexus' },
+  { view: 'refits', tray: 'scrapyard-unit-modifications' },
+] as const) {
+  test(`the ${bench.view} bench keeps its card height under Ready to build`, async ({ page }) => {
+    await installApi(page, lateGame);
+    await page.goto(`/game/scrapyard?view=${bench.view}`);
+    await expect(page.getByTestId(bench.tray)).toBeVisible();
+    await settleFonts(page);
+
+    const cardHeights = () =>
+      page
+        .getByTestId(bench.tray)
+        .locator('li[data-testid^="addon-"]')
+        .evaluateAll((nodes) =>
+          nodes.map((node) => Math.round(node.getBoundingClientRect().height)),
+        );
+
+    const before = await cardHeights();
+    await page.getByTestId('scrapyard-ready-only').click();
+    await expect(page.getByTestId('scrapyard-ready-only')).toHaveAttribute('aria-pressed', 'true');
+    const after = await cardHeights();
+
+    // A guard on the fixture: the filter has to hide something, or this proves nothing.
+    expect(after.length).toBeGreaterThan(0);
+    expect(after.length).toBeLessThan(before.length);
+    expect(new Set(before).size, `before: ${before.join(', ')}`).toBe(1);
+    expect(after[0], `before ${before[0]}px, after ${after.join(', ')}px`).toBe(before[0]);
+    expect(new Set(after).size).toBe(1);
+  });
+}
+
+/**
  * The sheet on a hover, over a door that is still a door (maintainer, 2026-09-17).
  *
  * "Make it so their unit card appears with portrait etc, but it does not stop you from clicking."

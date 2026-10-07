@@ -1,3 +1,4 @@
+import { cityOfDistrict, findCity } from '@frontline/shared';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter, Route, Routes, useParams } from 'react-router-dom';
@@ -589,5 +590,27 @@ describe('the factions board', () => {
     await openFactions();
     fireEvent.click(screen.getByTestId('standing-link-Rust Assembly'));
     expect(await screen.findByTestId('landed-faction')).toHaveTextContent('faction-2');
+  });
+});
+
+/** Maintainer, 2026-10-06: the scope label lost its city name while a board loaded. */
+describe('the scope label', () => {
+  it('keeps the home city in its name while another board loads', async () => {
+    await renderBoard();
+    const label = () => screen.getByTestId('local-only').parentElement!;
+    const home = findCity(cityOfDistrict(F.me.base!.districtId))!.name;
+    expect(label()).toHaveTextContent(`(${home})`);
+
+    fetchMock.mockImplementation((path: string) => {
+      if (String(path).includes('/leaderboard?board=factions')) return new Promise(() => {});
+      if (String(path).includes('/leaderboard')) return reply(F.leaderboardPlayers);
+      if (String(path).endsWith('/me')) return reply(F.me);
+      throw new Error(`unstubbed request: ${String(path)}`);
+    });
+    fireEvent.click(screen.getByTestId('board-factions'));
+    await waitFor(() =>
+      expect(screen.getByTestId('board-factions')).toHaveAttribute('aria-selected', 'true'),
+    );
+    expect(label()).toHaveTextContent(`(${home})`);
   });
 });

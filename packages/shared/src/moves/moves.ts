@@ -48,7 +48,6 @@ export const MOVE_REFUSALS = [
   'not_enough_vehicles',
   /** A garrison is a line: scavengers do not hold ground. */
   'not_a_fighting_force',
-  'needs_infamy',
   /** The source is not a place this crew has units standing. */
   'not_yours',
   /** Somebody else holds the ground: call a fight instead. */

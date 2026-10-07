@@ -64,9 +64,8 @@ export function districtWith(
   return [...buildings, { id: `preview-${kind}`, kind, level, modifications: [] }];
 }
 
-const round = (value: number): string => Math.round(value).toLocaleString();
+const round = (value: number): string => Math.round(value).toLocaleString('en-US');
 
-/** An hourly rate, to one decimal where the rate is small enough for one to matter. */
 /**
  * What a structure makes an hour: its share of the settle's rates when the crew's yield is known,
  * and the structure and its cards alone when it is not (a `/me` from before the field).
@@ -77,6 +76,7 @@ function made(kind: BuildingKind, buildings: readonly Building[], crew?: CrewYie
     : buildingProduction(kind, buildings);
 }
 
+/** An hourly rate, to one decimal where the rate is small enough for one to matter. */
 function perHour(rates: PartialResources): string {
   const parts = RESOURCE_KEYS.flatMap((key) => {
     const rate = rates[key] ?? 0;
@@ -105,6 +105,8 @@ const LINES: Record<
     crewStoragePercent?: number,
     /** The crew's half of the production rates (`/me`), for the three lines that make something. */
     crewYield?: CrewYield,
+    /** The ground's share of the payroll book (`payrollPercent`, 2026-10-07), for the Quarters' line. */
+    crewPayrollPercent?: number,
   ) => StructureBonus
 > = {
   nexus: (buildings) => {
@@ -117,9 +119,9 @@ const LINES: Record<
       value: `Nexus ${level} · +${round(payroll)} caps payroll`,
     };
   },
-  quarters: (buildings) => ({
+  quarters: (buildings, _level, _storage, _crew, crewPayrollPercent = 0) => ({
     label: 'Unit slots for the district, and what the payroll book stretches to',
-    value: `${round(unitSlotCapacity(buildings))} unit slots · +${round(payrollBonusPercent(buildings))}% payroll`,
+    value: `${round(unitSlotCapacity(buildings))} unit slots · +${round(payrollBonusPercent(buildings) + crewPayrollPercent)}% payroll`,
   }),
   greenhouse: (buildings, _level, _storage, crew) => ({
     label: 'Grows, and off the supplies a recruit eats',
@@ -222,6 +224,14 @@ export function structureBonus(
   crewStoragePercent = 0,
   /** The crew's half of the production rates, off `/me`. */
   crewYield?: CrewYield,
+  /** The ground's share of the payroll book, off the crew fold's `payrollPercent`. */
+  crewPayrollPercent = 0,
 ): StructureBonus {
-  return LINES[kind](districtWith(buildings, kind, level), level, crewStoragePercent, crewYield);
+  return LINES[kind](
+    districtWith(buildings, kind, level),
+    level,
+    crewStoragePercent,
+    crewYield,
+    crewPayrollPercent,
+  );
 }

@@ -1,6 +1,7 @@
 import {
   ITEM_CATALOG,
   addItems,
+  hasItems,
   itemCount,
   removeItems,
   MODIFICATIONS,
@@ -296,6 +297,7 @@ function modificationTargets(
   spec: ModificationSpec,
   markFor: (role: OfficerRole) => OfficerMark | null,
   cut: number,
+  admin: boolean,
 ): ScrapyardEntry['targets'] {
   return fitsIn(spec).map((kind) => {
     const standing = findBuilding(base.buildings, kind);
@@ -309,7 +311,9 @@ function modificationTargets(
       // §D7: the top two bands ask for a rank, which is the gate the ladder never had.
       notoriety: base.economy.notoriety,
       markFor,
-      affordable: (one) => canAfford(base.resources, modificationBill(base, one, cut)),
+      affordable: (one) =>
+        adminWaives('cannot_afford', admin) ||
+        canAfford(base.resources, modificationBill(base, one, cut)),
     });
     /*
      * A card already in a bracket is not blocked, it is done.
@@ -336,6 +340,7 @@ function upgradeTargets(
   markFor: (role: OfficerRole) => OfficerMark | null,
   musterable: ReadonlySet<string>,
   cut: number,
+  admin: boolean,
 ): ScrapyardEntry['targets'] {
   return PLAYER_UNITS.filter((unit) => modificationFitsUnit(spec, unit.id)).map((unit) => {
     const slots = slotsFor(base.unitLoadouts, unit.id);
@@ -353,11 +358,10 @@ function upgradeTargets(
       // §D7: the top two bands ask for a rank, which is the gate the ladder never had.
       notoriety: base.economy.notoriety,
       markFor,
-      affordable: (one) => canAfford(base.resources, upgradeBill(base, one, standingYard, cut)),
-      hasParts: (parts) =>
-        Object.entries(parts).every(
-          ([item, count]) => (base.inventory[item as ItemId] ?? 0) >= count,
-        ),
+      affordable: (one) =>
+        adminWaives('cannot_afford', admin) ||
+        canAfford(base.resources, upgradeBill(base, one, standingYard, cut)),
+      hasParts: (parts) => adminWaives('missing_parts', admin) || hasItems(base.inventory, parts),
     });
     // Fitted is an action rather than a refusal here too: see `modificationTargets`.
     const fitted = slots.includes(spec.id);
@@ -374,6 +378,11 @@ export function projectScrapyard(
   repos: Repositories,
   base: Base,
   standing: YardStanding = NO_STANDING,
+  /**
+   * Testing mode, so the page waives what the bench waives (bug pass, 2026-10-06): the build
+   * charged nothing while every card said it could not be covered, and the button was dead.
+   */
+  admin = false,
 ): ScrapyardResponse {
   /*
    * The two reads every row needs, taken once for the page.
@@ -388,7 +397,7 @@ export function projectScrapyard(
   const musterable = new Set(unlockedUnits(unlockContextFor(repos, base)).map((unit) => unit.id));
 
   const modifications: ScrapyardEntry[] = MODIFICATIONS.map((spec) => {
-    const targets = modificationTargets(base, spec, markFor, cut);
+    const targets = modificationTargets(base, spec, markFor, cut, admin);
     const requirement = modificationRequirement(spec, spec.building);
     return {
       id: spec.id,
@@ -422,7 +431,7 @@ export function projectScrapyard(
   // The unit bench: thirty cards in catalogue order, which is rarity order. The page groups them
   // by the `rarity` on each row rather than by anything it knows about the catalogue.
   const upgrades: ScrapyardEntry[] = UNIT_MODIFICATIONS.map((spec) => {
-    const targets = upgradeTargets(base, spec, standing, markFor, musterable, cut);
+    const targets = upgradeTargets(base, spec, standing, markFor, musterable, cut, admin);
     const requirement = unitModificationRequirement(spec);
     return {
       id: spec.id,
@@ -474,7 +483,7 @@ export function projectScrapyard(
     owned: itemCount(base.inventory, spec.id as ItemId),
     requiresLevel: scrapyardLevelForTrap(spec),
     documentHeld: blueprintGateMet(base.inventory, 'trap', spec.id),
-    blocker: trapBlockerFor(base, spec, cut),
+    blocker: trapBlockerFor(base, spec, cut, admin),
     targets: [],
     requirement: [],
   }));
@@ -619,11 +628,7 @@ export function buildAddon(
     affordable: (one) =>
       adminWaives('cannot_afford', admin) ||
       canAfford(base.resources, upgradeBill(base, one, standing, cut)),
-    hasParts: (parts) =>
-      adminWaives('missing_parts', admin) ||
-      Object.entries(parts).every(
-        ([item, count]) => (base.inventory[item as ItemId] ?? 0) >= count,
-      ),
+    hasParts: (parts) => adminWaives('missing_parts', admin) || hasItems(base.inventory, parts),
   });
   if (refusal !== null) {
     return { kind: 'refused', reason: upgradeMessage(refusal, base, spec, target) };

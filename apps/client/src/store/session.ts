@@ -2,6 +2,7 @@ import type { User } from '@frontline/shared';
 import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
 import { useViewedCity } from './viewedCity';
+import { useWasteConfirm } from './wasteConfirm';
 
 /**
  * What to tear down besides the session when it ends.
@@ -94,6 +95,10 @@ export const useSession = create<SessionState>()(
         // through the hook above, because that store holds nothing this module could close a cycle
         // on.
         useViewedCity.getState().forget();
+        // An open "this would go to waste" question goes with the session that asked it. Its layer
+        // sits outside the sign-in gate, so it stayed over the login screen, and a yes resent the
+        // old account's request (bug pass, 2026-10-06). Declined, so the waiting call settles.
+        useWasteConfirm.getState().question?.answer(false);
       },
     }),
     {

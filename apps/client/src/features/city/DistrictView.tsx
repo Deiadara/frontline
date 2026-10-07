@@ -75,7 +75,13 @@ export function DistrictView() {
 
   const battles = useBattles();
   const declare = useDeclareBattle();
-  const [calling, setCalling] = useState<BattleTarget | null>(null);
+  const [calling, setCallingTo] = useState<BattleTarget | null>(null);
+  // A refusal belongs to the call it answered: opening another (or closing this one) clears it,
+  // where it used to sit beside "Call it" on the next location's dialog (bug pass, 2026-10-06).
+  const setCalling = (target: BattleTarget | null) => {
+    declare.reset();
+    setCallingTo(target);
+  };
   /** The location whose sign was last clicked on the painting, ringed until the next click. */
   const [picked, setPicked] = useState<string | null>(null);
   /** The gate's own spy window on the panel view, which has no painting to hang one off. */
@@ -93,6 +99,7 @@ export function DistrictView() {
   const viewer = {
     ownDistrictId: me.data?.base?.districtId ?? null,
     ownName: me.data?.base?.name ?? null,
+    residentName: data?.base?.name ?? null,
   };
   const slots = battles.data?.slots ?? [];
   // §D7: what a call is paid out of. Off the battle board rather than off `/me`, so the price and
@@ -552,16 +559,10 @@ function VisitedDistrict({
   /*
    * Whose plot this is, in their own words.
    *
-   * The one screen that names the resident rather than numbering the plot. The map numbers them,
-   * because there the reader is a stranger to nine of the ten; here they have walked in and the
-   * crew's name is already printed two inches below in the panel copy and on every receipt the
-   * fight produces. `districtDisplayName` is still the rule, given the resident as the viewer,
-   * which is the same call `battle/ground.ts` makes for a report.
+   * The resident's name, as everywhere: `districtDisplayName` is the rule, which is the same call
+   * `battle/ground.ts` makes for a report.
    */
-  const name = districtDisplayName(data.district, {
-    ownDistrictId: data.district.id,
-    ownName: data.base?.name ?? null,
-  });
+  const name = districtDisplayName(data.district, { residentName: data.base?.name ?? null });
 
   /*
    * The way in, in the server's words rather than this screen's.
@@ -899,7 +900,10 @@ function ContestedDistrict({
             district={data.district}
             locations={data.locations}
             baseId={baseId}
-            gate={gate ?? null}
+            // Shut means armed and standing, and the call is only offered when there is somebody
+            // to call out: the server refuses one on your own ground and one on a gate standing
+            // open, and the sign used to open a live caller for both.
+            gate={gate ? { ...gate, shut, callable: shut && !heldByYou } : null}
             onPick={(locationId) => {
               // The gate is not a location and has no card: it is the one plate that calls its
               // fight straight from the painting.

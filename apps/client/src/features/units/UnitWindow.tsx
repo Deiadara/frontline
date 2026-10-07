@@ -81,6 +81,8 @@ export function catalogueOption(spec: UnitSpec, extraRules: UnitOption['rules'] 
     cost: {},
     musterSeconds: 0,
     unitSlots: spec.unitSlots,
+    doorLevel: null,
+    doorSteps: [],
     unlocked: true,
     missing: [],
     owned: 0,
@@ -100,14 +102,23 @@ export function catalogueOption(spec: UnitSpec, extraRules: UnitOption['rules'] 
  */
 export function UnitWindow({ unitId, option }: { unitId: string; option?: UnitOption | null }) {
   const found = useUnitOption(unitId);
+  // The same read `useUnitOption` makes, so this costs no request (bug pass, 2026-10-06). The card
+  // drew a crew's carriers as locked behind research it had finished, and its count was the home
+  // slice alone, because neither fact was handed to it.
+  const roster = useUnits().data;
   const unit = option ?? found;
   if (!unit) return null;
   const spec = findUnit(unitId);
+  // Where the crew's own units are standing, only for the crew's own row: an option a caller hands
+  // in may be somebody else's.
+  const ours = option == null && roster !== undefined;
   return (
     <UnitCard
       unit={unit}
-      garrisoned={0}
-      abroad={0}
+      garrisoned={ours ? (roster.garrisoned[unitId] ?? 0) : 0}
+      atGate={ours ? (roster.gateArmy[unitId] ?? 0) : 0}
+      abroad={ours ? (roster.abroad[unitId] ?? 0) : 0}
+      carriersFight={roster?.carriersFight ?? false}
       // A sheet nobody can hold loses the three claims about ownership. See `UnitCardProps.enemy`.
       enemy={spec !== undefined && isCombineUnit(spec)}
     />

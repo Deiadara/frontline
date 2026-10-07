@@ -105,7 +105,7 @@ function stubApi(anyRide = false): void {
   });
 }
 
-function open(over: Partial<BattleView> = {}, army: Army = ARMY, walking: Army = {}) {
+function open(over: Partial<BattleView> = {}, army: Army = ARMY, walking: readonly Army[] = []) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false, refetchOnWindowFocus: false } },
   });
@@ -116,7 +116,7 @@ function open(over: Partial<BattleView> = {}, army: Army = ARMY, walking: Army =
         army={army}
         loadouts={{}}
         bagPercent={0}
-        notoriety={100_000}
+        carrierFlat={0}
         mode="line"
         walking={walking}
         pending={false}
@@ -144,16 +144,16 @@ afterEach(() => {
 });
 
 describe('what the machines will seat', () => {
-  // The server counts everybody the machines will have carried by the mark: what already stands
-  // there and what is still walking, not only this batch (bug pass, 2026-10-02).
+  // The server counts the columns still on the road with this batch (bug pass, 2026-10-02).
   it('leaves no seat for a batch when a column on the road already fills the machines', () => {
-    open({ vehicles: { motorcycle: 1 } }, ARMY, { razors: 2 });
+    open({ vehicles: { motorcycle: 1 } }, ARMY, [{ razors: 2 }]);
     expect(field('line-razors').max).toBe('0');
   });
 
-  it("counts the crew's own units already standing there against the seats", () => {
+  // Whoever has landed rides nothing and frees the seat (maintainer, 2026-10-06).
+  it("leaves the crew's own units already standing there out of the seats", () => {
     open({ vehicles: { motorcycle: 1 }, own: { army: { razors: 1 }, perimeter: {}, size: 1 } });
-    expect(field('line-razors').max).toBe('1');
+    expect(field('line-razors').max).toBe('2');
   });
 
   it('puts no ceiling on a column with nothing loaded', () => {

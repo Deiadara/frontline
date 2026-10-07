@@ -42,8 +42,18 @@ vi.mock('../../lib/queries', async (importOriginal) => ({
     dataUpdatedAt: Date.parse(F.trainingResponse.serverNow),
     refetch: () => undefined,
   }),
-  useStartTraining: () => ({ mutate: () => undefined, isPending: false }),
-  useCancelDrill: () => ({ mutate: () => undefined, isPending: false }),
+  useStartTraining: () => ({
+    mutate: () => undefined,
+    reset: () => undefined,
+    isPending: false,
+    error: null,
+  }),
+  useCancelDrill: () => ({
+    mutate: () => undefined,
+    reset: () => undefined,
+    isPending: false,
+    error: null,
+  }),
 }));
 
 /** The one officer, with one skill either side of the halfway mark and neither drilled today. */
@@ -112,7 +122,8 @@ describe('what the Training tab promises an hour will buy', () => {
 describe('the floor at the foot of the training sheet', () => {
   /** The fixture's overseer, who has a running drill, and its officer, who does not. */
   const WORKING = F.trainingResponse.subjects[0]!;
-  const IDLE = F.trainingResponse.subjects[1]!;
+  // Fit and free: the fixture's second officer is laid up, and a sickbed shuts every drill.
+  const IDLE = { ...F.trainingResponse.subjects[1]!, injuredUntil: null, held: null };
 
   it('draws a row for everyone on an hour and none for anyone idle', () => {
     board.current = { ...F.trainingResponse, subjects: [IDLE, WORKING] };
@@ -345,4 +356,25 @@ describe('the hover on a drill row', () => {
     expect(screen.getByTestId('drill-card-logic').children).toHaveLength(2);
     expect(screen.queryByTestId('drill-tier-logic')).toBeNull();
   });
+});
+
+/*
+ * Nobody away from the floor drills (maintainer, 2026-10-06): out leading a run, held for a fight
+ * or laid up. The bench still may. The drill says so before the press, in the route's words.
+ */
+describe('somebody away from the floor', () => {
+  const officer = { ...F.trainingResponse.subjects[1]!, session: null, lastAttribute: null };
+  for (const [held, words] of [
+    ['run', 'Out leading a run.'],
+    ['fight', 'Held for a fight.'],
+    ['injury', 'Laid up.'],
+  ] as const) {
+    it(`refuses a drill to somebody ${held === 'injury' ? 'laid up' : `held by a ${held}`}`, () => {
+      board.current = { ...F.trainingResponse, queueSlots: 2, subjects: [{ ...officer, held }] };
+      drawSheet();
+      fireEvent.click(within(screen.getByTestId('training-subjects')).getByText(officer.name));
+      fireEvent.click(screen.getByTestId(`drill-${UNDER}`));
+      expect(screen.getByText(words)).toBeInTheDocument();
+    });
+  }
 });

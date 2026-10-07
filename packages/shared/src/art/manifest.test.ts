@@ -301,6 +301,8 @@ const EXPECTED: readonly (readonly [key: string, file: string, seed: number])[] 
   ['unit-syndic', 'unit-syndic.webp', 145036],
   ['unit-executioner', 'unit-executioner.webp', 145037],
   ['unit-directive-xero', 'unit-directive-xero.webp', 145038],
+  // Reliquary's rabble (2026-10-06), at the end of the catalogue so no seed above moves.
+  ['unit-death-cloaks', 'unit-death-cloaks.webp', 145039],
   ['ui-frame-panel', 'ui-frame-panel.png', 150001],
   ['ui-frame-modal', 'ui-frame-modal.png', 150002],
   ['ui-frame-hud', 'ui-frame-hud.png', 150003],
@@ -366,6 +368,14 @@ const EXPECTED: readonly (readonly [key: string, file: string, seed: number])[] 
   ['icon-location-glasshouse', 'icon-location-glasshouse.webp', 160075],
   ['icon-location-combine-chapel', 'icon-location-combine-chapel.webp', 160076],
   ['icon-location-rail-station', 'icon-location-rail-station.webp', 160077],
+  ['icon-location-mausoleum', 'icon-location-mausoleum.webp', 160078],
+  ['icon-location-workshop', 'icon-location-workshop.webp', 160079],
+  ['icon-location-shrine', 'icon-location-shrine.webp', 160080],
+  ['icon-location-bounty-wall', 'icon-location-bounty-wall.webp', 160081],
+  ['icon-location-stage', 'icon-location-stage.webp', 160082],
+  ['icon-location-trophy-hall', 'icon-location-trophy-hall.webp', 160083],
+  ['icon-location-laboratory', 'icon-location-laboratory.webp', 160084],
+  ['icon-location-stores', 'icon-location-stores.webp', 160085],
   // §C1: the Garage's catalogue, appended after the location markers so no seed above moves.
   ['vehicle-motorcycle', 'vehicle-motorcycle.webp', 161001],
   ['vehicle-dirt-runner', 'vehicle-dirt-runner.webp', 161002],
@@ -452,7 +462,9 @@ describe('ART_MANIFEST', () => {
    * which was the seven Combine portraits, the Chosen Chapel's icon and the CCS plate on 337.
    */
   it('holds the 338 MVP assets', () => {
-    expect(ART_MANIFEST).toHaveLength(342);
+    // 344: Reliquary's Mausoleum icon and the Death Cloaks' portrait (2026-10-06) on 342.
+    // 351: the seven location icons the rest of Reliquary needed (2026-10-07).
+    expect(ART_MANIFEST).toHaveLength(351);
   });
 
   it.each(ART_MANIFEST.map((spec) => [spec.key, spec] as const))(
@@ -749,7 +761,9 @@ describe('ART_MANIFEST', () => {
      */
     // 60 since 2026-09-24: the eleven `building-<kind>` masters went with the ref nothing built,
     // and each of them was a downscale. 71 before that, when the Chosen Chapel's icon was added.
-    expect(ART_MANIFEST.filter((spec) => spec.postProcess.length > 0)).toHaveLength(61);
+    // 62 since 2026-10-06: the Mausoleum's icon, downscaled like every other location marker.
+    // 69 since 2026-10-07: the seven icons the rest of Reliquary's kinds needed.
+    expect(ART_MANIFEST.filter((spec) => spec.postProcess.length > 0)).toHaveLength(69);
   });
 
   it('carries the shared prompt blocks as single-line prose', () => {

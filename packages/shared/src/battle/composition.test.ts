@@ -185,7 +185,10 @@ describe('a force is never ruined by the bodies added to it', () => {
   it('does not fall off a cliff when a small fragile stack is added', () => {
     const readings = [0, 1, 2, 3, 4, 6, 10, 20].map((sparks) => ({
       sparks,
-      rate: rate(sparks === 0 ? { razors: 62 } : { razors: 62, sparks }),
+      // 72 since 2026-10-07: the Suppressors carry GUARD now, and at 62 nothing in the sweep won
+      // (+20 Sparks reached 0.33). Swept 62/72/82/92: +20 reaches 0.33, 0.93, 1.00, 1.00 and the
+      // bare force 0.00, 0.00, 0.63, 0.99; 72 is the band where the sweep still climbs.
+      rate: rate(sparks === 0 ? { razors: 72 } : { razors: 72, sparks }),
     }));
     const say = readings.map((r) => `+${r.sparks}=${r.rate.toFixed(3)}`).join(' ');
 

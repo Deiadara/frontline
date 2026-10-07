@@ -155,7 +155,8 @@ describe('filling a size, most suitable unit first (the fifth rung)', () => {
   });
 
   it('counts the slots at home in the same currency', () => {
-    expect(unitSlotsAtHome({ razors: 3, haulers: 2, juggernauts: 1 })).toBe(3 + 4 + 6);
+    // Ten a Juggernaut since the Reliquary Lab became their door (2026-10-07).
+    expect(unitSlotsAtHome({ razors: 3, haulers: 2, juggernauts: 1 })).toBe(3 + 4 + 10);
   });
 });
 

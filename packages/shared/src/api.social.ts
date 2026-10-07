@@ -11,6 +11,7 @@ import {
   FactionSchema,
 } from './factions/factions.js';
 import { BadgeSchema } from './factions/badge.js';
+import { BattleSideSchema } from './battle/scheduled.js';
 import {
   MESSAGE_RECIPIENTS_MAX,
   MessageBodySchema,
@@ -67,6 +68,26 @@ export const AllyArmySchema = z.object({
 });
 export type AllyArmy = z.infer<typeof AllyArmySchema>;
 
+/**
+ * One line of the faction room's log that the server keeps, at the moment it happened
+ * (maintainer, 2026-10-06): a fight a member called or was called into, and help this reader sent.
+ * The log stamped these with the fight's mark and dropped them once it was over; these stay.
+ */
+export const FactionLogEntrySchema = z.object({
+  id: IdSchema,
+  kind: z.enum(['fight', 'help']),
+  at: IsoDateTimeSchema,
+  /** Who: the member who called or was called on, or who sent the help. */
+  userId: IdSchema,
+  /** Their name when it happened, so a member who has since left is still named. */
+  name: z.string().min(1),
+  targetName: z.string().min(1),
+  side: BattleSideSchema,
+  /** Units sent, for help. Zero on a fight line. */
+  units: z.number().int().nonnegative(),
+});
+export type FactionLogEntry = z.infer<typeof FactionLogEntrySchema>;
+
 export const FactionResponseSchema = z.object({
   /** Null when this player is in no faction: the screen then offers founding one. */
   faction: FactionSchema.nullable(),
@@ -79,6 +100,8 @@ export const FactionResponseSchema = z.object({
   pending: z.array(FactionInviteSchema),
   battles: z.array(AllyBattleSchema),
   armies: z.array(AllyArmySchema),
+  /** The fights and the help, newest first. Help is this reader's own only. */
+  log: z.array(FactionLogEntrySchema).default([]),
   serverNow: IsoDateTimeSchema,
 });
 export type FactionResponse = z.infer<typeof FactionResponseSchema>;

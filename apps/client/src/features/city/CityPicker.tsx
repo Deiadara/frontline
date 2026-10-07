@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { CITIES } from '@frontline/shared';
 import { cn } from '../../lib/cn';
 import { DrawnButton } from '../../components/ui/DrawnButton';
@@ -64,9 +64,31 @@ export function CityPicker({
 }) {
   const [open, setOpen] = useState(false);
   const alone = cities.length <= 1;
+  const box = useRef<HTMLDivElement>(null);
+  /*
+   * Closed by a press anywhere else and by Escape, as every other menu here is (bug pass,
+   * 2026-10-06): the list stayed over the sheet until its own button was pressed again, and beside
+   * the page's own Dropdown two menus stood open at once.
+   */
+  useEffect(() => {
+    if (!open) return;
+    const away = (event: PointerEvent) => {
+      if (event.target instanceof Node && box.current?.contains(event.target)) return;
+      setOpen(false);
+    };
+    const escape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setOpen(false);
+    };
+    window.addEventListener('pointerdown', away);
+    window.addEventListener('keydown', escape);
+    return () => {
+      window.removeEventListener('pointerdown', away);
+      window.removeEventListener('keydown', escape);
+    };
+  }, [open]);
 
   return (
-    <div className={cn('relative', className)} data-testid="city-picker">
+    <div ref={box} className={cn('relative', className)} data-testid="city-picker">
       <DrawnButton
         size={size}
         data-sound="click"
@@ -80,7 +102,10 @@ export function CityPicker({
               : 'Which city’s room to stand in'
         }
         aria-expanded={open}
-        onClick={() => setOpen((was) => !was)}
+        // With one city there is nothing to open, and a press used to hide the tip that says so.
+        onClick={() => {
+          if (!alone) setOpen((was) => !was);
+        }}
       >
         {nameOf(cityId)}
       </DrawnButton>

@@ -315,6 +315,9 @@ const PRESSABLE =
 export function kindForTarget(target: Element): SoundKind | null {
   const control = target.closest(PRESSABLE);
   if (control === null) return null;
+  // A locked control still takes the click (so its card can explain the lock) and does nothing
+  // with it, so it says nothing. A native `disabled` one never sees the click at all.
+  if (control.getAttribute('aria-disabled') === 'true') return null;
   const declared = target.closest('[data-sound]')?.getAttribute('data-sound');
   if (declared === 'none') return null;
   if (isSoundKind(declared)) return declared;

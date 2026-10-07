@@ -1,5 +1,6 @@
 import {
   EVERY_LOCATION,
+  MAX_LOCATION_LEVEL,
   MAX_MUSTER_DISCOUNT,
   OFFICER_ROLES,
   STARTING_RESOURCES,
@@ -376,11 +377,12 @@ describe('where a muster percentage comes from', () => {
   it("names the ground a unit calls home, and adds up to that unit's own figures", () => {
     const repos = openStack();
     const base = seedBase(repos);
-    // A Doghouse at level 6, held by this crew: five levels above the first, which is what pays.
+    // A Doghouse at level 5, the top, held by this crew: four levels above the first, which is
+    // what pays.
     repos.city.put({
       locationId: 'steelbelt-kennels',
       holder: { kind: 'crew', baseId: base.id },
-      level: 6,
+      level: MAX_LOCATION_LEVEL,
       upgradingUntil: null,
       garrison: {},
     });
@@ -391,7 +393,7 @@ describe('where a muster percentage comes from', () => {
     expect(sum(hounds.homeBonus?.cost ?? [])).toBe(hounds.homeCostReduction);
     expect(sum(hounds.homeBonus?.speed ?? [])).toBe(hounds.homeSpeedBonus);
     expect(hounds.homeBonus?.cost[0]?.source).toBe('The Doghouse');
-    expect(hounds.homeBonus?.cost[0]?.note).toContain('6');
+    expect(hounds.homeBonus?.cost[0]?.note).toContain(String(MAX_LOCATION_LEVEL));
 
     // And it is private to the unit: a Razor musters nowhere the Doghouse helps.
     const razors = roster.units.find((unit) => unit.id === 'razors')!;

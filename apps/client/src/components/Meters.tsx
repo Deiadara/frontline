@@ -14,6 +14,7 @@ import type { DeltaMark } from '../lib/deltas';
 import { DeltaFloat } from './ui/Delta';
 import { DrawnButton } from './ui/DrawnButton';
 import { DrawnDisc } from './ui/DrawnMarks';
+import { PressError } from './ui/PressError';
 import { HoverCard } from './ui/HoverCard';
 import { Icon } from './ui/Icon';
 
@@ -267,10 +268,10 @@ export function DistrictLevelChip({
           figure={
             <span className="flex items-baseline gap-2">
               <span className="font-display text-2xl font-bold tabular-nums text-hextech-100">
-                {xpIntoLevel.toLocaleString()}
+                {xpIntoLevel.toLocaleString('en-US')}
               </span>
               <span className="font-display text-base tabular-nums text-ink-300">
-                / {xpToNextLevel.toLocaleString()} XP
+                / {xpToNextLevel.toLocaleString('en-US')} XP
               </span>
             </span>
           }
@@ -376,10 +377,13 @@ export function InfamyChip({
   return (
     <HoverCard
       data-testid="infamy-hover"
-      label={`Infamy: ${Math.round(infamy).toLocaleString()} points, and they call you ${tier}`}
+      label={`Infamy: ${Math.round(infamy).toLocaleString('en-US')} points, and they call you ${tier}`}
       size="window"
       interactive
       onActivate={() => void navigate(`/game/${NOTORIETY_LADDER_ROUTE}`)}
+      // The chip never unmounts, so a refusal said in the card stayed for the session and played
+      // the refusal sound again on every hover (bug pass, 2026-10-06). It goes with the card.
+      onHide={upgrade.reset}
       card={
         <DrawnCard
           eyebrow="They call you"
@@ -393,7 +397,7 @@ export function InfamyChip({
                   `15.7K` because it is 58px wide; the card is where the exact figure lives, and
                   `40000` is not a figure anybody reads at a glance. */}
               <span className="font-display text-2xl font-bold tabular-nums text-oxblood-300">
-                {Math.round(infamy).toLocaleString()}
+                {Math.round(infamy).toLocaleString('en-US')}
               </span>
               <span className="font-display text-base text-ink-300">infamy</span>
             </span>
@@ -413,7 +417,7 @@ export function InfamyChip({
               <div className="flex items-baseline justify-between gap-3">
                 <span className="font-stamp text-[15px] leading-none text-brass-100">{next}</span>
                 <span className="font-display text-[13px] tabular-nums text-ink-200">
-                  {cost.toLocaleString()} infamy
+                  {cost.toLocaleString('en-US')} infamy
                 </span>
               </div>
               <DrawnMeter
@@ -433,7 +437,7 @@ export function InfamyChip({
               {!affordable && (
                 <p className="font-display text-[12px] uppercase tracking-[0.14em] text-ink-300">
                   <span className="tabular-nums text-oxblood-300">
-                    {Math.max(0, cost - Math.round(infamy)).toLocaleString()}
+                    {Math.max(0, cost - Math.round(infamy)).toLocaleString('en-US')}
                   </span>{' '}
                   short
                 </p>
@@ -480,6 +484,12 @@ export function InfamyChip({
                   Upgrade Tier
                 </DrawnButton>
               </div>
+              {/* A refused press says why (bug pass, 2026-10-06): it used to re-enable the button
+                  in silence. Only while it is about the rung on show, so a rank bought in another
+                  tab takes the old refusal with it. */}
+              {upgrade.error && upgrade.variables?.fromNotoriety === notoriety && (
+                <PressError data-testid="upgrade-tier-error">{upgrade.error.message}</PressError>
+              )}
             </div>
           )}
         </DrawnCard>

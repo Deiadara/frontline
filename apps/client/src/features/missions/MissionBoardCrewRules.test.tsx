@@ -55,6 +55,8 @@ const offer: MissionOffer = {
   leanings: ['road'],
   // Out of the opening band: this fixture is not about the ramp.
   ramp: null,
+  golden: false,
+  goldenPercent: 0,
 };
 
 const area: MissionArea = {
@@ -92,7 +94,7 @@ function renderBoard(switches: { carriersFight?: boolean; anyRide?: boolean } = 
       fleet={{ armoured_car: 1 }}
       loadouts={{}}
       bagPercent={0}
-      notoriety={100}
+      carrierFlat={0}
       marks={{}}
       carriersFight={switches.carriersFight ?? false}
       anyRide={switches.anyRide ?? false}

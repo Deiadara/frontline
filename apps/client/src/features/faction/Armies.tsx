@@ -57,7 +57,7 @@ export function Armies({
                         </span>
                       )}
                     </span>
-                    <Figure icon="units" value={ally.size.toLocaleString()} title="Units" />
+                    <Figure icon="units" value={ally.size.toLocaleString('en-US')} title="Units" />
                   </div>
                   <ArmyTags army={ally.army} />
                 </div>

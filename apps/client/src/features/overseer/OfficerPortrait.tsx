@@ -44,7 +44,7 @@ export function OfficerPortrait({
   const painted = portraitId === null ? null : deliveredUrl({ type: 'officer', portraitId });
   // Ticks only while this particular face is hurt, so a crew of thirteen fit officers costs no
   // re-render a second.
-  const now = useTick(injuredUntil != null);
+  const now = useTick(injuredUntil);
   const left = injuredUntil == null ? 0 : officerRecoverySeconds(injuredUntil, new Date(now));
   const injured = left > 0;
 
@@ -79,9 +79,8 @@ export function OfficerPortrait({
            * high (maintainer, 2026-09-22: the top of the head is sometimes cropped).
            *
            * Centred, a box even slightly wider than the delivery's 4:5 takes its first bite out
-           * of the skull. `-10%` puts the picture's top edge level with the box's and then
-           * slides it a tenth of the overflow lower still, so the air above the head grows and
-           * the bite comes off the bottom. A box that is exactly 4:5 has no overflow to spend.
+           * of the skull. `50% 0%` puts the picture's top edge level with the box's, so all of
+           * the overflow comes off the bottom. A box that is exactly 4:5 has no overflow to spend.
            */
           style={{ objectPosition: '50% 0%' }}
           className={cn(
@@ -161,17 +160,29 @@ function InjuredOverlay({ seconds }: { seconds: number }) {
  * something a player can act on, and the server is the only thing that decides whether an officer
  * is actually fit when it matters (`officerIsInjured` on every read path).
  */
-function useTick(active: boolean): number {
+/*
+ * Until the recovery, and not after it (bug pass, 2026-10-06). The server never clears
+ * `injuredUntil`, so ticking on "has a stamp" kept every officer ever hurt re-rendering each second
+ * for good. Starting a tick reads the clock afresh: the mount-time reading made a wound that
+ * arrived later show a recovery too long by however long the face had been on screen.
+ */
+function useTick(until: string | null | undefined): number {
   const [now, setNow] = useState(() => Date.now());
+  const end = until == null ? null : Date.parse(until);
   useEffect(() => {
-    if (!active) return;
-    const id = setInterval(() => setNow(Date.now()), 1000);
+    if (end === null || !(end > Date.now())) return;
+    setNow(Date.now());
+    const id = setInterval(() => {
+      const at = Date.now();
+      setNow(at);
+      if (at >= end) clearInterval(id);
+    }, 1000);
     return () => clearInterval(id);
-  }, [active]);
+  }, [end]);
   return now;
 }
 
-/** `12h 04m` while it is hours away, `04:31` inside the last hour. Never wider than five glyphs. */
+/** `12h 04m` while it is hours away, `04:31` inside the last hour. */
 export function formatRecovery(seconds: number): string {
   const hours = Math.floor(seconds / 3600);
   const minutes = Math.floor((seconds % 3600) / 60);

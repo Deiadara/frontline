@@ -76,6 +76,15 @@ describe('the mark ladder', () => {
   });
 });
 
+describe('a score that is not a number', () => {
+  // Bug pass, 2026-10-06: NaN answered `undefined`, which the type says cannot happen.
+  it('reads as the floor, and an infinite one as the top', () => {
+    expect(markFromPoints(Number.NaN)).toBe('F-');
+    expect(markFromPoints(Number.NEGATIVE_INFINITY)).toBe('F-');
+    expect(markFromPoints(Number.POSITIVE_INFINITY)).toBe('S+');
+  });
+});
+
 describe('a score exactly on a band floor', () => {
   // Bug pass, 2026-10-05: `FLOOR + i * BAND` used to land a float's width under the floor of
   // grade i and read one grade low (65.714..., the floor of B, read B-).

@@ -11,7 +11,7 @@ import { RewardTally } from './RewardTally';
 import { WasteDialog } from './WasteDialog';
 import { ALL_FEATS, countMatching, featBlocks, filterBlocks, type FeatFilter } from './featsList';
 import { featRefusalText } from './refusal';
-import { ErrorNote } from '../../components/ui/ErrorNote';
+import { PressError } from '../../components/ui/PressError';
 
 /**
  * The feats screen (maintainer request, 2026-09-13; rebuilt 2026-09-17).
@@ -62,7 +62,22 @@ export function FeatsPage() {
   // nudge the game sends, and re-grouping four hundred entries on each is work nobody asked
   // for. Filtering is separate from grouping so that pressing a chip does not regroup.
   const blocks = useMemo(() => (progress === undefined ? [] : featBlocks(progress)), [progress]);
-  const shown = useMemo(() => filterBlocks(blocks, filter), [blocks, filter]);
+  /*
+   * The open ladder stays listed though the filter would drop it (maintainer, 2026-10-06).
+   * Claiming a ladder's last ready rung under "Unclaimed" filtered it away and the pane jumped to
+   * another ladder under the player's hand. It stays until the player picks another ladder or
+   * presses a chip, and a chip applies at once: `changeFilter` moves the open ladder itself.
+   */
+  const filtered = useMemo(() => filterBlocks(blocks, filter), [blocks, filter]);
+  const shown = useMemo(
+    () => blocks.filter((block) => block.key === openKey || filtered.includes(block)),
+    [blocks, filtered, openKey],
+  );
+  const changeFilter = (next: FeatFilter) => {
+    const kept = filterBlocks(blocks, next);
+    if (!kept.some((block) => block.key === openKey)) setOpenKey(kept[0]?.key ?? null);
+    setFilter(next);
+  };
 
   /*
    * Which ladder is open, when the player has not said.
@@ -72,6 +87,17 @@ export function FeatsPage() {
    * fix, so it is one effect keyed on the list rather than a default in `useState` plus a special
    * case in the chip handler.
    */
+  /*
+   * The waste dialog closes for good when its quote goes (bug pass, 2026-10-06): a storage level
+   * landing mid-dialog removed it under the cursor, and the id left behind reopened the dialog by
+   * itself the next time the stores filled. Before the early return below.
+   */
+  const confirmingGone =
+    confirming !== null && query.data !== undefined && query.data.waste[confirming] === undefined;
+  useEffect(() => {
+    if (confirmingGone) setConfirming(null);
+  }, [confirmingGone]);
+
   const openIsShown = shown.some((block) => block.key === openKey);
   useEffect(() => {
     if (!openIsShown) setOpenKey(shown[0]?.key ?? null);
@@ -132,8 +158,13 @@ export function FeatsPage() {
    * move, and pressing it again pays nothing and draws no receipt: a control that looks broken.
    * The list comes off the server because only it knows what the beds are doing.
    */
-  const skipped = batch?.skipped ?? [];
+  // Only the ones still waiting (bug pass, 2026-10-06): one collected on its own afterwards stayed
+  // in the line until the next Collect all.
+  const skipped = (batch?.skipped ?? []).filter(
+    (id) => query.data.progress.find((row) => row.id === id)?.state === 'ready',
+  );
   const newer = claim.submittedAt >= claimAll.submittedAt ? (single ?? batch) : (batch ?? single);
+  const refused = claim.submittedAt >= claimAll.submittedAt ? claim.error : claimAll.error;
   const receipt =
     newer === undefined
       ? null
@@ -187,7 +218,7 @@ export function FeatsPage() {
         <div className="flex min-w-0 flex-1 items-center justify-center">
           <FeatFilters
             filter={filter}
-            onChange={setFilter}
+            onChange={changeFilter}
             countFor={(probe) => countMatching(blocks, probe)}
           />
         </div>
@@ -246,10 +277,10 @@ export function FeatsPage() {
           district or in the stores and come back for {skipped.length === 1 ? 'it' : 'them'}.
         </p>
       )}
-      {claim.error && (
-        <ErrorNote className="shrink-0" data-testid="feats-refusal">
-          {featRefusalText(claim.error.message)}
-        </ErrorNote>
+      {/* The newer press's refusal (bug pass, 2026-10-06): Collect all's was never drawn, and a
+          single claim's stayed up after a later Collect all went through. */}
+      {refused && (
+        <PressError data-testid="feats-refusal">{featRefusalText(refused.message)}</PressError>
       )}
 
       {open === undefined ? (

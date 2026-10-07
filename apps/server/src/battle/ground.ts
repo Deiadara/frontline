@@ -1,6 +1,5 @@
 import {
   EVERY_LOCATION,
-  districtHolder,
   districtIsShut,
   findDistrict,
   findLocation,
@@ -15,6 +14,7 @@ import {
   districtDisplayName,
 } from '@frontline/shared';
 import type { Repositories } from '../db/repos/index.js';
+import { wholeHolderOf } from '../city/holding.js';
 
 /**
  * Reading the ground a declaration names (GDD §A4, battle rework).
@@ -32,8 +32,8 @@ export function districtStandingFor(
   district: District,
   now: Date,
 ): DistrictStanding {
-  const controls = repos.city.controls();
-  const holder = districtHolder(district, controls);
+  // A table holding the district together arms the gate as one holder would (2026-10-07).
+  const holder = wholeHolderOf(repos, district);
   const inhabited = isInhabited(district, districtsLivedIn(repos));
 
   return {
@@ -66,9 +66,10 @@ export function isInhabited(district: District, lived: ReadonlySet<string>): boo
  *
  * For a location, whoever holds it. For a gate or the district behind one, whoever holds the
  * district: on contested ground a gate is only armed when one party holds all of it, so that is a
- * single answer rather than a committee. Residential ground has no locations to hold, so it answers
- * `unoccupied` and the crew being called out is found from who *lives* there instead
- * ({@link defendingBaseOf}).
+ * single answer rather than a committee. A faction holding it together is one party, and the
+ * member named is the one holding the most of it (`wholeHolderAmong`, 2026-10-07). Residential
+ * ground has no locations to hold, so it answers `unoccupied` and the crew being called out is
+ * found from who *lives* there instead ({@link defendingBaseOf}).
  */
 export function defenderOf(
   repos: Repositories,
@@ -78,7 +79,7 @@ export function defenderOf(
   if (target.kind === 'location') {
     return repos.city.control(target.locationId)?.holder ?? { kind: 'unoccupied' };
   }
-  return districtHolder(district, repos.city.controls()) ?? { kind: 'unoccupied' };
+  return wholeHolderOf(repos, district) ?? { kind: 'unoccupied' };
 }
 
 /**
@@ -126,10 +127,8 @@ export function targetName(target: BattleTarget, resident?: Base): string {
 /**
  * What to call a district on a receipt, as the crew who lives on it would give it.
  *
- * The resident is the viewer on purpose: a report about a raid on somebody's home should say whose
- * home it was, and both crews in that fight already know. The map is the screen that numbers plots
- * instead, because there the reader is a stranger to nine of them. Contested ground has no resident
- * and answers with its authored name either way.
+ * A plot is called after the crew living on it, so a report about a raid on somebody's home says
+ * whose home it was. Contested ground has no resident and answers with its authored name either way.
  */
 function districtLabel(districtId: string, resident: Base | undefined): string {
   const district = findDistrict(districtId);
@@ -176,10 +175,13 @@ export function isClosedPlot(
   district: Pick<District, 'id' | 'kind'>,
   viewer: Pick<Base, 'districtId'>,
 ): boolean {
+  // Whether anybody lives there, off the summaries (bug pass, 2026-10-06): a full parse of the
+  // resident's row only to test that it exists made one unreadable row blank the district for
+  // every viewer.
   return (
     district.kind === 'residential' &&
     district.id !== viewer.districtId &&
-    residentOf(repos, district.id) === undefined
+    residentAmong(repos.bases.listSummaries(), district.id) === undefined
   );
 }
 

@@ -150,5 +150,5 @@ export function notorietyEffects(rank: number): TerritoryEffects {
 
 /** One rank's grant in words, for the chip that sells the next rung. */
 export function describeNotorietyGrant(rank: number): string[] {
-  return notorietyGrant(rank).map(describeHoldBonus);
+  return notorietyGrant(rank).map((bonus) => describeHoldBonus(bonus));
 }

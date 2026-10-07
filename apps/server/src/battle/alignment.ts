@@ -98,7 +98,10 @@ export function sidesReader(
  * A location is itself. A gate or a raid on the crew's own district is its own gate or district;
  * on anybody else's it is the streets there, which is where a column walks home from.
  */
-export function fightPlaceFor(battle: ScheduledBattle, base: Pick<Base, 'districtId'>): MovePlace {
+export function fightPlaceFor(
+  battle: Pick<ScheduledBattle, 'target'>,
+  base: Pick<Base, 'districtId'>,
+): MovePlace {
   const { target } = battle;
   if (target.kind === 'location') return { kind: 'location', locationId: target.locationId };
   if (target.districtId !== base.districtId)

@@ -39,65 +39,46 @@ describe('a location at a level', () => {
   });
 
   it('has a scale entry for every level and starts at exactly its authored value', () => {
-    expect(MAX_LOCATION_LEVEL).toBe(10);
+    expect(MAX_LOCATION_LEVEL).toBe(5);
     expect(LEVEL_SCALE).toHaveLength(MAX_LOCATION_LEVEL);
     expect(UPGRADE_COST_SCALE).toHaveLength(MAX_LOCATION_LEVEL - 1);
     expect(LEVEL_SCALE[0]).toBe(1);
   });
 
   /**
-   * The ceiling moved from 4 to 10 and levels 1 to 4 had to not move with it.
+   * The ladder is five whole steps (maintainer, 2026-10-06), and the price of each is the old
+   * ladder read at every second rung: the upgrade to level n costs what the upgrade to 2n did.
    *
    * Written as literals rather than read off the constants on purpose: a test that derives its
    * expectation from `LEVEL_SCALE` agrees with whatever `LEVEL_SCALE` says today, which is exactly
-   * the mistake it exists to catch. A control row sitting at level 3 in the database has to be
-   * worth the same tomorrow as it was yesterday.
+   * the mistake it exists to catch.
    */
-  it('leaves the four levels that shipped exactly where they were', () => {
-    expect(LEVEL_SCALE.slice(0, 4)).toEqual([1, 1.5, 2, 2.5]);
-    expect(UPGRADE_COST_SCALE.slice(0, 3)).toEqual([1, 2.2, 4.5]);
+  it('climbs in whole steps and prices each one off the old ladder’s even rungs', () => {
+    expect(LEVEL_SCALE).toEqual([1, 2, 3, 4, 5]);
+    expect(UPGRADE_COST_SCALE).toEqual([4.5, 8.8, 17.2, 33.7]);
 
-    // A Gas Station is 18 oil an hour fresh, and was 27/36/45 up the old ladder.
+    // A Gas Station is 18 oil an hour fresh, and five times that fully worked.
     const oilAt = (level: number): number =>
       bonusesAt('gas_station', level).reduce(
         (sum, b) => sum + (b.kind === 'resource' && b.resource === 'oil' ? b.perHour : 0),
         0,
       );
-    expect([1, 2, 3, 4].map(oilAt)).toEqual([18, 27, 36, 45]);
+    expect([1, 2, 3, 4, 5].map(oilAt)).toEqual([18, 36, 54, 72, 90]);
 
     /*
-     * What an upgrade is *made of* did move, on 2026-09-22, and deliberately.
-     *
-     * The prices used to be a hand-written bundle per kind, mostly caps. They are one mix now
-     * (`UPGRADE_MIX`) over a per-kind plank figure, so these three literals are the new ladder
-     * rather than the old one. What has to hold across that change is the *curve*: the three
-     * steps still stand in the 1 : 2.2 : 4.5 ratio the line above pins, which is what a saved
-     * control row at level 3 is priced against.
-     *
-     * The literals carry the flat 10% rise of 2026-10-05 (`LOCATION_UPGRADE_PRICE_RISE`), which
-     * moved every step by the same factor and so left the ratio alone.
+     * The first upgrade is what the old upgrade to level 4 cost, to the plank: one mix
+     * (`UPGRADE_MIX`) over the kind's own figure, with the flat 10% rise of 2026-10-05
+     * (`LOCATION_UPGRADE_PRICE_RISE`) on it.
      */
     expect(upgradeCost('gas_station', 1)).toEqual({
-      planks: 132,
-      highQualityMetal: 13,
-      scrap: 40,
-      oil: 53,
-      caps: 26,
-    });
-    expect(upgradeCost('gas_station', 2)).toEqual({
-      planks: 290,
-      highQualityMetal: 29,
-      scrap: 87,
-      oil: 116,
-      caps: 58,
-    });
-    expect(upgradeCost('gas_station', 3)).toEqual({
       planks: 594,
       highQualityMetal: 59,
       scrap: 178,
       oil: 238,
       caps: 119,
     });
+    // ...and the last is 33.7 times the kind's figure, the old upgrade to 10.
+    expect(upgradeCost('gas_station', 4)?.planks).toBe(Math.round(120 * 33.7 * 1.1));
   });
 
   /**
@@ -109,9 +90,9 @@ describe('a location at a level', () => {
    * does not reach at these sizes. Literal expectations, one per path, because a saved control row
    * at level 3 has to keep meaning what it meant.
    */
-  it('leaves every kind of bonus exactly where it was at levels 1 to 4', () => {
+  it('runs every kind of bonus up its own ladder', () => {
     const ladder = (kind: Parameters<typeof bonusesAt>[0], of: string): number[] =>
-      [1, 2, 3, 4].map((level) => {
+      [1, 2, 3, 4, 5].map((level) => {
         const bonus = bonusesAt(kind, level).find((entry) => entry.kind === of)!;
         return 'percent' in bonus
           ? bonus.percent
@@ -126,17 +107,61 @@ describe('a location at a level', () => {
                   0;
       });
 
-    // Straight multiplication, rounded: percentages, flat points and per-hour rates.
-    expect(ladder('high_ground', 'defense_percent')).toEqual([12, 18, 24, 30]);
-    expect(ladder('revolutionist_statue', 'intimidation')).toEqual([6, 9, 12, 15]);
-    // Halved and floored since 2026-10-05 (maintainer: outside the lift cap, at half the size).
-    expect(ladder('broadcast_station', 'officer_group')).toEqual([2, 4, 5, 6]);
-    // The whole-number channels, where the "at least one more per level" floor is what bites.
-    expect(ladder('gym', 'training_sessions')).toEqual([1, 2, 3, 4]);
-    // The two that paid in sight and scouting parties until 2026-09-29, now intel at the same worth.
-    expect(ladder('watchtower', 'intel')).toEqual([38, 57, 76, 95]);
-    expect(ladder('satellite_uplink', 'intel')).toEqual([18, 27, 36, 45]);
-    expect(ladder('black_clinic', 'battle_stims')).toEqual([2, 3, 4, 5]);
+    // A share of a fight runs the gentler combat ladder (`COMBAT_LEVEL_SCALE`): four times at
+    // the top rather than five, which is where the old level 8 stood.
+    expect(ladder('high_ground', 'defense_percent')).toEqual([12, 21, 30, 39, 48]);
+    // Straight multiplication, rounded: flat points and per-hour rates.
+    expect(ladder('revolutionist_statue', 'intimidation')).toEqual([6, 12, 18, 24, 30]);
+    // A group lift is half the card's figure, floored, and one more a level.
+    expect(ladder('broadcast_station', 'officer_group')).toEqual([2, 3, 4, 5, 6]);
+    expect(ladder('pirate_radio', 'intimidation')).toEqual([3, 6, 9, 12, 15]);
+    // The whole-number channels: one more at every level, whatever the multiplier says.
+    expect(ladder('gym', 'training_sessions')).toEqual([1, 2, 3, 4, 5]);
+    expect(ladder('watchtower', 'intel')).toEqual([38, 76, 114, 152, 190]);
+    expect(ladder('satellite_uplink', 'intel')).toEqual([18, 36, 54, 72, 90]);
+    expect(ladder('black_clinic', 'battle_stims')).toEqual([2, 4, 6, 8, 10]);
+  });
+
+  /**
+   * A ladder written out beats the scale (maintainer, 2026-10-06: "30% rising to 100%"), and a
+   * bonus paid only while the district is whole keeps its flag through the scaling.
+   */
+  it('reads a written ladder instead of the scale, level by level', () => {
+    const dispensary = {
+      kind: 'black_clinic' as const,
+      bonuses: [{ kind: 'daily_stim' as const, percent: 30, ladder: [30, 47, 65, 82, 100] }],
+    };
+    expect([1, 2, 3, 4, 5].map((level) => bonusesAt(dispensary, level)[0])).toEqual(
+      [30, 47, 65, 82, 100].map((percent, at) => ({
+        kind: 'daily_stim',
+        percent,
+        ladder: [30, 47, 65, 82, 100],
+        level: at + 1,
+      })),
+    );
+    const inn = {
+      kind: 'tavern' as const,
+      bonuses: [
+        {
+          kind: 'unit_slots' as const,
+          flat: 20,
+          ladder: [20, 40, 60, 80, 100],
+          whenDistrictWhole: true as const,
+        },
+      ],
+    };
+    expect(bonusesAt(inn, 3)[0]).toMatchObject({
+      kind: 'unit_slots',
+      flat: 60,
+      whenDistrictWhole: true,
+    });
+    // The written figure is the figure: nothing rounds or floors it on the way out.
+    const yard = {
+      kind: 'gym' as const,
+      bonuses: [{ kind: 'training_sessions' as const, flat: 1, ladder: [0, 0, 0, 0, 1] }],
+    };
+    expect(bonusesAt(yard, 4)).toEqual([]);
+    expect(bonusesAt(yard, 5)[0]).toMatchObject({ kind: 'training_sessions', flat: 1 });
   });
 
   /**
@@ -164,17 +189,13 @@ describe('a location at a level', () => {
     expect(LocationControlSchema.safeParse(row(0)).success).toBe(false);
   });
 
-  it('keeps climbing past the old ceiling instead of flattening out', () => {
-    expect(upgradeCost('gas_station', MAX_LOCATION_LEVEL - 1)).not.toBeNull();
-    const oil = (level: number): number =>
-      bonusesAt('gas_station', level).reduce(
-        (sum, b) => sum + (b.kind === 'resource' && b.resource === 'oil' ? b.perHour : 0),
-        0,
-      );
-    expect(oil(MAX_LOCATION_LEVEL)).toBeGreaterThan(oil(4));
-  });
-
-  /** The point of pouring anything in: every level is worth strictly more than the one below. */
+  /**
+   * The point of pouring anything in: every level is worth strictly more than the one below.
+   *
+   * A door, a wall of pamphlets and a trophy hall carry no figure, and are worth their level:
+   * the unit behind the door climbs its own ladder off it (`doorSteps`), the wall holds one more
+   * pin, the hall pays more. Those count their stamped `level` here.
+   */
   it('pays strictly more at every level, for every kind', () => {
     for (const kind of LOCATION_KINDS) {
       for (let level = 1; level < MAX_LOCATION_LEVEL; level += 1) {
@@ -191,7 +212,11 @@ describe('a location at a level', () => {
                     ? bonus.minutes
                     : 'percent' in bonus
                       ? bonus.percent
-                      : 0;
+                      : 'chancePercent' in bonus
+                        ? bonus.chancePercent
+                        : 'pins' in bonus
+                          ? bonus.pins
+                          : (bonus.level ?? 0);
             return sum + value;
           }, 0);
         expect(total(next), `${kind} level ${level + 1}`).toBeGreaterThan(total(now));
@@ -250,7 +275,7 @@ describe('what an upgrade costs and what it is', () => {
         expect(note.length, `${kind} → ${level + 1}`).toBeGreaterThan(25);
         expect(note.trim().endsWith('.'), `${kind} → ${level + 1}`).toBe(true);
       }
-      // Nine different things, not the same sentence nine times.
+      // Four different things, not the same sentence four times.
       expect(new Set(LOCATION_CATALOG[kind].upgrades).size, kind).toBe(AUTHORED_UPGRADE_NOTES);
       const ladder = Array.from({ length: MAX_LOCATION_LEVEL - 1 }, (_, i) =>
         upgradeNote(kind, i + 1),
@@ -389,9 +414,11 @@ describe('what every upgrade is made of', () => {
    * test in this file would wave through.
    */
   it('opens where the maintainer put it and tops out five figures up', () => {
+    // The first upgrade is 4.5 times the kind's figure now (the old upgrade to level 4), so the
+    // opening spread is that of the catalogue's 80 to 460 planks, times 4.95.
     const opening = LOCATION_KINDS.map((kind) => upgradeCost(kind, 1)?.planks ?? 0);
-    expect(Math.min(...opening)).toBeGreaterThanOrEqual(60);
-    expect(Math.max(...opening)).toBeLessThanOrEqual(600);
+    expect(Math.min(...opening)).toBeGreaterThanOrEqual(300);
+    expect(Math.max(...opening)).toBeLessThanOrEqual(3_000);
 
     const final = LOCATION_KINDS.map(
       (kind) => upgradeCost(kind, MAX_LOCATION_LEVEL - 1)?.planks ?? 0,

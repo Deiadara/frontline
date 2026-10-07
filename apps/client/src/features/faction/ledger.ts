@@ -6,8 +6,8 @@ import type { IconName } from '../../components/ui/Icon';
  *
  * There is no events endpoint and this does not ask for one. Every fact a faction feed wants is
  * already on `GET /factions` carrying a timestamp: when each person sat down, when each unanswered
- * invitation went out, when each fight is marked for, and what this player has put into one. The
- * feed is those four read in one order.
+ * invitation went out, and the log of fights called and help sent. The feed is those read in one
+ * order.
  *
  * Pure, and apart from the component, for the reason `order.ts` is: a feed sorted the wrong way
  * still draws a plausible list of sentences, and the only way to see it is to read the dates. The
@@ -76,26 +76,24 @@ export function ledger(data: FactionResponse): LedgerEntry[] {
     });
   }
 
-  for (const battle of data.battles) {
+  /*
+   * Fights and help at the moment they happened, off the log the server keeps (maintainer,
+   * 2026-10-06). They were read off the open fights and stamped with the mark, so a call made this
+   * morning sat at the top dated tomorrow and went away once the fight was over.
+   */
+  for (const entry of data.log) {
     drafts.push({
-      kind: 'fight',
-      id: `fight-${battle.battleId}`,
-      at: battle.scheduledFor,
-      icon: 'battles',
+      kind: entry.kind,
+      id: `${entry.kind}-${entry.id}`,
+      at: entry.at,
+      icon: entry.kind === 'fight' ? 'battles' : 'units',
       text:
-        battle.side === 'attacker'
-          ? `${battle.memberName} called a fight at ${battle.targetName}`
-          : `${battle.memberName} is being come for at ${battle.targetName}`,
+        entry.kind === 'help'
+          ? `You sent ${entry.units.toLocaleString('en-US')} to ${entry.targetName}`
+          : entry.side === 'attacker'
+            ? `${entry.name} called a fight at ${entry.targetName}`
+            : `${entry.name} is being come for at ${entry.targetName}`,
     });
-    if (battle.yourContribution > 0) {
-      drafts.push({
-        kind: 'help',
-        id: `help-${battle.battleId}`,
-        at: battle.scheduledFor,
-        icon: 'units',
-        text: `You sent ${battle.yourContribution.toLocaleString()} to ${battle.targetName}`,
-      });
-    }
   }
 
   return drafts

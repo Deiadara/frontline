@@ -28,8 +28,9 @@ export function clearSlot(
   base: Base,
   kind: BuildingKind,
   slot: number,
+  modification: string,
 ): { kind: 'refused'; reason: ClearSlotRefusal } | { kind: 'cleared'; base: Base } {
-  const reason = clearSlotRefusal(kind, slot, base.buildings);
+  const reason = clearSlotRefusal(kind, slot, base.buildings, modification);
   if (reason !== null) return { kind: 'refused', reason };
 
   const buildings = withSlotEmptied(base.buildings, kind, slot);

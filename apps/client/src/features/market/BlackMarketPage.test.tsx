@@ -6,6 +6,7 @@ import {
   discountedInfamy,
   findBlackMarketGood,
   nextLotBid,
+  notorietyTier,
   type BlackMarketOffer,
   type BlackMarketResponse,
 } from '@frontline/shared';
@@ -225,7 +226,7 @@ describe('the shelf as five lots', () => {
     await waitFor(() =>
       expect(screen.getByTestId('black-lot-tag-0')).toHaveAttribute(
         'data-tip',
-        'He keeps this for rank 4 and better',
+        `He keeps this for ${notorietyTier(4)} and better`,
       ),
     );
   });

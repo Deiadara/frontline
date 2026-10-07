@@ -431,6 +431,8 @@ describe('GET /research and POST /research/tech', () => {
     const res = await startTech(app, token, FIRST_MEDIC.id);
     expect(res.statusCode).toBe(409);
     expect(res.json<{ error: { code: string } }>().error.code).toBe('RESEARCH_OPTION_LOCKED');
+    // The rung's own reason, the one the page shows on hover (bug pass, 2026-10-06).
+    expect(res.json<{ error: { message: string } }>().error.message).toBe('Needs the Lab at 2');
   });
 
   it('refuses a rung that does not exist', async () => {

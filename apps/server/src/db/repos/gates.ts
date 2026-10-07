@@ -1,7 +1,8 @@
 import type { Statement } from 'better-sqlite3';
-import { CapturedGateSchema, type CapturedGate } from '@frontline/shared';
+import { CAPTURED_GATE_MAX_LEVEL, CapturedGateSchema, type CapturedGate } from '@frontline/shared';
 import { readJson } from '../json.js';
 import type { AppDatabase } from '../index.js';
+import { readableRows } from './readable.js';
 
 /**
  * §B7: the gates on districts crews have taken whole.
@@ -28,16 +29,30 @@ interface GateRow {
   upgrade_paid_json?: string | null;
 }
 
+/*
+ * Clamped to today's ceiling (bug pass, 2026-10-06). A ceiling retuned below a level already
+ * stored made the row unparseable, and with it the holder's city screen, every spy job and every
+ * fight at that gate. A level past the ceiling is the ceiling.
+ */
+const atMost = (level: number): number => Math.min(level, CAPTURED_GATE_MAX_LEVEL);
+
 const rowToGate = (row: GateRow): CapturedGate =>
   CapturedGateSchema.parse({
     districtId: row.district_id,
-    level: row.level,
-    upgradingTo: row.upgrading_to,
+    level: atMost(row.level),
+    upgradingTo: row.upgrading_to === null ? null : atMost(row.upgrading_to),
     upgradingUntil: row.upgrading_until,
     upgradingSince: row.upgrading_since,
     // Omitted rather than null when nothing is stored, so a gate read back equals the one written.
     ...(row.upgrade_paid_json == null ? {} : { upgradePaid: readJson(row.upgrade_paid_json) }),
   });
+
+const readableGates = (rows: readonly GateRow[]): CapturedGate[] =>
+  readableRows(
+    rows.map((row) => ({ ...row, id: row.district_id })),
+    'captured gate',
+    rowToGate,
+  );
 
 export function createCapturedGatesRepo(db: AppDatabase): CapturedGatesRepo {
   const findStmt = db.prepare('SELECT * FROM captured_gates WHERE district_id = ?');
@@ -63,11 +78,13 @@ export function createCapturedGatesRepo(db: AppDatabase): CapturedGatesRepo {
       const row = findStmt.get(districtId) as GateRow | undefined;
       return row ? rowToGate(row) : undefined;
     },
+    // Row by row: one gate this build still cannot read is left out with a warning, rather than
+    // stopping every gate in the world from landing (bug pass, 2026-10-06).
     all() {
-      return (allStmt.all() as GateRow[]).map(rowToGate);
+      return readableGates(allStmt.all() as GateRow[]);
     },
     due(at) {
-      return (dueStmt.all(at) as GateRow[]).map(rowToGate);
+      return readableGates(dueStmt.all(at) as GateRow[]);
     },
     put(gate) {
       putStmt ??= db.prepare(putSql);

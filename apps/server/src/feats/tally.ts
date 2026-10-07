@@ -1,4 +1,5 @@
 import {
+  COMBINE_LEADERS,
   ITEM_CATALOG,
   RESOURCE_KEYS,
   battleFeatsEarned,
@@ -169,7 +170,7 @@ export function tallyPageReimagined(repos: Repositories, baseId: string, pageId:
 
 /**
  * A party a standing order sent, counted when it comes home, whether or not it brought anything. A
- * party turned round in its first tenth is not counted.
+ * party that was turned round is not counted, whenever it was recalled (`automations/runners.ts`).
  */
 export function tallyAutomatedParty(repos: Repositories, baseId: string): void {
   record(repos, baseId, [one('automated_parties')]);
@@ -703,7 +704,9 @@ export function tallyCombineFight(
   const kills = fallen.reduce((total, [, count]) => total + count, 0);
   const leaders = fallen
     .map(([unitId]) => unitId)
-    .filter((unitId) => ['syndic', 'executioner', 'directive_xero'].includes(unitId));
+    // Off the catalogue of leaders rather than a copy of it, so a fourth one counts on the day it
+    // is added (bug pass, 2026-10-06).
+    .filter((unitId) => COMBINE_LEADERS.some((leader) => leader.unitId === unitId));
   record(repos, baseId, [
     ...(kills > 0 ? [by('combine_kills', kills)] : []),
     ...fallen.map(([unitId, count]) => by('combine_kills_of', count, unitId)),

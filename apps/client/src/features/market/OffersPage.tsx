@@ -73,7 +73,7 @@ import { InfoNote, PageShell, ScreenLoadSheet } from '../game/PageShell';
 import { useServerClock } from '../missions/useServerClock';
 import { MarketTabs } from './BlackMarketPage';
 import { BundleChips, TradeArrow } from './TradeParts';
-import { ErrorNote } from '../../components/ui/ErrorNote';
+import { PressError } from '../../components/ui/PressError';
 
 /**
  * The board: crews trading with crews.
@@ -200,9 +200,7 @@ export function OffersPage() {
           {/* Under the half whose button was pressed. Both refusals used to print here, so
               "that listing has gone" for a withdraw on the right of the screen appeared under
               somebody else's board on the left, where the player was not looking. */}
-          {accept.error !== null && (
-            <ErrorNote className="mx-4 mb-4">{accept.error.message}</ErrorNote>
-          )}
+          {accept.error && <PressError onDismiss={accept.reset}>{accept.error.message}</PressError>}
         </Panel>
 
         <Panel tone="paper" title="Your Offers" action={<Standing count={data.mine.length} />}>
@@ -233,7 +231,7 @@ export function OffersPage() {
                 ))}
               </ul>
             )}
-            {claim.error !== null && <ErrorNote>{claim.error.message}</ErrorNote>}
+            {claim.error && <PressError onDismiss={claim.reset}>{claim.error.message}</PressError>}
 
             {data.mine.length === 0 ? (
               <p className="font-body text-[13px] text-ink-300">
@@ -264,9 +262,22 @@ export function OffersPage() {
               </ul>
             )}
 
-            {withdraw.error !== null && <ErrorNote>{withdraw.error.message}</ErrorNote>}
+            {withdraw.error && (
+              <PressError onDismiss={withdraw.reset}>{withdraw.error.message}</PressError>
+            )}
 
-            <OfferComposer market={data} counter={counter} onDone={() => setCounter(null)} />
+            <OfferComposer
+              market={data}
+              // Only while the listing it answers is still on the board (bug pass, 2026-10-06): a
+              // listing taken or withdrawn meanwhile left "Countering X" up and a send the server
+              // refused.
+              counter={
+                counter !== null && data.offers.some((offer) => offer.id === counter.id)
+                  ? counter
+                  : null
+              }
+              onDone={() => setCounter(null)}
+            />
           </div>
         </Panel>
       </div>
@@ -645,7 +656,7 @@ function OfferComposer({
           You have {MAX_OPEN_OFFERS} up already. Take one down before you put up another.
         </p>
       )}
-      {post.error !== null && <ErrorNote>{post.error.message}</ErrorNote>}
+      {post.error && <PressError onDismiss={post.reset}>{post.error.message}</PressError>}
     </div>
   );
 }
@@ -694,7 +705,7 @@ function BundleBuilder({
               type="button"
               aria-pressed={inPile}
               aria-label={`${RESOURCE_LABELS[key]} into ${label}`}
-              data-tip={`${RESOURCE_LABELS[key]} · ${(held[key] ?? 0).toLocaleString()} held`}
+              data-tip={`${RESOURCE_LABELS[key]} · ${(held[key] ?? 0).toLocaleString('en-US')} held`}
               data-testid={`${testId}-${key}`}
               onClick={() => set(key, inPile ? 0 : 1)}
               className={cn(

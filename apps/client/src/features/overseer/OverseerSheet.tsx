@@ -100,8 +100,8 @@ export function OverseerSheet({ preset }: { preset: OverseerPreset }) {
       {/*
        * Portrait in a fixed column, everything written in the other one.
        *
-       * `14rem` is the officer window's figure, so the two screens put the face in the same place
-       * at the same size. Below `md` it stacks, and the portrait keeps its 4:5 rather than
+       * A fixed `10rem` column (the officer window gives its face `14rem`). Below `md` it stacks,
+       * and the portrait keeps its 4:5 rather than
        * stretching: a painting that changes shape with the viewport is the thing the `fill` crop
        * was doing wrong here before.
        */}

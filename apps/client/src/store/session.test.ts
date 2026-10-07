@@ -101,3 +101,18 @@ describe('what the browser keeps', () => {
     expect(localStorage.getItem('frontline.token')).toBeNull();
   });
 });
+
+/** Bug pass, 2026-10-06: the waste dialog sits outside the sign-in gate and outlived the session. */
+describe('signing out with a question open', () => {
+  it('declines the open waste question, so nothing is resent for the old account', async () => {
+    const { useSession } = await freshStore();
+    // The same module registry the fresh store was built against.
+    const { askToWaste, useWasteConfirm } = await import('./wasteConfirm');
+    useSession.getState().login(USER);
+    const answered = askToWaste({ caps: 10 });
+    expect(useWasteConfirm.getState().question).not.toBeNull();
+    useSession.getState().logout();
+    await expect(answered).resolves.toBe(false);
+    expect(useWasteConfirm.getState().question).toBeNull();
+  });
+});

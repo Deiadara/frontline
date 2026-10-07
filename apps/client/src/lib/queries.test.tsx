@@ -72,6 +72,7 @@ const {
   useResearch,
   useClaimFeat,
   useClaimAllFeats,
+  usePrefetchScreens,
 } = await import('./queries');
 const { useSession } = await import('../store/session');
 
@@ -344,6 +345,20 @@ describe('a level-up landing on a screen that does not print it', () => {
     expect(announced(client)).toBeUndefined();
   });
 
+  /*
+   * The shell warms `/missions` at start, and that read drains the level marker. Its level went
+   * into a cache entry only the Missions page reads, and was said to nobody (bug pass, 2026-10-06).
+   */
+  it("passes the start-up prefetch's level to the shell toast, and keeps it off the board", async () => {
+    getMissions.mockResolvedValue({ missions: [], justResolved: [], levelUp: LEVELLED });
+    const { client } = harness(() => usePrefetchScreens(true));
+    seeded(client);
+    await waitFor(() => expect(announced(client)).toEqual(LEVELLED));
+    expect(
+      client.getQueryData<{ levelUp?: unknown }>([...queryKeys.missions, ''])?.levelUp,
+    ).toBeUndefined();
+  });
+
   it("passes a cancelled build's level on, refused or not", async () => {
     cancelBuild.mockResolvedValueOnce({ base: {}, levelUp: LEVELLED });
     const { client, result } = harness(() => useCancelBuild(undefined));
@@ -481,6 +496,17 @@ describe('a write answered with a whole board puts it on the screen reading that
     await waitFor(() => expect(result.current.bid.isSuccess).toBe(true));
     expect(result.current.room.data?.infamy).toBe(90);
   });
+
+  // Held bids (2026-10-06): a placed bid takes its infamy at once, so the HUD's wallet is re-read.
+  it('re-reads the stock a placed bid has just taken', async () => {
+    placeBlackMarketBid.mockResolvedValueOnce({ blackMarket: { cityId: 'crossroads', infamy: 5 } });
+    const { result, invalidated } = harness(() => usePlaceBlackMarketBid());
+
+    result.current.mutate({} as never);
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(invalidated()).toContain(JSON.stringify(queryKeys.me));
+  });
 });
 
 /**
@@ -498,6 +524,18 @@ describe('a write that moves a feat refreshes the feats board', () => {
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
     expect(invalidated()).toContain(JSON.stringify(queryKeys.feats));
+  });
+
+  // Bug pass, 2026-10-06: the faction's public file and the standings do not poll.
+  it('and the faction file and the standings with it', async () => {
+    leaveFaction.mockResolvedValueOnce({ faction: {} });
+    const { result, invalidated } = harness(() => useLeaveFaction());
+
+    result.current.mutate(undefined);
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(invalidated()).toContain(JSON.stringify(['faction-profile']));
+    expect(invalidated()).toContain(JSON.stringify(['leaderboard']));
   });
 });
 

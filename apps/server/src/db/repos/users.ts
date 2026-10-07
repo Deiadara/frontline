@@ -139,14 +139,23 @@ export function createUsersRepo(db: AppDatabase): UsersRepo {
   let namesStmt: Statement<[]> | null = null;
   // One statement per field rather than a built-up SQL string: five prepared statements cost
   // nothing and a concatenated UPDATE is how a column name ends up coming from a request body.
-  const profileStmts: Readonly<
-    Record<keyof ProfilePatch, Statement<[string | number | null, string]>>
-  > = {
-    username: db.prepare('UPDATE users SET username = ? WHERE id = ?'),
-    displayName: db.prepare('UPDATE users SET display_name = ? WHERE id = ?'),
-    icon: db.prepare('UPDATE users SET icon = ? WHERE id = ?'),
-    timezone: db.prepare('UPDATE users SET timezone = ? WHERE id = ?'),
-    soundVolume: db.prepare('UPDATE users SET sound_volume = ? WHERE id = ?'),
+  // Compiled on first use, like the ones above (bug pass, 2026-10-06): four of these name 0022's
+  // and 0084's columns, and an eager prepare threw on a save stopped below them.
+  const PROFILE_SQL: Readonly<Record<keyof ProfilePatch, string>> = {
+    username: 'UPDATE users SET username = ? WHERE id = ?',
+    displayName: 'UPDATE users SET display_name = ? WHERE id = ?',
+    icon: 'UPDATE users SET icon = ? WHERE id = ?',
+    timezone: 'UPDATE users SET timezone = ? WHERE id = ?',
+    soundVolume: 'UPDATE users SET sound_volume = ? WHERE id = ?',
+  };
+  const profileStmts = new Map<keyof ProfilePatch, Statement<[string | number | null, string]>>();
+  const profileStmt = (field: keyof ProfilePatch) => {
+    let statement = profileStmts.get(field);
+    if (statement === undefined) {
+      statement = db.prepare(PROFILE_SQL[field]);
+      profileStmts.set(field, statement);
+    }
+    return statement;
   };
 
   return {
@@ -169,10 +178,10 @@ export function createUsersRepo(db: AppDatabase): UsersRepo {
     },
     updateProfile(userId, patch) {
       db.transaction(() => {
-        for (const [field, statement] of Object.entries(profileStmts)) {
-          const value = patch[field as keyof ProfilePatch];
+        for (const field of Object.keys(PROFILE_SQL) as (keyof ProfilePatch)[]) {
+          const value = patch[field];
           if (value === undefined) continue;
-          statement.run(value, userId);
+          profileStmt(field).run(value, userId);
         }
       })();
     },

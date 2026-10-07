@@ -1,4 +1,5 @@
 import type { LevelUp } from '@frontline/shared';
+import { Icon } from './ui/Icon';
 
 /**
  * The level-up moment (GDD §I2), shown by whichever screen's own request paid for it.
@@ -15,7 +16,17 @@ import type { LevelUp } from '@frontline/shared';
  * were always going to go up, and an unlock is a door that has just stopped being locked. Most
  * levels open nothing and the block is simply absent.
  */
-export function LevelUpBanner({ levelUp }: { levelUp: LevelUp }) {
+export function LevelUpBanner({
+  levelUp,
+  onDismiss,
+}: {
+  levelUp: LevelUp;
+  /**
+   * An X, for a screen where the banner sits over something the player needs (the district below
+   * 1280px, where it covers the build strip). Absent, the banner draws exactly as it always has.
+   */
+  onDismiss?: () => void;
+}) {
   const { level, levelsGained, grants, unlocks } = levelUp;
 
   return (
@@ -28,6 +39,17 @@ export function LevelUpBanner({ levelUp }: { levelUp: LevelUp }) {
           <p className="font-display text-[11px] uppercase tracking-[0.18em] text-ink-300">
             <span className="tabular-nums text-warning">+{levelsGained}</span> levels
           </p>
+        )}
+        {onDismiss && (
+          <button
+            type="button"
+            onClick={onDismiss}
+            aria-label="Close the level-up"
+            data-testid="level-up-dismiss"
+            className="flex h-5 w-5 shrink-0 items-center justify-center self-center rounded-sm text-warning/70 hover:text-warning [&_svg]:h-3.5 [&_svg]:w-3.5"
+          >
+            <Icon name="close" />
+          </button>
         )}
       </div>
       <p className="mt-0.5 font-display text-2xl font-black tracking-[0.2em] text-warning">

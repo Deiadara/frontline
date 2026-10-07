@@ -1,3 +1,4 @@
+import { useId } from 'react';
 import { FACTION_RANK_LABELS, type FactionRank } from '@frontline/shared';
 import { cn } from '../../lib/cn';
 
@@ -21,12 +22,15 @@ const TONE: Record<FactionRank, string> = {
 };
 
 export function RankStamp({ rank, className }: { rank: FactionRank; className?: string }) {
+  // One filter per instance (bug pass, 2026-10-06): a fixed id repeated on every copy is a
+  // duplicate in the document, and each copy resolves to whichever was mounted first.
+  const ink = `rank-ink-${useId().replace(/:/g, '')}`;
   const label = FACTION_RANK_LABELS[rank].toUpperCase();
   return (
     <span className={cn('pointer-events-none select-none', TONE[rank], className)} aria-hidden>
       <svg viewBox="0 0 150 64" className="h-full w-full overflow-visible">
         <defs>
-          <filter id="rank-ink" x="-25%" y="-25%" width="150%" height="150%">
+          <filter id={ink} x="-25%" y="-25%" width="150%" height="150%">
             <feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="3" seed="5" />
             <feDisplacementMap
               in="SourceGraphic"
@@ -36,7 +40,7 @@ export function RankStamp({ rank, className }: { rank: FactionRank; className?: 
             />
           </filter>
         </defs>
-        <g transform="rotate(-8 75 32)" filter="url(#rank-ink)">
+        <g transform="rotate(-8 75 32)" filter={`url(#${ink})`}>
           {/* Round once and a bit, and open where the hand came off the paper. */}
           <path
             d="M75 4 A70 27 0 1 1 74.4 4"

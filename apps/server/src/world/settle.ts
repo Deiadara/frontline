@@ -12,12 +12,14 @@ import { settleCapturedGates } from '../city/gates.js';
 import { settleGarrisonRegrowth } from '../city/regrowth.js';
 import { settleSpying, snapshotSpying } from '../spying/spying.js';
 import { settleCouriers } from '../spying/courier.js';
+import { settleDaily } from '../city/daily.js';
 import { settleMoves } from '../moves/moves.js';
 import type { Repositories } from '../db/repos/index.js';
 import { liveHub } from '../live/hub.js';
 import { settleStackhouse } from '../blackmarket/stackhouse.js';
 import { callOffUnderstrength } from '../battle/understrength.js';
 import { guardStage } from './guard.js';
+import { dropUnreadableFights } from '../battle/unreadable.js';
 
 /**
  * The order the shared world settles in, in one place.
@@ -82,13 +84,84 @@ export function settleWorld(
    * still run: a broken auction table is not a reason for no fight to land anywhere. The rows
    * inside each stage are guarded one by one on top of this.
    */
-  guardStage('location upgrades', null, () => settleLocationUpgrades(repos, now));
-  const landed = guardStage('columns arriving', 0, () => settleMovements(repos, now));
+  // A fight this build cannot read is closed and its units sent home before anything reads the
+  // board (maintainer, 2026-10-06), so it can neither hold them for ever nor stop a stage.
+  const dropped = guardStage('unreadable fights', 0, () => dropUnreadableFights(repos, now));
+  /*
+   * Late fights are fought in the world as it stood at their mark (maintainer, 2026-10-06).
+   *
+   * A settle that runs after a mark, because the server was down across it or a stage threw, used
+   * to bring the ground up to its own clock first: a location upgrade, a captured gate, a recruit
+   * batch or a crew's new holding that landed between the mark and the restart already counted in
+   * the fight. So the ground stages are run up to each overdue mark in turn, oldest first, and the
+   * fights at that mark with them, exactly as the ticks the server missed would have run them.
+   * Then the whole sequence runs once more at `now`.
+   */
+  let step = { fights: 0, changed: dropped };
+  for (const mark of overdueMarks(repos, now)) {
+    step = plus(step, settleGroundAndFights(repos, engine, mark));
+  }
+  step = plus(step, settleGroundAndFights(repos, engine, now));
+  // The Stackhouse's bets on the fights that just landed, or were abandoned (2026-10-05).
+  guardStage('stackhouse bets', 0, () => settleStackhouse(repos, now));
+  guardStage('crews coming home', null, () => bringCrewsHome?.(repos, now));
+  if (bringCrewsHome) guardStage('automations', 0, () => settleAutomations(repos, now, admin));
+  // Spy jobs with the receipts: the runners read the ground the moment they reach it, after the
+  // fights above, and deliver the read when they are home.
+  guardStage('spy snapshots', 0, () => snapshotSpying(repos, now));
+  guardStage('spying', 0, () => settleSpying(repos, now));
+  // Turned Runners: one report a day at the Athens boundary, reading the same settled ground.
+  guardStage('couriers', 0, () => settleCouriers(repos, now));
+  // What held ground pays once a day (the Scriptorium, the Dispensary, the Chop Shop, the Trophy
+  // Hall): the same Athens boundary, reading the ground as the fights above left it.
+  guardStage('daily grants', 0, () => settleDaily(repos, now));
+  const tables = guardStage('bar auctions', 0, () => settleBarAuctions(repos, now, admin));
+  const lots = guardStage('runner lots', 0, () => settleVendorAuctions(repos, now));
+  guardStage('black market lots', 0, () => settleBlackMarketLots(repos, now, GAME_TIMEZONE));
+  // Listings past their lifetime and claims past their 24 hours, whether or not anybody looks.
+  const board = guardStage('market board', 0, () => settleMarketBoard(repos, now));
+  // A call-off changes every board that shows the fight, not only the crews in it (bug pass,
+  // 2026-10-06): a tick whose only change was one used to leave the city showing it.
+  if (step.fights > 0 || step.changed > 0) liveHub.broadcast('world', now);
+  if (tables > 0) liveHub.broadcast('bar', now);
+  if (lots > 0 || board > 0) liveHub.broadcast('market', now);
+  return step.fights;
+}
+
+/** What one pass of the ground and the fights did: the fights it ran, and anything else it moved. */
+interface GroundStep {
+  fights: number;
+  changed: number;
+}
+
+function plus(a: GroundStep, b: GroundStep): GroundStep {
+  return { fights: a.fights + b.fights, changed: a.changed + b.changed };
+}
+
+/** The distinct marks of every fight still to run whose mark is behind `now`, oldest first. */
+function overdueMarks(repos: Repositories, now: Date): Date[] {
+  const marks = new Set(
+    repos.sieges
+      .due(now.toISOString())
+      .map((battle) => Date.parse(battle.scheduledFor))
+      .filter((mark) => mark < now.getTime()),
+  );
+  return [...marks].sort((a, b) => a - b).map((mark) => new Date(mark));
+}
+
+/**
+ * The ground up to `at`, and every fight at or before it: steps 1 to 5 of the order above.
+ *
+ * `at` is the tick's own clock on the last pass and an overdue fight's mark on the ones before it.
+ */
+function settleGroundAndFights(repos: Repositories, engine: SkirmishEngine, at: Date): GroundStep {
+  guardStage('location upgrades', null, () => settleLocationUpgrades(repos, at));
+  const landed = guardStage('columns arriving', 0, () => settleMovements(repos, at));
   // Columns between the crew's own places land beside the ones bound for a fight, and for the
   // same reason: a garrison that arrived before the mark is standing when the mark comes.
-  const moved = guardStage('moves', 0, () => settleMoves(repos, now));
-  const planted = guardStage('sleeper cells', 0, () => settleSleepers(repos, now));
-  const gates = guardStage('captured gates', 0, () => settleCapturedGates(repos, now));
+  const moved = guardStage('moves', 0, () => settleMoves(repos, at));
+  const planted = guardStage('sleeper cells', 0, () => settleSleepers(repos, at));
+  const gates = guardStage('captured gates', 0, () => settleCapturedGates(repos, at));
   /*
    * Last week's fights before this week's regrowth (bug pass, 2026-09-29). A fight marked for
    * Sunday night and settled after the mark, by a restart over it or a battles stage that threw on
@@ -100,31 +173,11 @@ export function settleWorld(
    */
   // Calls nobody means to fight are off at the lock (maintainer, 2026-10-05): under twenty unit
   // slots on the attacking side, everybody walks home and every bet on it is refunded.
-  guardStage('under-strength calls', 0, () => callOffUnderstrength(repos, now));
+  const calledOff = guardStage('under-strength calls', 0, () => callOffUnderstrength(repos, at));
   const late = guardStage('last week’s battles', [], () =>
-    settleBattles(repos, engine, now, lastWeekBoundary(now)),
+    settleBattles(repos, engine, at, lastWeekBoundary(at)),
   ).length;
-  const regrown = guardStage('regrowth', 0, () => settleGarrisonRegrowth(repos, now));
-  const fights = late + guardStage('battles', [], () => settleBattles(repos, engine, now)).length;
-  // The Stackhouse's bets on the fights that just landed, or were abandoned (2026-10-05).
-  guardStage('stackhouse bets', 0, () => settleStackhouse(repos, now));
-  guardStage('crews coming home', null, () => bringCrewsHome?.(repos, now));
-  if (bringCrewsHome) guardStage('automations', 0, () => settleAutomations(repos, now, admin));
-  // Spy jobs with the receipts: the runners read the ground the moment they reach it, after the
-  // fights above, and deliver the read when they are home.
-  guardStage('spy snapshots', 0, () => snapshotSpying(repos, now));
-  guardStage('spying', 0, () => settleSpying(repos, now));
-  // Turned Runners: one report a day at the Athens boundary, reading the same settled ground.
-  guardStage('couriers', 0, () => settleCouriers(repos, now));
-  const tables = guardStage('bar auctions', 0, () => settleBarAuctions(repos, now, admin));
-  const lots = guardStage('runner lots', 0, () => settleVendorAuctions(repos, now, admin));
-  guardStage('black market lots', 0, () => settleBlackMarketLots(repos, now, GAME_TIMEZONE, admin));
-  // Listings past their lifetime and claims past their 24 hours, whether or not anybody looks.
-  const board = guardStage('market board', 0, () => settleMarketBoard(repos, now));
-  if (fights > 0 || landed > 0 || moved > 0 || planted > 0 || gates > 0 || regrown > 0) {
-    liveHub.broadcast('world', now);
-  }
-  if (tables > 0) liveHub.broadcast('bar', now);
-  if (lots > 0 || board > 0) liveHub.broadcast('market', now);
-  return fights;
+  const regrown = guardStage('regrowth', 0, () => settleGarrisonRegrowth(repos, at));
+  const fights = late + guardStage('battles', [], () => settleBattles(repos, engine, at)).length;
+  return { fights, changed: calledOff + landed + moved + planted + gates + regrown };
 }

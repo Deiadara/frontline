@@ -18,6 +18,7 @@ import { InfoWindow, WindowSection } from '../../components/ui/InfoWindow';
 import { cn } from '../../lib/cn';
 import { UnitPortrait } from '../units/UnitPortrait';
 import { UnitTrigger } from '../units/UnitWindow';
+import { sideAtTheMark } from './odds';
 
 /**
  * A unit's sheet against the numbers it will actually fight with here (GDD §A4).
@@ -35,11 +36,10 @@ import { UnitTrigger } from '../units/UnitWindow';
  *
  * ## What it cannot see, and does not pretend to
  *
- * Two inputs are simply not on `BattleView`. The crew's **territory effects** are a fact about
- * everything it holds, so the card passes `noTerritoryEffects()` and the figures are the ground and
- * the unit alone. The **workshop's refit** is per unit and also absent, so the sheet here is the
- * catalogue's. Both only ever move the effective column, never the sheet, and both are stated on
- * the card rather than left for a player to discover from a report that disagrees with it.
+ * One input is simply not on `BattleView`: the crew's **territory effects** are a fact about
+ * everything it holds, so the card passes `noTerritoryEffects()` and the figures are the ground, the
+ * unit and the cards bolted to it. That only ever moves the effective column, never the sheet, and
+ * it is stated on the card rather than left for a player to discover from a report that disagrees.
  */
 
 /** The seven the maintainer asked for, in the order a player reads a sheet. */
@@ -79,11 +79,19 @@ function sideOf(view: BattleView): { defending: boolean; outnumbered: number } {
    * Wardens read as outnumbered two to one by forty Razors of the same weight (bug pass,
    * 2026-10-02). Heads against heads only when the report counted bodies and named none.
    */
+  /*
+   * The line as the engine weighs it (bug pass, 2026-10-06): the deployment and whoever stands on
+   * the ground with it, and not the ring, which fights apart (`battle/resolve.ts`). It counted the
+   * ring in and the garrison out, so a defence held by its garrison read badly outnumbered and one
+   * with most of its force on the ring read as not outnumbered at all.
+   */
+  const line = sideAtTheMark(view.muster);
   if (!view.enemyArmy) {
-    return { ...unknown, outnumbered: outnumberedWeight(view.enemySize, view.muster.size) };
+    const heads = Object.values(line).reduce((total, count) => total + count, 0);
+    return { ...unknown, outnumbered: outnumberedWeight(view.enemySize, heads) };
   }
   const rules = bareLineRules();
-  const mine = fightingSlots(view.muster.army, rules) + fightingSlots(view.muster.perimeter, rules);
+  const mine = fightingSlots(line, rules);
   return { ...unknown, outnumbered: outnumberedWeight(fightingSlots(view.enemyArmy, rules), mine) };
 }
 

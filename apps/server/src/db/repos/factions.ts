@@ -5,11 +5,14 @@ import {
   MAX_FACTION_MEMBERS,
   type Faction,
   type FactionCard,
+  FactionLogEntrySchema,
+  type FactionLogEntry,
   type FactionRank,
 } from '@frontline/shared';
 import type { Statement } from 'better-sqlite3';
 import type { AppDatabase } from '../index.js';
 import { readJson } from '../json.js';
+import { readableRows } from './readable.js';
 
 /**
  * Factions and who is in them.
@@ -92,6 +95,22 @@ export interface FactionsRepo {
   clearInvitesFor(userId: string): void;
   /** Everything this player sent that is still open, dropped when they may no longer invite. */
   dropInvitesSentBy(userId: string): void;
+
+  /** A line for the room's log, at the moment it happened (`FactionLogEntry`). */
+  logEvent(factionId: string, entry: FactionLogEntry): void;
+  /** The room's log, newest first. */
+  log(factionId: string, limit: number): FactionLogEntry[];
+}
+
+interface LogRow {
+  id: string;
+  kind: string;
+  at: string;
+  user_id: string;
+  name: string;
+  target_name: string;
+  side: string;
+  units: number;
 }
 
 interface Row {
@@ -174,6 +193,14 @@ export function createFactionsRepo(db: AppDatabase): FactionsRepo {
   const disbandStmt = db.prepare('DELETE FROM factions WHERE id = ?');
   const dropMembersStmt = db.prepare('DELETE FROM faction_members WHERE faction_id = ?');
   const dropInvitesStmt = db.prepare('DELETE FROM faction_invites WHERE faction_id = ?');
+  const dropLogStmt = db.prepare('DELETE FROM faction_log WHERE faction_id = ?');
+  const logInsertStmt = db.prepare(
+    `INSERT INTO faction_log (id, faction_id, kind, at, user_id, name, target_name, side, units)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  );
+  const logStmt = db.prepare(
+    'SELECT * FROM faction_log WHERE faction_id = ? ORDER BY at DESC, id DESC LIMIT ?',
+  );
 
   const membershipStmt = db.prepare('SELECT * FROM faction_members WHERE user_id = ?');
   const everyMembershipStmt = db.prepare('SELECT user_id, faction_id FROM faction_members');
@@ -244,6 +271,7 @@ export function createFactionsRepo(db: AppDatabase): FactionsRepo {
       // honours it with `foreign_keys` on, and this does not depend on a pragma being set.
       dropInvitesStmt.run(id);
       dropMembersStmt.run(id);
+      dropLogStmt.run(id);
       disbandStmt.run(id);
     },
 
@@ -303,6 +331,35 @@ export function createFactionsRepo(db: AppDatabase): FactionsRepo {
     },
     dropInvitesSentBy(userId) {
       dropSentStmt.run(userId);
+    },
+
+    logEvent(factionId, entry) {
+      logInsertStmt.run(
+        entry.id,
+        factionId,
+        entry.kind,
+        entry.at,
+        entry.userId,
+        entry.name,
+        entry.targetName,
+        entry.side,
+        entry.units,
+      );
+    },
+    log(factionId, limit) {
+      // Skip-and-warn, like every read of a row a later build may not recognise.
+      return readableRows(logStmt.all(factionId, limit) as LogRow[], 'faction log line', (row) =>
+        FactionLogEntrySchema.parse({
+          id: row.id,
+          kind: row.kind,
+          at: row.at,
+          userId: row.user_id,
+          name: row.name,
+          targetName: row.target_name,
+          side: row.side,
+          units: row.units,
+        }),
+      );
     },
   };
 }

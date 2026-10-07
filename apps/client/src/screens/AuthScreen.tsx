@@ -20,6 +20,7 @@ import { DrawnGlyph } from '../components/ui/DrawnMarks';
 import { InkSkyline } from './InkSkyline';
 import { useSession } from '../store/session';
 import { ErrorNote } from '../components/ui/ErrorNote';
+import { PressError } from '../components/ui/PressError';
 
 /**
  * The door.
@@ -300,7 +301,7 @@ export function AuthScreen() {
                   </p>
                 )}
 
-                {serverError && <ErrorNote>{serverError}</ErrorNote>}
+                {serverError && <PressError>{serverError}</PressError>}
 
                 <Button
                   type="submit"

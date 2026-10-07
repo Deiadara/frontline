@@ -20,6 +20,7 @@ import type { Repositories } from '../db/repos/index.js';
 import type { StackhouseBetRow } from '../db/repos/stackhouse.js';
 import { tallyStackhouseBet, tallyStackhouseWin } from '../feats/tally.js';
 import { notifyBase } from '../social/notify.js';
+import { settleEach } from '../world/guard.js';
 
 /**
  * The Stackhouse (maintainer, 2026-10-05): a private book on declared fights.
@@ -168,16 +169,22 @@ export function placeStackhouseBet(
   }
 
   const view = fightView(repos, battle, ours);
+  /*
+   * The stake on record is what left the stockpile (maintainer, 2026-10-06). Admin mode charges
+   * nothing, and a bet recorded at the typed figure paid real caps back on a refund and twice them
+   * on a win, so the console minted caps through the book.
+   */
+  const charged = adminCaps(stake, admin);
   repos.bases.updateResources(base.id, {
     ...base.resources,
-    caps: base.resources.caps - adminCaps(stake, admin),
+    caps: base.resources.caps - charged,
   });
   repos.stackhouse.place({
     id: randomUUID(),
     baseId: base.id,
     battleId,
     side,
-    stake,
+    stake: charged,
     place: view.place,
     backing: view[side].name,
     startsAt: battle.scheduledFor,
@@ -212,14 +219,24 @@ const RECEIPTS: Record<StackhouseOutcome, (bet: StackhouseBetRow, payout: number
     `The fight at ${bet.place} never ran. Your ${bet.stake.toLocaleString('en')} caps are back.`,
 };
 
-/** Closes every bet whose fight is over. Answers how many closed. */
+/**
+ * Closes every bet whose fight is over. Answers how many closed.
+ *
+ * One bet at a time through `settleEach` (bug pass, 2026-10-06): a bare loop let one unreadable
+ * bet throw the whole stage on every tick, and since the Stackhouse's own reads settle first, answer
+ * 500 on the screen for every crew in the game.
+ */
 export function settleStackhouse(repos: Repositories, now: Date): number {
   let closed = 0;
-  for (const bet of repos.stackhouse.unsettled()) {
-    const result = outcomeOf(repos, bet);
-    if (result === null) continue;
-    const at = result.at ?? now.toISOString();
-    repos.tx(() => {
+  settleEach(
+    repos,
+    'stackhouse bets',
+    repos.stackhouse.unsettled(),
+    (bet) => bet.id,
+    (bet) => {
+      const result = outcomeOf(repos, bet);
+      if (result === null) return;
+      const at = result.at ?? now.toISOString();
       if (!repos.stackhouse.settle(bet.id, result.outcome, result.payout, at)) return;
       closed += 1;
       const base = repos.bases.findById(bet.baseId);
@@ -244,7 +261,7 @@ export function settleStackhouse(repos: Repositories, now: Date): number {
         subjectId: bet.battleId,
         at: new Date(at),
       });
-    });
-  }
+    },
+  );
   return closed;
 }

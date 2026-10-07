@@ -1,6 +1,7 @@
 import {
   LEADERBOARD_BOARDS,
   LEADERBOARD_BOARD_LABELS,
+  cityOfDistrict,
   findCity,
   type LeaderboardBoard,
   type LeaderboardResponse,
@@ -54,7 +55,7 @@ export function LeaderboardPage() {
   const query = useLeaderboard(board, localOnly);
   const me = useMe();
   const data = query.data;
-  const youRow = useRef<HTMLLIElement>(null);
+  const youRow = useRef<HTMLLIElement | null>(null);
 
   /*
    * The crew the search sent us to look at (`?focus=<username>`).
@@ -69,10 +70,19 @@ export function LeaderboardPage() {
   const [params, setParams] = useSearchParams();
   const [sought, setSought] = useState<string | undefined>(undefined);
   const focusParam = params.get('focus') ?? undefined;
-  const focusRow = useRef<HTMLLIElement>(null);
+  const focusRow = useRef<HTMLLIElement | null>(null);
+  /*
+   * One scroll per pick (bug pass, 2026-10-06). Keyed on the data alone, every refetch that
+   * changed the board snapped the sheet back to the searched row, however far the reader had
+   * scrolled since; and picking the same name twice did not scroll at all, since the state did
+   * not change. A pick asks for a scroll, and the scroll spends the ask.
+   */
+  const [scrollAsked, setScrollAsked] = useState(0);
+  const scrolledFor = useRef(0);
   useEffect(() => {
     if (focusParam === undefined) return;
     setSought(focusParam);
+    setScrollAsked((asked) => asked + 1);
     const next = new URLSearchParams(params);
     next.delete('focus');
     setParams(next, { replace: true });
@@ -84,13 +94,20 @@ export function LeaderboardPage() {
    * loads after the search lands still gets its scroll.
    */
   useEffect(() => {
-    if (sought === undefined) return;
+    if (sought === undefined || scrolledFor.current === scrollAsked) return;
+    if (focusRow.current === null) return;
+    scrolledFor.current = scrollAsked;
     // Optional call: jsdom has no `scrollIntoView` at all, and the unit tests drive this path.
     // Same precedent as `faction/Fights.tsx`.
-    focusRow.current?.scrollIntoView?.({ block: 'center' });
-  }, [sought, data]);
+    focusRow.current.scrollIntoView?.({ block: 'center' });
+  }, [sought, data, scrollAsked]);
 
-  const cityName = data?.scope ? (findCity(data.scope)?.name ?? data.scope) : null;
+  // The home city, read off the crew rather than the board (maintainer, 2026-10-06): the board is
+  // cleared on every switch between Players and Factions, so the label lost and regained its name
+  // and the strip re-wrapped. The board's own scope is the fallback for a crew not yet read.
+  const homeDistrict = me.data?.base?.districtId;
+  const scope = homeDistrict === undefined ? data?.scope : cityOfDistrict(homeDistrict);
+  const cityName = scope ? (findCity(scope)?.name ?? scope) : null;
   /*
    * Sorted and filtered here, over the rows the server already sent.
    *
@@ -200,7 +217,10 @@ export function LeaderboardPage() {
         >
           <Podium leaders={leaders} />
           <div className="flex min-h-0 flex-1 flex-col" data-testid="leaderboard">
-            {query.isError ? (
+            {/* Only with nothing to show (bug pass, 2026-10-06): a failed background refetch kept
+                its data, and the table turned into a failure box between a live podium and a
+                live rank plaque. */}
+            {query.isError && !data ? (
               <LoadFailure what="The standings" onRetry={() => void query.refetch()} />
             ) : !data ? (
               <p className="p-4 font-body text-[13px] italic text-ink-400">Reading the ledger…</p>

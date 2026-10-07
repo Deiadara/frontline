@@ -1,5 +1,7 @@
 import {
   findUnit,
+  infamyForKills,
+  MISSION_INFAMY_PER_UNIT_SLOT,
   TacticalSkirmishEngine,
   loadable,
   recoverCasualties,
@@ -50,6 +52,14 @@ export interface MissionBattle {
   recovered: number;
   /** The enemy's dead, which is what the job pays a name for (§D7, `missionInfamyForKills`). */
   killed: Army;
+  /**
+   * Reliquary's ledgers of the enemy's dead (`SkirmishOutcome.kills`): the bodies that fell too
+   * intimidated to fire, which the Fight Pit pays over, and those credited to a SPECTACLE shooter,
+   * paid twice (`missionInfamySurcharge`). The enemy's only, whoever held the field: the crew's
+   * own dead are nobody's to be paid for. Both are already inside `killed`.
+   */
+  intimidatedKills: Army;
+  spectacleKills: Army;
   /** ...and the ones that did, `force` less `lost`. */
   home: Army;
   /**
@@ -165,12 +175,33 @@ export function fightMissionBattle(args: {
     lost,
     recovered: forceSize(fell) - forceSize(lost),
     killed,
+    // The enemy defends every job, so the ledgers of the dead the job pays for are the defender's.
+    intimidatedKills: fought.kills.defender.intimidated,
+    spectacleKills: fought.kills.defender.spectacle,
     fledEnemy,
     home,
     carrying,
     vehicles: mergeFleets(idle, removeFleet(riding, wreckedVehicles)),
     wreckedVehicles,
   };
+}
+
+/**
+ * What the Fight Pit and SPECTACLE add to a job's infamy, on top of the ordinary figure that
+ * already counts those bodies once (maintainer, 2026-10-06: "all units that were intimidated").
+ *
+ * The same two surcharges the declared-fight settle pays (`battle/resolve.ts`), at the job's own
+ * rate: half a point a unit slot, rounded up once on the whole surcharge, which is the shape
+ * `missionInfamyForBattle` already has. `intimidatedInfamyPercent` is the crew's, off the Pit.
+ */
+export function missionInfamySurcharge(
+  battle: Pick<MissionBattle, 'intimidatedKills' | 'spectacleKills'>,
+  intimidatedInfamyPercent: number,
+): number {
+  const points =
+    (infamyForKills(battle.intimidatedKills) * intimidatedInfamyPercent) / 100 +
+    infamyForKills(battle.spectacleKills);
+  return Math.ceil(points * MISSION_INFAMY_PER_UNIT_SLOT);
 }
 
 /** A unit's size in slots, for who the medics bring back first: the biggest. */

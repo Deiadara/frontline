@@ -13,6 +13,7 @@ import { Button } from '../../components/ui/Button';
 import { Dropdown } from '../../components/ui/Dropdown';
 import { Icon } from '../../components/ui/Icon';
 import { Modal } from '../../components/ui/Modal';
+import { PressError } from '../../components/ui/PressError';
 import { NumberField } from '../../components/ui/NumberField';
 import { cn } from '../../lib/cn';
 import { useDeployQuote, useUnits } from '../../lib/queries';
@@ -39,6 +40,7 @@ export function FightWindow({
   pending,
   onReinforce,
   onClose,
+  refusal = null,
 }: {
   battles: readonly AllyBattle[];
   /** The one fight this window was opened for, or null for the whole list. */
@@ -46,6 +48,11 @@ export function FightWindow({
   pending: boolean;
   onReinforce: (battleId: string, unitId: string, count: number) => void;
   onClose: () => void;
+  /**
+   * The refusal of the last write made here, drawn in the window (bug pass, 2026-10-06): the page
+   * drew it under the backdrop, so the player heard the refusal and could not read it.
+   */
+  refusal?: string | null;
 }) {
   const units = useUnits();
   const army: Army = units.data?.army ?? {};
@@ -83,8 +90,11 @@ export function FightWindow({
       <div className="flex min-h-0 flex-col gap-3 overflow-y-auto p-5">
         {shown.length === 0 ? (
           <EmptyPlate icon="battles">
-            Nobody at this table has a fight called. When one is, it shows up over the room and you
-            can put units into it.
+            {/* The one fight this was opened for has been fought since (bug pass, 2026-10-06):
+                "nobody has a fight called" was untrue with others still listed. */}
+            {only !== null
+              ? 'That fight has been fought. The rest are on the list over the room.'
+              : 'Nobody at this table has a fight called. When one is, it shows up over the room and you can put units into it.'}
           </EmptyPlate>
         ) : (
           <ul
@@ -93,11 +103,14 @@ export function FightWindow({
           >
             {shown.map((battle) => (
               <FightCard
-                key={battle.battleId}
+                // The fight and the member it is listed under: a fight two mates are in is listed
+                // once for each, and keyed on the fight alone the two cards shared one drawer.
+                key={`${battle.battleId}:${battle.memberUserId}`}
                 battle={battle}
                 army={army}
                 fieldable={fieldable}
                 reading={units.isPending}
+                unread={units.isError}
                 pending={pending}
                 unfolded={only !== null}
                 onReinforce={onReinforce}
@@ -106,6 +119,7 @@ export function FightWindow({
           </ul>
         )}
       </div>
+      {refusal !== null && <PressError>{refusal}</PressError>}
     </Modal>
   );
 }
@@ -115,6 +129,7 @@ function FightCard({
   army,
   fieldable,
   reading,
+  unread,
   pending,
   unfolded,
   onReinforce,
@@ -124,6 +139,8 @@ function FightCard({
   fieldable: readonly [string, number][];
   /** True while `/units` is still in flight, which is not the same as holding nothing. */
   reading: boolean;
+  /** The roster could not be read, which is not the same as an empty one. */
+  unread: boolean;
   pending: boolean;
   /** Opened straight onto the send controls, for a window opened by pressing this fight's chip. */
   unfolded: boolean;
@@ -227,7 +244,7 @@ function FightCard({
           </span>
           <Figure
             icon="units"
-            value={battle.committed.toLocaleString()}
+            value={battle.committed.toLocaleString('en-US')}
             title="Already committed"
           />
           {battle.yourContribution > 0 && (
@@ -265,7 +282,11 @@ function FightCard({
           >
             {fieldable.length === 0 ? (
               <p className="font-body text-[12px] italic text-ink-400">
-                {reading ? 'Reading your roster…' : 'Nothing on your roster to send.'}
+                {reading
+                  ? 'Reading your roster…'
+                  : unread
+                    ? 'Your roster could not be read. Try again in a moment.'
+                    : 'Nothing on your roster to send.'}
               </p>
             ) : (
               <div className="flex min-w-0 flex-wrap items-end gap-2">

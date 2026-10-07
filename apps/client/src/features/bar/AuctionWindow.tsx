@@ -22,7 +22,7 @@ import { PerkTags } from '../../components/PerkTags';
 import { cn } from '../../lib/cn';
 import { useMe, usePlaceBid, useSealBid } from '../../lib/queries';
 import { AuctionClock, PhaseBadge, leaderName, phaseOf, standingOf } from './AuctionParts';
-import { ErrorNote } from '../../components/ui/ErrorNote';
+import { PressError } from '../../components/ui/PressError';
 
 /** §H3, in the player's own accent. The same two doors the roster card reads. */
 const BLOCKER_LABEL: Record<JoinBlocker, string> = {
@@ -200,7 +200,7 @@ function Dossier({ recruit }: { recruit: BarRecruit }) {
                 <p className="min-w-0 break-words font-display text-[10px] uppercase leading-snug tracking-[0.14em] text-ink-300">
                   With{' '}
                   <span className="text-ink-100">
-                    {recruit.requirement.minInfamy.toLocaleString()} infamy
+                    {recruit.requirement.minInfamy.toLocaleString('en-US')} infamy
                   </span>{' '}
                   still in the account
                 </p>
@@ -209,7 +209,7 @@ function Dossier({ recruit }: { recruit: BarRecruit }) {
                 <p className="min-w-0 break-words font-display text-[10px] uppercase leading-snug tracking-[0.14em] text-ink-300">
                   And a faction that has earned{' '}
                   <span className="text-ink-100">
-                    {recruit.requirement.minFactionInfamy.toLocaleString()}
+                    {recruit.requirement.minFactionInfamy.toLocaleString('en-US')}
                   </span>
                 </p>
               )}
@@ -269,7 +269,7 @@ function Standing({ auction, now }: { auction: BarAuction; now: Date }) {
           className="font-display text-[34px] font-bold leading-none tabular-nums text-brass-100"
           data-testid="leading-bid"
         >
-          {(auction.leading?.amount ?? auction.reserve).toLocaleString()}
+          {(auction.leading?.amount ?? auction.reserve).toLocaleString('en-US')}
         </span>
         <span className="font-display text-[10px] uppercase tracking-[0.16em] text-ink-300">
           caps
@@ -277,11 +277,11 @@ function Standing({ auction, now }: { auction: BarAuction; now: Date }) {
       </span>
       <span className="min-w-0 truncate font-body text-[12px] leading-snug text-ink-200">
         {auction.leading === null ? (
-          <>Opens at {auction.reserve.toLocaleString()}, which is their floor.</>
+          <>Opens at {auction.reserve.toLocaleString('en-US')}, which is their floor.</>
         ) : (
           <>
             Held by <span className="text-ink-100">{leaderName(auction)}</span> ·{' '}
-            {auction.bidders.toLocaleString()}{' '}
+            {auction.bidders.toLocaleString('en-US')}{' '}
             {auction.bidders === 1 ? 'crew is in' : 'crews are in'}
           </>
         )}
@@ -322,7 +322,7 @@ function BidHistory({ auction, zone }: { auction: BarAuction; zone: string }) {
                 {bid.yours ? 'You' : bid.username}
               </span>
               <span className="shrink-0 font-display text-[13px] font-bold tabular-nums text-ink-100">
-                {bid.amount.toLocaleString()}
+                {bid.amount.toLocaleString('en-US')}
               </span>
               <span className="w-10 shrink-0 text-right font-body text-[11px] tabular-nums text-ink-400">
                 {formatClock(new Date(bid.at), zone)}
@@ -439,7 +439,9 @@ function BidPanel({
 
   const overBook = amount > headroom;
   const sealOverBook = sealAmount > headroom;
-  const error = bid.error?.message ?? seal.error?.message ?? null;
+  // The current phase's control only (bug pass, 2026-10-06): an open bid refused at 23:29 sat
+  // under the locked sealed value, and hid a newer refusal of the seal.
+  const error = (phase === 'open' ? bid.error : seal.error)?.message ?? null;
 
   /** The increment from wherever the field currently stands, so `+1 step` is the legal next number. */
   const stepFrom = (value: number) => Math.max(1, nextMinimumBid(auction.reserve, value) - value);
@@ -513,8 +515,8 @@ function BidPanel({
               className="font-body text-[12px] leading-relaxed text-oxblood-300"
               data-testid="bid-refusal"
             >
-              Your book holds up to {headroom.toLocaleString()} caps. Increase it at the foot of the
-              Bar.
+              Your book holds up to {headroom.toLocaleString('en-US')} caps. Increase it at the foot
+              of the Bar.
             </p>
           )}
           {refusal === null && !overBook && amount < auction.nextBid && (
@@ -523,8 +525,8 @@ function BidPanel({
               data-testid="bid-under"
             >
               {auction.leading === null
-                ? `They will not go under ${auction.reserve.toLocaleString()}.`
-                : `Somebody is at ${auction.leading.amount.toLocaleString()}. You need at least ${auction.nextBid.toLocaleString()}.`}
+                ? `They will not go under ${auction.reserve.toLocaleString('en-US')}.`
+                : `Somebody is at ${auction.leading.amount.toLocaleString('en-US')}. You need at least ${auction.nextBid.toLocaleString('en-US')}.`}
             </p>
           )}
         </div>
@@ -541,7 +543,7 @@ function BidPanel({
               Locked
             </span>
             <span className="font-display text-[26px] font-bold leading-none tabular-nums text-brass-100">
-              {auction.yourSealed.toLocaleString()}
+              {auction.yourSealed.toLocaleString('en-US')}
             </span>
             <p className="font-body text-[12px] leading-relaxed text-ink-200">
               Revealed at {reveal}. Nobody sees it before then, and it cannot be changed.
@@ -597,8 +599,8 @@ function BidPanel({
                 className="font-body text-[12px] leading-relaxed text-oxblood-300"
                 data-testid="bid-refusal"
               >
-                Your book holds up to {headroom.toLocaleString()} caps. Increase it at the foot of
-                the Bar.
+                Your book holds up to {headroom.toLocaleString('en-US')} caps. Increase it at the
+                foot of the Bar.
               </p>
             )}
           </div>
@@ -621,12 +623,12 @@ function BidPanel({
         </p>
       )}
 
-      {error !== null && <ErrorNote>{error}</ErrorNote>}
+      {error !== null && <PressError>{error}</PressError>}
 
       {confirming && (
         <Confirm
           title="Lock this in?"
-          body={`${sealAmount.toLocaleString()} caps, sealed until ${reveal}. You get one final value on this table and this is it: it cannot be changed, raised or withdrawn.`}
+          body={`${sealAmount.toLocaleString('en-US')} caps, sealed until ${reveal}. You get one final value on this table and this is it: it cannot be changed, raised or withdrawn.`}
           confirm="Lock it"
           testId="confirm-seal"
           onConfirm={() => {
@@ -666,7 +668,7 @@ function Headroom({
           className="font-display text-[15px] font-bold tabular-nums text-brass-100"
           data-testid="bid-headroom"
         >
-          {headroom.toLocaleString()}
+          {headroom.toLocaleString('en-US')}
         </span>
       </span>
       <span className="flex min-w-0 flex-1 flex-col gap-1 px-2.5 py-1.5">

@@ -124,8 +124,8 @@ function Rung({
                   CLAIM button beside it. A figure may read short of a feat that is finished for
                   one more tick; it may never read finished on one that is not.
                 */}
-                {Math.floor(progress.value).toLocaleString()} /{' '}
-                {Math.round(progress.target).toLocaleString()}{' '}
+                {Math.floor(progress.value).toLocaleString('en-US')} /{' '}
+                {Math.round(progress.target).toLocaleString('en-US')}{' '}
                 <span className="font-normal uppercase tracking-[0.12em] text-ink-400">{unit}</span>
               </span>
             </div>

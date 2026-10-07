@@ -37,6 +37,7 @@ describe('the count on a machine', () => {
       <VehicleCard
         vehicle={bikeWithOneOut()}
         resources={{ caps: 0, supplies: 0, oil: 0, scrap: 0, highQualityMetal: 0, planks: 0 }}
+        spareUnitSlots={0}
         pending={false}
         onBuild={() => {}}
       />,

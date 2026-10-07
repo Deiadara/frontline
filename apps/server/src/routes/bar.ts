@@ -43,7 +43,7 @@ import { barDay, barRoster, cityOfRecruit, findBarRecruit } from '../bar/roster.
 import { barRoomOf } from '../bar/room.js';
 import { cityAsked, citiesFor } from '../city/stakes.js';
 import { seatedRoles } from '../crew/roster.js';
-import { crewEffectsFor } from '../crew/standing.js';
+import { crewEffectsFor, standingEffectsFor } from '../crew/standing.js';
 import type { BarBid } from '../db/repos/bar.js';
 import { settleBase } from '../district/settle.js';
 import { districtUnitSlots } from '../district/unit-slots.js';
@@ -283,10 +283,13 @@ export function registerBarRoutes(app: FastifyInstance): void {
     // §J8: read once for the room rather than once per recruit. Every standout seat's faction door
     // asks the same question of the same badge.
     const factionInfamy = factionInfamyOf(app.repos, base);
-    const bids = app.repos.bar.bidsOn(day);
+    // This room's tables only (bug pass, 2026-10-06): `bidsOn` is every city's, and every bidder in
+    // the world was looked up by name on each read of one room.
+    const onScreen = new Set(roster.map((recruit) => recruit.id));
+    const bids = app.repos.bar.bidsOn(day).filter((bid) => onScreen.has(bid.recruitId));
     const usernames = usernamesFor(app, bids);
     // Read once: the book and the discount feed the ledger, the bid ceiling and the payroll gate.
-    const effects = crewEffectsFor(app.repos, base);
+    const effects = standingEffectsFor(app.repos, base);
     const ledger = ledgerFor(base, effects);
 
     return {
@@ -371,7 +374,7 @@ export function registerBarRoutes(app: FastifyInstance): void {
     const base = settledBase(app, request.currentUser.id, now);
 
     const result = app.db.transaction(() =>
-      releaseOfficer(app.repos, base, officerId, app.config.admin),
+      releaseOfficer(app.repos, base, officerId, app.config.admin, now),
     )();
     if (result.kind === 'refused') {
       if (result.reason === 'not_on_the_books') {
@@ -444,7 +447,7 @@ export function registerBarRoutes(app: FastifyInstance): void {
     return {
       spent: cost,
       resources: raised.resources,
-      payroll: ledgerFor(raised, crewEffectsFor(app.repos, raised)),
+      payroll: ledgerFor(raised, standingEffectsFor(app.repos, raised)),
     };
   });
 }

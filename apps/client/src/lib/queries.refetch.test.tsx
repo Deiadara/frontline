@@ -415,7 +415,7 @@ describe('ordering a machine', () => {
     const { result } = screen(() => ({ build: useBuildVehicle(), roster: useUnits() }));
     await waitFor(() => expect(getUnits).toHaveBeenCalledTimes(1));
 
-    result.current.build.mutate({ vehicleId: 'scrap_car' });
+    result.current.build.mutate({ vehicleId: 'scrap_car', count: 1 });
     await waitFor(() => expect(result.current.build.isSuccess).toBe(true));
 
     await waitFor(() => expect(getUnits).toHaveBeenCalledTimes(2));
@@ -426,7 +426,7 @@ describe('ordering a machine', () => {
     const { result } = screen(() => ({ build: useBuildVehicle(), district: useBase('base-1') }));
     await waitFor(() => expect(getBase).toHaveBeenCalledTimes(1));
 
-    result.current.build.mutate({ vehicleId: 'scrap_car' });
+    result.current.build.mutate({ vehicleId: 'scrap_car', count: 1 });
     await waitFor(() => expect(result.current.build.isSuccess).toBe(true));
 
     await waitFor(() => expect(getBase).toHaveBeenCalledTimes(2));

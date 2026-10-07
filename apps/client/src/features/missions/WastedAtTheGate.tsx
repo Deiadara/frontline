@@ -18,14 +18,17 @@ import {
 export function WastedAtTheGate({ mission }: { mission: Mission }) {
   const wasted = mission.wasted;
   if (!wasted || Object.keys(wasted).length === 0) return null;
+  // Nothing to say when it rounds to nothing: "0 loot went to waste" beside per-kind marks that
+  // show none (bug pass, 2026-10-06).
+  const lost = Math.round(weightOf(wasted));
+  if (lost <= 0) return null;
   return (
     <p
       className="break-words font-body text-[12px] leading-snug text-warning"
       data-testid={`mission-wasted-${mission.id}`}
     >
-      The stores were full:{' '}
-      <span className="tabular-nums">{Math.round(weightOf(wasted)).toLocaleString()}</span> loot of
-      what they carried went to waste at the gate ({describeWaste(wasted)}).
+      The stores were full: <span className="tabular-nums">{lost.toLocaleString('en-US')}</span>{' '}
+      loot of what they carried went to waste at the gate ({describeWaste(wasted)}).
     </p>
   );
 }
@@ -39,7 +42,7 @@ export function WastedOn({ mission, kind }: { mission: Mission; kind: ResourceKe
       className="font-display text-[10px] uppercase tracking-[0.12em] text-warning"
       data-testid={`haul-wasted-${kind}`}
     >
-      <span className="tabular-nums">{wasted.toLocaleString()}</span> wasted
+      <span className="tabular-nums">{wasted.toLocaleString('en-US')}</span> wasted
     </span>
   );
 }

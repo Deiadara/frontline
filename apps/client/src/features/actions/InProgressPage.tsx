@@ -47,7 +47,7 @@ import { formatRemaining } from '../base/format';
 import { useServerClock } from '../missions/useServerClock';
 import { FileSection } from '../overseer/FileSection';
 import { Row, Section } from './rows';
-import { ErrorNote } from '../../components/ui/ErrorNote';
+import { PressError } from '../../components/ui/PressError';
 
 /**
  * The Monitor's In progress page (maintainer, 2026-09-23): every clock that is running at home.
@@ -101,7 +101,14 @@ export function InProgressPage() {
   const hurt = (crew.data?.officers ?? []).filter(
     (one) => one.injuredUntil !== null && Date.parse(one.injuredUntil) > now.getTime(),
   );
+  /*
+   * Only once the reads it counts have answered (bug pass, 2026-10-06): it waited for `/me` alone,
+   * so a crew with only research running was told nothing was running until `/research` landed,
+   * and for good if that read failed.
+   */
+  const counted = research.data !== undefined && crew.data !== undefined && city.data !== undefined;
   const nothing =
+    counted &&
     base.buildQueue.length === 0 &&
     active === null &&
     base.musterQueue.length === 0 &&
@@ -297,7 +304,8 @@ function BuildCancel({
   windowMs: number;
 }) {
   const cancel = useCancelBuild(baseId);
-  if (windowMs <= 0) return null;
+  // The refusal outlives the window: "too late" lands exactly when the window has just shut.
+  if (windowMs <= 0) return <WriteError message={cancel.error?.message} />;
   return (
     <Footer>
       <CancelMark
@@ -314,7 +322,7 @@ function BuildCancel({
 
 function ResearchCancel({ name, windowMs }: { name: string; windowMs: number }) {
   const cancel = useCancelResearch();
-  if (windowMs <= 0) return null;
+  if (windowMs <= 0) return <WriteError message={cancel.error?.message} />;
   return (
     <Footer>
       <CancelMark
@@ -341,7 +349,7 @@ function MusterCancel({
   windowMs: number;
 }) {
   const cancel = useCancelMuster(baseId);
-  if (windowMs <= 0) return null;
+  if (windowMs <= 0) return <WriteError message={cancel.error?.message} />;
   return (
     <Footer>
       <CancelMark
@@ -385,7 +393,7 @@ function Drill({ session, who, now }: { session: TrainingSession; who: string; n
     >
       <Where place="The training floor" remaining={formatRemaining(left)} />
       <ProgressBar progress={drillProgressAt(session, now.getTime())} label={name} />
-      {windowMs > 0 && (
+      {windowMs > 0 ? (
         <Footer>
           <CancelMark
             windowMs={windowMs}
@@ -396,6 +404,8 @@ function Drill({ session, who, now }: { session: TrainingSession; who: string; n
           />
           <WriteError message={cancel.error?.message} />
         </Footer>
+      ) : (
+        <WriteError message={cancel.error?.message} />
       )}
     </Row>
   );
@@ -433,6 +443,10 @@ function DistrictWorks({
         {mine.map((view) => {
           const clock = workClock(view.upgradingSince, view.upgradingUntil, now);
           const name = `${view.location.name} to ${String(view.level + 1)}`;
+          // One mutation for the district's rows: its press and its refusal belong to the row
+          // pressed, not to every row in the district (bug pass, 2026-10-06).
+          const pressed = cancelUpgrade.variables?.locationId === view.location.id;
+          const refused = pressed ? cancelUpgrade.error?.message : undefined;
           return (
             <Row
               key={view.location.id}
@@ -442,17 +456,19 @@ function DistrictWorks({
             >
               <Where place={districtName} remaining={formatRemaining(clock.left)} />
               <ProgressBar progress={clock.progress} label={name} />
-              {clock.windowMs > 0 && (
+              {clock.windowMs > 0 ? (
                 <Footer>
                   <CancelMark
                     windowMs={clock.windowMs}
                     label={`Call off ${name}`}
-                    pending={cancelUpgrade.isPending}
+                    pending={pressed && cancelUpgrade.isPending}
                     onCancel={() => cancelUpgrade.mutate({ locationId: view.location.id })}
                     data-testid={`cancel-work-${view.location.id}-upgrade`}
                   />
-                  <WriteError message={cancelUpgrade.error?.message} />
+                  <WriteError message={refused} />
                 </Footer>
+              ) : (
+                <WriteError message={refused} />
               )}
             </Row>
           );
@@ -483,7 +499,7 @@ function workClock(
 
 function WriteError({ message }: { message: string | undefined }) {
   if (!message) return null;
-  return <ErrorNote className="mt-1">{message}</ErrorNote>;
+  return <PressError>{message}</PressError>;
 }
 
 /** The one type this page reads off a district and nothing else needs. */

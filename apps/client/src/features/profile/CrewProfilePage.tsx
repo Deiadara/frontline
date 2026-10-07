@@ -55,16 +55,15 @@ export function CrewProfilePage() {
 
   const { crew, player, overseer, standing, faction, home, holdings } = data;
   /*
-   * What to call their plot: the same rule the map uses (`districtDisplayName`), read from the
-   * *viewer's* side. Your own plot is your crew's name; everybody else's is a number, because the
-   * authored name of a residential district is a placeholder and the crew's name is already on
-   * the plaque beside this.
+   * What to call their plot: the same rule the map uses (`districtDisplayName`). A plot is called
+   * after the crew living on it, which here is the crew whose file this is.
    */
   const homeDistrict = findDistrict(home.districtId);
   const plot = homeDistrict
     ? districtDisplayName(homeDistrict, {
         ownDistrictId: me.data?.base?.districtId ?? null,
         ownName: me.data?.base?.name ?? null,
+        residentName: crew.name,
       })
     : home.districtName;
 
@@ -189,7 +188,7 @@ export function CrewProfilePage() {
                     <p className="font-body text-[12px] text-ink-300">
                       {FACTION_RANK_LABELS[faction.rank]}. The table has earned{' '}
                       <span className="tabular-nums text-brass-300">
-                        {Math.round(faction.infamyEarned).toLocaleString()}
+                        {Math.round(faction.infamyEarned).toLocaleString('en-US')}
                       </span>{' '}
                       infamy.
                     </p>
@@ -242,7 +241,7 @@ export function CrewProfilePage() {
               data-testid="profile-standing"
             >
               <Stat label="Level" value={String(standing.level)} />
-              <Stat label="Infamy" value={Math.round(standing.infamy).toLocaleString()} />
+              <Stat label="Infamy" value={Math.round(standing.infamy).toLocaleString('en-US')} />
               <Stat label="Notoriety" value={notorietyTier(standing.notoriety)} />
               <Stat
                 label="Rank"

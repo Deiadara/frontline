@@ -56,7 +56,7 @@ export function rewardTokens(reward: FeatReward): Token[] {
     tokens.push({
       key: `resource-${kind}`,
       glyph: <ResourceIcon kind={kind} className="h-4 w-4" />,
-      amount: `+${Math.round(amount).toLocaleString()}`,
+      amount: `+${Math.round(amount).toLocaleString('en-US')}`,
       name: RESOURCE_META[kind].label,
       tone: 'text-ink-100',
     });
@@ -108,7 +108,7 @@ export function rewardTokens(reward: FeatReward): Token[] {
     tokens.push({
       key: 'xp',
       glyph: <Icon name="level" className="h-4 w-4" />,
-      amount: `+${reward.xp.toLocaleString()}`,
+      amount: `+${reward.xp.toLocaleString('en-US')}`,
       name: 'Experience',
       // `hextech`, the blue the level chip in the top HUD is drawn in. It was brass, which is the
       // pigment caps and the seal already use here, so the one token a player most wants to pick

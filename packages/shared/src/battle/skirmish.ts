@@ -9,6 +9,7 @@ import {
   openingJam,
   simulate,
   type RatingFlats,
+  type SideSetup,
   type Simulation,
 } from './engine.js';
 import { OfficerOutcomeSchema, type BattleOfficer } from './officer.js';
@@ -92,6 +93,12 @@ export interface SkirmishInput {
    * Attacker-only, for the reason every trap is: it is laid under a fight by whoever holds it.
    */
   attackerSlowed?: TrapWire;
+  /** Which side, if either, is the Combine's: the other side's ANTI-COMBINE pays against it. */
+  attackerGovernment?: boolean;
+  defenderGovernment?: boolean;
+  /** The faction mates' parts of each force, with what each sender's Rose Window pays them. */
+  attackerAllies?: SideSetup['allies'];
+  defenderAllies?: SideSetup['allies'];
 }
 
 export const SkirmishOutcomeSchema = z.object({
@@ -122,6 +129,27 @@ export const SkirmishOutcomeSchema = z.object({
    */
   executedForce: z.record(z.string(), z.number().int().nonnegative()).default({}),
   /** How many rounds it took. One means it was over before it started. */
+  /**
+   * Reliquary's ledgers of the dead, by the side that lost them and the unit id of the fallen:
+   * the bodies that were too intimidated to fire when they fell (the Fight Pit pays them over)
+   * and those credited to a SPECTACLE shooter (paid twice). Defaulted, because a stub engine
+   * runs no fight and an empty ledger is the truthful answer for one.
+   */
+  kills: z
+    .object({
+      attacker: z.object({
+        intimidated: z.record(z.string(), z.number().int().nonnegative()).default({}),
+        spectacle: z.record(z.string(), z.number().int().nonnegative()).default({}),
+      }),
+      defender: z.object({
+        intimidated: z.record(z.string(), z.number().int().nonnegative()).default({}),
+        spectacle: z.record(z.string(), z.number().int().nonnegative()).default({}),
+      }),
+    })
+    .default({
+      attacker: { intimidated: {}, spectacle: {} },
+      defender: { intimidated: {}, spectacle: {} },
+    }),
   rounds: z.number().int().nonnegative().default(0),
   /** Per-side, per-visibility notes: see `report.ts`. */
   findings: z.array(BattleFindingSchema).default([]),
@@ -195,6 +223,12 @@ export interface SkirmishEngine {
   resolve(input: SkirmishInput): SkirmishOutcome;
 }
 
+/** The ledgers of a fight nobody fought: see `SkirmishOutcome.kills`. */
+const emptyKills = (): SkirmishOutcome['kills'] => ({
+  attacker: { intimidated: {}, spectacle: {} },
+  defender: { intimidated: {}, spectacle: {} },
+});
+
 const total = (force: Army): number => Object.values(force).reduce((sum, count) => sum + count, 0);
 
 /**
@@ -222,6 +256,8 @@ export class TacticalSkirmishEngine implements SkirmishEngine {
         ...(input.attackerOfficer ? { officer: input.attackerOfficer } : {}),
         ...(input.attackerFlat ? { flat: input.attackerFlat } : {}),
         ...(input.attackerSlowed ? { slowed: input.attackerSlowed } : {}),
+        ...(input.attackerGovernment ? { government: true } : {}),
+        ...(input.attackerAllies ? { allies: input.attackerAllies } : {}),
       },
       defender: {
         name: input.defenderName,
@@ -235,6 +271,8 @@ export class TacticalSkirmishEngine implements SkirmishEngine {
         ...(input.defenderOfficer ? { officer: input.defenderOfficer } : {}),
         ...(input.defenderPresence ? { presence: input.defenderPresence } : {}),
         ...(input.defenderFlat ? { flat: input.defenderFlat } : {}),
+        ...(input.defenderGovernment ? { government: true } : {}),
+        ...(input.defenderAllies ? { allies: input.defenderAllies } : {}),
       },
     });
 
@@ -332,6 +370,7 @@ export function outcomeFrom(simulation: Simulation, input: SkirmishInput): Skirm
     turned: simulation.turned,
     executed: simulation.executed,
     executedForce: simulation.executedForce,
+    kills: simulation.kills,
     rounds: lastRound,
     findings,
     standing: {
@@ -436,6 +475,7 @@ export class CoinFlipSkirmishEngine implements SkirmishEngine {
 
     return {
       winner: attackerWins ? 'attacker' : 'defender',
+      kills: emptyKills(),
       log: [
         attackerWins
           ? `${input.locationName} changes hands. ${input.attackerName} holds it.`

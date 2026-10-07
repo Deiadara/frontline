@@ -46,6 +46,31 @@ function announce(): void {
   for (const watcher of [...WATCHERS]) watcher();
 }
 
+/**
+ * The element a closing window is handing focus back to, for the length of that one `focus()`.
+ *
+ * Focus goes back to the opener on close (maintainer, 2026-10-06), and the opener is often a
+ * `HoverCard` trigger or a `data-tip` host, both of which open on focus: handing focus back popped
+ * the card the player had just finished with. A focus event fires synchronously inside `focus()`,
+ * so a listener that asks this during it can tell a handed-back focus from a player's own.
+ */
+let returningTo: Element | null = null;
+
+/** Whether this focus is a closing window handing it back, rather than the player moving it. */
+export function isReturnedFocus(target: EventTarget | null): boolean {
+  return returningTo !== null && target === returningTo;
+}
+
+/** What Tab can land on inside a window, in document order. */
+const TABBABLE =
+  'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
+function tabbables(panel: HTMLElement): HTMLElement[] {
+  return [...panel.querySelectorAll<HTMLElement>(TABBABLE)].filter(
+    (node) => !node.closest('[inert]') && node.getClientRects().length > 0,
+  );
+}
+
 interface ModalProps {
   onClose: () => void;
   children: ReactNode;
@@ -170,12 +195,77 @@ export function Modal({
     };
   }, []);
 
+  /*
+   * Focus moves into the window when it opens (bug pass, 2026-10-06), unless something inside it
+   * already took it (an `autoFocus` field). It used to stay on the trigger behind the backdrop, so
+   * Tab walked the page the player could not see before it reached the dialog, which is portalled
+   * to the end of `<body>`.
+   *
+   * Handed back to whoever opened it on close (maintainer, 2026-10-06), so a keyboard player is
+   * where they were. Marked as handed back while it happens ({@link isReturnedFocus}), so a hover
+   * card on the opener does not pop up for it. Only when focus is still in this window or nowhere:
+   * a window closed because the player clicked something else leaves the focus on that.
+   */
+  const opener = useRef<Element | null>(null);
+  useLayoutEffect(() => {
+    opener.current = document.activeElement;
+  }, []);
+  useEffect(() => {
+    const self = panel.current;
+    if (self !== null && !self.contains(document.activeElement))
+      self.focus({ preventScroll: true });
+    return () => {
+      const back = opener.current;
+      const active = document.activeElement;
+      const lost = active === null || active === document.body || self?.contains(active) === true;
+      if (!lost || !(back instanceof HTMLElement) || !back.isConnected) return;
+      returningTo = back;
+      try {
+        back.focus({ preventScroll: true });
+      } finally {
+        returningTo = null;
+      }
+    };
+  }, []);
+
+  /*
+   * Whether the press that ended in a backdrop click also *started* on the backdrop. A drag that
+   * begins inside the panel (selecting the text of a field) and is released past its edge fires
+   * the click on the backdrop, their common ancestor, and closed the window (bug pass, 2026-10-06).
+   */
+  const pressedOnBackdrop = useRef(false);
+
   useEffect(() => {
     const handle = (e: KeyboardEvent) => {
       // The last mounted dialog is the one on top, and the only one any key is for.
       if (topDialog() !== panel.current) return;
+      // Already spent by something inside the window: an open Dropdown closes its own list on
+      // Escape, and the window behind it must stay open (bug pass, 2026-10-06).
+      if (e.defaultPrevented) return;
       if (e.key === 'Escape') {
         onClose();
+        return;
+      }
+      /*
+       * Tab stays inside the window (maintainer, 2026-10-06): it walked out onto the page behind
+       * the backdrop, which nobody can see or press.
+       */
+      if (e.key === 'Tab' && panel.current !== null) {
+        const stops = tabbables(panel.current);
+        const first = stops[0];
+        const last = stops[stops.length - 1];
+        const active = document.activeElement;
+        const inside = active instanceof Node && panel.current.contains(active);
+        if (first === undefined || last === undefined) {
+          e.preventDefault();
+          panel.current.focus({ preventScroll: true });
+        } else if (e.shiftKey && (!inside || active === first || active === panel.current)) {
+          e.preventDefault();
+          last.focus({ preventScroll: true });
+        } else if (!e.shiftKey && (!inside || active === last)) {
+          e.preventDefault();
+          first.focus({ preventScroll: true });
+        }
         return;
       }
       onKey?.(e);
@@ -187,7 +277,13 @@ export function Modal({
   return createPortal(
     <div
       className="fixed inset-0 z-[100] flex items-center justify-center bg-surface-950/80 p-4 backdrop-blur-sm"
-      onClick={onClose}
+      onMouseDown={(e) => {
+        pressedOnBackdrop.current = e.target === e.currentTarget;
+      }}
+      onClick={(e) => {
+        if (e.target === e.currentTarget && pressedOnBackdrop.current) onClose();
+        pressedOnBackdrop.current = false;
+      }}
     >
       <div
         ref={panel}
@@ -195,8 +291,9 @@ export function Modal({
         aria-modal="true"
         aria-labelledby={labelledBy}
         data-testid={testId}
+        tabIndex={-1}
         className={cn(
-          'glass-strong washed rivets taped brushed relative flex max-h-[calc(100vh-2rem)] w-full min-w-0 flex-col rounded-sm shadow-panel',
+          'glass-strong washed rivets taped brushed relative flex max-h-[calc(100vh-2rem)] w-full min-w-0 flex-col rounded-sm shadow-panel outline-none',
           WIDTH[size],
           className,
         )}

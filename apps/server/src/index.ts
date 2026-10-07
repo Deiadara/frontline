@@ -1,6 +1,12 @@
 import { buildApp } from './app.js';
 import { assertDeployable, loadConfig } from './config.js';
-import { BACKUP_INTERVAL_MS, startBackupSchedule, takeBackup } from './db/backup.js';
+import {
+  BACKUP_HISTORY_KEEP_MS,
+  BACKUP_INTERVAL_MS,
+  mirrorBackup,
+  startBackupSchedule,
+  takeBackup,
+} from './db/backup.js';
 import { CrashBudget } from './crash-budget.js';
 import { resetLoopWindow, vitals, watchEventLoop } from './world/vitals.js';
 import { openDatabase, runMigrations } from './db/index.js';
@@ -13,6 +19,20 @@ import { devOperatorStillOpen, seedMvpWorld } from './seed/index.js';
 import { MVP_PLAYER } from './seed/constants.js';
 import { applyUnlockedSandbox } from './seed/sandbox.js';
 import { watchForOrphaning } from './orphan.js';
+
+/**
+ * What the last snapshot on the way out may take. systemd kills the unit 20 seconds after the stop
+ * signal (`TimeoutStopSec`), and the close before this has 2 of them: a snapshot cut off by the
+ * kill closed nothing, so the process stops waiting first and still closes the database.
+ */
+const LAST_SNAPSHOT_MS = 12_000;
+
+/** Rejects after `ms`, for a race against work that has no deadline of its own. */
+function outOfTime(ms: number): Promise<never> {
+  return new Promise((_, reject) => {
+    setTimeout(() => reject(new Error(`gave up after ${ms} ms`)), ms);
+  });
+}
 
 async function main(): Promise<void> {
   const config = loadConfig();
@@ -96,7 +116,17 @@ async function main(): Promise<void> {
 
   // Deliberately outside buildApp: tests need to build an unseeded app.
   const production = process.env.NODE_ENV === 'production';
-  const seeded = await seedMvpWorld({ db, repos: app.repos, production });
+  /*
+   * A seed that throws is logged, not fatal. It tops up bot crews that already exist, and reads
+   * each through the full parse: one of them unreadable by this build stopped the server, and
+   * under systemd's restart that is a crash loop for everybody (bug pass, 2026-10-06).
+   */
+  try {
+    const seeded = await seedMvpWorld({ db, repos: app.repos, production });
+    app.log.info(seeded, 'seeded MVP world');
+  } catch (error: unknown) {
+    app.log.error({ err: error }, 'seeding failed: serving the world as it stands');
+  }
   if (production && (await devOperatorStillOpen(app.repos))) {
     throw new Error(
       `The dev account "${MVP_PLAYER.username}" still has the password committed to this ` +
@@ -104,7 +134,6 @@ async function main(): Promise<void> {
         'serving players.',
     );
   }
-  app.log.info(seeded, 'seeded MVP world');
 
   // Every officer in the city wears a face of their own (maintainer, 2026-09-11). After the seed, so
   // the bots' officers are placed too; idempotent, so a second boot assigns nothing.
@@ -155,9 +184,16 @@ async function main(): Promise<void> {
           kind: 'backup.taken',
           payload: { file },
         });
+        // A week of them and no more (maintainer, 2026-10-06): one every two minutes was about
+        // 720 rows a day that nothing ever removed.
+        app.repos.history.forgetOlder(
+          'backup.taken',
+          new Date(Date.now() - BACKUP_HISTORY_KEEP_MS).toISOString(),
+        );
         app.log.info({ file }, 'database snapshot taken');
       },
       onError: (error) => app.log.error({ error }, 'database snapshot failed'),
+      onWarn: (message) => app.log.warn(message),
     });
     app.log.info(
       { directory: config.backupDir, mirror: config.backupMirrorDir, everyMs: BACKUP_INTERVAL_MS },
@@ -210,12 +246,25 @@ async function main(): Promise<void> {
     const deadline = new Promise<number>((resolve) => {
       setTimeout(resolve, 2_000, 0).unref();
     });
+    /*
+     * The last snapshot, then its copy to the mirror, each failing as itself: a mirror that cannot
+     * be written is not a failed snapshot, as in the schedule (bug pass, 2026-10-06).
+     */
+    const lastSnapshot = async (): Promise<void> => {
+      await backupsStopped;
+      const file = await takeBackup(db, config.backupDir, new Date());
+      if (config.backupMirrorDir === '') return;
+      try {
+        await mirrorBackup(config.backupDir, file, config.backupMirrorDir);
+      } catch (error: unknown) {
+        console.error('the last snapshot was taken but could not be mirrored', error);
+      }
+    };
     void Promise.race([closed, deadline]).then(async (code) => {
       // One last snapshot on the way out, so a clean stop loses nothing a restore would need.
       if (config.backupsEnabled) {
         try {
-          await backupsStopped;
-          await takeBackup(db, config.backupDir, new Date(), config.backupMirrorDir);
+          await Promise.race([lastSnapshot(), outOfTime(LAST_SNAPSHOT_MS)]);
         } catch (error: unknown) {
           console.error(error);
         }

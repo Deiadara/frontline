@@ -259,7 +259,15 @@ export function PartsPicker({
           <div className="flex items-center justify-between gap-2 px-3 py-2">
             <button
               type="button"
-              onClick={() => onChange({})}
+              // This picker's own goods only: the Pages and the Parts doors on one side share the
+              // same bundle, and emptying it took the other door's goods too (bug pass, 2026-10-06).
+              onClick={() =>
+                onChange(
+                  Object.fromEntries(
+                    Object.entries(chosen).filter(([id]) => !parts.includes(id as ItemId)),
+                  ),
+                )
+              }
               disabled={count === 0}
               data-testid={`${testId}-clear`}
               className="font-display text-[10px] font-bold uppercase tracking-[0.16em] text-ink-400 transition-colors hover:text-oxblood-100 disabled:opacity-40 disabled:hover:text-ink-400"

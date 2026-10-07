@@ -22,6 +22,7 @@ import {
   findResearchItem,
   isHeldBy,
   notorietyEffects,
+  notorietyTier,
   perksOf,
   suppliesOnlyCut,
   musterSpeedAfterTaper,
@@ -266,7 +267,7 @@ function crewAndGroundLines(
 
   const rank = notorietyEffects(base.economy.notoriety)[EFFECT_CHANNEL[channel]];
   if (rank !== 0) {
-    lines.push({ source: 'Your name', note: `Rank ${base.economy.notoriety}`, percent: rank });
+    lines.push({ source: 'Your name', note: notorietyTier(base.economy.notoriety), percent: rank });
   }
 
   return lines;
@@ -281,7 +282,7 @@ function groundLines(repos: Repositories, base: Base, channel: 'cost' | 'speed')
     const control = controls.get(location.id);
     if (!control || !isHeldBy(control, base.id)) continue;
     held.add(location.districtId);
-    for (const bonus of bonusesAt(location.kind, control.level)) {
+    for (const bonus of bonusesAt(location, control.level)) {
       if (bonus.kind !== HOLD_KIND[channel]) continue;
       lines.push({
         source: location.name,

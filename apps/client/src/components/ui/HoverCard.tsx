@@ -9,7 +9,7 @@ import {
 } from 'react';
 import { createPortal } from 'react-dom';
 import { cn } from '../../lib/cn';
-import { topDialog, watchDialogs } from './Modal';
+import { isReturnedFocus, topDialog, watchDialogs } from './Modal';
 
 /**
  * A small explanation that appears under the thing it explains.
@@ -101,6 +101,8 @@ export interface HoverCardProps {
    * control is shut (maintainer, 2026-09-28: the Bar's locked Bid).
    */
   tone?: 'ink' | 'danger';
+  /** Called when the card goes away, so a refusal said inside it can go with it. */
+  onHide?: () => void;
   'data-testid'?: string;
 }
 
@@ -144,6 +146,7 @@ export function HoverCard({
   size = 'tip',
   interactive = false,
   tone = 'ink',
+  onHide,
   'data-testid': testId,
 }: HoverCardProps) {
   const [open, setOpen] = useState(false);
@@ -182,6 +185,24 @@ export function HoverCard({
   useEffect(() => cancelClose, [cancelClose]);
 
   /*
+   * Focus leaving the trigger for the card is not a leave. Pressing the control inside an
+   * interactive card moved focus off a trigger that still had it from an earlier click, and the
+   * grace timer unmounted the card before the press landed (bug pass, 2026-10-06). The hover test
+   * is for Safari, where a pressed button takes no focus and the blur names nowhere to go.
+   */
+  const leaveByFocus = (event: React.FocusEvent): void => {
+    const card = cardRef.current;
+    const going = event.relatedTarget;
+    if (
+      card !== null &&
+      ((going instanceof Node && card.contains(going)) || card.matches(':hover'))
+    ) {
+      return;
+    }
+    hide();
+  };
+
+  /*
    * A card goes out while a dialog stands over its trigger, and comes back when the dialog goes.
    *
    * The trigger that *opened* the dialog is the case this exists for: a press leaves the pointer
@@ -198,6 +219,12 @@ export function HoverCard({
     return watchDialogs(look);
   }, []);
   const showing = open && !buried;
+  // Told once per closing, not on mount: a card that was never open has nothing to put away.
+  const wasShowing = useRef(false);
+  useEffect(() => {
+    if (wasShowing.current && !showing) onHide?.();
+    wasShowing.current = showing;
+  }, [showing, onHide]);
 
   /**
    * Measured after paint, not guessed.
@@ -300,8 +327,11 @@ export function HoverCard({
         aria-expanded={showing}
         onMouseEnter={show}
         onMouseLeave={hide}
-        onFocus={show}
-        onBlur={hide}
+        // A closing window handing focus back is not the player asking for the card.
+        onFocus={(event) => {
+          if (!isReturnedFocus(event.target)) show();
+        }}
+        onBlur={leaveByFocus}
         data-testid={testId}
       >
         {children}
@@ -315,6 +345,7 @@ export function HoverCard({
             role="tooltip"
             onMouseEnter={interactive ? show : undefined}
             onMouseLeave={interactive ? hide : undefined}
+            onFocus={interactive ? cancelClose : undefined}
             className={cn(
               'z-[200]',
               interactive ? 'pointer-events-auto' : 'pointer-events-none',

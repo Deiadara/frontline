@@ -460,15 +460,25 @@ describe('the battle page shows what is at the place', () => {
     const battleId = await declare(world, caller);
     const row = world.app.repos.sieges.deployment(battleId, 'attacker', caller.baseId)!;
     world.app.repos.sieges.putDeployment({ ...row, army: { razors: 2 } });
-    world.app.repos.sieges.putDeployment({ ...row, baseId: friend.baseId, army: { razors: 6 } });
-    const muster = async () =>
+    world.app.repos.sieges.putDeployment({
+      ...row,
+      baseId: friend.baseId,
+      army: { razors: 6 },
+      perimeter: { wardens: 3 },
+    });
+    const read = async () =>
       (await world.app.inject({ method: 'GET', url: '/api/battles', headers: auth(caller.token) }))
         .json<BattlesResponse>()
-        .coming.find((view) => view.battle.id === battleId)!.muster?.army;
+        .coming.find((view) => view.battle.id === battleId)!.muster;
+    const muster = async () => (await read())?.army;
 
     expect(await muster()).toEqual({ razors: 8 });
     world.app.repos.factions.removeMember(friend.userId);
     expect(await muster()).toEqual({ razors: 2 });
+    // ...and their ring and their bodies with them (bug pass, 2026-10-06): only the army was.
+    const after = await read();
+    expect(after?.perimeter).toEqual({});
+    expect(after?.size).toBe(2);
   });
 });
 

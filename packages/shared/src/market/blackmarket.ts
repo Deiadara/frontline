@@ -910,7 +910,7 @@ export const PlaceBlackMarketBidRequestSchema = z.object({
    *
    * Carried on the request, unlike the barrow's bid, and the difference is the identifier: a
    * vendor bid names a line id that already has the room in it, while a fence bid names a slot
-   * index, which is 0 to 4 in every city. Without this field a crew standing in Saltmarch would
+   * index, which is 0 to 4 in every city. Without this field a crew standing in Terminus would
    * bid on Ashfall's slot 3.
    */
   city: z.string().min(1).optional(),

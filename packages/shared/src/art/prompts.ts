@@ -1636,6 +1636,38 @@ export const LOCATION_ICON_SUBJECTS: Readonly<Record<LocationKind, string>> = {
     A single railway platform seen three-quarter from above, a canopy on iron columns over half its
     length, a running-in board at the near end and a warm #f59e0b lamp burning over the empty track.
   `),
+  mausoleum: block(`
+    A family tomb the size of a small chapel seen three-quarter from above, white stone gone grey,
+    an iron door standing open and one deep #dc2626 lamp burning red inside the dark of it.
+  `),
+  workshop: block(`
+    A sack-maker's loft seen three-quarter from above, a bench under a window, bales of straw and
+    finished sacks stacked by the door, one warm #f59e0b lamp over the work.
+  `),
+  shrine: block(`
+    A hilltop shrine seen three-quarter from above, a relic under glass on a white stone altar, a
+    crimson #dc2626 cloth draped over it and a line of small candles up the steps.
+  `),
+  bounty_wall: block(`
+    A street wall papered with posted contracts seen three-quarter from above, a clerk's ledger
+    desk against it under one #f59e0b lamp, torn notices and nails.
+  `),
+  stage: block(`
+    A low wooden stage in a vaulted hall seen three-quarter from above, boards worn smooth, red
+    #dc2626 lamps along its edge and a scatter of empty chairs before it.
+  `),
+  trophy_hall: block(`
+    A long stone hall seen three-quarter from above, its walls hung with helmets, plates and broken
+    weapons on hooks, a keeper's lectern at the end under one #f59e0b lamp.
+  `),
+  laboratory: block(`
+    A convent laboratory seen three-quarter from above, saints' bones under glass beside a
+    centrifuge and steel benches, cold #22d3ee light from the instruments.
+  `),
+  stores: block(`
+    Deep stone vaults under a cathedral floor seen three-quarter from above, sacks and crates on
+    long shelves, a tally board by the stair and one warm #f59e0b lamp.
+  `),
 };
 
 /**
@@ -1815,6 +1847,11 @@ export const UNIT_SUBJECTS: Readonly<Record<string, string>> = {
     both forearms jointed steel, a torn crimson coat thrown out by the turn. Chin up, arms carried
     high and wide as if mid-figure rather than mid-fight. Deep red light from a broken window
     behind, cold rim on the steel, thrown blades streaking past out of focus.
+  `),
+  death_cloaks: block(`
+    Three mourners in grey burial cloth shoulder to shoulder in a tomb doorway, faces hooded and
+    unlit, one holding a red lamp low, the others carrying stone-mason's hammers. White stone
+    behind them, deep #dc2626 lamplight from below, cold grey fill from the open door.
   `),
   the_loose_end: block(`
     A lean swordsman low in a turning crouch under a flooded overpass, black scale-plate wrapped

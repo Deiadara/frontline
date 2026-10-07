@@ -57,19 +57,21 @@ export const UNIT_SLOTS_PER_LOCATION = 20;
  *
  *   1. {@link UNIT_SLOTS_PER_LOCATION}, flat 20, for holding the block at all. Not scaled by
  *      level, deliberately: what houses people is the block, not how well the press in it runs.
- *   2. This, 3 a level above the first, because a place that has been worked up is a place more
+ *   2. This, 7 a level above the first, because a place that has been worked up is a place more
  *      people can live and work. Charged per level rather than per location, so it is the ladder
- *      that pays it and holding forty fresh locations does not.
+ *      that pays it and holding forty fresh locations does not. Seven, from three, when the
+ *      ladder went from ten levels to five (2026-10-06): a maxed location houses 28 this way,
+ *      against the 27 it did.
  *   3. Whatever the handful of locations that *are* housing give on their own
  *      (`{ kind: 'unit_slots' }` in the catalogue: the Soup Kitchen's 15, the Fence Camp's 50).
  *      That one scales with `LEVEL_SCALE` like every other hold bonus, so a Fence Camp worked to
- *      the ceiling houses five and a half times what a fresh one does.
+ *      the ceiling houses five times what a fresh one does.
  *
  * Counted from the *second* level, so a location walked into today is worth exactly what it was
- * worth before the ladder went to ten. Every level after that is 3 more beds whatever else the
+ * worth before there was a ladder. Every level after that is 7 more beds whatever else the
  * upgrade bought.
  */
-export const UNIT_SLOTS_PER_LOCATION_LEVEL = 3;
+export const UNIT_SLOTS_PER_LOCATION_LEVEL = 7;
 
 /**
  * What the district can house: the structures, plus the ground.

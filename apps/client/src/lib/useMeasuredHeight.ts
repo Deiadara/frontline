@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useState, type RefCallback } from 'react';
 
 export interface MeasuredSize {
   width: number;
@@ -24,30 +24,35 @@ export interface MeasuredSize {
  * which is a flash to a player and, worse, a real window in which the district was the wrong size
  * and its buildings were under the chrome. Anything measured off a live browser in that window is a
  * measurement of the wrong page.
+ *
+ * A callback ref, so the element is measured whenever it appears (bug pass, 2026-10-06). The
+ * effects used to read a ref once, on mount, so a component that first rendered without the
+ * element (the shell's "Loading district" branch draws neither bar) measured nothing and never
+ * looked again: `--hud-h` and `--nav-h` would have stayed at 0px with every screen under the bars.
  */
 export function useMeasuredSize<T extends HTMLElement = HTMLDivElement>(): [
-  RefObject<T>,
+  RefCallback<T>,
   MeasuredSize,
+  T | null,
 ] {
-  const ref = useRef<T>(null);
+  const [node, setNode] = useState<T | null>(null);
+  const ref = useCallback((next: T | null) => setNode(next), []);
   const [size, setSize] = useState<MeasuredSize>({ width: 0, height: 0 });
 
   useLayoutEffect(() => {
-    const node = ref.current;
     if (node !== null) setSize(contentBox(node));
-  }, []);
+  }, [node]);
 
   useEffect(() => {
-    const node = ref.current;
     if (node === null) return;
     const observer = new ResizeObserver(([entry]) => {
       if (entry) setSize({ width: entry.contentRect.width, height: entry.contentRect.height });
     });
     observer.observe(node);
     return () => observer.disconnect();
-  }, []);
+  }, [node]);
 
-  return [ref, size];
+  return [ref, size, node];
 }
 
 /**
@@ -68,7 +73,7 @@ function contentBox(node: HTMLElement): MeasuredSize {
 }
 
 /** {@link useMeasuredSize}, for the callers that only care how tall a bar is. */
-export function useMeasuredHeight(): [RefObject<HTMLDivElement>, number] {
+export function useMeasuredHeight(): [RefCallback<HTMLDivElement>, number] {
   const [ref, size] = useMeasuredSize();
   return [ref, size.height];
 }

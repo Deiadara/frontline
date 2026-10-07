@@ -1,6 +1,6 @@
 import {
   CITIES,
-  SALTMARCH_CITY_ID,
+  RELIQUARY_CITY_ID,
   TERMINUS_CITY_ID,
   createCommander,
   districtHolder,
@@ -18,7 +18,7 @@ import { chooseOverseer } from '../testing/overseer.js';
 /**
  * A closed city has ground in the atlas and no way onto it (bug pass, 2026-09-29).
  *
- * Saltmarch is authored down to its control rows, and most of the Tidewalk is empty. The fight door
+ * Reliquary is authored down to its control rows, and part of Candlemarket is empty. The fight door
  * refused it, and every other journey there did not: a column walked in and claimed a plot, which
  * opened the city's Bar, mission board, market and back room to the crew; a Sleeper cell went to
  * ground where no fight can ever be called; and a spy job paid to read a gate nobody may attack.
@@ -78,13 +78,14 @@ function emptyGround(world: World, cityId: string): string {
   return location.id;
 }
 
-/** A district the Combine holds whole in this city: a gate with somebody behind it to read. */
+/** A district held whole in this city, by the regime or the clans: a gate with somebody behind it. */
 function combineGate(world: World, cityId: string): District {
   const controls = world.app.repos.city.controls();
-  const district = districtsOfCity(cityId).find(
-    (one) => districtHolder(one, controls)?.kind === 'government',
-  );
-  if (!district) throw new Error(`fixture: no Combine gate in ${cityId}`);
+  const district = districtsOfCity(cityId).find((one) => {
+    const kind = districtHolder(one, controls)?.kind;
+    return kind === 'government' || kind === 'looters';
+  });
+  if (!district) throw new Error(`fixture: no armed gate in ${cityId}`);
   return district;
 }
 
@@ -93,8 +94,8 @@ function post(world: World, url: string, payload: object) {
 }
 
 describe('a closed city', () => {
-  it('is Saltmarch, and Terminus is open', () => {
-    expect(CITIES.find((city) => city.id === SALTMARCH_CITY_ID)?.open).toBe(false);
+  it('is Reliquary, and Terminus is open', () => {
+    expect(CITIES.find((city) => city.id === RELIQUARY_CITY_ID)?.open).toBe(false);
     expect(CITIES.find((city) => city.id === TERMINUS_CITY_ID)?.open).toBe(true);
   });
 
@@ -110,7 +111,7 @@ describe('a closed city', () => {
     const open = await send(emptyGround(world, TERMINUS_CITY_ID));
     expect(open.statusCode, open.body).toBe(200);
 
-    const closed = await send(emptyGround(world, SALTMARCH_CITY_ID));
+    const closed = await send(emptyGround(world, RELIQUARY_CITY_ID));
     expect(closed.statusCode).toBe(400);
     expect(closed.json<{ error: { message: string } }>().error.message).toMatch(/not open yet/);
     expect(world.app.repos.moves.activeFor(world.baseId)).toHaveLength(1);
@@ -124,7 +125,7 @@ describe('a closed city', () => {
     const open = await plant(emptyGround(world, TERMINUS_CITY_ID));
     expect(open.statusCode, open.body).toBe(200);
 
-    const closed = await plant(emptyGround(world, SALTMARCH_CITY_ID));
+    const closed = await plant(emptyGround(world, RELIQUARY_CITY_ID));
     expect(closed.statusCode).toBe(409);
     expect(closed.json<{ error: { message: string } }>().error.message).toMatch(/not open yet/);
     expect(world.app.repos.bases.findById(world.baseId)!.army.sleepers).toBe(4);
@@ -138,7 +139,7 @@ describe('a closed city', () => {
         tier: 'loose_ears',
       });
 
-    const closed = await look(combineGate(world, SALTMARCH_CITY_ID));
+    const closed = await look(combineGate(world, RELIQUARY_CITY_ID));
     expect(closed.statusCode).toBe(400);
     expect(closed.json<{ error: { message: string } }>().error.message).toMatch(/not open yet/);
     const caps = world.app.repos.bases.findById(world.baseId)!.resources.caps;

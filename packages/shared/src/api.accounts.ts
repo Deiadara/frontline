@@ -102,8 +102,18 @@ export const AutomationsResponseSchema = z.object({
     orders: z.array(AutomationOrderSchema),
   }),
   slots: z.array(AutomationSchema),
-  /** Officers who could be named as a leader: on the books, not out, not hurt. */
-  officers: z.array(z.object({ id: IdSchema, name: z.string(), role: z.string().nullable() })),
+  /**
+   * Officers who could be named as a leader: on the books, not out, not hurt. A slot's own leader
+   * is listed while out too (`out`), so a running order still names who leads it.
+   */
+  officers: z.array(
+    z.object({
+      id: IdSchema,
+      name: z.string(),
+      role: z.string().nullable(),
+      out: z.boolean().default(false),
+    }),
+  ),
   serverNow: IsoDateTimeSchema,
 });
 export type AutomationsResponse = z.infer<typeof AutomationsResponseSchema>;

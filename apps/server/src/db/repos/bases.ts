@@ -35,6 +35,7 @@ import {
   type Addons,
 } from '@frontline/shared';
 import { readJson } from '../json.js';
+import { readableRows } from './readable.js';
 import type { AppDatabase } from '../index.js';
 
 interface BaseRow {
@@ -471,6 +472,34 @@ function knownResearch(raw: unknown): unknown {
   return { ...raw, technologies, active };
 }
 
+/**
+ * The payroll without the commitments of officers `knownCommanders` dropped (bug pass,
+ * 2026-10-06). A commitment is keyed on the officer it pays, and an officer whose role was retired
+ * leaves the books on read; the commitment stayed, held the crew's payroll for ever, and could not
+ * be released, since releasing needs the officer. Only those: any other key is left for the schema
+ * to judge, so a forged figure still fails the read.
+ */
+function withoutRetiredOfficersPay(rawEconomy: unknown, rawCommanders: unknown): unknown {
+  if (!isRow(rawEconomy) || !Array.isArray(rawCommanders)) return rawEconomy;
+  const payroll = rawEconomy.payroll;
+  if (!isRow(payroll) || !isRow(payroll.commitments)) return rawEconomy;
+  const retired = new Set(
+    (rawCommanders as unknown[]).flatMap((officer) =>
+      isRow(officer) &&
+      typeof officer.id === 'string' &&
+      typeof officer.role === 'string' &&
+      !KNOWN_ROLES.has(officer.role)
+        ? [officer.id]
+        : [],
+    ),
+  );
+  if (retired.size === 0) return rawEconomy;
+  const commitments = Object.fromEntries(
+    Object.entries(payroll.commitments).filter(([officerId]) => !retired.has(officerId)),
+  );
+  return { ...rawEconomy, payroll: { ...payroll, commitments } };
+}
+
 function rowToBase(row: BaseRow): Base {
   return BaseSchema.parse({
     id: row.id,
@@ -480,7 +509,7 @@ function rowToBase(row: BaseRow): Base {
     level: row.level,
     isBot: row.is_bot === 1,
     resources: storedResources(readJson(row.resources_json)),
-    economy: readJson(row.economy_json),
+    economy: withoutRetiredOfficersPay(readJson(row.economy_json), readJson(row.commanders_json)),
     progression: readJson(row.progression_json),
     research: knownResearch(readJson(row.research_json)),
     buildings: knownBuildings(readJson(row.buildings_json)),
@@ -608,7 +637,7 @@ export function createBasesRepo(db: AppDatabase): BasesRepo {
   // Ordered, because callers ask this for "the crew that lives in district X" and a district holds
   // more than one. An unordered scan makes that answer depend on the storage engine's mood, so the
   // map, the battle board and the settler could each name a different crew for the same ground.
-  const allCommandersStmt = db.prepare('SELECT commanders_json FROM bases');
+  const allCommandersStmt = db.prepare('SELECT id, commanders_json FROM bases');
   const summariesStmt = db.prepare(
     'SELECT id, owner_id, name, district_id, level, is_bot FROM bases ORDER BY created_at, id',
   );
@@ -619,8 +648,10 @@ export function createBasesRepo(db: AppDatabase): BasesRepo {
     `SELECT id, build_queue_json, muster_queue_json, research_json, training_json FROM bases
       WHERE build_queue_json <> '[]'
          OR muster_queue_json <> '[]'
-         OR json_extract(research_json, '$.active') IS NOT NULL
-         OR json_array_length(training_json, '$.sessions') > 0`,
+         OR CASE WHEN json_valid(research_json)
+                 THEN json_extract(research_json, '$.active') IS NOT NULL END
+         OR CASE WHEN json_valid(training_json)
+                 THEN json_array_length(training_json, '$.sessions') > 0 END`,
   );
   const updateResourcesStmt = db.prepare('UPDATE bases SET resources_json = ? WHERE id = ?');
   const updateEconomyStmt = db.prepare('UPDATE bases SET economy_json = ? WHERE id = ?');
@@ -734,15 +765,16 @@ export function createBasesRepo(db: AppDatabase): BasesRepo {
     },
     listSummaries() {
       const rows = summariesStmt.all() as BaseSummaryRow[];
-      return rows.map(rowToSummary);
+      return readableRows(rows, 'crew summary', rowToSummary);
     },
     listWorkInFlight() {
       const rows = workInFlightStmt.all() as Pick<
         BaseRow,
         'id' | 'build_queue_json' | 'muster_queue_json' | 'research_json' | 'training_json'
       >[];
-      // Through the same repairs `rowToBase` applies, so a retired id cannot fail this sweep.
-      return rows.map((row) =>
+      // Through the same repairs `rowToBase` applies, so a retired id cannot fail this sweep, and
+      // one row at a time, so a crew that still does not parse cannot either.
+      return readableRows(rows, 'crew work', (row) =>
         BaseWorkSchema.parse({
           id: row.id,
           buildQueue: knownBuildQueue(readJson(row.build_queue_json)),
@@ -754,16 +786,19 @@ export function createBasesRepo(db: AppDatabase): BasesRepo {
       );
     },
     allCommanders() {
-      const rows = allCommandersStmt.all() as { commanders_json: string }[];
-      return rows.flatMap((row) =>
+      const rows = allCommandersStmt.all() as { id: string; commanders_json: string }[];
+      // The Bar reads this for every roster it shows and every auction it settles, and boot reads
+      // it before serving anybody.
+      return readableRows(rows, 'crew officers', (row) =>
         CommanderSchema.array().parse(knownCommanders(readJson(row.commanders_json))),
-      );
+      ).flat();
     },
     listStandings() {
       const rows = standingsStmt.all() as (BaseSummaryRow & { economy_json: string })[];
-      return rows.map((row) => {
-        // Parsed through the shared schema rather than cast: this is the one place the leaderboard
-        // touches stored JSON, and a row written by an older build should fail here by name.
+      return readableRows(rows, 'crew standing', (row) => {
+        // Parsed through the shared schema rather than cast: a row written by an older build is
+        // named in the warning and left off the board, rather than taking the board, the Bar's
+        // room and the fence's shelf down with it.
         const economy = EconomyStateSchema.parse(readJson(row.economy_json));
         return {
           id: row.id,

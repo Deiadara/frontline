@@ -665,6 +665,38 @@ describe('the filters', () => {
     expect(screen.getByTestId('feat-block-seats')).toBeInTheDocument();
   });
 
+  /**
+   * Claiming the last waiting rung under "Unclaimed" leaves the ladder where it is (maintainer,
+   * 2026-10-06). The claim took the ladder out of the filter, and the pane used to jump to the next
+   * one under the player's hand. It stays until another ladder is picked or a chip is pressed.
+   */
+  it('keeps the open ladder after its last waiting rung is claimed, until a chip is pressed', async () => {
+    await openBoard();
+    fireEvent.click(screen.getByTestId('feats-show-unclaimed'));
+    await waitFor(() => expect(screen.queryByTestId('feats-tab-seats')).toBeNull());
+    expect(screen.getByTestId('feat-block-runs')).toBeInTheDocument();
+    // From here the server has the rung collected, on the claim's answer and on the refetch.
+    const after = collectedBoard(READY);
+    fetchMock.mockImplementation((path: string) => {
+      const url = String(path);
+      if (url.endsWith('/feats/claim')) {
+        return reply({ featId: READY, paid: findFeat(READY)?.reward, feats: after });
+      }
+      if (url.endsWith('/feats')) return reply(after);
+      if (url.endsWith('/me')) return reply(F.me);
+      throw new Error(`unstubbed request: ${url}`);
+    });
+
+    fireEvent.click(screen.getByTestId(`feat-claim-${READY}`));
+    await waitFor(() => expect(screen.getByTestId(`feat-collected-${READY}`)).toBeInTheDocument());
+    expect(screen.getByTestId('feat-block-runs')).toBeInTheDocument();
+    expect(screen.getByTestId('feats-tab-runs')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId('feats-show-unclaimed'));
+    await waitFor(() => expect(screen.queryByTestId('feats-tab-runs')).toBeNull());
+    expect(screen.queryByTestId('feat-block-runs')).toBeNull();
+  });
+
   it('counts the ladders each setting would leave', async () => {
     await openBoard();
     const countOn = (setting: string) =>

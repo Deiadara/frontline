@@ -435,3 +435,32 @@ describe('a spare page of a document already assembled (§D10, §G2)', () => {
     }
   });
 });
+
+/** Bug pass, 2026-10-06: what the cabinet does around an Unlock. */
+describe('the cabinet around an Unlock', () => {
+  const twoDrawers: Inventory = { ...ALL_SNIPER_PAGES, pg_shaped_charges_cone_geometry: 1 };
+
+  it('stays on the drawer it was pressed in, and says the document is now unlocked', async () => {
+    stub(twoDrawers, () => ({ bp_snipers: 1, pg_shaped_charges_cone_geometry: 1 }));
+    renderPage();
+    const row = await screen.findByTestId('blueprint-bp_snipers');
+    fireEvent.click(within(row).getByRole('button', { name: 'Unlock' }));
+
+    await waitFor(() => expect(screen.queryByTestId('blueprint-bp_snipers')).toBeNull());
+    expect(screen.getByTestId('blueprint-category-unit')).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByTestId('blueprint-cabinet')).toHaveTextContent(
+      'Everything in this drawer is unlocked',
+    );
+  });
+
+  it('takes a refusal away when another drawer is opened', async () => {
+    stub(twoDrawers, undefined, 'missing_pages');
+    renderPage();
+    const row = await screen.findByTestId('blueprint-bp_snipers');
+    fireEvent.click(within(row).getByRole('button', { name: 'Unlock' }));
+    expect(await screen.findByRole('alert')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId('blueprint-category-consumable'));
+    await waitFor(() => expect(screen.queryByRole('alert')).toBeNull());
+  });
+});

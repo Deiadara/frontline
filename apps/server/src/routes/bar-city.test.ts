@@ -1,7 +1,7 @@
 import {
   ALL_DISTRICTS,
   DEFAULT_CITY_ID,
-  SALTMARCH_CITY_ID,
+  RELIQUARY_CITY_ID,
   TERMINUS_CITY_ID,
   playerLevelGrants,
   type BarResponse,
@@ -164,10 +164,10 @@ describe('which bar a crew may drink in', () => {
     const app = await makeApp();
     const one = await player(app, 'bar_drowned');
     const drowned = ALL_DISTRICTS.find(
-      (district) => district.cityId === SALTMARCH_CITY_ID && district.locations.length > 0,
+      (district) => district.cityId === RELIQUARY_CITY_ID && district.locations.length > 0,
     )!.locations[0]!;
     give(app, drowned.id, one.baseId);
-    const response = await readBar(app, one.token, SALTMARCH_CITY_ID);
+    const response = await readBar(app, one.token, RELIQUARY_CITY_ID);
     expect(response.statusCode).toBe(403);
     expect(response.json<{ error: { code: string } }>().error.code).toBe('CITY_SHUT');
     expect((await readBar(app, one.token)).json<BarResponse>().cities).toEqual([DEFAULT_CITY_ID]);

@@ -71,6 +71,8 @@ const offer: MissionOffer = {
   leanings: ['road'],
   // Out of the opening band: this fixture is not about the ramp.
   ramp: null,
+  golden: false,
+  goldenPercent: 0,
 };
 
 const area: MissionArea = {
@@ -102,7 +104,7 @@ function renderBoard(extra: Partial<MissionBoardProps> = {}) {
       fleet={{ scrap_car: 1 }}
       loadouts={{}}
       bagPercent={0}
-      notoriety={100}
+      carrierFlat={0}
       marks={{}}
       carriersFight={false}
       anyRide={false}

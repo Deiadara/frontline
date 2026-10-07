@@ -66,7 +66,7 @@ import { structureBonus } from './bonus';
 import { formatDuration, formatRemaining } from './format';
 import { PayrollBookDialog } from '../../components/Payroll';
 import { useServerClock } from '../missions/useServerClock';
-import { ErrorNote } from '../../components/ui/ErrorNote';
+import { PressError } from '../../components/ui/PressError';
 
 /**
  * One plot's dialog: what stands there, what the next level costs and takes, what it does, and the
@@ -108,6 +108,12 @@ interface StructureDialogProps {
   boostPending: boolean;
   /** §E: empty one of the three brackets. Filling one is a press at the yard now. */
   onClearSlot: (slot: number) => void;
+  /**
+   * A dismantle in flight. Every Dismantle waits on it (bug pass, 2026-10-06): a bracket is named by
+   * position and the server closes the gap behind one it takes out, so a second strip confirmed
+   * before the first answered could take the card after it.
+   */
+  clearing?: boolean;
   /** §B8/§B9: the two structures whose dialog is a door to a page. */
   onGo: (path: string) => void;
 }
@@ -126,6 +132,7 @@ export function StructureDialog({
   onBoost,
   boostPending,
   onClearSlot,
+  clearing = false,
   onGo,
 }: StructureDialogProps) {
   const { buildings, buildQueue, resources } = base;
@@ -185,11 +192,19 @@ export function StructureDialog({
   const ceilings = storeCeilings(buildings, crewStorage);
   // A price no amount of waiting reaches: the stores cannot hold it.
   const over = cost !== null && !affordable ? overTheStores(cost, ceilings) : null;
-  const bonus = structureBonus(kind, buildings, standing?.level ?? 0, crewStorage, productionYield);
+  const crewPayroll = crewStandingEffects?.['payrollPercent'] ?? 0;
+  const bonus = structureBonus(
+    kind,
+    buildings,
+    standing?.level ?? 0,
+    crewStorage,
+    productionYield,
+    crewPayroll,
+  );
   const nextBonus =
     nextLevel === null
       ? null
-      : structureBonus(kind, buildings, nextLevel, crewStorage, productionYield);
+      : structureBonus(kind, buildings, nextLevel, crewStorage, productionYield, crewPayroll);
 
   return (
     <Modal
@@ -378,7 +393,9 @@ export function StructureDialog({
                       </li>
                     ))}
                   </ul>
-                  {cancel.error && <ErrorNote className="mt-2">{cancel.error.message}</ErrorNote>}
+                  {cancel.error && (
+                    <PressError onDismiss={cancel.reset}>{cancel.error.message}</PressError>
+                  )}
                 </div>
               )}
             </Section>
@@ -432,7 +449,13 @@ export function StructureDialog({
             grow
             fill
           >
-            <SlotRack kind={kind} base={base} onGo={onGo} onClear={onClearSlot} />
+            <SlotRack
+              kind={kind}
+              base={base}
+              onGo={onGo}
+              onClear={onClearSlot}
+              clearing={clearing}
+            />
             {/* Only the line that is still news. "All three are open" was a sentence about nothing
               to do, printed exactly when a player has nothing left to wait for (maintainer
               request, 2026-09-16). */}
@@ -460,9 +483,9 @@ export function StructureDialog({
         {/* The refusal sits beside the control that was refused, on the same row (maintainer,
             2026-09-25). */}
         {error !== null && error !== undefined && (
-          <ErrorNote className="min-w-0 flex-1">
+          <PressError>
             {error instanceof ApiRequestError ? error.message : 'That did not go through'}
-          </ErrorNote>
+          </PressError>
         )}
         <div className="ml-auto flex items-center gap-3">
           <StructureAction
@@ -528,11 +551,13 @@ function SlotRack({
   base,
   onGo,
   onClear,
+  clearing,
 }: {
   kind: BuildingKind;
   base: Base;
   onGo: (path: string) => void;
   onClear: (slot: number) => void;
+  clearing: boolean;
 }) {
   const standing = findBuilding(base.buildings, kind);
   const slots = modificationSlots(kind, standing);
@@ -567,7 +592,14 @@ function SlotRack({
         data-testid={`slots-${kind}`}
       >
         {slots.map((slot) => (
-          <SlotRow key={slot.index} slot={slot} kind={kind} onClear={setStripping} onGo={onGo} />
+          <SlotRow
+            key={slot.index}
+            slot={slot}
+            kind={kind}
+            clearing={clearing}
+            onClear={setStripping}
+            onGo={onGo}
+          />
         ))}
       </ul>
 
@@ -695,11 +727,13 @@ function SetReadout({ fitted, open }: { fitted: ModificationSpec[]; open: number
 function SlotRow({
   slot,
   kind,
+  clearing,
   onClear,
   onGo,
 }: {
   slot: ModificationSlot;
   kind: BuildingKind;
+  clearing: boolean;
   onClear: (slot: number) => void;
   /** §I3a: an empty bracket is the way to the bench that fills it. */
   onGo: (path: string) => void;
@@ -737,6 +771,7 @@ function SlotRow({
           type="button"
           className="shrink-0 text-oxblood-300 underline-offset-2 hover:underline"
           data-testid={`slot-clear-${kind}-${slot.index}`}
+          disabled={clearing}
           onClick={() => onClear(slot.index)}
         >
           Dismantle

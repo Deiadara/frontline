@@ -976,14 +976,15 @@ test('a refused launch tells the player why', async ({ page }) => {
   await dialog.getByTestId('confirm-send').click();
 
   /*
-   * In the card the player pressed, and *in the viewport*. The first draft put one message at the
-   * foot of the board: `toHaveText` passed on it while it sat below a grid of cards, off-screen,
-   * and a DOM assertion cannot tell "explained" from "invisible".
+   * Beside the button pressed, and *in the viewport* (maintainer, 2026-10-06: a refusal is a
+   * pop-up there, so nothing on the board moves). The first draft put one message at the foot of
+   * the board: `toHaveText` passed on it while it sat below a grid of cards, off-screen, and a DOM
+   * assertion cannot tell "explained" from "invisible".
    */
-  const refusal = job.getByRole('alert');
+  const refusal = page.getByRole('alert');
   await expect(refusal).toHaveText(HOME_LOCKED_TEXT);
   await expect(refusal).toBeInViewport();
-  // ...and only on that card, so the board does not read as three simultaneous failures.
+  // ...and only once, so the board does not read as three simultaneous failures.
   await expect(page.getByRole('alert')).toHaveCount(1);
 
   await settleFonts(page);

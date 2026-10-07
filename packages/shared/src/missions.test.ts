@@ -431,6 +431,13 @@ describe('duration formatting', () => {
     expect(formatDuration(1560)).toBe('26h 00m');
   });
 
+  // Bug pass, 2026-10-06: the minutes were rounded after the hours were split off.
+  it('rounds a fractional minute into the next hour rather than printing sixty minutes', () => {
+    expect(formatDuration(59.6)).toBe('1h 00m');
+    expect(formatDuration(119.6)).toBe('2h 00m');
+    expect(formatDuration(90.4)).toBe('1h 30m');
+  });
+
   it('renders a countdown mm:ss, adding hours only when there are some', () => {
     expect(formatCountdown(0)).toBe('00:00');
     expect(formatCountdown(-5000)).toBe('00:00');

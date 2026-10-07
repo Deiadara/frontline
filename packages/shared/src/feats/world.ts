@@ -10,7 +10,7 @@ import type { Location } from '../city/locations.js';
  * ## Why this is not `ALL_DISTRICTS`
  *
  * A feat's target has to be a number somebody can reach. `CITIES` carries five rows and only the
- * ones marked `open` have a painted map, a seeded world and a board behind them: Saltmarch is
+ * ones marked `open` have a painted map, a seeded world and a board behind them: Reliquary is
  * authored ground with no server, and Redline and Deepcut are a name and a sentence. Counting
  * those into a ceiling would strand a rung, which is the `stock_3` failure this package already
  * shipped once and which looks exactly like a feat nobody has got round to.
@@ -22,7 +22,7 @@ import type { Location } from '../city/locations.js';
  * board where the second city alone has sixty.
  *
  * So the rule is **open cities, all of them**, and it is derived rather than listed: the day
- * Saltmarch gets a server, one boolean in `cities.ts` moves every ceiling and every generated
+ * Reliquary gets a server, one boolean in `cities.ts` moves every ceiling and every generated
  * feat with it.
  *
  * ## The one number that is not a total

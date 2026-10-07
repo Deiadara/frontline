@@ -7,7 +7,6 @@ import {
   marketDay,
   nextLotBid,
   rankLotBids,
-  spendResources,
   vendorSessionsFor,
   canOpenLot,
   cityOfVendorLine,
@@ -28,7 +27,6 @@ import {
 import { missedLotTitle, outcomeAgainst, previousDay } from '../bar/auction.js';
 import { tallyMarketDeal, tallyPagesIn } from '../feats/tally.js';
 import { standingEffectsFor } from '../crew/standing.js';
-import { settleBase } from '../district/settle.js';
 import type { Repositories } from '../db/repos/index.js';
 import { adminCaps, adminWaives } from '../admin/mode.js';
 import type { VendorBid, VendorLotResult } from '../db/repos/vendor-auctions.js';
@@ -42,7 +40,7 @@ import { shownNameOf } from '../social/names.js';
  *
  * The rules, the visit and the ranking live in `@frontline/shared`'s `market/auction.ts`, which
  * both ends of the wire read. What is here is the three things a server has to own: **taking a
- * bid**, **closing a visit** (ranking the bids and walking down them until somebody can pay), and
+ * bid**, **closing a visit** (ranking the bids and handing the unit to the leader), and
  * **projecting a lot** for one reader. It is the Bar's auction with the sealed phase taken out and
  * caps in place of a payroll book.
  *
@@ -59,9 +57,18 @@ import { shownNameOf } from '../social/names.js';
  * A lot opens at the line's price with no crew discount on it. Two crews bidding against each
  * other have to be bidding against the same floor, or the same offer is legal for one of them and
  * under the reserve for the other. The winner's own ground (§A4's `marketDiscountPercent`) comes
- * off what they **pay** at the close, exactly as a crew's negotiators come off a wage at the Bar,
- * so it is invisible to everybody they were bidding against: the price on the result row and in
- * everybody's bell is the number the lot closed at.
+ * off what they **pay**, exactly as a crew's negotiators come off a wage at the Bar, so it is
+ * invisible to everybody they were bidding against: the price on the result row and in everybody's
+ * bell is the number the lot closed at.
+ *
+ * ## A bid is paid for when it is placed
+ *
+ * Held bids (maintainer, 2026-10-06): the caps a bid would cost come off the stockpile the moment it
+ * is placed, and the figure taken is kept on the row (`VendorBid.held`). Raising your own bid hands
+ * the old hold back and takes the new one. At the close the winner's hold is the price and every
+ * other bidder gets theirs back, so the close never has to ask whether somebody can still pay. The
+ * Bar's tables hold payroll the same way (`wagesHeldByBids`): one table counts once, at the crew's
+ * latest bid there.
  */
 
 /** How many bids one lot shows. The wire caps it and so does the projection that fills it. */
@@ -83,6 +90,11 @@ export interface OpenBid {
   userId: string;
   amount: number;
   at: string;
+}
+
+/** What this crew's own bid on a lot is holding, which a raise hands back before it takes. */
+export function heldBy(bids: readonly { userId: string; held: number }[], userId: string): number {
+  return bids.find((bid) => bid.userId === userId)?.held ?? 0;
 }
 
 /** The highest bid on a lot, or `undefined` on one nobody has opened. */
@@ -130,20 +142,24 @@ export interface VendorBidRequest {
   /** Caps. Rounded on the way in: the wire is an integer and so is the till. */
   amount: number;
   now: Date;
-  /** Admin mode: the bid is not held to the crew's caps, and the close charges nothing. */
+  /** Admin mode: the bid is not held to the crew's caps, and takes none of them. */
   admin?: boolean;
 }
 
 /**
  * A public bid on a lot, while he is in.
  *
+ * The caps leave the stockpile here, not at the close: see "A bid is paid for when it is placed"
+ * above. `base` has to be settled to `now`, which the route does, or production banked since the
+ * last read would be missing from the stockpile this writes back.
+ *
  * The order of the refusals is the order a player wants to hear them in, and `outbid_yourself` is
  * in it for the same reason it is at the Bar: raising your own leading bid is legal in most auction
  * software and costs the bidder caps for nothing, because there is nobody to outbid.
  *
- * `cannot_afford` is measured against what the close would actually charge, which is the bid after
- * this crew's ground. A gate on the raw bid would refuse bids the crew could comfortably cover, and
- * the two numbers would then disagree about the same crew at the table and at the close.
+ * `cannot_afford` is measured against what the bid would actually take, which is the bid after
+ * this crew's ground, and against the caps the crew would have once its own earlier bid on this lot
+ * came back.
  */
 export function placeVendorBid(repos: Repositories, request: VendorBidRequest): VendorBidResult {
   const { base, userId, lineId, now } = request;
@@ -196,13 +212,18 @@ export function placeVendorBid(repos: Repositories, request: VendorBidRequest): 
     .filter((id) => cityOfVendorLine(id) === room);
   if (!canOpenLot(open, lineId)) return refuse('too_many_lots');
   if (amount < minimum) return refuse('too_low');
-  if (
-    base.resources.caps < chargeFor(repos, base, amount, now) &&
-    !adminWaives('cannot_afford', request.admin ?? false)
-  ) {
+  const admin = request.admin ?? false;
+  const back = heldBy(bids, userId);
+  const charge = chargeFor(repos, base, amount, now);
+  if (base.resources.caps + back < charge && !adminWaives('cannot_afford', admin)) {
     return refuse('cannot_afford');
   }
 
+  const held = adminCaps(charge, admin);
+  repos.bases.updateResources(base.id, {
+    ...base.resources,
+    caps: base.resources.caps + back - held,
+  });
   repos.vendorAuctions.placeBid({
     day: visit.day,
     session: visit.session,
@@ -210,6 +231,7 @@ export function placeVendorBid(repos: Repositories, request: VendorBidRequest): 
     userId,
     baseId: base.id,
     amount,
+    held,
     at: now.toISOString(),
   });
   return { kind: 'placed' };
@@ -338,14 +360,14 @@ interface LotAward {
  * otherwise leave the lot due again, and the second pass would hand a second unit off a line the
  * catalogue rations to one.
  */
-export function settleVendorAuctions(repos: Repositories, now: Date, admin = false): number {
+export function settleVendorAuctions(repos: Repositories, now: Date): number {
   // Counted, so the world settle can tell every open tab the barrow changed. See `world/settle.ts`.
   return settleEach(
     repos,
     'runner lots',
     repos.vendorAuctions.unsettled(now),
     (lot) => `${lot.day}:${lot.session}:${lot.lineId}`,
-    (lot) => closeLot(repos, lot, now, admin),
+    (lot) => closeLot(repos, lot, now),
   );
 }
 
@@ -353,7 +375,6 @@ function closeLot(
   repos: Repositories,
   lot: { day: string; session: number; lineId: string },
   now: Date,
-  admin: boolean,
 ): void {
   const { day, session, lineId } = lot;
   const closedAt = visitClosedAt(day, session, now);
@@ -362,8 +383,9 @@ function closeLot(
   // A line id that names nothing on that day's barrow cannot be sold to anybody, and leaving it due
   // would settle it again on every read for ever. It goes down as a lot nobody took.
   const { winner, ranked } = line
-    ? award(repos, { day, session, line, bids, now, closedAt, admin })
+    ? award(repos, { day, session, line, bids, now, closedAt })
     : { winner: null, ranked: [] };
+  returnHeldCaps(repos, bids, winner?.userId ?? null);
 
   repos.vendorAuctions.recordResult({
     day,
@@ -392,11 +414,34 @@ function visitClosedAt(day: string, session: number, now: Date): Date {
 }
 
 /**
- * Walks the ranking and hands the unit to the first crew that can pay for it.
+ * Every hold on a lot back to its bidder, except the winner's, which is the price.
  *
- * Nothing is escrowed at the bid, so caps are checked again here: a crew that spent theirs between
- * bidding and the close passes to the next crew down rather than going overdrawn. The stock counter
- * moves by one, which is what makes a two-stock line a lot again on his next visit.
+ * Caps have no store ceiling (`STORAGE_SHARES`), so the hold goes straight back onto the stored row
+ * as the Stackhouse's payouts do. Read fresh per bidder: the winner's hand-over and an earlier
+ * refund in the same close have both written stockpiles since the bids were read.
+ */
+function returnHeldCaps(
+  repos: Repositories,
+  bids: readonly VendorBid[],
+  winnerUserId: string | null,
+): void {
+  for (const bid of bids) {
+    if (bid.userId === winnerUserId || bid.held <= 0) continue;
+    const base = repos.bases.findById(bid.baseId);
+    if (!base) continue;
+    repos.bases.updateResources(base.id, {
+      ...base.resources,
+      caps: base.resources.caps + bid.held,
+    });
+  }
+}
+
+/**
+ * Walks the ranking and hands the unit to the first crew still standing.
+ *
+ * Every bid paid for itself when it was placed, so the leader takes it: the only crew passed over is
+ * one whose district is gone. The stock counter moves by one, which is what makes a two-stock line a
+ * lot again on his next visit.
  */
 function award(
   repos: Repositories,
@@ -407,7 +452,6 @@ function award(
     bids: readonly VendorBid[];
     now: Date;
     closedAt: Date;
-    admin: boolean;
   },
 ): LotAward {
   const { day, session, line, bids, now, closedAt } = lot;
@@ -418,19 +462,14 @@ function award(
   const ranked = rankLotBids(bids, line.price, lotSeed(day, session, line.id));
   for (const entry of ranked) {
     const bid = bids.find((row) => row.userId === entry.userId);
-    const bidder = bid ? repos.bases.findById(bid.baseId) : undefined;
-    if (!bidder) continue;
-    // Settled first, so caps a crew's own production made since it last looked can pay for the lot
-    // (audit, 2026-09-28): read raw, a winner who could cover the bid was passed over for the next
-    // crew down.
-    const base = settleBase(repos, bidder, now).base;
-
-    const charge = adminCaps(chargeFor(repos, base, entry.amount, now), lot.admin);
-    if (base.resources.caps < charge) continue;
+    const base = bid ? repos.bases.findById(bid.baseId) : undefined;
+    if (!bid || !base) continue;
+    // What the bid took when it was placed, which is what the lot cost this crew.
+    const charge = bid.held;
 
     const won: ItemCost = { [line.item as ItemId]: 1 };
     const held = addItems(base.inventory, won);
-    repos.bases.updateHoldings(base.id, spendResources(base.resources, { caps: charge }), held);
+    repos.bases.updateHoldings(base.id, base.resources, held);
     repos.market.recordVendorSale(day, line.id, 1, now.toISOString());
     /*
      * Counted here, where the goods change hands.

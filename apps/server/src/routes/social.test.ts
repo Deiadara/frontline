@@ -5,6 +5,7 @@ import {
   FOUND_FACTION_PLAYER_LEVEL,
   INVITES_TO_ONE_PLAYER_PER_DAY,
   INVITES_TO_ONE_PLAYER_PER_WEEK,
+  LEADERBOARD_LIMIT,
   LETTERS_TO_ONE_PLAYER_PER_DAY,
   MAILBOX_LIMIT,
   MAX_FACTION_MEMBERS,
@@ -15,6 +16,7 @@ import {
   type FactionResponse,
   type LeaderboardResponse,
   type MessagesResponse,
+  type PlayerLookupResponse,
   type NotificationsResponse,
 } from '@frontline/shared';
 import type { FastifyInstance } from 'fastify';
@@ -1464,8 +1466,6 @@ describe('a mailbox keeps a hundred letters', () => {
 
   it('drops the oldest as the hundred-and-first lands, read letters before unread ones', async () => {
     expect(MAILBOX_LIMIT).toBe(100);
-    // The day's letters are counted off the sent folder, so a trim under the day would refund some.
-    expect(MAILBOX_LIMIT).toBeGreaterThanOrEqual(MESSAGES_PER_DAY);
     const writer = await player(app, 'writer');
     const reader = await player(app, 'reader');
     for (let n = 0; n < 100; n += 1) deliver(writer, [reader.id], `#${String(n)}`, n);
@@ -1584,6 +1584,41 @@ describe('one sender and one mailbox', () => {
     expect((await write(from, 'bystander')).statusCode).toBe(200);
   });
 
+  /**
+   * Counted off a send log that deleting cannot touch (maintainer, 2026-10-06). The count read the
+   * sender's letters still in the reader's mailbox, and the trim on every arrival hard-deletes what
+   * the reader threw away: deleting the spam and getting one more letter from anybody reopened the
+   * gate for the spammer.
+   */
+  it('keeps counting the ten after the reader deletes them and the mailbox is trimmed', async () => {
+    const from = await player(app, 'spammer');
+    const to = await player(app, 'deleter');
+    const friend = await player(app, 'friend');
+    for (let n = 0; n < LETTERS_TO_ONE_PLAYER_PER_DAY; n += 1) {
+      expect((await write(from, 'deleter')).statusCode).toBe(200);
+    }
+    for (const letter of (await messages(app, to.token)).inbox) {
+      await app.inject({
+        method: 'POST',
+        url: '/api/messages/delete',
+        headers: auth(to.token),
+        payload: { id: letter.id },
+      });
+    }
+    // Any arrival trims the mailbox, and the trim takes the deleted letters out of the table.
+    expect((await write(friend, 'deleter')).statusCode).toBe(200);
+    const left = app.db
+      .prepare(
+        'SELECT COUNT(*) AS n FROM messages WHERE sender_user_id = ? AND recipient_user_id = ?',
+      )
+      .get(from.id, to.id) as { n: number };
+    expect(left.n, 'fixture: the trim left the deleted letters in place').toBe(0);
+
+    const again = await write(from, 'deleter');
+    expect(again.statusCode).toBe(409);
+    expect(again.json<{ error: { message: string } }>().error.message).toBe('too_many_to_them');
+  });
+
   it('puts nothing in the mailbox of a reader who blocked the sender, until they unblock', async () => {
     const from = await player(app, 'unwanted');
     const to = await player(app, 'blocker');
@@ -1668,6 +1703,69 @@ describe('one sender and one mailbox', () => {
  * than the sum of its members' wallets, and your own rank is reported even when you are off the
  * end of the page.
  */
+/**
+ * The composer looks names up on the server (maintainer, 2026-10-06). It matched against the
+ * standings, which stop at the top hundred, so the exact name of anybody ranked lower read as
+ * "no such player".
+ */
+describe('looking a player up by name', () => {
+  const lookup = async (token: string, q: string) => {
+    const res = await app.inject({
+      method: 'GET',
+      url: `/api/players/lookup?q=${encodeURIComponent(q)}`,
+      headers: auth(token),
+    });
+    expect(res.statusCode, res.body.slice(0, 200)).toBe(200);
+    return res.json<PlayerLookupResponse>().players;
+  };
+
+  it('finds a player ranked below the top hundred', async () => {
+    const writer = await player(app, 'writer');
+    const quiet = await player(app, 'quiet_one');
+    // A hundred crews ahead of the one being looked for, cloned off the writer's district.
+    const template = app.repos.bases.findByOwnerId(writer.id)!;
+    for (let n = 0; n < LEADERBOARD_LIMIT; n += 1) {
+      const id = `filler-${String(n)}`;
+      app.repos.users.insert({
+        id,
+        username: `filler_${String(n)}`,
+        passwordHash: 'x',
+        createdAt: new Date().toISOString(),
+      });
+      app.repos.bases.insert({
+        ...template,
+        id: `${id}-base`,
+        ownerId: id,
+        economy: { ...template.economy, infamy: 1_000 + n },
+      });
+    }
+    const board = (
+      await app.inject({
+        method: 'GET',
+        url: '/api/leaderboard',
+        headers: auth(writer.token),
+      })
+    ).json<LeaderboardResponse>();
+    expect(
+      board.entries.some((entry) => 'userId' in entry && entry.userId === quiet.id),
+      'fixture: the player is still on the board, so this proves nothing',
+    ).toBe(false);
+
+    const found = await lookup(writer.token, 'quiet_one');
+    expect(found[0]).toMatchObject({ userId: quiet.id, username: 'quiet_one' });
+    expect(found[0]!.rank).toBeGreaterThan(LEADERBOARD_LIMIT);
+  });
+
+  it('never offers the reader, and answers nothing to nothing typed', async () => {
+    const me = await player(app, 'marrow');
+    await player(app, 'marrow_two');
+    expect((await lookup(me.token, 'marrow')).map((entry) => entry.username)).toEqual([
+      'marrow_two',
+    ]);
+    expect(await lookup(me.token, '')).toEqual([]);
+  });
+});
+
 describe('the leaderboard', () => {
   const board = async (token: string, query = '') =>
     (

@@ -2,6 +2,8 @@ import { combineGarrison, combineLeaderAt, combineSlotBudget, looterGarrison } f
 import { z } from 'zod';
 import { PartialResourcesSchema } from '../resources.js';
 import { IdSchema, IsoDateTimeSchema } from '../primitives.js';
+import { envLabel, type EnvLabel } from './labels.js';
+import { NOISE_SWITCH_TIER } from './reliquary.js';
 import { UNIT_SLOTS_PER_LOCATION, UNIT_SLOTS_PER_LOCATION_LEVEL } from '../building/unit-slots.js';
 import type { District } from './districts.js';
 import { findDistrict, unifiedBonusFor } from './atlas.js';
@@ -9,6 +11,7 @@ import {
   LOCATION_CATALOG,
   MAX_LOCATION_LEVEL,
   applyHoldBonus,
+  baseBonusesOf,
   bonusesAt,
   clampLevel,
   noTerritoryEffects,
@@ -80,8 +83,64 @@ export const LocationControlSchema = z.object({
   upgradePaid: PartialResourcesSchema.nullable().optional(),
   /** Units standing here, keyed by unit id. Belongs to whoever `holder` is. */
   garrison: z.record(z.string(), z.number().int().nonnegative()),
+  /*
+   * Reliquary's state on the ground (2026-10-07). Every one is the holder's and every one is
+   * reset when the ground changes hands (`putControl`): a switch is thrown by whoever keeps the
+   * tower, the pins are whoever keeps the wall's, and a trophy wall counts only what its keeper
+   * killed while keeping it.
+   */
+  /*
+   * Optional on the row rather than defaulted, so the fifty-odd places that build a control row
+   * by hand go on compiling; read them through {@link groundStateOf}, which fills the defaults.
+   */
+  /** The Tolling Tower: whether its switch is on, and when it was last thrown (the cooldown). */
+  switchedOn: z.boolean().optional(),
+  switchedAt: IsoDateTimeSchema.nullable().optional(),
+  /** The Pamphlet Wall: the unit ids pinned, the level they were pinned at, and the last paid swap. */
+  pamphlets: z.array(z.string().min(1)).optional(),
+  pamphletsPinnedAt: z.number().int().min(0).optional(),
+  pamphletsSwappedAt: IsoDateTimeSchema.nullable().optional(),
+  /** The Trophy Hall: kills by unit id while held, and since when. */
+  trophies: z.record(z.string(), z.number().int().nonnegative()).optional(),
+  trophiesSince: IsoDateTimeSchema.nullable().optional(),
 });
 export type LocationControl = z.infer<typeof LocationControlSchema>;
+
+/** Reliquary's state on a control row, with every absent field at its default. */
+export interface GroundState {
+  switchedOn: boolean;
+  switchedAt: string | null;
+  pamphlets: string[];
+  pamphletsPinnedAt: number;
+  pamphletsSwappedAt: string | null;
+  trophies: Record<string, number>;
+  trophiesSince: string | null;
+}
+
+export function groundStateOf(control: LocationControl): GroundState {
+  return {
+    switchedOn: control.switchedOn ?? false,
+    switchedAt: control.switchedAt ?? null,
+    pamphlets: control.pamphlets ?? [],
+    pamphletsPinnedAt: control.pamphletsPinnedAt ?? 0,
+    pamphletsSwappedAt: control.pamphletsSwappedAt ?? null,
+    trophies: control.trophies ?? {},
+    trophiesSince: control.trophiesSince ?? null,
+  };
+}
+
+/** The same state, cleared: what a change of hands writes (`putControl`). */
+export function clearedGroundState(now: Date): GroundState {
+  return {
+    switchedOn: false,
+    switchedAt: null,
+    pamphlets: [],
+    pamphletsPinnedAt: 0,
+    pamphletsSwappedAt: null,
+    trophies: {},
+    trophiesSince: now.toISOString(),
+  };
+}
 
 export function isHeldBy(control: LocationControl, baseId: string): boolean {
   return control.holder.kind === 'crew' && control.holder.baseId === baseId;
@@ -150,6 +209,91 @@ export function districtsHeldBy(
 }
 
 /**
+ * Whether a set of crews holds every location in a district between them (faction ruling,
+ * 2026-10-07): the question the unified bonus and the gate ask of a faction. `districtHolder`
+ * keeps its one-party meaning for the looters and the Combine, who sit at no table.
+ */
+export function districtWholeFor(
+  district: District,
+  controls: ReadonlyMap<string, LocationControl>,
+  crews: ReadonlySet<string>,
+): boolean {
+  if (district.locations.length === 0) return false;
+  return district.locations.every((location) => {
+    const holder = controls.get(location.id)?.holder;
+    return holder?.kind === 'crew' && crews.has(holder.baseId);
+  });
+}
+
+/**
+ * Who answers for a district held whole, with a faction counted as one party.
+ *
+ * A single holder is the holder, as `districtHolder` says. Ground split among crews at one table
+ * is whole too, and the crew named for it is the one that defends the gate (maintainer,
+ * 2026-10-07): the member holding the most locations there, ties to the one that has held its
+ * ground the longest, then to the member who joined the table first. `heldSince` reads the
+ * row's capture instant (`trophiesSince`, written by `putControl` on every change of hands); a
+ * row from before that column counts as held since the start. Null when nobody holds it whole.
+ */
+export function wholeHolderAmong(
+  district: District,
+  controls: ReadonlyMap<string, LocationControl>,
+  factionOf: (baseId: string) => string | null,
+  joinedAt: (baseId: string) => string,
+): LocationHolder | null {
+  const single = districtHolder(district, controls);
+  if (single) return single;
+  if (district.locations.length === 0) return null;
+
+  const tally = new Map<string, { count: number; heldSince: string }>();
+  let table: string | null = null;
+  for (const location of district.locations) {
+    const control = controls.get(location.id);
+    if (!control || control.holder.kind !== 'crew') return null;
+    const faction = factionOf(control.holder.baseId);
+    if (faction === null || (table !== null && faction !== table)) return null;
+    table = faction;
+    const heldSince = control.trophiesSince ?? '';
+    const held = tally.get(control.holder.baseId);
+    if (held) {
+      held.count += 1;
+      if (heldSince < held.heldSince) held.heldSince = heldSince;
+    } else {
+      tally.set(control.holder.baseId, { count: 1, heldSince });
+    }
+  }
+  const [named] = [...tally.entries()].sort(
+    ([aId, a], [bId, b]) =>
+      b.count - a.count ||
+      a.heldSince.localeCompare(b.heldSince) ||
+      joinedAt(aId).localeCompare(joinedAt(bId)) ||
+      aId.localeCompare(bId),
+  );
+  return named ? { kind: 'crew', baseId: named[0] } : null;
+}
+
+/**
+ * The Noisy the Tolling Tower lays over its district while its switch is on (maintainer,
+ * 2026-10-06): the ground's own, so it bites every force on every location there; the holder's
+ * crew ignores it through `ignoredLabels`. Empty with no tower held, or its switch off.
+ */
+export function tollingTowerNoise(
+  district: District,
+  controls: ReadonlyMap<string, LocationControl>,
+): EnvLabel[] {
+  const on = district.locations.some((location) => {
+    const control = controls.get(location.id);
+    return (
+      control !== undefined &&
+      control.holder.kind === 'crew' &&
+      groundStateOf(control).switchedOn &&
+      baseBonusesOf(location).some((bonus) => bonus.kind === 'noise_switch')
+    );
+  });
+  return on ? [envLabel('noisy', NOISE_SWITCH_TIER)] : [];
+}
+
+/**
  * Everything this crew's territory is currently worth, in one pass.
  *
  * Each location it holds contributes its own hold bonus, and each district it holds *outright*
@@ -161,8 +305,26 @@ export function territoryEffectsFor(
   baseId: string,
   locations: readonly Location[],
   controls: ReadonlyMap<string, LocationControl>,
+  /**
+   * The crew's faction mates, by base id (faction ruling, 2026-10-07). A district is whole for
+   * the crew when every location in it is held by the crew or one of these, and the unified
+   * bonus and every `whenDistrictWhole` bonus pay on that. Each location's own pay stays with
+   * its holder, so a mate's ground adds nothing else here. Empty for a crew at no table.
+   */
+  allies: ReadonlySet<string> = new Set(),
 ): TerritoryEffects {
   const effects = noTerritoryEffects();
+  const together = new Set([baseId, ...allies]);
+  const wholeFor = new Map<string, boolean>();
+  const isWhole = (districtId: string): boolean => {
+    let whole = wholeFor.get(districtId);
+    if (whole === undefined) {
+      const district = findDistrict(districtId);
+      whole = district !== undefined && districtWholeFor(district, controls, together);
+      wholeFor.set(districtId, whole);
+    }
+    return whole;
+  };
 
   const held = new Set<string>();
   for (const location of locations) {
@@ -179,19 +341,17 @@ export function territoryEffectsFor(
     // At the level it has been worked up to (§A4): the whole reason to pour resources into
     // ground you might lose. `bonusesAt` is the only reader of `LEVEL_SCALE`, so a location's
     // worth and the number on its card cannot disagree.
-    const cityId = findDistrict(location.districtId)?.cityId;
-    for (const bonus of bonusesAt(location.kind, control.level)) {
-      applyHoldBonus(effects, bonus, cityId);
+    for (const bonus of bonusesAt(location, control.level)) {
+      // Paid only while the district is whole (the Saint's Inn's doubling), by faction.
+      if (bonus.whenDistrictWhole && !isWhole(location.districtId)) continue;
+      applyHoldBonus(effects, bonus, { districtId: location.districtId, locationId: location.id });
     }
   }
 
   for (const districtId of held) {
-    const district = findDistrict(districtId);
-    if (!district) continue;
-    const holder = districtHolder(district, controls);
-    if (holder?.kind !== 'crew' || holder.baseId !== baseId) continue;
+    if (!isWhole(districtId)) continue;
     const unified = unifiedBonusFor(districtId);
-    if (unified) applyHoldBonus(effects, unified.bonus, district.cityId);
+    if (unified) applyHoldBonus(effects, unified.bonus, { districtId });
   }
 
   return effects;
@@ -199,16 +359,15 @@ export function territoryEffectsFor(
 
 /**
  * What a crew's mission speed comes to on a job in `areaId`: the figure that pays everywhere, plus
- * whatever pays only in that district's city (the Blockhouse's, in Terminus). The misc board
- * belongs to no city, so it gets the first alone.
+ * whatever pays on this one district's board alone (the Printworks' tunnels). The misc board
+ * belongs to no district, so it gets the first alone.
  */
 export function missionSpeedPercentIn(
-  effects: Pick<TerritoryEffects, 'missionSpeedPercent' | 'missionSpeedPercentByCity'>,
+  effects: Pick<TerritoryEffects, 'missionSpeedPercent' | 'missionSpeedPercentByDistrict'>,
   areaId: string,
 ): number {
-  const cityId = findDistrict(areaId)?.cityId;
-  const local = cityId === undefined ? 0 : (effects.missionSpeedPercentByCity[cityId] ?? 0);
-  return effects.missionSpeedPercent + local;
+  const here = effects.missionSpeedPercentByDistrict[areaId] ?? 0;
+  return effects.missionSpeedPercent + here;
 }
 
 /**
@@ -305,6 +464,12 @@ export const SQUATTED_PLACES: Readonly<Record<string, number>> = {
   'bonded-row': 5,
   ironmouth: Number.POSITIVE_INFINITY,
   'marshalling-yards': Number.POSITIVE_INFINITY,
+  /*
+   * Reliquary (2026-10-06). Candlemarket is the way in, three of seven open like the Halt; the
+   * clans hold Gravefields end to end, so its gate is armed, as Ironmouth's is.
+   */
+  candlemarket: 4,
+  gravefields: Number.POSITIVE_INFINITY,
 };
 
 /**

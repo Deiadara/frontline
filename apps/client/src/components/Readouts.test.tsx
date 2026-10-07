@@ -1,9 +1,9 @@
 import { MAX_NOTORIETY, describeNotorietyGrant, storageCapacity } from '@frontline/shared';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import type { ReactElement } from 'react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   DistrictLevelChip,
   InfamyChip,
@@ -264,6 +264,61 @@ describe('what the standing chips say when you look at them', () => {
     mount(<InfamyChip infamy={40_000} notoriety={4} />);
     fireEvent.focus(screen.getByTestId('infamy-hover'));
     expect(screen.getByTestId('infamy-card').className).toContain('card-paper');
+  });
+
+  /** Bug pass, 2026-10-06: a refused Upgrade Tier re-enabled the button and said nothing. */
+  it('says why an Upgrade Tier press was refused', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() =>
+        Promise.resolve(
+          new Response(
+            JSON.stringify({ error: { code: 'CONFLICT', message: 'That rank is already yours' } }),
+            { status: 409, headers: { 'Content-Type': 'application/json' } },
+          ),
+        ),
+      ),
+    );
+    try {
+      mount(<InfamyChip infamy={10_000_000} notoriety={4} />);
+      fireEvent.focus(screen.getByTestId('infamy-hover'));
+      fireEvent.click(screen.getByTestId('upgrade-tier'));
+      expect(await screen.findByTestId('upgrade-tier-error')).toHaveTextContent(
+        'That rank is already yours',
+      );
+
+      // ...and it goes with the card, rather than waiting under the button for the next hover
+      // and playing the refusal again (bug pass, 2026-10-06).
+      fireEvent.blur(screen.getByTestId('infamy-hover'));
+      await waitFor(() => expect(screen.queryByRole('tooltip')).toBeNull());
+      fireEvent.focus(screen.getByTestId('infamy-hover'));
+      expect(screen.getByTestId('upgrade-tier')).toBeInTheDocument();
+      await waitFor(() => expect(screen.queryByTestId('upgrade-tier-error')).toBeNull());
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  /*
+   * Bug pass, 2026-10-06: the chip groups in en-US and the card read the browser's own locale, so
+   * a German browser showed 125,000 on the chip and 125.000 in its card. A locale nobody passes is
+   * made German here, which is what that browser does with it.
+   */
+  it('groups the card’s figures the way the chip does, whatever the browser speaks', () => {
+    const spy = vi.spyOn(Number.prototype, 'toLocaleString').mockImplementation(function (
+      this: number,
+      locales?: Intl.LocalesArgument,
+      options?: Intl.NumberFormatOptions,
+    ) {
+      return new Intl.NumberFormat(locales ?? 'de-DE', options).format(this);
+    });
+    try {
+      mount(<InfamyChip infamy={40_000} notoriety={4} />);
+      fireEvent.focus(screen.getByTestId('infamy-hover'));
+      expect(within(screen.getByRole('tooltip')).getByText('40,000')).toBeInTheDocument();
+    } finally {
+      spy.mockRestore();
+    }
   });
 
   it('closes again when the pointer leaves', () => {

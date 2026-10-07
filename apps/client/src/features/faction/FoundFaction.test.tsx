@@ -149,3 +149,26 @@ describe('the create sheet', () => {
     );
   });
 });
+
+/** Bug pass, 2026-10-06: one answer greyed every invitation, and its refusal named none of them. */
+describe('answering one of two invitations', () => {
+  it('waits only on that one, and names it when it is refused', async () => {
+    let refuse: (value: Response) => void = () => undefined;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => new Promise<Response>((resolve) => (refuse = resolve))),
+    );
+    open(holding(FIRST, SECOND));
+    fireEvent.click(screen.getByTestId(`accept-${FIRST.id}`));
+    await vi.waitFor(() => expect(screen.getByTestId(`accept-${FIRST.id}`)).toBeDisabled());
+    expect(screen.getByTestId(`accept-${SECOND.id}`)).toBeEnabled();
+
+    refuse(
+      new Response(JSON.stringify({ error: { code: 'CONFLICT', message: 'The table is full' } }), {
+        status: 409,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    );
+    expect(await screen.findByRole('alert')).toHaveTextContent(FIRST.factionName);
+  });
+});

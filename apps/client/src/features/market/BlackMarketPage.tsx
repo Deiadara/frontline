@@ -8,6 +8,7 @@ import {
   type BlackMarketLot,
   type BlackMarketOffer,
   MAX_OPEN_LOTS,
+  notorietyTier,
 } from '@frontline/shared';
 import { useState, type ReactNode } from 'react';
 import { NavLink } from 'react-router-dom';
@@ -48,8 +49,9 @@ import { StackhousePanel } from './Stackhouse';
  *
  * The shelf was always the whole city's, and buying off it never was: five crews after the same
  * crate raced a network round trip and the fastest connection won. Every slot is a lot now, exactly
- * as every line on the Runner's barrow is. Bids stand in the open all day in infamy, the fence
- * settles at midnight, and the crate goes to the highest bidder who can still pay. A crew may bid
+ * as every line on the Runner's barrow is. Bids stand in the open all day in infamy, each holding
+ * its infamy from the moment it is placed (2026-10-06); the fence settles at midnight, the crate
+ * goes to the highest bidder he will still deal to, and every other bid comes back. A crew may bid
  * on all five and win the one a day it has always been allowed.
  *
  * The bidding furniture is `LotParts`, which the barrow uses too, so the clock, the table and the
@@ -251,7 +253,7 @@ function SlotCard({
                 : // Rank only when rank is the reason: a rank 6 crew short of infamy for a rank
                   // 4 crate was told it was a rank problem (bug pass, 2026-10-02).
                   beyond && rank < offer.minNotoriety
-                  ? `He keeps this for rank ${offer.minNotoriety} and better`
+                  ? `He keeps this for ${notorietyTier(offer.minNotoriety)} and better`
                   : beyond
                     ? 'More than you have to say'
                     : lot.leading === null
@@ -267,7 +269,7 @@ function SlotCard({
               beyond ? 'text-oxblood-300' : 'text-tangerine-100',
             )}
           >
-            {figure.toLocaleString()}
+            {figure.toLocaleString('en-US')}
           </span>
         </span>
         {/* The one door, and its word is the reader's standing: Bid where nobody has, Raise where
@@ -407,21 +409,21 @@ function BlackLotWindow({
           ) : (
             offer.minNotoriety > 0 && (
               <p className="font-body text-[12px] leading-relaxed text-tangerine-300">
-                He keeps this for people with a name: rank {offer.minNotoriety} or better.
+                He keeps this for people with a name: {notorietyTier(offer.minNotoriety)} or better.
               </p>
             )
           )}
           <p className="font-body text-[12px] leading-relaxed text-ink-300">
-            It goes to the highest bid at midnight, at what they bid, and the infamy leaves your
-            ledger then rather than now. Every crew's bid is in the open; raising yours replaces it.
-            You may still only walk out with what your allowance lets you.
+            It goes to the highest bid at midnight. A bid takes its infamy when you place it;
+            raising yours hands the old one back, and a bid that does not win comes back at
+            midnight. You may still only walk out with what your allowance lets you.
           </p>
         </div>
         <div className="flex min-w-0 flex-col gap-3">
           <LotStanding
             auction={lot}
             currency="infamy"
-            opens={`Opens at ${lot.reserve.toLocaleString()}. He will not take less.`}
+            opens={`Opens at ${lot.reserve.toLocaleString('en-US')}. He will not take less.`}
           />
           <LotBidPanel
             auction={lot}
@@ -434,8 +436,8 @@ function BlackLotWindow({
             error={bid.error}
             shortMessage={(purse, most) =>
               most > purse
-                ? `You have ${purse.toLocaleString()} infamy, which covers a bid of up to ${most.toLocaleString()} once your standing comes off.`
-                : `You have ${purse.toLocaleString()} infamy. He will want the whole figure at midnight.`
+                ? `You can put ${purse.toLocaleString('en-US')} infamy on this lot, which covers a bid of up to ${most.toLocaleString('en-US')} once your standing comes off.`
+                : `You can put ${purse.toLocaleString('en-US')} infamy on this lot, and a bid takes the whole figure when you place it.`
             }
             atLotCap={atLotCap}
             payFor={(amount) => discountedInfamy(amount, discountPercent)}
@@ -468,8 +470,12 @@ export function BlackMarketPage() {
   const query = useBlackMarket(city);
   const now = useServerClock(query.data?.serverNow, query.dataUpdatedAt);
   const rank = useMe().data?.base?.economy.notoriety ?? 0;
-  /** Which lot's bidding screen is open, if any. */
-  const [lotOpen, setLotOpen] = useState<number | null>(null);
+  /**
+   * Which lot's bidding screen is open, by the lot's own id (bug pass, 2026-10-06). It was the slot
+   * index, which the shelf reuses at midnight: a window open across the turnover showed the new
+   * crate under the old bid and the old refusal.
+   */
+  const [lotOpen, setLotOpen] = useState<string | null>(null);
 
   const data = query.data;
   if (!data) {
@@ -486,7 +492,8 @@ export function BlackMarketPage() {
 
   const left = data.takesPerDay - data.takenToday;
   const refreshesIn = Date.parse(data.refreshesAt) - now.getTime();
-  const open = data.offers.find((offer) => offer.slot.index === lotOpen);
+  const open =
+    lotOpen === null ? undefined : data.offers.find((offer) => offer.lot?.lotId === lotOpen);
   const openSpec = open ? findBlackMarketGood(open.slot.goodId) : undefined;
 
   return (
@@ -545,7 +552,7 @@ export function BlackMarketPage() {
                   offer={offer}
                   spec={spec}
                   now={now}
-                  onBid={() => setLotOpen(offer.slot.index)}
+                  onBid={() => setLotOpen(offer.lot?.lotId ?? null)}
                   rank={rank}
                 />
               );
@@ -557,6 +564,8 @@ export function BlackMarketPage() {
 
       {open !== undefined && open.lot !== null && openSpec !== undefined && (
         <BlackLotWindow
+          // One window per lot, so nothing typed into one is carried to the next.
+          key={open.lot.lotId}
           offer={open}
           spec={openSpec}
           lot={open.lot}

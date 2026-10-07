@@ -2,6 +2,7 @@ import {
   BLUEPRINTS,
   DEFAULT_BADGE,
   FEATS,
+  MAX_LOCATION_LEVEL,
   FEAT_MEASURE_SPECS,
   MAX_ATTRIBUTE,
   featMeasureKey,
@@ -326,10 +327,14 @@ describe('the numbers a feat can be measured on', () => {
     if (!first || !second || !third) throw new Error('fixture: too few control rows');
     const mine = { kind: 'crew', baseId: base.id } as const;
     repos.city.put({ ...first, holder: mine, level: 3 });
-    repos.city.put({ ...second, holder: mine, level: 6 });
-    repos.city.put({ ...third, holder: { kind: 'crew', baseId: 'somebody-else' }, level: 9 });
+    repos.city.put({ ...second, holder: mine, level: 4 });
+    repos.city.put({
+      ...third,
+      holder: { kind: 'crew', baseId: 'somebody-else' },
+      level: MAX_LOCATION_LEVEL,
+    });
 
-    expect(read('location_level_held')).toBe(6);
+    expect(read('location_level_held')).toBe(4);
   });
 
   // P2-A, 2026-10-02: the slot ladder and "kinds held" count every unit on the books; "Twenty at

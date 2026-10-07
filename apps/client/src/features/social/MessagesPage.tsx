@@ -19,9 +19,9 @@ import { cn } from '../../lib/cn';
 import {
   useBlockSender,
   useDeleteMessage,
-  useLeaderboard,
   useMe,
   useMessages,
+  usePlayerLookup,
   useReadAllMessages,
   useReadMessage,
   useSendMessage,
@@ -32,6 +32,7 @@ import { usePlayerZone } from '../settings/usePlayerZone';
 import { InviteCard } from './InviteCard';
 import { RecipientPicker } from './RecipientPicker';
 import { ErrorNote } from '../../components/ui/ErrorNote';
+import { PressError } from '../../components/ui/PressError';
 
 /**
  * The mailbox (maintainer request).
@@ -84,9 +85,10 @@ type Opened = { folder: 'inbox'; message: Message } | { folder: 'sent'; message:
 export function MessagesPage() {
   const query = useMessages();
   const send = useSendMessage();
-  // The names the composer can offer: the whole standings board, and the writer's own name to
-  // leave out of it.
-  const standings = useLeaderboard('players', false);
+  // The names the composer can offer: the server's answer to what is typed in the To field
+  // (2026-10-06), and the writer's own name to leave out of it.
+  const [lookingFor, setLookingFor] = useState('');
+  const lookup = usePlayerLookup(lookingFor);
   const me = useMe();
   const read = useReadMessage();
   const readAll = useReadAllMessages();
@@ -191,7 +193,28 @@ export function MessagesPage() {
    * A refused send is said inside the composer, where the reader is looking; the page behind it
    * only carries what the page did (reading, throwing away).
    */
-  const error = read.error ?? remove.error ?? block.error ?? null;
+  const error = read.error ?? remove.error ?? block.error ?? readAll.error ?? null;
+
+  /*
+   * Each refusal goes with what it was about (bug pass, 2026-10-06). Nothing reset them, so one
+   * failed read stood over the mailbox for the rest of the session, and a refused send was waiting
+   * under the next, empty letter.
+   */
+  const chooseFolder = (next: FolderId) => {
+    setFolder(next);
+    read.reset();
+    remove.reset();
+    block.reset();
+    readAll.reset();
+  };
+  const closeMessage = () => {
+    setOpen(null);
+    read.reset();
+  };
+  const closeComposer = () => {
+    setComposing(false);
+    send.reset();
+  };
   /*
    * The invitation as the latest read has it, not as it was when the letter was opened (bug pass,
    * 2026-09-27). `open` is a snapshot, so an answered invitation kept its live Join and Decline
@@ -232,7 +255,7 @@ export function MessagesPage() {
                 <li key={entry.id}>
                   <button
                     type="button"
-                    onClick={() => setFolder(entry.id)}
+                    onClick={() => chooseFolder(entry.id)}
                     aria-pressed={folder === entry.id}
                     data-testid={`folder-${entry.id}`}
                     className={cn(
@@ -280,7 +303,8 @@ export function MessagesPage() {
                     <Button
                       size="sm"
                       variant="ghost"
-                      disabled={block.isPending}
+                      // Only the row being unblocked waits on it.
+                      disabled={block.isPending && block.variables?.userId === entry.userId}
                       data-testid={`unblock-${entry.userId}`}
                       onClick={() => block.mutate({ userId: entry.userId, blocked: false })}
                     >
@@ -311,7 +335,7 @@ export function MessagesPage() {
         </div>
 
         <div className="flex min-h-0 min-w-0 flex-col gap-3">
-          {error && <ErrorNote className="shrink-0">{refusalText(error.message)}</ErrorNote>}
+          {error && <PressError>{refusalText(error.message)}</PressError>}
 
           <div
             className="ink-frame card-paper washed rivets edge-lit min-h-0 flex-1 overflow-y-auto"
@@ -423,7 +447,7 @@ export function MessagesPage() {
         drift, and the sent one would be the one that got less care.
       */}
       {open && (
-        <Modal onClose={() => setOpen(null)} labelledBy="message-title" size="wide">
+        <Modal onClose={closeMessage} labelledBy="message-title" size="wide">
           <div className="flex min-h-0 flex-col" data-testid="message-open">
             <div className="shrink-0 border-b border-surface-600/60 px-5 py-4">
               <h2 id="message-title" className="font-stamp text-xl leading-tight text-ink-100">
@@ -497,7 +521,7 @@ export function MessagesPage() {
                   </Button>
                 </>
               )}
-              <Button size="sm" variant="ghost" className="ml-auto" onClick={() => setOpen(null)}>
+              <Button size="sm" variant="ghost" className="ml-auto" onClick={closeMessage}>
                 Close
               </Button>
             </div>
@@ -506,7 +530,7 @@ export function MessagesPage() {
       )}
 
       {composing && (
-        <Modal onClose={() => setComposing(false)} labelledBy="compose-title" size="wide">
+        <Modal onClose={closeComposer} labelledBy="compose-title" size="wide">
           <div className="flex flex-col gap-3 p-5" data-testid="compose-form">
             <h2 id="compose-title" className="font-stamp text-xl text-ink-100">
               Write
@@ -530,7 +554,9 @@ export function MessagesPage() {
                   To
                 </span>
                 <RecipientPicker
-                  entries={standings.data?.board === 'players' ? standings.data.entries : []}
+                  entries={lookup.data?.players ?? []}
+                  searching={lookup.isFetching}
+                  onQueryChange={setLookingFor}
                   exclude={me.data?.user.username ?? null}
                   chosen={recipients}
                   onChange={setRecipients}
@@ -573,7 +599,7 @@ export function MessagesPage() {
               <ErrorNote data-testid="compose-blank">{MESSAGE_REFUSAL_TEXT.blank_letter}</ErrorNote>
             )}
             {send.error && (
-              <ErrorNote data-testid="compose-error">{refusalText(send.error.message)}</ErrorNote>
+              <PressError data-testid="compose-error">{refusalText(send.error.message)}</PressError>
             )}
 
             <div className="flex gap-2">
@@ -606,7 +632,7 @@ export function MessagesPage() {
               >
                 Send it
               </Button>
-              <Button variant="ghost" onClick={() => setComposing(false)}>
+              <Button variant="ghost" onClick={closeComposer}>
                 Never mind
               </Button>
             </div>

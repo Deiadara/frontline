@@ -389,7 +389,9 @@ describe('a board of one city', () => {
  * the point of the assertion is *which half of the page* the sentence lands in.
  */
 describe('a refused withdraw', () => {
-  it('says so under your own half of the board, not under theirs', async () => {
+  // A refusal is a pop-up beside the pressed button now (maintainer, 2026-10-06), so neither half
+  // of the board makes room for it.
+  it('says so beside the button, taking no room on either half of the board', async () => {
     fetchMock.mockImplementation((path: string) => {
       if (path.endsWith('/market/withdraw'))
         return Promise.resolve({
@@ -413,11 +415,9 @@ describe('a refused withdraw', () => {
 
     const alert = await screen.findByRole('alert');
     expect(alert).toHaveTextContent('That listing has gone');
-    // `Your Offers` and `District Offers` are the two panel headings; the alert has to be inside the
-    // first and not the second.
     const mine = screen.getByRole('heading', { name: 'Your Offers' }).closest('div');
     const theirs = screen.getByRole('heading', { name: 'District Offers' }).closest('div');
-    expect(mine?.parentElement?.contains(alert)).toBe(true);
+    expect(mine?.parentElement?.contains(alert)).toBe(false);
     expect(theirs?.parentElement?.contains(alert)).toBe(false);
   });
 });

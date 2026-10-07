@@ -20,7 +20,7 @@ import { useAnswerFactionInvite, useCreateFaction, useMe } from '../../lib/queri
 import { BadgeBuilder } from './BadgeBuilder';
 import { FactionBadge } from './FactionBadge';
 import { refusalText } from './refusal';
-import { ErrorNote } from '../../components/ui/ErrorNote';
+import { PressError } from '../../components/ui/PressError';
 
 /**
  * The screen for somebody with no faction: the two ways in, and nothing else.
@@ -168,7 +168,8 @@ function JoinSheet({ data }: { data: FactionResponse }) {
                 <span className="flex shrink-0 gap-1.5">
                   <Button
                     size="sm"
-                    disabled={answer.isPending}
+                    // This invitation's own answer only (bug pass, 2026-10-06).
+                    disabled={answer.isPending && answer.variables.inviteId === invite.id}
                     data-testid={`accept-${invite.id}`}
                     onClick={() => answer.mutate({ inviteId: invite.id, accept: true })}
                   >
@@ -177,7 +178,7 @@ function JoinSheet({ data }: { data: FactionResponse }) {
                   <Button
                     size="sm"
                     variant="ghost"
-                    disabled={answer.isPending}
+                    disabled={answer.isPending && answer.variables.inviteId === invite.id}
                     data-testid={`decline-${invite.id}`}
                     onClick={() => answer.mutate({ inviteId: invite.id, accept: false })}
                   >
@@ -207,7 +208,14 @@ function JoinSheet({ data }: { data: FactionResponse }) {
           />
         </>
       )}
-      {answer.error && <ErrorNote>{refusalText(answer.error.message)}</ErrorNote>}
+      {/* While the invitation it was about is still on the list, and named, with more than one. */}
+      {answer.error && held.some((invite) => invite.id === answer.variables?.inviteId) && (
+        <PressError>
+          {held.length > 1 &&
+            `${held.find((invite) => invite.id === answer.variables?.inviteId)?.factionName}: `}
+          {refusalText(answer.error.message)}
+        </PressError>
+      )}
     </section>
   );
 }
@@ -309,7 +317,7 @@ function CreateSheet({ onCancel }: { onCancel: () => void }) {
             />
           </label>
 
-          {create.error && <ErrorNote>{refusalText(create.error.message)}</ErrorNote>}
+          {create.error && <PressError>{refusalText(create.error.message)}</PressError>}
 
           {/* Sticky on short screens only (maintainer, 2026-10-02): once a pattern is picked the
               badge column grows and pushed Create under the fold of a 720p screen. The classes

@@ -1,4 +1,4 @@
-import { CITIES, DEFAULT_CITY_ID, SALTMARCH_CITY_ID } from '@frontline/shared';
+import { CITIES, DEFAULT_CITY_ID, RELIQUARY_CITY_ID } from '@frontline/shared';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { CityPicker } from './CityPicker';
@@ -37,14 +37,14 @@ describe('the city picker', () => {
     render(
       <CityPicker
         cityId={DEFAULT_CITY_ID}
-        cities={[DEFAULT_CITY_ID, SALTMARCH_CITY_ID]}
+        cities={[DEFAULT_CITY_ID, RELIQUARY_CITY_ID]}
         onChoose={chose}
       />,
     );
 
     fireEvent.click(screen.getByTestId('city-picker-open'));
     const list = screen.getByTestId('city-picker-list');
-    expect(list).toHaveTextContent(nameOf(SALTMARCH_CITY_ID));
+    expect(list).toHaveTextContent(nameOf(RELIQUARY_CITY_ID));
     // The name only (maintainer, 2026-10-04): the nickname stays on the city screens.
     for (const city of CITIES) expect(list).not.toHaveTextContent(city.nickname);
     // The room already open is marked as such rather than left out of its own list.
@@ -53,8 +53,8 @@ describe('the city picker', () => {
       'true',
     );
 
-    fireEvent.click(screen.getByTestId(`city-choose-${SALTMARCH_CITY_ID}`));
-    expect(chose).toHaveBeenCalledWith(SALTMARCH_CITY_ID);
+    fireEvent.click(screen.getByTestId(`city-choose-${RELIQUARY_CITY_ID}`));
+    expect(chose).toHaveBeenCalledWith(RELIQUARY_CITY_ID);
     // And it shuts behind the press: the choice is made, so the list has nothing left to say.
     expect(screen.queryByTestId('city-picker-list')).toBeNull();
   });
@@ -63,8 +63,8 @@ describe('the city picker', () => {
   it('offers exactly the list it was given, in the order it was given', () => {
     render(
       <CityPicker
-        cityId={SALTMARCH_CITY_ID}
-        cities={[DEFAULT_CITY_ID, SALTMARCH_CITY_ID]}
+        cityId={RELIQUARY_CITY_ID}
+        cities={[DEFAULT_CITY_ID, RELIQUARY_CITY_ID]}
         onChoose={() => {}}
       />,
     );
@@ -72,7 +72,7 @@ describe('the city picker', () => {
     const rows = screen.getByTestId('city-picker-list').querySelectorAll('button');
     expect([...rows].map((row) => row.getAttribute('data-testid'))).toEqual([
       `city-choose-${DEFAULT_CITY_ID}`,
-      `city-choose-${SALTMARCH_CITY_ID}`,
+      `city-choose-${RELIQUARY_CITY_ID}`,
     ]);
   });
 });

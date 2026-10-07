@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { noTerritoryEffects } from '../city/index.js';
-import { findUnit, type CombatContext, type UnitSpec } from '../units/index.js';
+import { findUnit, UNIT_MODIFIERS, type CombatContext, type UnitSpec } from '../units/index.js';
 import { LOCATION_KINDS, LOCATION_CATALOG, type LocationKind } from '../city/locations.js';
 import {
   bareBattlefield,
@@ -245,17 +245,43 @@ describe('what the defender built reaches the fight', () => {
     expect(raid(40)).toBeGreaterThan(raid(0));
   });
 
-  /** ...and never so much harder that no force could take it. */
+  /**
+   * ...and never so much harder that no force could take it.
+   *
+   * Measured on Razors, a sheet with nothing that fires when defending, so the only thing between
+   * their 75 and the figure read back is the held-ground curve: 500 points of defence come out as
+   * 138.75, which is 75 at the 85 ceiling. It was measured on Wardens until Reliquary gave them
+   * GUARD (2026-10-07), whose quarter of toughness is the unit's own and sits outside the curve
+   * on purpose (`effectiveStats`, `ownToughness`): 168 held at 500 reads 352.8, which is the
+   * ceiling and GUARD's 25 together, and the second block pins that the two add up that way.
+   */
   it('caps what holding built ground is worth', () => {
-    const wardens = unit('wardens');
+    const razors = unit('razors');
+    expect(razors.modifiers.map((id) => UNIT_MODIFIERS[id].context)).not.toContain('defending');
     const held = effectiveStats(
-      wardens,
+      razors,
       { ...homeBattlefield('x', DAY) },
       { defending: true, outnumbered: 0 },
       { ...noTerritoryEffects(), defensePercent: 500 },
     );
     expect(held.vitality).toBeLessThanOrEqual(
-      wardens.stats.vitality * (1 + HELD_DEFENSE_CEILING / 100),
+      razors.stats.vitality * (1 + HELD_DEFENSE_CEILING / 100),
+    );
+
+    // GUARD's share is bought one unit at a time and lands outside the cap: capped ground plus
+    // the sheet's own quarter, and not a point more than the two together.
+    const wardens = unit('wardens');
+    expect(wardens.modifiers).toContain('guard');
+    const guarded = effectiveStats(
+      wardens,
+      { ...homeBattlefield('x', DAY) },
+      { defending: true, outnumbered: 0 },
+      { ...noTerritoryEffects(), defensePercent: 500 },
+    );
+    const capped = wardens.stats.vitality * (1 + HELD_DEFENSE_CEILING / 100);
+    expect(guarded.vitality).toBeGreaterThan(capped);
+    expect(guarded.vitality).toBeLessThanOrEqual(
+      wardens.stats.vitality * (1 + (HELD_DEFENSE_CEILING + UNIT_MODIFIERS.guard.percent) / 100),
     );
   });
 

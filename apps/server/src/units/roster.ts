@@ -34,7 +34,7 @@ import {
 } from '@frontline/shared';
 import type { Repositories } from '../db/repos/index.js';
 import { benchFigure, homeOnTopOf, homeSuppliesLines, musterBreakdownFor } from './breakdown.js';
-import { musterRatesFor, unlockContextFor } from './muster.js';
+import { heldCapRoom, musterRatesFor, unlockContextFor } from './muster.js';
 import { mergeArmies, removeForce } from '../battle/forces.js';
 import { moveDestinationsFor, postedUnits } from '../moves/moves.js';
 import { standingEffectsFor } from '../crew/standing.js';
@@ -219,6 +219,8 @@ export function projectUnits(repos: Repositories, base: Base, now: Date): UnitsR
               percent: source.speedPercent,
             }),
           };
+    // The ground's ceiling on this one, when it has one (`UnitSpec.capPerHold`).
+    const room = heldCapRoom(repos, base, unit);
     return {
       id: unit.id,
       name: unit.name,
@@ -267,7 +269,11 @@ export function projectUnits(repos: Repositories, base: Base, now: Date): UnitsR
         ? {}
         : { homeBonus: homeBonusLines(home, crewCost, rates.suppliesPercent) }),
       unlocked: isUnitUnlocked(unit, context),
+      ...(room === null ? {} : { room }),
       missing: missingRequirements(unit, context).map(describeRequirement),
+      // A unit raised on an authored door: the best door level held, and the ladder it climbs.
+      doorLevel: effects.doorLevels[unit.id] ?? null,
+      doorSteps: [...(unit.doorSteps ?? [])],
       owned: base.army[unit.id] ?? 0,
       slots: slotsFor(base.unitLoadouts, unit.id).map(describeSlot),
       // Off the same rule `slotRefusal` reads, so a greyed card and a `does_not_fit` agree.
@@ -278,6 +284,9 @@ export function projectUnits(repos: Repositories, base: Base, now: Date): UnitsR
   return {
     serverNow: now.toISOString(),
     units,
+    // The labels the crew's units shrug off: Noisy while a held Tolling Tower is on (2026-10-07).
+    ignoredLabels: effects.ignoredLabels,
+    antiCombineLevels: effects.antiCombineLevels,
     army: base.army,
     gateArmy: base.gateArmy ?? {},
     moveDestinations: moveDestinationsFor(repos, base),

@@ -68,7 +68,16 @@ function stack(): { repos: Repositories; base: Base } {
     districtId: 'kettle-row',
     level: 20,
     isBot: false,
-    resources: { ...STARTING_RESOURCES, caps: 9e6, scrap: 9e6, planks: 9e6, oil: 9e6 },
+    // Metal too, under its ceiling: a location's levels cost 4.5x what they did (five levels,
+    // 2026-10-07), and the Press' first one asks more high-quality metal than a crew starts with.
+    resources: {
+      ...STARTING_RESOURCES,
+      caps: 9e6,
+      scrap: 9e6,
+      planks: 9e6,
+      oil: 9e6,
+      highQualityMetal: 200,
+    },
     economy: startingEconomy(HOUR),
     progression: startingProgression(),
     research: startingResearch(),

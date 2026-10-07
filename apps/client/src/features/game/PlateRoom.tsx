@@ -82,7 +82,9 @@ export function fitting(
   aspect: number,
   fit: PlateFit,
 ): { width: number; height: number } {
-  if (room.width <= 0 || room.height <= 0) return { width: 0, height: 0 };
+  // Positive or nothing: a `NaN` measure passed `<= 0` and reached the style as a NaN width (bug
+  // pass, 2026-10-06), and so would a missing aspect.
+  if (!(room.width > 0) || !(room.height > 0) || !(aspect > 0)) return { width: 0, height: 0 };
   const byWidth = { width: room.width, height: room.width / aspect };
   const byHeight = { width: room.height * aspect, height: room.height };
   // Unconditional, which is the whole of what separates it from `cover`. See {@link PlateFit}.

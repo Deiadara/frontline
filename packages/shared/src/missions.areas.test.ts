@@ -251,9 +251,9 @@ describe('which areas are open', () => {
   /** Maintainer, 2026-09-29: a city that is not open has no work in it, whatever is held there. */
   it('never offers work in a city that is not open', () => {
     const drowned = ALL_DISTRICTS.find(
-      (d) => d.kind === 'contested' && d.cityId === 'saltmarch' && d.locations.length > 0,
+      (d) => d.kind === 'contested' && d.cityId === 'reliquary' && d.locations.length > 0,
     );
-    if (!drowned) throw new Error('fixture: Saltmarch has no contested ground');
+    if (!drowned) throw new Error('fixture: Reliquary has no contested ground');
     expect(areaIsOpen(drowned, { heldByCrew: drowned.locations.length })).toBe(false);
   });
 

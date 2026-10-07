@@ -65,6 +65,7 @@ export const NOTIFICATION_KINDS = [
   'market_countered',
   'stackhouse_settled',
   'page_found',
+  'daily_grant',
   'spy_report',
   'spied_on',
   // The crew
@@ -219,6 +220,14 @@ export const NOTIFICATION_KIND_SPECS: Readonly<Record<NotificationKind, Notifica
     label: 'Pages found',
     blurb: 'A blueprint page came into the inventory.',
     icon: 'research',
+  },
+  // Reliquary (2026-10-07): the Printworks' pages, the Dispensary's stim and the Foundry's parts
+  // land once a day on their own clock, so the bell is the only way a player learns they came.
+  daily_grant: {
+    group: 'district',
+    label: 'Daily takes',
+    blurb: 'Ground you hold paid its daily pages, stim or parts.',
+    icon: 'city',
   },
   spy_report: {
     group: 'district',

@@ -544,23 +544,21 @@ describe('moving people up to it (§A4)', () => {
     expect(view.muster?.size).toBe(1);
   });
 
-  /** §D7: the heaviest things on the roster will not take a contract from a nobody. */
-  it('refuses to field a unit the crew has not earned the name for', async () => {
+  /**
+   * §D7 sits on the muster now (maintainer, 2026-10-07), not on the deployment: a unit on the
+   * roster goes where the crew goes. Pinned on the legend the old door refused, for a nobody.
+   */
+  it('fields a legend for a crew nobody has heard of, once it is on the roster', async () => {
     const stack = await makeStack();
     const base = stack.repos.bases.findById(stack.baseId)!;
     stack.repos.bases.updateArmy(base.id, { ...base.army, the_colossus: 1 }, base.musterQueue);
+    expect(base.economy.notoriety).toBeLessThan(NOTORIETY_TO_FIELD.legendary);
 
     const declared = await declare(stack);
     const battleId = declared.json<BattleMutationResponse>().battles.coming[0]!.battle.id;
 
-    const refused = await deploy(stack, battleId, { the_colossus: 1 });
-    expect(refused.statusCode).toBe(409);
-
-    stack.repos.bases.updateEconomy(base.id, {
-      ...base.economy,
-      notoriety: NOTORIETY_TO_FIELD.legendary,
-    });
-    expect((await deploy(stack, battleId, { the_colossus: 1 })).statusCode).toBe(200);
+    const sent = await deploy(stack, battleId, { the_colossus: 1 });
+    expect(sent.statusCode, sent.body).toBe(200);
   });
 
   /**
@@ -624,7 +622,7 @@ describe('resolving it (§A4)', () => {
     const before = stack.repos.city.control(SQUATTED_RUSTYARD_LOCATION)!;
     stack.repos.city.put({
       ...before,
-      level: 7,
+      level: 4,
       upgradingUntil: new Date(Date.now() + 3_600_000).toISOString(),
     });
 
@@ -632,7 +630,7 @@ describe('resolving it (§A4)', () => {
 
     const control = stack.repos.city.control(SQUATTED_RUSTYARD_LOCATION)!;
     expect(control.holder).toEqual({ kind: 'crew', baseId: stack.baseId });
-    expect(control.level).toBe(7);
+    expect(control.level).toBe(4);
     expect(control.upgradingUntil).toBeNull();
     expect(stack.repos.sieges.find(battle.id)!.resolvedAt).not.toBeNull();
   });
@@ -714,7 +712,8 @@ describe('resolving it (§A4)', () => {
         battle.id,
       );
 
-    settleMovements(stack.app.repos, new Date());
+    // Waiting is not landing: it tells no tab the map moved (bug pass, 2026-10-06).
+    expect(settleMovements(stack.app.repos, new Date())).toBe(0);
 
     // Nothing of theirs is on the ground for the fight to spend.
     expect(stack.repos.sieges.deployment(battle.id, 'attacker', stack.baseId)?.army ?? {}).toEqual(
@@ -1050,7 +1049,7 @@ describe('losing a location behind a broken gate (§A4)', () => {
   it('puts the gate back to level 1 and breaks the district up', async () => {
     const stack = await makeStack('holder', decided('attacker'));
     const rivalId = plantRival(stack);
-    rivalHoldsItAll(stack, rivalId, 9);
+    rivalHoldsItAll(stack, rivalId, 4);
     expect(holdsDistrictWhole(stack.repos, rivalId, 'steelbelt')).toBe(true);
 
     await takeOneOff(stack, true);
@@ -1063,11 +1062,11 @@ describe('losing a location behind a broken gate (§A4)', () => {
   it('leaves the gate alone when the breach has run out before the fight lands', async () => {
     const stack = await makeStack('holder', decided('attacker'));
     const rivalId = plantRival(stack);
-    rivalHoldsItAll(stack, rivalId, 9);
+    rivalHoldsItAll(stack, rivalId, 4);
 
     await takeOneOff(stack, false);
 
-    expect(gateFor(stack.repos, 'steelbelt').level).toBe(9);
+    expect(gateFor(stack.repos, 'steelbelt').level).toBe(4);
     expect(holdsDistrictWhole(stack.repos, rivalId, 'steelbelt')).toBe(false);
   });
 
@@ -1079,7 +1078,7 @@ describe('losing a location behind a broken gate (§A4)', () => {
   it('judges the breach at the mark, however late the fight is settled', async () => {
     const stack = await makeStack('holder', decided('attacker'));
     const rivalId = plantRival(stack);
-    rivalHoldsItAll(stack, rivalId, 9);
+    rivalHoldsItAll(stack, rivalId, 4);
     stack.repos.sieges.breakGate('steelbelt', breachExpiry(new Date()));
     const declared = await declare(stack, {
       kind: 'location',
@@ -1378,7 +1377,8 @@ describe('holding a district (§A4)', () => {
     const base = stack.repos.bases.findById(stack.baseId)!;
     const gate = base.buildings.find((building) => building.kind === 'gate')!;
 
-    expect(gateDefensePercent(base.buildings)).toBe(capturedGateDefensePercent(gate.level));
+    // A captured level is two home levels (`capturedGateStep`, maintainer 2026-10-06).
+    expect(gateDefensePercent(base.buildings) * 2).toBe(capturedGateDefensePercent(gate.level));
   });
 });
 

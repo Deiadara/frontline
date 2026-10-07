@@ -1,5 +1,5 @@
 import { ALL_DISTRICTS, RESEARCH_ITEMS } from '@frontline/shared';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   closeWorlds,
   declare,
@@ -20,7 +20,23 @@ import {
  * research rungs and three perks behind it never paid anybody.
  */
 
-afterEach(closeWorlds);
+/*
+ * A fixed clock to start from (2026-10-06). Both fights are declared off the wall clock, and a run
+ * that crossed a slot, lock or day boundary between the two failed once under load. Only `Date` is
+ * faked, and it keeps moving, so the server's own timers run as they always do.
+ */
+beforeEach(() => {
+  vi.useFakeTimers({
+    toFake: ['Date'],
+    now: new Date('2026-10-07T07:20:00.000Z'),
+    shouldAdvanceTime: true,
+  });
+});
+
+afterEach(async () => {
+  await closeWorlds();
+  vi.useRealTimers();
+});
 
 const RUNGS = RESEARCH_ITEMS.filter((item) => item.payout.bonus?.kind === 'whole_district');
 const RUNG_PERCENT = RUNGS.reduce(

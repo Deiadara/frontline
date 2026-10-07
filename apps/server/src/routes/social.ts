@@ -17,7 +17,7 @@ import {
 import { z } from 'zod';
 import type { FastifyInstance } from 'fastify';
 import { AppError, parseBody } from '../errors.js';
-import { outOfLettersToday } from '../social/limits.js';
+import { lettersToThemToday, outOfLettersToday } from '../social/limits.js';
 import { sendMessage } from '../social/send.js';
 import type { UserRecord } from '../types.js';
 
@@ -136,11 +136,10 @@ export function registerSocialRoutes(app: FastifyInstance): void {
        * sender's own faction table are not held to it (review, 2026-10-02): they are not a stranger
        * filling somebody's mailbox, and the day's hundred still bounds them.
        */
-      const since = new Date(sentAt.getTime() - 24 * 60 * 60 * 1000).toISOString();
       for (const recipientUserId of audience === 'player' ? recipients : []) {
         if (app.repos.social.hasBlocked(recipientUserId, sender.id)) continue;
         if (
-          app.repos.social.lettersToSince(sender.id, recipientUserId, since) >=
+          lettersToThemToday(app.repos, sender.id, recipientUserId, sentAt) >=
           LETTERS_TO_ONE_PLAYER_PER_DAY
         ) {
           refuseMessage('too_many_to_them');

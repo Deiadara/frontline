@@ -438,21 +438,50 @@ export function oversellsSeats(
   const seats = fleetCapacity(vehicles);
   if (seats === 0) return false;
   const { anyRide } = standingEffectsFor(repos, base, now);
-  const taken = repos.movements
-    .forBattle(battleId)
+  return seatsAsked(repos, { baseId: base.id, battleId, side, now, anyRide, seats }) > seats;
+}
+
+/**
+ * The unit slots this crew's machines must seat on one side of one fight: its columns still on the
+ * road, plus whatever is being sent now.
+ *
+ * Only the road (maintainer, 2026-10-06). A unit that has landed rides nothing and frees its seat,
+ * and a column on the train left the machines behind. One count for the deploy door and the
+ * machines door: the deploy door counted every unit landed or walking, so a crew could be refused
+ * a walker the bike could carry, and load a bike onto units that had already landed.
+ *
+ * Each column already out counts at most the seats there are: one too big for them fills them
+ * once and walks, so it books no more. The batch being sent counts whole, since the deploy door
+ * is asking whether it fits at all, and one too big for the machines is refused there.
+ */
+export function seatsAsked(
+  repos: Repositories,
+  input: {
+    baseId: string;
+    battleId: string;
+    side: BattleSide;
+    now: Date;
+    anyRide: boolean;
+    /** The seats the machines have: no column books more than all of them. */
+    seats: number;
+    sending?: Army;
+  },
+): number {
+  const booked = (force: Army): number =>
+    Math.min(input.seats, ridingUnitSlots(force, input.anyRide));
+  return repos.movements
+    .forBattle(input.battleId)
     .filter(
       (movement) =>
-        movement.baseId === base.id &&
-        movement.side === side &&
+        movement.baseId === input.baseId &&
+        movement.side === input.side &&
         movement.byRail !== true &&
-        !movementArrived(movement, now),
+        !movementArrived(movement, input.now),
     )
     .reduce(
-      (total, movement) =>
-        total + Math.min(seats, ridingUnitSlots(movementForce(movement), anyRide)),
-      0,
+      (total, movement) => total + booked(movementForce(movement)),
+      ridingUnitSlots(input.sending ?? {}, input.anyRide),
     );
-  return taken > seats;
 }
 
 /**
@@ -467,9 +496,15 @@ export function settleMovements(repos: Repositories, now: Date): number {
   const arrived = repos.movements
     .arrivedBy(now.toISOString())
     .filter((movement) => movementArrived(movement, now));
+  /*
+   * A column waiting behind its fight has not landed (bug pass, 2026-10-06), the same fix as
+   * `settleMoves`: `settleEach` counts every row that does not throw, and a waiting column fired a
+   * world broadcast, and a refetch in every open tab, on each tick until its fight ran.
+   */
+  let waiting = 0;
   // One transaction per column: its merge into the deployment and its removal are one fact, and
   // a throw between them used to land the same army again on the next tick (`world/guard.ts`).
-  return settleEach(
+  const settled = settleEach(
     repos,
     'columns arriving',
     arrived,
@@ -494,7 +529,10 @@ export function settleMovements(repos: Repositories, now: Date): number {
         carryOn(repos, movement, battle);
         return;
       }
-      if (Date.parse(movement.arrivesAt) > Date.parse(battle.scheduledFor)) return;
+      if (Date.parse(movement.arrivesAt) > Date.parse(battle.scheduledFor)) {
+        waiting += 1;
+        return;
+      }
       // This crew's own row on that side, not the side as a whole: an ally's column arriving at your
       // battle joins *their* deployment, which is what sends their survivors back to them.
       const existing =
@@ -514,6 +552,7 @@ export function settleMovements(repos: Repositories, now: Date): number {
       });
     },
   );
+  return settled - waiting;
 }
 
 /**

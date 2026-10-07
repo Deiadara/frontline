@@ -54,6 +54,7 @@ export function Tutorial({ screen }: { screen: string }) {
       card={{ ...card, title: tutorialTitle(card, homeCity) }}
       remaining={remaining}
       pending={mark.isPending}
+      error={mark.error?.message}
       onNext={() => mark.mutate({ steps: [card.step] })}
       /*
        * Skip writes **every** step, which is what makes "skipped" and "seen them all" one state.

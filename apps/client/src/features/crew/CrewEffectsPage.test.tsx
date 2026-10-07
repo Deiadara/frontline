@@ -1,9 +1,15 @@
 import { CHANNEL_LABELS } from '@frontline/shared';
-import { render, screen } from '@testing-library/react';
+import { act, render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { describe, expect, it, vi } from 'vitest';
 
-const standing = vi.hoisted((): { effects: Record<string, number> } => ({ effects: {} }));
+const standing = vi.hoisted(
+  (): { effects: Record<string, number>; chairFrom: string | null; refetch: () => void } => ({
+    effects: {},
+    chairFrom: null,
+    refetch: () => undefined,
+  }),
+);
 vi.mock('../../lib/queries', () => ({
   useCrewStanding: () => ({
     data: {
@@ -20,12 +26,18 @@ vi.mock('../../lib/queries', () => ({
           mark: 'A-',
           passive: 'Makes all research 21.4% faster.',
         },
-        { role: 'professor', officerName: 'Vela', mark: 'C+', passive: '9% more experience.' },
+        {
+          role: 'professor',
+          officerName: 'Vela',
+          mark: 'C+',
+          passive: '9% more experience.',
+          chairFrom: standing.chairFrom,
+        },
       ],
       effects: standing.effects,
     },
     isError: false,
-    refetch: vi.fn(),
+    refetch: standing.refetch,
   }),
 }));
 
@@ -94,5 +106,28 @@ describe('what the chairs give', () => {
   it('no longer draws the shape of the crew', () => {
     draw({ defensePercent: 10 });
     expect(screen.queryByText('The shape of the crew')).toBeNull();
+  });
+});
+
+/** Bug pass, 2026-10-06: the settling line was read once and never moved or went away. */
+describe('a chair still settling in', () => {
+  it('counts down, goes when the chair starts giving, and reads the books again', () => {
+    vi.useFakeTimers();
+    const reread = vi.fn();
+    try {
+      standing.chairFrom = new Date(Date.now() + 2_500).toISOString();
+      standing.refetch = reread;
+      draw({ defensePercent: 10 });
+      expect(screen.getByTestId('chair-gift-professor')).toHaveTextContent('Settling in');
+      act(() => {
+        vi.advanceTimersByTime(3_000);
+      });
+      expect(screen.getByTestId('chair-gift-professor')).not.toHaveTextContent('Settling in');
+      expect(reread).toHaveBeenCalled();
+    } finally {
+      standing.chairFrom = null;
+      standing.refetch = () => undefined;
+      vi.useRealTimers();
+    }
   });
 });

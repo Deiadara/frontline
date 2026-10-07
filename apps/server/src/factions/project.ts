@@ -3,6 +3,7 @@ import {
   displayNameOf,
   deployedSize,
   isBattleDue,
+  memberName,
   unitSlotsUsed,
   type AllyArmy,
   type AllyBattle,
@@ -108,6 +109,10 @@ function projectInvite(
  * its mark has not passed, and it is somebody else's. The last one matters more than it looks: your
  * own battles are on the Battles screen, and listing them here again would make the faction page a
  * duplicate of it rather than a window onto other people.
+ *
+ * One row per fight (maintainer, 2026-10-06), under the member who called it or is being attacked
+ * when they are a mate, else under the first mate in it. Two mates in one fight used to be two
+ * rows: the room counted the fight twice and its chip opened two near-identical cards.
  */
 function allyBattles(
   repos: Repositories,
@@ -115,7 +120,7 @@ function allyBattles(
   selfUserId: string,
   now: Date,
 ): AllyBattle[] {
-  const out: AllyBattle[] = [];
+  const out = new Map<string, { row: AllyBattle; principal: boolean }>();
   // Queried once rather than per member: it has no base filter, so every member was walking every
   // unresolved declaration in the city and issuing three queries and a full `bases` scan per pair.
   const pending = repos.sieges.pending().filter((battle) => battle.resolvedAt === null);
@@ -168,10 +173,17 @@ function allyBattles(
         return base?.ownerId === selfUserId;
       });
 
-      out.push({
+      const principal =
+        battle.attackerBaseId === member.baseId ||
+        (battle.defender.kind === 'crew' && battle.defender.baseId === member.baseId);
+      const held = out.get(battle.id);
+      if (held !== undefined && (held.principal || !principal)) continue;
+      const row: AllyBattle = {
         battleId: battle.id,
         memberUserId: member.userId,
-        memberName: member.username,
+        // The name the room and the roster print (bug pass, 2026-10-06): the login put one person
+        // under two names on the same screen.
+        memberName: memberName(member),
         districtName: member.districtName,
         targetName: targetName(battle.target, residentIn(battle.target.districtId)),
         districtLabel: battle.target.districtId,
@@ -182,13 +194,15 @@ function allyBattles(
         // The mark is the deadline for everybody, reinforcements included: a column that would
         // arrive after the fight is a column that never fought.
         canReinforce: !isBattleDue(battle, now),
-      });
+      };
+      out.set(battle.id, { row, principal });
     }
   }
-  return out.sort((a, b) => Date.parse(a.scheduledFor) - Date.parse(b.scheduledFor));
+  return [...out.values()]
+    .map(({ row }) => row)
+    .sort((a, b) => Date.parse(a.scheduledFor) - Date.parse(b.scheduledFor));
 }
 
-/** What each ally can field, which is the question "who could help me" is really asking. */
 /**
  * What the whole table can field, the reader's own crew included.
  *
@@ -202,13 +216,16 @@ function allyArmies(repos: Repositories, members: readonly FactionMember[]): All
     return [
       {
         memberUserId: member.userId,
-        memberName: member.username,
+        memberName: memberName(member),
         army: base.army,
         size: member.armySize,
       },
     ];
   });
 }
+
+/** How many lines of the room's log one read carries. */
+const FACTION_LOG_LINES = 50;
 
 /** The whole faction screen in one payload. */
 export function projectFaction(repos: Repositories, userId: string, now: Date): FactionResponse {
@@ -227,6 +244,7 @@ export function projectFaction(repos: Repositories, userId: string, now: Date): 
       pending: [],
       battles: [],
       armies: [],
+      log: [],
       serverNow,
     };
   }
@@ -243,6 +261,7 @@ export function projectFaction(repos: Repositories, userId: string, now: Date): 
       pending: [],
       battles: [],
       armies: [],
+      log: [],
       serverNow,
     };
   }
@@ -257,6 +276,10 @@ export function projectFaction(repos: Repositories, userId: string, now: Date): 
       .invitesFrom(faction.id)
       .flatMap((row) => projectInvite(repos, row) ?? []),
     battles: allyBattles(repos, members, userId, now),
+    // Help is the reader's own: "You sent 12 to the Press" is the one line it was.
+    log: repos.factions
+      .log(membership.factionId, FACTION_LOG_LINES)
+      .filter((entry) => entry.kind === 'fight' || entry.userId === userId),
     armies: allyArmies(repos, members),
     serverNow,
   };

@@ -8,6 +8,12 @@ type Size = 'sm' | 'md';
 interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: Variant;
   size?: Size;
+  /**
+   * Why a press would be refused, or null. A refused button is greyed and its hover says why
+   * (maintainer rule, 2026-10-06): a press the server would turn down is guarded here rather than
+   * reported after it.
+   */
+  refusal?: string | null | undefined;
 }
 
 /**
@@ -117,14 +123,19 @@ export function Button({
   size = 'md',
   className,
   type = 'button',
+  refusal,
+  disabled,
   ...rest
 }: ButtonProps) {
+  const refused = refusal !== null && refusal !== undefined;
   return (
     <button
       type={type}
       data-sound={SOUNDS[variant]}
       className={buttonSkin({ variant, size, className })}
+      disabled={refused || disabled}
       {...rest}
+      {...(refused ? { 'data-tip': refusal, 'data-refusal': refusal } : {})}
     />
   );
 }

@@ -1,6 +1,7 @@
 import { withoutRetiredUnits, MovementSchema, type Movement } from '@frontline/shared';
 import type { Statement } from 'better-sqlite3';
 import type { AppDatabase } from '../index.js';
+import { readableRows } from './readable.js';
 
 /**
  * Columns on the road (§A4).
@@ -82,18 +83,21 @@ export function createMovementRepo(db: AppDatabase): MovementRepo {
   const removeStmt = db.prepare('DELETE FROM troop_movements WHERE id = ?');
 
   return {
+    // Row by row (bug pass, 2026-10-06): one column this build cannot read threw `arrivedBy`,
+    // the world's "columns arriving" stage dropped every column with it, and every fight ran
+    // without the reinforcements that had reached it in time.
     forBase(baseId) {
-      return (forBaseStmt.all(baseId) as MovementRow[]).map(rowToMovement);
+      return readableRows(forBaseStmt.all(baseId) as MovementRow[], 'column', rowToMovement);
     },
     find(id) {
       const row = findStmt.get(id) as MovementRow | undefined;
       return row ? rowToMovement(row) : undefined;
     },
     arrivedBy(now) {
-      return (arrivedStmt.all(now) as MovementRow[]).map(rowToMovement);
+      return readableRows(arrivedStmt.all(now) as MovementRow[], 'column', rowToMovement);
     },
     forBattle(battleId) {
-      return (forBattleStmt.all(battleId) as MovementRow[]).map(rowToMovement);
+      return readableRows(forBattleStmt.all(battleId) as MovementRow[], 'column', rowToMovement);
     },
     put(movement) {
       putStmt ??= db.prepare(putSql);

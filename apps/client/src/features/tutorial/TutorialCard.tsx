@@ -2,6 +2,7 @@ import { TUTORIAL_STEPS, type TutorialCardSpec } from '@frontline/shared';
 import { Modal } from '../../components/ui/Modal';
 import { DrawnButton } from '../../components/ui/DrawnButton';
 import { DrawnRule } from '../../components/ui/DrawnMarks';
+import { PressError } from '../../components/ui/PressError';
 import { UnitPortrait } from '../units/UnitPortrait';
 
 /**
@@ -15,14 +16,19 @@ import { UnitPortrait } from '../units/UnitPortrait';
  * **No close cross.** `Modal` is handed `dismissible={false}` on purpose. A cross lets a player
  * dismiss this card without deciding anything about the next five, and the maintainer asked for
  * the decision to be on the card: `Skip tutorial` stops all of them, `Got it` takes the next one.
- * Pressing the backdrop does nothing for the same reason.
+ * Pressing the backdrop or Escape does nothing for the same reason: `dismissible` only hides the
+ * cross, so the window is handed a close that does nothing. Given `onSkip`, a stray click beside
+ * the card wrote all six steps as seen and the tutorial never came back (bug pass, 2026-10-06).
  */
+const stayOpen = (): void => {};
+
 export function TutorialCard({
   card,
   remaining,
   onNext,
   onSkip,
   pending,
+  error,
 }: {
   card: TutorialCardSpec;
   /** How many cards, this one included, are still unseen. Drives the counter and the last label. */
@@ -30,11 +36,13 @@ export function TutorialCard({
   onNext: () => void;
   onSkip: () => void;
   pending: boolean;
+  /** Why the last press did not save. Said on the card, or the buttons only come back to life. */
+  error?: string | undefined;
 }) {
   const last = remaining <= 1;
   return (
     <Modal
-      onClose={onSkip}
+      onClose={stayOpen}
       labelledBy="tutorial-card-title"
       size="wide"
       dismissible={false}
@@ -92,6 +100,7 @@ export function TutorialCard({
          * out is red, the way on is green. Both are always enabled except while the write is in
          * flight, because a card that cannot be dismissed is a card that has trapped somebody.
          */}
+        {error !== undefined && <PressError data-testid="tutorial-error">{error}</PressError>}
         <footer className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-t border-surface-600/60 px-5 py-3">
           <DrawnButton
             size="sm"

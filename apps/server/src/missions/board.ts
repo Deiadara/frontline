@@ -1,3 +1,4 @@
+import { gilded, goldenPercentFor } from './golden.js';
 import {
   type EarlyRampBand,
   TRAVEL_BAND_MINUTES,
@@ -13,6 +14,7 @@ import {
   isContested,
   isHeldBy,
   missionBoardKey,
+  type TerritoryEffects,
   missionOffers,
   missionWalkMinutes,
   missionSpeedPercentIn,
@@ -145,6 +147,9 @@ export function offerFor(
     // The gauge grades whichever leader the player is looking at against these and the grade,
     // through `missionOdds`, the same function the launch prices with.
     leanings: [...leaningsFor(template)],
+    // The Bounty Wall's gold is dealt by the economy lane (`golden.ts`), over this bare quote.
+    golden: false,
+    goldenPercent: 0,
   };
 }
 
@@ -183,8 +188,8 @@ export function projectAreas(
    */
   standing: {
     speedPercent?: number;
-    /** Speed that pays only on one city's boards, by city id (`missionSpeedPercentByCity`). */
-    citySpeedPercent?: Record<string, number>;
+    /** Speed that pays on one district's board alone (`missionSpeedPercentByDistrict`). */
+    districtSpeedPercent?: Record<string, number>;
     spoilsPercent?: number;
     /** Cap Counter's cut of a job's caps (`missionCapsPercent`), quoted as the return pays it. */
     capsPercent?: number;
@@ -193,6 +198,8 @@ export function projectAreas(
     /** An officer's loot perks, paid only on a run an officer leads (`MissionOffer.ledRewards`). */
     leadLootPercent?: number;
     ramp?: EarlyRampBand | null;
+    /** The Bounty Walls the crew holds, by district (`goldenJobsByDistrict`): see `golden.ts`. */
+    goldenJobs?: TerritoryEffects['goldenJobsByDistrict'];
   } = {},
 ): MissionArea[] {
   const runningIn = new Map(active.map((stored) => [stored.mission.areaId, stored.mission.id]));
@@ -216,23 +223,31 @@ export function projectAreas(
       offers:
         activeMissionId === null
           ? missionOffers(id, key, crew.level).map((job) =>
-              offerFor(
-                job.template,
-                job.grade,
-                key,
-                payPercent,
-                missionSpeedPercentIn(
-                  {
-                    missionSpeedPercent: standing.speedPercent ?? 0,
-                    missionSpeedPercentByCity: standing.citySpeedPercent ?? {},
-                  },
-                  id,
+              gilded(
+                offerFor(
+                  job.template,
+                  job.grade,
+                  key,
+                  payPercent,
+                  missionSpeedPercentIn(
+                    {
+                      missionSpeedPercent: standing.speedPercent ?? 0,
+                      missionSpeedPercentByDistrict: standing.districtSpeedPercent ?? {},
+                    },
+                    id,
+                  ),
+                  standing.ramp ?? null,
+                  missionWalkMinutes(crew.districtId, id),
+                  standing.capsPercent ?? 0,
+                  standing.xpBonusPercent ?? 0,
+                  standing.leadLootPercent ?? 0,
                 ),
-                standing.ramp ?? null,
-                missionWalkMinutes(crew.districtId, id),
-                standing.capsPercent ?? 0,
-                standing.xpBonusPercent ?? 0,
-                standing.leadLootPercent ?? 0,
+                goldenPercentFor(
+                  { goldenJobsByDistrict: standing.goldenJobs ?? {} },
+                  id,
+                  key,
+                  job.template,
+                ),
               ),
             )
           : [],

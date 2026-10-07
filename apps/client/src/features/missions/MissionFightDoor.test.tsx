@@ -49,6 +49,8 @@ const fight: MissionOffer = {
   failedXp: 20,
   leanings: ['fight'],
   ramp: null,
+  golden: false,
+  goldenPercent: 0,
 };
 
 const area: MissionArea = {
@@ -78,7 +80,7 @@ function open(
       fleet={{ motorcycle: 1 }}
       loadouts={{}}
       bagPercent={0}
-      notoriety={100}
+      carrierFlat={0}
       marks={{}}
       carriersFight={carriersFight}
       anyRide={false}
@@ -164,7 +166,7 @@ describe('a board in the last hour before a raid on home', () => {
         fleet={{}}
         loadouts={{}}
         bagPercent={0}
-        notoriety={100}
+        carrierFlat={0}
         marks={{}}
         carriersFight={false}
         anyRide={false}

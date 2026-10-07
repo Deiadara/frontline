@@ -131,6 +131,7 @@ const crewStanding = (effects: Record<string, number>): CrewStandingResponse => 
     effects,
     marks: {},
     haulPercent: 0,
+    carrierFlat: 0,
     missionCapsPercent: 0,
   };
 };

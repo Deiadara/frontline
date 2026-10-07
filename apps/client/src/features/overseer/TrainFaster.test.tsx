@@ -23,8 +23,18 @@ vi.mock('../../lib/queries', async (importOriginal) => ({
     dataUpdatedAt: Date.parse(F.trainingResponse.serverNow),
     refetch: () => undefined,
   }),
-  useStartTraining: () => ({ mutate: () => undefined, isPending: false }),
-  useCancelDrill: () => ({ mutate: () => undefined, isPending: false }),
+  useStartTraining: () => ({
+    mutate: () => undefined,
+    reset: () => undefined,
+    isPending: false,
+    error: null,
+  }),
+  useCancelDrill: () => ({
+    mutate: () => undefined,
+    reset: () => undefined,
+    isPending: false,
+    error: null,
+  }),
 }));
 
 const SUBJECT = F.trainingResponse.subjects[1]!;

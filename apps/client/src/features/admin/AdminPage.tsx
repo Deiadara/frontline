@@ -38,7 +38,7 @@ import {
 import { InfoNote, PageShell, ScreenLoadSheet } from '../game/PageShell';
 import { formatDayClock } from '@frontline/shared';
 import { usePlayerZone } from '../settings/usePlayerZone';
-import { ErrorNote } from '../../components/ui/ErrorNote';
+import { PressError } from '../../components/ui/PressError';
 
 /**
  * The console.
@@ -247,6 +247,8 @@ function StructureKnobs({ snapshot }: { snapshot: AdminSnapshot }) {
             Set
           </Button>
         </div>
+        {/* Refused is said, not swallowed (bug pass, 2026-10-06). */}
+        {knobs.error && <PressError onDismiss={knobs.reset}>{knobs.error.message}</PressError>}
 
         <p className="font-body text-[12px] leading-snug text-ink-300">
           Level 0 removes the structure, which is the one stage an unlock-everything switch can
@@ -433,7 +435,7 @@ function StateKnobs({ snapshot }: { snapshot: AdminSnapshot }) {
           </span>
         </div>
 
-        {knobs.error !== null && <ErrorNote>{knobs.error.message}</ErrorNote>}
+        {knobs.error && <PressError onDismiss={knobs.reset}>{knobs.error.message}</PressError>}
       </div>
     </Panel>
   );
@@ -602,7 +604,7 @@ function GrantsPanel() {
           </span>
         </div>
 
-        {grant.error !== null && <ErrorNote>{grant.error.message}</ErrorNote>}
+        {grant.error && <PressError onDismiss={grant.reset}>{grant.error.message}</PressError>}
       </div>
     </Panel>
   );
@@ -616,13 +618,13 @@ function BackupsPanel({ snapshot }: { snapshot: AdminSnapshot }) {
       title="Snapshots"
       action={
         <span className="font-display text-[11px] uppercase tracking-[0.14em] text-ink-300">
-          Every ten minutes
+          Every two minutes
         </span>
       }
     >
       {snapshot.backups.length === 0 ? (
         <p className="p-4 font-body text-[13px] text-ink-300">
-          None on disk yet. The first one lands ten minutes after the server started.
+          None on disk yet. The first one lands two minutes after the server started.
         </p>
       ) : (
         <ul className="flex flex-col divide-y divide-surface-700" data-testid="admin-backups">
@@ -674,7 +676,7 @@ function FightsPanel() {
               Called. It is on the Battles board.
             </span>
           )}
-          {mock.error !== null && <ErrorNote>{mock.error.message}</ErrorNote>}
+          {mock.error && <PressError onDismiss={mock.reset}>{mock.error.message}</PressError>}
         </div>
       </div>
     </Panel>
@@ -730,7 +732,9 @@ export function AdminPage() {
   // On a sheet: a bare line here landed at the top of the window, under the standing bar. A failed
   // read says so rather than falling through to the redirect below, which is for a build that has
   // no console at all.
-  if (query.isLoading || query.isError) {
+  // A failed *re*-read keeps the console up (bug pass, 2026-10-06): every press refetches the
+  // snapshot, and one blip swapped the whole console for this sheet and lost every field typed.
+  if (query.isLoading || (query.isError && query.data === undefined)) {
     return (
       <ScreenLoadSheet
         what="The console"
@@ -820,6 +824,12 @@ export function AdminPage() {
             </Button>
           </div>
         </div>
+
+        {/* The presets' and the clean slate's own refusals, under the row they belong to: none of
+            the three was drawn anywhere (bug pass, 2026-10-06). */}
+        {(knobs.error ?? grant.error ?? reset.error) !== null && (
+          <PressError>{(knobs.error ?? grant.error ?? reset.error)?.message}</PressError>
+        )}
 
         {wiping && (
           <StartOverDialog

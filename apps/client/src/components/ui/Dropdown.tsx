@@ -32,6 +32,9 @@ import { Icon } from './Icon';
 const GAP = 6;
 const EDGE = 10;
 
+/** How the one open menu is shut, so that opening another closes it first. */
+let shutOpenMenu: (() => void) | null = null;
+
 export interface DropdownOption<T extends string> {
   value: T;
   label: string;
@@ -123,16 +126,30 @@ export function Dropdown<T extends string>({
   useEffect(() => {
     if (!open) return;
     const close = () => setOpen(false);
+    // One painted menu at a time: a trigger stops its own press (below), so a second picker's
+    // press never reached this one's window listener and both stayed open (bug pass, 2026-10-06).
+    shutOpenMenu?.();
+    shutOpenMenu = close;
     // Capture phase for scroll, because the scroll that matters is usually an inner panel's.
     window.addEventListener('scroll', place, true);
     window.addEventListener('resize', place);
     window.addEventListener('pointerdown', close);
     return () => {
+      if (shutOpenMenu === close) shutOpenMenu = null;
       window.removeEventListener('scroll', place, true);
       window.removeEventListener('resize', place);
       window.removeEventListener('pointerdown', close);
     };
   }, [open, place]);
+
+  /*
+   * The highlight is kept in sight. The list scrolls past eighteen rems, and arrowing past the
+   * eighth option, or opening on a chosen twelfth, highlighted something below the fold. Optional
+   * call: jsdom has no `scrollIntoView`.
+   */
+  useEffect(() => {
+    if (open) document.getElementById(`${id}-${active}`)?.scrollIntoView?.({ block: 'nearest' });
+  }, [open, active, id]);
 
   /** The next option in `step`'s direction that is not disabled, wrapping at both ends. */
   const step = (from: number, direction: 1 | -1): number => {
@@ -234,6 +251,19 @@ export function Dropdown<T extends string>({
         // `pointerdown` closes any open menu at the window level, so the trigger's own toggle has
         // to stop the event reaching it: otherwise a click on an open trigger closes and reopens.
         onPointerDown={(event) => event.stopPropagation()}
+        // Firefox clicks a button on Space's keyup even when the keydown was handled, which shut a
+        // menu Space had just opened and reopened one Space had just chosen from.
+        onKeyUp={(event) => {
+          if (event.key === ' ') event.preventDefault();
+        }}
+        // Tab away closes the menu. Only when focus lands somewhere: a press inside the menu moves
+        // focus to the list, and a blur with nowhere to go must not close it before the click.
+        onBlur={(event) => {
+          const next = event.relatedTarget;
+          if (next instanceof Node && !listRef.current?.parentElement?.contains(next)) {
+            setOpen(false);
+          }
+        }}
         onClick={() => {
           if (disabled) return;
           if (open) setOpen(false);

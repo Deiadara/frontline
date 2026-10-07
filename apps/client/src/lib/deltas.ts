@@ -169,7 +169,10 @@ export function shownDeltas<K extends string>(
   const allowance = trickleAllowance(previous, next);
   const produces = next.trickle !== undefined;
   const moved: Partial<Record<K, number>> = {};
-  for (const key of Object.keys(next.values) as K[]) {
+  // Both readings' keys: a counter that allows an absent entry (an inventory) drops the key when
+  // the last one is spent, and walking only the new reading missed that fall (bug pass, 2026-10-06).
+  const keys = new Set([...Object.keys(previous.values), ...Object.keys(next.values)] as K[]);
+  for (const key of keys) {
     const delta = Math.round((next.values[key] ?? 0) - (previous.values[key] ?? 0));
     if (delta === 0) continue;
     const floor = produces ? Math.max(GAIN_FLOOR, allowance[key] ?? 0) : 0;

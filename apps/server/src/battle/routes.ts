@@ -1,5 +1,4 @@
 import {
-  NAME_TOO_SMALL_TEXT,
   blueprintGateMet,
   DECLARATION_REFUSAL_MESSAGES,
   DECLARE_UNAFFORDABLE_MESSAGE,
@@ -55,13 +54,15 @@ import {
   retimeColumns,
 } from './movement.js';
 import {
-  holdingsRefusal,
+  moveRefusal,
+  withoutEmpty,
   moveMinutes,
   railOfferFor,
   recallMove,
   sendMove,
 } from '../moves/moves.js';
 import { projectActions, projectBattles } from './view.js';
+import { spyPointsFor } from '../spying/spying.js';
 import { workingRoles } from '../crew/roster.js';
 import { crewEffectsFor, officerLiftRoom } from '../crew/standing.js';
 import { settleWorld } from '../world/settle.js';
@@ -92,10 +93,6 @@ const MOVE_ERRORS: Record<MoveRefusal, { code: ErrorCode; message: string }> = {
   not_a_fighting_force: {
     code: 'NO_FORCE',
     message: 'Scavengers carry. They do not hold ground. Send them on a mission instead',
-  },
-  needs_infamy: {
-    code: 'NOT_ENOUGH_INFAMY',
-    message: 'They will not stand on ground for a name like yours',
   },
   not_yours: { code: 'FORBIDDEN', message: 'You have nobody standing there' },
   held_by_others: {
@@ -154,7 +151,6 @@ export const REFUSAL_MESSAGES: Record<DeclareRefusal | DeployRefusal, string> = 
   deployment_closed: 'They are on the ground. Nobody is moving now',
   not_enough_units: 'You do not have those units to send',
   not_a_fighting_force: 'Scavengers carry. They do not fight. Send them on a mission instead',
-  needs_infamy: NAME_TOO_SMALL_TEXT,
   no_seats: 'There is no room in what you have loaded. Take another machine or send fewer',
   ring_is_the_defenders: 'The ring is the defender’s. You chose the ground; they choose the cordon',
   garrison_locked:
@@ -190,14 +186,19 @@ export function registerBattleRoutes(app: FastifyInstance): void {
     /** §A4: what an enemy ring took off this request's withdrawal, when it was one. */
     caughtLeaving: Army = {},
   ): BattleMutationResponse => ({
-    battles: projectBattles(app.repos, base, now),
+    battles: projectBattles(app.repos, base, now, app.config.admin),
     base,
     caughtLeaving,
   });
 
   app.get('/battles', { preHandler: app.authenticate }, (request): BattlesResponse => {
     const now = new Date();
-    return projectBattles(app.repos, settled(request.currentUser.id, now), now);
+    const base = settled(request.currentUser.id, now);
+    return {
+      ...projectBattles(app.repos, base, now, app.config.admin),
+      // The crew's own spy totals, for the Spy Reports tab's heading line (2026-10-07).
+      spyPoints: spyPointsFor(app.repos, base, now),
+    };
   });
 
   /** §A4: call a fight, for a mark between eight and twenty-four hours out. */
@@ -603,16 +604,21 @@ export function registerBattleRoutes(app: FastifyInstance): void {
     const deployment =
       app.repos.sieges.deployment(battleId, side, base.id) ??
       emptyDeployment(battleId, base.id, side, now.toISOString());
-    app.repos.sieges.putDeployment({
-      ...deployment,
-      baseId: base.id,
-      officerId,
-      updatedAt: now.toISOString(),
-    });
-    // Columns already on the road take the new leader's pace, or lose the old one's (bug pass,
-    // 2026-10-05): `sendColumn` read the leader at send time, so a stood-down officer's Short Way
-    // kept shortening a road nobody was leading. `retimeColumns` re-reads the row's officer.
-    retimeColumns(app.repos, base, battleId, deployment.vehicles, now, app.config.admin);
+    // One transaction, as the vehicles route is (bug pass, 2026-10-06): `retimeColumns` can throw
+    // on a legacy column, and the officer was written first and kept while the request answered
+    // 500 and the columns kept the old pace.
+    app.db.transaction(() => {
+      app.repos.sieges.putDeployment({
+        ...deployment,
+        baseId: base.id,
+        officerId,
+        updatedAt: now.toISOString(),
+      });
+      // Columns already on the road take the new leader's pace, or lose the old one's (bug pass,
+      // 2026-10-05): `sendColumn` read the leader at send time, so a stood-down officer's Short
+      // Way kept shortening a road nobody was leading. `retimeColumns` re-reads the row's officer.
+      retimeColumns(app.repos, base, battleId, deployment.vehicles, now, app.config.admin);
+    })();
     return respond(base, now);
   });
 
@@ -744,12 +750,19 @@ export function registerBattleRoutes(app: FastifyInstance): void {
       const body = parseBody(MoveUnitsRequestSchema, request.body);
       const now = new Date();
       const base = settled(request.currentUser.id, now);
-      const unheld = holdingsRefusal(app.repos, base, body.from, body.army, body.vehicles);
-      if (unheld) {
-        const { code, message } = MOVE_ERRORS[unheld];
+      const riding = { army: withoutEmpty(body.army), vehicles: withoutEmpty(body.vehicles) };
+      // The send's own refusal, so the dialog never draws a time for a walk that cannot happen.
+      const refusal = moveRefusal(app.repos, {
+        base,
+        from: body.from,
+        to: body.to,
+        ...riding,
+        now,
+      });
+      if (refusal) {
+        const { code, message } = MOVE_ERRORS[refusal];
         throw new AppError(code, message);
       }
-      const riding = { army: body.army, vehicles: body.vehicles };
       const minutes = moveMinutes(app.repos, base, body.from, body.to, riding);
       if (minutes === null) throw new AppError('NOT_FOUND', 'There is no road to that');
       /*

@@ -104,7 +104,7 @@ function PodiumCard({ leader, at }: { leader: Leader; at: number }) {
             word here is the same label twice on one frame. */}
         <span className="flex items-center gap-1.5 font-display text-[17px] font-bold leading-none tabular-nums text-brass-300">
           <Icon name="infamy" aria-hidden className="h-3.5 w-3.5 text-brass-500" />
-          {leader.figure.toLocaleString()}
+          {leader.figure.toLocaleString('en-US')}
         </span>
       </span>
     </Link>

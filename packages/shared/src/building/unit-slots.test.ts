@@ -71,20 +71,21 @@ describe('what a district can house (§A1)', () => {
    * per-level beds were folded into the twenty, forty fresh locations would house as many people
    * as one worked one. Written as literals so a retune of either constant has to come past here.
    */
-  it('adds three beds a level on top of the flat twenty, and nothing at level one', () => {
-    expect(UNIT_SLOTS_PER_LOCATION_LEVEL).toBe(3);
+  it('adds seven beds a level on top of the flat twenty, and nothing at level one', () => {
+    // Seven since the ladder went to five levels (2026-10-06): 48 at the top, where 47 stood.
+    expect(UNIT_SLOTS_PER_LOCATION_LEVEL).toBe(7);
     expect(held(PLAIN.id, 1)).toBe(20);
-    expect(held(PLAIN.id, 2)).toBe(23);
-    expect(held(PLAIN.id, 4)).toBe(29);
-    expect(held(PLAIN.id, MAX_LOCATION_LEVEL)).toBe(47);
+    expect(held(PLAIN.id, 2)).toBe(27);
+    expect(held(PLAIN.id, 4)).toBe(41);
+    expect(held(PLAIN.id, MAX_LOCATION_LEVEL)).toBe(48);
   });
 
   /**
    * §A4: a location that houses people scales *that* separately, on the ordinary bonus curve.
    *
    * The Fence Camp's own 50 is a hold bonus like any other and goes up with `LEVEL_SCALE`, so at
-   * the ceiling it is 275. The flat 20 underneath it does not move, and the per-level beds are the
-   * same three a Scrap Press gets. Three terms, three curves, and the sum is checked against the
+   * the ceiling it is 250. The flat 20 underneath it does not move, and the per-level beds are the
+   * same seven a Scrap Press gets. Three terms, three curves, and the sum is checked against the
    * parts so a change to any one of them cannot hide inside the total.
    */
   it('scales a housing location on its own curve, over and above the other two terms', () => {
@@ -93,11 +94,11 @@ describe('what a district can house (§A1)', () => {
         (sum, bonus) => sum + (bonus.kind === 'unit_slots' ? bonus.flat : 0),
         0,
       );
-    expect([own(1), own(4), own(MAX_LOCATION_LEVEL)]).toEqual([50, 125, 275]);
+    expect([own(1), own(4), own(MAX_LOCATION_LEVEL)]).toEqual([50, 200, 250]);
 
     expect(held(CAMP.id, 1)).toBe(70);
-    expect(held(CAMP.id, 4)).toBe(154);
-    expect(held(CAMP.id, MAX_LOCATION_LEVEL)).toBe(322);
+    expect(held(CAMP.id, 4)).toBe(241);
+    expect(held(CAMP.id, MAX_LOCATION_LEVEL)).toBe(298);
     for (const level of [1, 4, MAX_LOCATION_LEVEL]) {
       expect(held(CAMP.id, level), `level ${level}`).toBe(held(PLAIN.id, level) + own(level));
     }

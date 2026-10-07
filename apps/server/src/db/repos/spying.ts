@@ -10,6 +10,7 @@ import {
   type SpyTarget,
 } from '@frontline/shared';
 import type { AppDatabase } from '../index.js';
+import { readableRows } from './readable.js';
 
 /**
  * Spy jobs on the clock, and the reports they come home with (maintainer, 2026-09-22).
@@ -116,6 +117,12 @@ const toRun = (row: RunRow): SpyRun =>
     intelPercent: row.intel_percent,
   });
 
+/** A stored report with any unit since retired taken off what it exposed. */
+function withoutRetiredExposed(report: unknown): unknown {
+  if (typeof report !== 'object' || report === null || !('exposed' in report)) return report;
+  return { ...report, exposed: withoutRetiredUnits(report.exposed) };
+}
+
 const toReport = (row: ReportRow): SpyReport => {
   // A unit retired since the report was written is dropped rather than thrown on (bug pass,
   // 2026-09-29): reports are kept for ever, and one that no longer parsed took the owner's battle
@@ -220,11 +227,13 @@ export function createSpyingRepo(db: AppDatabase): SpyingRepo {
         run.intelPercent,
       );
     },
+    // Each list is read row by row (bug pass, 2026-10-06): a run carrying a tier this build has
+    // renamed threw in `due` and stopped every spy job in the world from coming home.
     due(nowIso) {
-      return (dueStmt().all(nowIso) as RunRow[]).map(toRun);
+      return readableRows(dueStmt().all(nowIso) as RunRow[], 'spy run', toRun);
     },
     activeFor(baseId) {
-      return (activeStmt().all(baseId) as RunRow[]).map(toRun);
+      return readableRows(activeStmt().all(baseId) as RunRow[], 'spy run', toRun);
     },
     markSettled(id, atIso) {
       settleStmt().run(atIso, id);
@@ -257,7 +266,7 @@ export function createSpyingRepo(db: AppDatabase): SpyingRepo {
       );
     },
     unread() {
-      return (unreadStmt().all() as RunRow[]).map(toRun);
+      return readableRows(unreadStmt().all() as RunRow[], 'spy run', toRun);
     },
     putSnapshot(id, snapshot) {
       putSnapshotStmt().run(JSON.stringify(snapshot), id);
@@ -265,22 +274,31 @@ export function createSpyingRepo(db: AppDatabase): SpyingRepo {
     snapshotOf(id) {
       const row = snapshotStmt().get(id) as { snapshot_json: string | null } | undefined;
       if (!row?.snapshot_json) return undefined;
-      const stored = JSON.parse(row.snapshot_json) as { report?: unknown; watcher?: unknown };
-      // A read stored before the watcher was kept is the report itself: no watcher on it.
-      if (stored.report === undefined) {
-        return { report: SpyReportSchema.parse(stored), watcher: undefined };
+      /*
+       * A unit retired while the runners were out is dropped, as `toReport` drops it, and a read
+       * this build still cannot parse is no read at all: the settle then writes one now (bug pass,
+       * 2026-10-06). Thrown, it rolled the settle back every second for ever, the run held its
+       * party slot and the report never came home.
+       */
+      try {
+        const stored = JSON.parse(row.snapshot_json) as { report?: unknown; watcher?: unknown };
+        // A read stored before the watcher was kept is the report itself: no watcher on it.
+        const kept = stored.report === undefined;
+        return {
+          report: SpyReportSchema.parse(withoutRetiredExposed(kept ? stored : stored.report)),
+          watcher: kept ? undefined : typeof stored.watcher === 'string' ? stored.watcher : null,
+        };
+      } catch (error) {
+        console.warn(`spy run ${id}: stored read not readable by this build, reading again`, error);
+        return undefined;
       }
-      return {
-        report: SpyReportSchema.parse(stored.report),
-        watcher: typeof stored.watcher === 'string' ? stored.watcher : null,
-      };
     },
     reportsFor(baseId, limit) {
-      return (reportsStmt().all(baseId, limit) as ReportRow[]).map(toReport);
+      return readableRows(reportsStmt().all(baseId, limit) as ReportRow[], 'spy report', toReport);
     },
     latestFor(baseId, target) {
       const row = latestStmt().get(baseId, targetKey(target)) as ReportRow | undefined;
-      return row ? toReport(row) : undefined;
+      return row ? readableRows([row], 'spy report', toReport)[0] : undefined;
     },
     hasReport(id) {
       return hasReportStmt().get(id) !== undefined;

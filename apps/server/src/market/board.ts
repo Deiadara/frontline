@@ -54,8 +54,8 @@ import type { Repositories } from '../db/repos/index.js';
 import { adminCaps, adminCost, adminWaives } from '../admin/mode.js';
 import { citiesFor, homeCityOf, mayEnter } from '../city/stakes.js';
 import { workingRoles } from '../crew/roster.js';
-import { crewEffectsFor, standingEffectsFor } from '../crew/standing.js';
-import { creditBase, refuseWaste } from '../district/stores.js';
+import { standingEffectsFor } from '../crew/standing.js';
+import { creditBase, refuseWaste, storagePercentOf } from '../district/stores.js';
 import { settleBase } from '../district/settle.js';
 import { notify } from '../social/notify.js';
 import { shownNameOf } from '../social/names.js';
@@ -137,7 +137,7 @@ export function settleMarketBoard(repos: Repositories, now: Date): number {
 function openIdsAskingNothing(repos: Repositories): string[] {
   return repos.market
     .listByStatus('open')
-    .filter((offer) => bundleIsEmpty(offer.want))
+    .filter((offer) => bundleIsEmpty(offer.want) || bundleIsEmpty(offer.give))
     .map((offer) => offer.id);
 }
 
@@ -146,7 +146,9 @@ function openIdsAskingNothing(repos: Repositories): string[] {
  * would hand its escrow to whoever pressed first for free, so it closes as if it had lapsed.
  */
 function listingHasRunOut(offer: MarketOffer, now: Date): boolean {
-  return offerHasExpired(offer, now) || bundleIsEmpty(offer.want);
+  // Or offering nothing (bug pass, 2026-10-06): a listing whose only good was retired charged the
+  // buyer its price and handed over nothing.
+  return offerHasExpired(offer, now) || bundleIsEmpty(offer.want) || bundleIsEmpty(offer.give);
 }
 
 /** Closes one listing that has run out, if nothing has closed it since the ids were read. */
@@ -371,10 +373,7 @@ export function projectMarket(
    * returned zero for a crew whose district plainly had room. Read once and handed to both the
    * ration and the per-line room, so the two cannot disagree with each other either.
    */
-  const bulk = storageCapacity(
-    base.buildings,
-    crewEffectsFor(repos, base, now).storageCapacityPercent,
-  );
+  const bulk = storageCapacity(base.buildings, storagePercentOf(repos, base, now));
   /*
    * The barrow is empty while he is away, and it is empty **here** rather than on the screen.
    *
@@ -510,10 +509,7 @@ export function buySupply(
   // The ration is measured against the bulk shelf; the room is measured against this resource's own.
   // Both off the same figure the board quoted, the crew's own storage bonus included, or the till would
   // refuse a run the panel had just offered.
-  const bulk = storageCapacity(
-    base.buildings,
-    crewEffectsFor(repos, base, now).storageCapacityPercent,
-  );
+  const bulk = storageCapacity(base.buildings, storagePercentOf(repos, base, now));
   const allowance = supplyAllowance(base.level, bulk);
   const used = repos.market.supplyUsed(base.id, day);
   // The crew's market discount, off the same reading the board quoted the lines with.

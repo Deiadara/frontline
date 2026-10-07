@@ -41,17 +41,19 @@ describe('the general muster cuts', () => {
     ]);
   });
 
-  it('works an Armory up from 1 to 6, where it was 12 to 66', () => {
-    const ladder = Array.from({ length: 10 }, (_, index) => costOf(bonusesAt('armory', index + 1)));
-    expect(ladder).toEqual([1, 2, 2, 3, 3, 4, 4, 5, 5, 6]);
+  it('works an Armory up from 1 to 5, where it was 12 to 66', () => {
+    // One a level over the five-level ladder (2026-10-06); the old ten reached 6.
+    const ladder = Array.from({ length: 5 }, (_, index) => costOf(bonusesAt('armory', index + 1)));
+    expect(ladder).toEqual([1, 2, 3, 4, 5]);
     for (let index = 1; index < ladder.length; index += 1) {
       expect(ladder[index]!, `level ${index + 1}`).toBeGreaterThanOrEqual(ladder[index - 1]!);
     }
   });
 
-  it('pays 2 for holding the Steelbelt whole, and 1 a level for a unit on its own ground', () => {
+  it('pays 2 for holding the Steelbelt whole, and 2 a level for a unit on its own ground', () => {
     const steelbelt = unifiedBonusFor('steelbelt')?.bonus;
     expect(steelbelt?.kind === 'muster_cost' ? steelbelt.percent : Number.NaN).toBe(2);
-    expect(MUSTER_COST_PER_LOCATION_LEVEL).toBe(1);
+    // Two a level since the ladder went to five (2026-10-06): 8 at the top, where 9 stood.
+    expect(MUSTER_COST_PER_LOCATION_LEVEL).toBe(2);
   });
 });

@@ -96,7 +96,7 @@ function Rung({
               than printed dots, which at this size read as dirt on the paper. */}
           <span aria-hidden className="ink-rule min-w-0 flex-1 translate-y-[-2px]" />
           <span className="shrink-0 font-stamp text-[14px] leading-none tabular-nums text-hextech-100">
-            {playerXpToNextLevel(at).toLocaleString()}
+            {playerXpToNextLevel(at).toLocaleString('en-US')}
           </span>
           <span className="shrink-0 font-display text-[11px] uppercase tracking-[0.12em] text-ink-400">
             XP to leave
@@ -164,10 +164,10 @@ export function LevelLadderPage() {
         <span className="flex min-w-[16rem] flex-1 flex-col gap-2">
           <span className="flex items-baseline gap-2">
             <span className="font-display text-2xl font-bold tabular-nums text-hextech-100">
-              {into.toLocaleString()}
+              {into.toLocaleString('en-US')}
             </span>
             <span className="font-display text-base tabular-nums text-ink-300">
-              / {toNext.toLocaleString()} XP
+              / {toNext.toLocaleString('en-US')} XP
             </span>
           </span>
           <DrawnMeter

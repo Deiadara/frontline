@@ -56,6 +56,7 @@ import {
   buildingLevel,
   missionCompletesAt,
   VEHICLE_IDS,
+  missionCarry,
 } from '@frontline/shared';
 import type { FastifyInstance } from 'fastify';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -959,12 +960,20 @@ describe('mission payout (§E1, §E5)', () => {
   it('records what was actually banked on the mission row', async () => {
     const stack = await makeStack();
     planted(stack, scrapRun, ALWAYS_SUCCEEDS);
-    resolveDueMissions(stack.repos, stack.base, after(templateTimings(scrapRun).totalMinutes));
+    const at = after(templateTimings(scrapRun).totalMinutes);
+    resolveDueMissions(stack.repos, stack.base, at);
 
     const stored = stack.repos.missions.listByBaseId(stack.base.id)[0];
     expect(stored?.mission.status).toBe('resolved');
     expect(stored?.mission.rewards).toEqual(paidFor(scrapRun, stack));
     expect(stored?.mission.resolvedAt).not.toBeNull();
+    // What they could lift at the mark, kept so the report never rebuilds it from today's crew
+    // (bug pass, 2026-10-06).
+    const crew = standingEffectsFor(stack.repos, stack.base, at);
+    expect(stored?.mission.carryCapacity).toBe(
+      missionCarry(stored!.mission.force, stack.base.unitLoadouts, crew.lootCapacityPercent, crew),
+    );
+    expect(stored?.mission.carryCapacity).toBeGreaterThan(0);
   });
 
   it('prices a run on the clock frozen at launch, not on a template retuned mid-flight', async () => {
@@ -1048,14 +1057,13 @@ describe('the mission routes', () => {
   });
 
   /**
-   * §D7: the rank gate stands on every door onto a field, and this was the one it did not.
+   * §D7 sits on the muster now (maintainer, 2026-10-07), not on the launch.
    *
-   * `notorietyToField` says a unit past the crew's rank "will not take the field". The deployment
-   * screen refuses it and the city refuses it; the launch route checked the roster and the tier
-   * and never the name, so a rank-nothing crew that mustered a Colossus could not send it to a
-   * declared fight and could send it to a battle job against the same engine.
+   * The rank gate used to stand on every door onto a field, which let a crew muster a unit it
+   * could then never send. A unit on the roster goes where the crew goes: pinned on the sheet the
+   * old door refused, so the gate cannot quietly come back here.
    */
-  it('refuses a unit the crew has not earned the name to field', async () => {
+  it('sends a unit whatever the crew\u2019s name, once it is on the roster', async () => {
     const stack = await makeStack();
     const { app, token } = stack;
     const leaderId = withOfficer(stack);
@@ -1069,7 +1077,7 @@ describe('the mission routes', () => {
     );
 
     const going = aJobToday();
-    const refused = await app.inject({
+    const sent = await app.inject({
       method: 'POST',
       url: '/api/missions',
       headers: auth(token),
@@ -1081,8 +1089,7 @@ describe('the mission routes', () => {
         leaderId,
       },
     });
-    expect(refused.statusCode, refused.body.slice(0, 200)).toBe(409);
-    expect(refused.body).toContain('name that small');
+    expect(sent.statusCode, sent.body.slice(0, 200)).toBe(200);
   });
 
   it('freezes the clock at launch so retuning the board cannot retime a run in flight', async () => {

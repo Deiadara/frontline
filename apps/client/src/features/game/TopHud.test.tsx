@@ -401,3 +401,25 @@ describe('the standing bar in a testing build', () => {
     expect(screen.queryByText(/· free/)).toBeNull();
   });
 });
+
+/** Bug pass, 2026-10-06: the badge is drawn `aria-hidden`, so a reader never heard the count. */
+describe('the unread counts on the doors', () => {
+  it('are part of each door’s name, and only when there is something waiting', () => {
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <MemoryRouter>
+          <TopHud
+            overseer={overseer}
+            base={base}
+            resources={STARTING_RESOURCES}
+            economy={economy}
+            buildings={buildings}
+            unread={{ messages: 3, notifications: 0, fightsOnYou: 0, featsReady: 0 }}
+          />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+    expect(screen.getByTestId('hud-messages')).toHaveAccessibleName(/3 waiting/);
+    expect(screen.getByTestId('hud-notifications')).not.toHaveAccessibleName(/waiting/);
+  });
+});

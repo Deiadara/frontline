@@ -12,7 +12,7 @@ import {
 } from '../research/tracks.js';
 import { mulberry32, seedFrom } from '../rng.js';
 import { ArmySchema, armySize, type Army } from '../units/index.js';
-import { cancelWindowMs, cancelWindowOpen, turnaroundMs } from '../time/cancel.js';
+import { cancelWindowMs, turnaroundMs } from '../time/cancel.js';
 
 /**
  * Spying: what a Master of Whispers can find out about a place, and what it costs (maintainer
@@ -692,16 +692,27 @@ function spyTotalMs(run: Pick<SpyRun, 'departedAt' | 'returnsAt'>): number {
   return Math.max(0, Date.parse(run.returnsAt) - Date.parse(run.departedAt));
 }
 
-type RecallableSpy = Pick<SpyRun, 'departedAt' | 'returnsAt' | 'recalledAt'>;
+type RecallableSpy = Pick<SpyRun, 'departedAt' | 'returnsAt' | 'recalledAt' | 'travelMinutes'>;
+
+/**
+ * When the runners reach the place and take their look.
+ *
+ * The recall shuts there as well as at the tenth (maintainer, 2026-10-06). A tenth of the whole job
+ * outlasts the walk out whenever the look is more than eight times the walk, and a recall after
+ * the look threw the read away while a holder who caught them was never told.
+ */
+function spyArrivesAtMs(run: Pick<SpyRun, 'departedAt' | 'travelMinutes'>): number {
+  return Date.parse(run.departedAt) + run.travelMinutes * 60_000;
+}
 
 export function spyRecallable(run: RecallableSpy, now: Date): boolean {
-  if (run.recalledAt !== null) return false;
-  return cancelWindowOpen(Date.parse(run.departedAt), spyTotalMs(run), now.getTime());
+  return spyRecallWindowMs(run, now) > 0;
 }
 
 export function spyRecallWindowMs(run: RecallableSpy, now: Date): number {
   if (run.recalledAt !== null) return 0;
-  return cancelWindowMs(Date.parse(run.departedAt), spyTotalMs(run), now.getTime());
+  const tenth = cancelWindowMs(Date.parse(run.departedAt), spyTotalMs(run), now.getTime());
+  return Math.max(0, Math.min(tenth, spyArrivesAtMs(run) - now.getTime()));
 }
 
 /** Turned round: home as far off as they had come, and no report. */

@@ -40,6 +40,7 @@ const KNOWN_OVERSHOOT: readonly string[] = [
   'cyber_dogs.morale',
   'cyber_dogs.speed',
   'cyber_dogs.stealth',
+  'death_cloaks.morale',
   'demolishers.morale',
   'ghosts.morale',
   'ghosts.stealth',

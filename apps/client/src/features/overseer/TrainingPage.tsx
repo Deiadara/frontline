@@ -9,6 +9,8 @@ import {
   ATTRIBUTE_LABELS,
   importanceOf,
   MAX_ATTRIBUTE,
+  TRAINING_BLOCKERS,
+  drillHoldBlocker,
   OFFICER_ROLE_LABELS,
   OVERSEER_SUBJECT,
   TRAINING_DRILLS,
@@ -40,6 +42,7 @@ import { DrillSigil } from './DrillSigil';
 import { TrainingPortrait } from './TrainingPortrait';
 import { IMPORTANCE_EDGE, IMPORTANCE_TEXT } from '../../lib/importance';
 import { ErrorNote } from '../../components/ui/ErrorNote';
+import { PressError } from '../../components/ui/PressError';
 
 /**
  * The Training tab (§F2).
@@ -136,6 +139,12 @@ export function TrainingPage() {
   const [chosen, setChosen] = useState<string>(OVERSEER_SUBJECT);
   /** The drill a player has opened, if any. Clicking a row opens it; it never trains. */
   const [opened, setOpened] = useState<AttributeName | null>(null);
+  /*
+   * Whose drill it was opened for (bug pass, 2026-10-06). The sheet on show falls back to the first
+   * person when the chosen one leaves the books, and an open drill followed it: released in another
+   * tab, the officer's window turned into the Overseer's, with a live button.
+   */
+  const [openedFor, setOpenedFor] = useState<string | null>(null);
 
   const sheetRef = useRef<HTMLDivElement>(null);
   const hintRef = useRef<HTMLParagraphElement>(null);
@@ -265,7 +274,11 @@ export function TrainingPage() {
                     subject={one}
                     selected={one.id === subject?.id}
                     now={now}
-                    onSelect={() => setChosen(one.id)}
+                    onSelect={() => {
+                      // A refused cancel was about whoever was open before.
+                      cancel.reset();
+                      setChosen(one.id);
+                    }}
                   />
                 </li>
               ))}
@@ -425,12 +438,14 @@ export function TrainingPage() {
               </div>
             </div>
 
-            {start.error !== null && (
-              <ErrorNote className="shrink-0">That session did not start.</ErrorNote>
-            )}
+            {/* The refusal is drawn in the drill window while it is open (bug pass, 2026-10-06);
+                this line is for a start whose window has gone, in the server's own words. */}
+            {start.error && opened === null && <PressError>{start.error.message}</PressError>}
             {/* Under the banner with the start's error rather than in the cancel's line, which
                 has room for the X and nothing else. */}
-            {cancel.error && <ErrorNote className="shrink-0">{cancel.error.message}</ErrorNote>}
+            {cancel.error && (
+              <PressError onDismiss={cancel.reset}>{cancel.error.message}</PressError>
+            )}
 
             {/*
              * The sheet takes whatever height is left, and gives up whole rows rather than half
@@ -478,7 +493,10 @@ export function TrainingPage() {
                       sessionsLeft={data.sessionsLeft}
                       floorFull={floorFull}
                       pending={start.isPending}
-                      onOpen={setOpened}
+                      onOpen={(name) => {
+                        setOpenedFor(subject.id);
+                        setOpened(name);
+                      }}
                     />
                   ))}
                 </div>
@@ -499,13 +517,16 @@ export function TrainingPage() {
         )}
       </div>
 
-      {opened !== null && subject && (
+      {/* Only while the one it was opened on is still on the books: released in another tab, the
+          fallback below would have turned it into the Overseer's drill with a live button. */}
+      {opened !== null && subject && subject.id === openedFor && (
         <DrillDialog
           name={opened}
           subject={subject}
           // Their own hour: Speed, Resolve and Organization shorten it (2026-10-01).
           seconds={subject.sessionSeconds ?? data.sessionSeconds}
           blocker={drillBlocker(opened, subject, data.sessionsLeft, floorFull)}
+          error={start.error?.message ?? null}
           pending={start.isPending}
           onTrain={() => {
             start.mutate(
@@ -513,7 +534,10 @@ export function TrainingPage() {
               { onSuccess: () => setOpened(null) },
             );
           }}
-          onClose={() => setOpened(null)}
+          onClose={() => {
+            start.reset();
+            setOpened(null);
+          }}
         />
       )}
     </PageShell>
@@ -1064,13 +1088,21 @@ function drillBlocker(
   sessionsLeft: number,
   floorFull: boolean,
 ): string | null {
-  if (sessionsLeft <= 0) return 'Nothing left today';
+  // Away from the floor first, as the route asks it: a run, a fight or a sickbed.
+  const away = drillHoldBlocker(subject.held);
+  if (away !== null) return away;
+  // The server's own words, out of the one copy `trainingBlocker` reads (bug pass, 2026-10-06).
+  if (sessionsLeft <= 0) return TRAINING_BLOCKERS.noSessions;
   // One place per person, running or waiting (maintainer, 2026-10-04).
-  if (subject.session) return 'Already in the queue';
-  // The server's own words (`trainingBlocker`), after the per-person check for the same reason.
-  if (floorFull) return 'The queue is full';
-  if (subject.lastAttribute === name) return 'Did that last time';
-  if (subject.attributes[name] >= MAX_ATTRIBUTE) return 'Nothing left to learn';
+  if (subject.session) {
+    return drillUnderway(subject.session, Date.now())
+      ? TRAINING_BLOCKERS.inSession
+      : TRAINING_BLOCKERS.inQueue;
+  }
+  // After the per-person check for the same reason the server's is.
+  if (floorFull) return TRAINING_BLOCKERS.queueFull;
+  if (subject.lastAttribute === name) return TRAINING_BLOCKERS.lastTime;
+  if (subject.attributes[name] >= MAX_ATTRIBUTE) return TRAINING_BLOCKERS.maxed;
   return null;
 }
 
@@ -1119,6 +1151,7 @@ function DrillDialog({
   subject,
   seconds,
   blocker,
+  error,
   pending,
   onTrain,
   onClose,
@@ -1127,6 +1160,8 @@ function DrillDialog({
   subject: TrainingSubject;
   seconds: number;
   blocker: string | null;
+  /** The server's refusal of the last press, drawn here: the page behind is under the backdrop. */
+  error: string | null;
   pending: boolean;
   onTrain: () => void;
   onClose: () => void;
@@ -1186,7 +1221,11 @@ function DrillDialog({
       </div>
 
       <footer className="flex shrink-0 items-center justify-end gap-3 border-t border-surface-700 px-5 py-4">
-        {blocker !== null && <ErrorNote className="mr-auto">{blocker}.</ErrorNote>}
+        {blocker !== null ? (
+          <ErrorNote className="mr-auto">{blocker}.</ErrorNote>
+        ) : (
+          error !== null && <PressError>{error}</PressError>
+        )}
         <Button variant="ghost" size="sm" onClick={onClose}>
           Not today
         </Button>

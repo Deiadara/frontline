@@ -12,6 +12,7 @@ import { Button } from '../../components/ui/Button';
 import { DrawnButton } from '../../components/ui/DrawnButton';
 import { DrawnFace } from '../../components/ui/DrawnMarks';
 import { ErrorNote } from '../../components/ui/ErrorNote';
+import { PressError } from '../../components/ui/PressError';
 import { Icon } from '../../components/ui/Icon';
 import { Modal } from '../../components/ui/Modal';
 import { NumberField } from '../../components/ui/NumberField';
@@ -33,9 +34,18 @@ import { useServerClock } from '../missions/useServerClock';
 export function StackhousePanel({ className }: { className?: string }) {
   const query = useStackhouse();
   const now = useServerClock(query.data?.serverNow, query.dataUpdatedAt);
-  const [open, setOpen] = useState<string | null>(null);
+  /*
+   * The fight the window was opened on, kept (maintainer, 2026-10-06). The window drew only while
+   * the fight was on the book, and the book is refetched after every bet and every five seconds:
+   * a refusal near the close, or a fight leaving the book, took the window and its reason with it.
+   * The live row is read while there is one; the copy holds the window up until it is closed.
+   */
+  const [opened, setOpened] = useState<StackhouseFight | null>(null);
   const data = query.data;
-  const fight = data?.fights.find((one) => one.battleId === open);
+  const fight =
+    opened === null
+      ? undefined
+      : (data?.fights.find((one) => one.battleId === opened.battleId) ?? opened);
 
   return (
     <Panel
@@ -62,13 +72,19 @@ export function StackhousePanel({ className }: { className?: string }) {
             {data.activeBet !== null && <Riding bet={data.activeBet} now={now} />}
             {data.lastResult !== null && <LastResult result={data.lastResult} />}
             {data.activeBet === null && (
-              <FightList fights={data.fights} now={now} onOpen={setOpen} />
+              <FightList
+                fights={data.fights}
+                now={now}
+                onOpen={(battleId) =>
+                  setOpened(data.fights.find((one) => one.battleId === battleId) ?? null)
+                }
+              />
             )}
           </>
         )}
       </div>
       {data && fight !== undefined && (
-        <BetWindow fight={fight} book={data} now={now} onClose={() => setOpen(null)} />
+        <BetWindow fight={fight} book={data} now={now} onClose={() => setOpened(null)} />
       )}
     </Panel>
   );
@@ -101,10 +117,10 @@ function Riding({ bet, now }: { bet: StackhouseBet; now: Date }) {
       </span>
       <p className="font-body text-[13px] leading-snug text-ink-100">
         <span className="font-semibold tabular-nums text-tangerine-100">
-          {bet.stake.toLocaleString()} caps
+          {bet.stake.toLocaleString('en-US')} caps
         </span>{' '}
         on <span className="font-semibold text-tangerine-100">{bet.backing}</span> at {bet.place}.
-        Pays {stackhousePayout(bet.stake).toLocaleString()} if they win.
+        Pays {stackhousePayout(bet.stake).toLocaleString('en-US')} if they win.
       </p>
       <p className="font-body text-[12px] text-ink-300">
         The fight starts in {formatRemaining(Date.parse(bet.startsAt) - now.getTime())}. Your next
@@ -116,11 +132,11 @@ function Riding({ bet, now }: { bet: StackhouseBet; now: Date }) {
 
 const RESULT_WORDS: Record<StackhouseResult['outcome'], (result: StackhouseResult) => string> = {
   won: (result) =>
-    `${result.backing} took it at ${result.place}. Your ${result.stake.toLocaleString()} came back as ${result.payout.toLocaleString()}.`,
+    `${result.backing} took it at ${result.place}. Your ${result.stake.toLocaleString('en-US')} came back as ${result.payout.toLocaleString('en-US')}.`,
   lost: (result) =>
-    `${result.backing} lost at ${result.place}. The house kept your ${result.stake.toLocaleString()}.`,
+    `${result.backing} lost at ${result.place}. The house kept your ${result.stake.toLocaleString('en-US')}.`,
   refunded: (result) =>
-    `The fight at ${result.place} never ran. Your ${result.stake.toLocaleString()} came back.`,
+    `The fight at ${result.place} never ran. Your ${result.stake.toLocaleString('en-US')} came back.`,
 };
 
 function LastResult({ result }: { result: StackhouseResult }) {
@@ -228,10 +244,20 @@ function BetWindow({
   const place = usePlaceStackhouseBet();
   const [side, setSide] = useState<BattleSide | null>(null);
   const most = Math.max(1, Math.min(book.maxStake, caps));
-  const [stake, setStake] = useState(Math.min(1_000, most));
+  /*
+   * What the player typed, or null for the default. Clamped to what they can stake at every render
+   * rather than once at mount (bug pass, 2026-10-06): opened before `/me` answered, the default was
+   * worked out against no caps and stuck at 1, and caps spent elsewhere while the window was open
+   * left a stake the server would refuse.
+   */
+  const [typed, setStake] = useState<number | null>(null);
+  const stake = Math.min(typed ?? 1_000, most);
   const [sure, setSure] = useState(false);
   const backing = side === null ? null : fight[side].name;
   const short = caps < 1;
+  // Shut at the close on this clock, rather than live until the next poll took the fight away.
+  const closed =
+    now.getTime() >= Date.parse(fight.closesAt) ? 'Betting on this fight has closed' : null;
 
   return (
     <Modal
@@ -282,15 +308,16 @@ function BetWindow({
             <p className="font-body text-[14px] leading-relaxed text-ink-100">
               Put{' '}
               <span className="font-semibold tabular-nums text-tangerine-100">
-                {stake.toLocaleString()} caps
+                {stake.toLocaleString('en-US')} caps
               </span>{' '}
               on <span className="font-semibold text-tangerine-100">{backing}</span>?
             </p>
-            {place.error !== null && <ErrorNote>{place.error.message}</ErrorNote>}
+            {place.error && <PressError onDismiss={place.reset}>{place.error.message}</PressError>}
             <div className="flex flex-wrap gap-2">
               <DrawnButton
                 tone="danger"
-                disabled={place.isPending}
+                disabled={place.isPending || closed !== null}
+                data-tip={closed ?? undefined}
                 onClick={() =>
                   place.mutate(
                     { battleId: fight.battleId, side, stake },
@@ -340,14 +367,15 @@ function BetWindow({
               <p className="pb-1 font-body text-[12px] text-ink-300">
                 Pays{' '}
                 <span className="tabular-nums text-tangerine-100">
-                  {stackhousePayout(stake).toLocaleString()}
+                  {stackhousePayout(stake).toLocaleString('en-US')}
                 </span>{' '}
-                if {backing ?? 'your side'} wins. Up to {book.maxStake.toLocaleString()}.
+                if {backing ?? 'your side'} wins. Up to {book.maxStake.toLocaleString('en-US')}.
               </p>
             </div>
             {short && <ErrorNote>You have no caps to put down.</ErrorNote>}
             <DrawnButton
-              disabled={side === null || short}
+              disabled={side === null || short || closed !== null}
+              data-tip={closed ?? undefined}
               onClick={() => setSure(true)}
               className="self-start"
               data-testid="stackhouse-place"

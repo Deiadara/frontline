@@ -22,10 +22,16 @@ export interface DealtCard {
  * say it, and by the standing fold, to pay it, and it is one function so the two cannot drift.
  */
 export function cardsAtTable(repos: Repositories, factionId: string): Map<string, DealtCard> {
+  /*
+   * Whether each member has a district, off the summaries (bug pass, 2026-10-06). It was a full
+   * parse of every member's crew row on every standing fold, which every settle runs: one
+   * unreadable row broke every route for the whole faction, and a full table parsed thirty crews
+   * per `/me`.
+   */
+  const housed = new Set(repos.bases.listSummaries().map((summary) => summary.ownerId));
   const seatable = repos.factions.members(factionId).flatMap((row) => {
     const user = repos.users.findById(row.userId);
-    const base = repos.bases.findByOwnerId(row.userId);
-    if (!user || !base) return [];
+    if (!user || !housed.has(row.userId)) return [];
     const seat: Seatable & { userId: string; overseerId: string | null } = {
       userId: row.userId,
       username: user.username,

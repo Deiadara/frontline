@@ -1,4 +1,9 @@
-import { GARAGE_TIME_DISCOUNT_PER_LEVEL, VEHICLES, vehicleBuildSeconds } from '@frontline/shared';
+import {
+  GARAGE_TIME_DISCOUNT_PER_LEVEL,
+  VEHICLES,
+  vehicleBatchSeconds,
+  vehicleBuildSeconds,
+} from '@frontline/shared';
 import { expect, test } from '@playwright/test';
 import { formatDuration } from '../src/features/base/format';
 import { garage, lateGame } from './fixtures';
@@ -30,22 +35,21 @@ test('the Garage building opens the machines on the roster', async ({ page }) =>
 });
 
 /**
- * The yard's level and its seat count, which the retirement nearly lost.
+ * The yard's seat count, which the retirement nearly lost.
  *
- * Both were on the page that was retired, and nothing moved them: the server went on shipping
- * `garageLevel` and `capacity` and no screen read either. Found by sweeping the wire for fields no
- * client file mentions, which is the only way a dead payload announces itself.
+ * It was on the page that was retired, and nothing moved it: the server went on shipping
+ * `capacity` and no screen read it. Found by sweeping the wire for fields no client file mentions,
+ * which is the only way a dead payload announces itself. The level sentence that stood beside it
+ * went on 2026-10-07 (maintainer): every card already names the level it wants.
  */
-test('the Vehicles tab says what the yard is and how many unit slots are in it', async ({
-  page,
-}) => {
+test('the Vehicles tab says how many unit slots are in the yard', async ({ page }) => {
   await installApi(page, lateGame);
   await page.goto('/game/units?tab=vehicles');
   await expect(page.getByTestId('vehicle-catalogue')).toBeVisible();
 
   const standing = page.getByTestId('yard-standing');
   await expect(standing).toBeVisible();
-  await expect(standing).toContainText(`Garage at level ${garage.garageLevel}`);
+  await expect(standing).not.toContainText('Garage at level');
   await expect(page.getByTestId('yard-seats')).toHaveText(`${garage.capacity} unit slots`);
 });
 
@@ -87,7 +91,7 @@ test('the Vehicles tab lists every machine and builds one', async ({ page }) => 
     (request) => request.url().includes('/api/garage/build') && request.method() === 'POST',
   );
   await bike.getByRole('button', { name: 'Build it' }).click();
-  expect((await posted).postDataJSON()).toEqual({ vehicleId: 'motorcycle' });
+  expect((await posted).postDataJSON()).toEqual({ vehicleId: 'motorcycle', count: 1 });
 
   await expectNothingOverflowsTheScreen(page);
 });
@@ -127,38 +131,54 @@ test('the card says how long a machine takes, with the yard taken off', async ({
 });
 
 /**
- * The price beside the button, not over it (maintainer, 2026-09-18).
+ * The order box is the unit card's (maintainer, 2026-10-07: "make the vehicle Build it section be
+ * the same as the units where you can choose a number, you have max etc").
  *
- * "For the vehicles put the costs next to Build it in the same line." They were stacked, which
- * cost the card a row and read as two separate things: what it costs, and then, below, a control.
- * They are the two halves of one decision.
- *
- * Geometry rather than a class list, because "on the same line" is a fact about where the boxes
- * land: a `flex-wrap` that wraps at a narrow width satisfies every class check and puts the price
- * back under the button. Asserted at the narrowest viewport the game supports as well as the
- * widest, since wrapping is exactly what narrow does.
+ * A count, a Max that offers what the crew can afford, house and park, and a price and a clock
+ * that follow the count. The price over the row rather than beside the button, which is where
+ * the unit card keeps it; the 2026-09-18 ruling that put it on the button's line is superseded by
+ * this one. Asserted at the narrowest viewport the game supports as well as the widest, since a
+ * row of four controls is exactly what narrow wraps.
  */
 for (const width of [1024, 1920]) {
-  test(`the price sits on the Build line at ${width}`, async ({ page }) => {
+  test(`the order box takes a count and a Max at ${width}`, async ({ page }) => {
     await page.setViewportSize({ width, height: 900 });
     await installApi(page, lateGame);
     await page.goto('/game/units?tab=vehicles');
     await expect(page.getByTestId('vehicle-catalogue')).toBeVisible();
     await settleFonts(page);
 
+    const spec = VEHICLES.find((vehicle) => vehicle.id === 'motorcycle');
+    if (!spec) throw new Error('the catalogue has no Scrappy');
     const card = page.getByTestId('vehicle-motorcycle');
+    const field = card.getByTestId('vehicle-count-field-motorcycle');
     const button = card.getByRole('button', { name: 'Build it' });
     const price = card.getByTestId('cost-line');
-    await expect(price).toBeVisible();
+    const clock = card.getByTestId('vehicle-batch-time-motorcycle');
+    await expect(field).toHaveValue('1');
+    await expect(clock).toHaveText(formatDuration(vehicleBuildSeconds(spec, garage.garageLevel)));
 
+    // Max: the fixture holds 2 with 1 out of a cap of 12, 6 beds spare and a deep purse, so the
+    // beds are the ceiling. The price and the clock move with it.
+    await card.getByTestId('vehicle-max-motorcycle').click();
+    await expect(field).toHaveValue('6');
+    await expect(clock).toHaveText(
+      formatDuration(vehicleBatchSeconds(vehicleBuildSeconds(spec, garage.garageLevel), 6)),
+    );
+    const posted = page.waitForRequest(
+      (request) => request.url().includes('/api/garage/build') && request.method() === 'POST',
+    );
+    await button.click();
+    expect((await posted).postDataJSON()).toEqual({ vehicleId: 'motorcycle', count: 6 });
+
+    // The row of controls sits under the price, on one line, and nothing leaves the card.
+    const f = await field.boundingBox();
     const b = await button.boundingBox();
     const p = await price.boundingBox();
-    if (!b || !p) throw new Error('the card is missing its button or its price');
-
-    // Overlapping vertically is what "the same line" means, and it is what a wrap breaks.
-    expect(Math.min(b.y + b.height, p.y + p.height) - Math.max(b.y, p.y)).toBeGreaterThan(0);
-    // ...and the price is to the right of the button rather than stacked on it.
-    expect(p.x).toBeGreaterThan(b.x + b.width);
+    if (!f || !b || !p) throw new Error('the card is missing a control');
+    expect(p.y + p.height).toBeLessThanOrEqual(b.y + 1);
+    expect(Math.min(f.y + f.height, b.y + b.height) - Math.max(f.y, b.y)).toBeGreaterThan(0);
+    await expectNothingOverflowsTheScreen(page);
   });
 }
 

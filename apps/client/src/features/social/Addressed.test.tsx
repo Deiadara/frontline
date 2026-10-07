@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import * as F from '../../../e2e/fixtures';
@@ -64,6 +64,45 @@ describe('the mailbox, arrived at from somebody’s file', () => {
 
     await screen.findByTestId('compose');
     expect(screen.queryByTestId('compose-form')).toBeNull();
+  });
+});
+
+/**
+ * The To field asks the server (maintainer, 2026-10-06). It matched against the standings, which
+ * stop at the top hundred, so somebody ranked lower could not be written to by name.
+ */
+describe('the To field', () => {
+  it('offers a player the server found, wherever they stand', async () => {
+    const top = F.leaderboardPlayers.board === 'players' ? F.leaderboardPlayers.entries[0]! : null;
+    if (!top) throw new Error('fixture: the players board has no rows');
+    const quiet = {
+      ...top,
+      userId: 'quiet-one',
+      username: 'quiet_one',
+      displayName: 'Quiet',
+      rank: 140,
+    };
+    fetchMock.mockImplementation((url: string) =>
+      Promise.resolve({
+        headers: new Headers(),
+        ok: true,
+        status: 200,
+        statusText: '',
+        json: () =>
+          Promise.resolve(
+            String(url).includes('/players/lookup') ? { players: [quiet] } : F.messagesScreen,
+          ),
+      } as Response),
+    );
+    open('/game/messages');
+    fireEvent.click(await screen.findByTestId('compose'));
+    fireEvent.change(await screen.findByTestId('compose-to'), { target: { value: 'quiet' } });
+
+    expect(await screen.findByTestId('recipient-option-quiet_one')).toBeInTheDocument();
+    expect(
+      fetchMock.mock.calls.some(([url]) => String(url).includes('/players/lookup?q=quiet')),
+    ).toBe(true);
+    expect(screen.queryByTestId('recipient-no-match')).toBeNull();
   });
 });
 

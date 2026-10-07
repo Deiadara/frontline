@@ -10,7 +10,7 @@ import { DrawnRule } from '../components/ui/DrawnMarks';
 import { LoadFailure } from '../components/ui/LoadFailure';
 import { OverseerPortrait } from '../features/overseer/OverseerPortrait';
 import { OverseerSheet } from '../features/overseer/OverseerSheet';
-import { ErrorNote } from '../components/ui/ErrorNote';
+import { PressError } from '../components/ui/PressError';
 
 /**
  * How long the four on screen stay held, measured on the server's clock (§F6, 2026-09-17).
@@ -90,6 +90,9 @@ export function CharacterSelectScreen() {
   /** Past the file and on the wall of cities. Null until a card is pressed. */
   const [pickingCity, setPickingCity] = useState(false);
   const [cityId, setCityId] = useState<string | null>(null);
+  const cityStillOpen =
+    cityId !== null &&
+    (offer.data?.cities ?? []).some((one) => one.cityId === cityId && one.available);
 
   /*
    * §F6: the ten minutes are up, so draw four more without making the player find the reload key.
@@ -245,7 +248,7 @@ export function CharacterSelectScreen() {
                 }}
               />
             </div>
-            {serverError && <ErrorNote className="self-center">{serverError}</ErrorNote>}
+            {serverError && <PressError>{serverError}</PressError>}
             <div className="flex flex-wrap items-center justify-center gap-4 sm:gap-8">
               <DrawnButton
                 size="md"
@@ -263,7 +266,9 @@ export function CharacterSelectScreen() {
                 size="md"
                 tone="go"
                 onClick={confirm}
-                disabled={cityId === null || createOverseer.isPending}
+                // And never on a city that filled while it was the pick (bug pass, 2026-10-06):
+                // the card went shut and the server would refuse the confirm.
+                disabled={cityId === null || !cityStillOpen || createOverseer.isPending}
                 data-testid="city-confirm"
               >
                 {createOverseer.isPending ? 'Deploying…' : 'Choose this city'}
@@ -279,7 +284,7 @@ export function CharacterSelectScreen() {
         {showing === 'file' && opened !== null && (
           <div className="mx-auto flex min-h-0 w-full max-w-5xl flex-1 flex-col gap-3">
             <OverseerSheet preset={opened} />
-            {serverError && <ErrorNote>{serverError}</ErrorNote>}
+            {serverError && <PressError>{serverError}</PressError>}
             {/*
              * Centred and colour-coded (maintainer, 2026-09-22).
              *

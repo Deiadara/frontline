@@ -149,7 +149,10 @@ describe('every combat channel reaches a fight', () => {
         const sim = simulate({
           seed: `crowd-${i}`,
           battlefield: bareBattlefield(),
-          attacker: { name: 'A', army: { razors: 120 }, defending: false },
+          // 160 Razors since 2026-10-07: the Wardens carry GUARD now and 120 left every one of the
+          // 120 standing with or without the teamwork (4717 both ways over the 40 seeds); at 160
+          // the crowd is what the channel is for again (4709 with, 4672 without).
+          attacker: { name: 'A', army: { razors: 160 }, defending: false },
           defender: { name: 'D', army: { wardens: 120 }, defending: true, ...extra },
         });
         left += fighting(sim.defender);

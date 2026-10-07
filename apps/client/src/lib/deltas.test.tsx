@@ -333,3 +333,12 @@ describe('the level chip receipt', () => {
     expect(screen.getByTestId('delta-gain')).toHaveAttribute('data-amount', '1');
   });
 });
+
+/** Bug pass, 2026-10-06: a counter whose last one was spent drops its key, and that fall was missed. */
+describe('a counter that goes to nothing', () => {
+  it('announces the fall when its key is gone from the new reading', () => {
+    expect(shownDeltas({ values: { servo: 2, wire: 1 } }, { values: { wire: 1 } })).toEqual({
+      servo: -2,
+    });
+  });
+});

@@ -2,7 +2,6 @@ import { randomUUID } from 'node:crypto';
 import {
   chairPassiveOf,
   MISSION_FORCE_REFUSAL_TEXT,
-  NAME_TOO_SMALL_TEXT,
   removeFleet,
   districtsOfCity,
   LEADER_HOLD_MESSAGES,
@@ -19,7 +18,6 @@ import {
   FightLeaderQuoteRequestSchema,
   type FightLeaderQuoteResponse,
   missionForceRefusal,
-  unitsBeyondNotoriety,
   boardIsAutomated,
   type Base,
   type Fleet,
@@ -44,6 +42,7 @@ import { cityAsked, citiesFor } from '../city/stakes.js';
 import { officerDuty } from '../crew/duty.js';
 import { settleAndResolveMissions } from '../missions/resolve.js';
 import { missionXpBonusPercent, takeLevelUp } from '../progression/award.js';
+import { goldenPercentFor } from '../missions/golden.js';
 import type { StoredMission } from '../db/repos/missions.js';
 import { rampFor } from '../missions/pricing.js';
 import { placeLocked } from '../battle/lock.js';
@@ -207,16 +206,18 @@ export function registerMissionRoutes(app: FastifyInstance): void {
         now,
         (({
           missionSpeedPercent,
-          missionSpeedPercentByCity,
+          missionSpeedPercentByDistrict,
           missionSpoilsPercent,
           missionCapsPercent,
           leadLootPercent,
+          goldenJobsByDistrict,
         }) => ({
           speedPercent: missionSpeedPercent,
-          citySpeedPercent: missionSpeedPercentByCity,
+          districtSpeedPercent: missionSpeedPercentByDistrict,
           spoilsPercent: missionSpoilsPercent,
           capsPercent: missionCapsPercent,
           leadLootPercent,
+          goldenJobs: goldenJobsByDistrict,
           xpBonusPercent: missionXpBonusPercent(app.repos, settlement.base),
           // The opening band, which shortens the first runs and pays the premium that keeps them
           // worth taking (`missions.ramp.ts`).
@@ -382,18 +383,6 @@ export function registerMissionRoutes(app: FastifyInstance): void {
     }
 
     /*
-     * §D7: the heaviest sheets will not take a contract from a nobody, on a job as on a raid.
-     *
-     * `notorietyToField` says a unit past the crew's rank "will not take the field", and the gate
-     * stood on two of the three doors onto a field: the deployment (`battle/deploy.ts`) and the
-     * city (`city/actions.ts`). A rank-0 crew that mustered a Colossus was refused at the fight and
-     * waved through here, with the same unit fighting the same engine on the other side of it.
-     */
-    if (unitsBeyondNotoriety(force, base.economy.notoriety).length > 0) {
-      throw new AppError('MISSION_REFUSED', NAME_TOO_SMALL_TEXT, levelUp);
-    }
-
-    /*
      * §C2b: while any standing order is on, the board is the Right Hand's.
      *
      * The maintainer's rule is the strong one: not "the slots it is holding" but the whole board,
@@ -424,6 +413,8 @@ export function registerMissionRoutes(app: FastifyInstance): void {
       base,
       template,
       areaId,
+      // The Bounty Wall's premium, frozen with the rest of the card's terms (`golden.ts`).
+      goldenPercent: goldenPercentFor(book, areaId, boardKey, template),
       // A fight's chance is what the practice fights say this leader is worth with this force
       // (`fight-leaders.ts`), frozen for the report; a plain job keeps its attribute grade.
       ...(template.kind === 'battle'
@@ -466,7 +457,7 @@ export function registerMissionRoutes(app: FastifyInstance): void {
        */
       ...(({
         missionSpeedPercent,
-        missionSpeedPercentByCity,
+        missionSpeedPercentByDistrict,
         missionSpoilsPercent,
         leadLootPercent,
         leadArrivalPercent,
@@ -476,9 +467,9 @@ export function registerMissionRoutes(app: FastifyInstance): void {
         anyRide,
         chairPoints,
       }) => ({
-        // The Blockhouse's cut pays on its own city's jobs only (maintainer, 2026-09-30).
+        // A district-scoped cut pays on that board alone.
         missionSpeedPercent: missionSpeedPercentIn(
-          { missionSpeedPercent, missionSpeedPercentByCity },
+          { missionSpeedPercent, missionSpeedPercentByDistrict },
           areaId,
         ),
         // §C3: every walk in the game reads these, and a mission's road is a walk (maintainer,
@@ -588,6 +579,9 @@ export function registerMissionRoutes(app: FastifyInstance): void {
     const { missionId } = parseBody(RecallMissionRequestSchema, request.body);
     const now = new Date();
     const base = requireOwnBase(app, request.currentUser.id);
+    // The board the answer draws, resolved before anything is written (bug pass, 2026-10-06): a
+    // city the crew holds nothing in used to throw after the recall and roll the recall back.
+    const cityId = boardCity(app, base, askedCity(request));
 
     return app.db.transaction(() => {
       const stored = app.repos.missions.findById(missionId);
@@ -621,7 +615,7 @@ export function registerMissionRoutes(app: FastifyInstance): void {
           now,
         }),
         level: settled.level,
-        cityId: boardCity(app, settled, askedCity(request)),
+        cityId,
         cities: citiesFor(app.repos, settled),
         missions: historyWithRunning(all, active),
         justResolved: settlement.resolved.map(onTheWire),
@@ -635,23 +629,25 @@ export function registerMissionRoutes(app: FastifyInstance): void {
         // player is looking at, and answering with their home city would swap the screen under
         // somebody working a second city.
         areas: projectAreas(
-          districtsOfCity(boardCity(app, settled, askedCity(request))),
+          districtsOfCity(cityId),
           areaStatesFor(app.repos, settled),
           active,
           settled,
           now,
           (({
             missionSpeedPercent,
-            missionSpeedPercentByCity,
+            missionSpeedPercentByDistrict,
             missionSpoilsPercent,
             missionCapsPercent,
             leadLootPercent,
+            goldenJobsByDistrict,
           }) => ({
             speedPercent: missionSpeedPercent,
-            citySpeedPercent: missionSpeedPercentByCity,
+            districtSpeedPercent: missionSpeedPercentByDistrict,
             spoilsPercent: missionSpoilsPercent,
             capsPercent: missionCapsPercent,
             leadLootPercent,
+            goldenJobs: goldenJobsByDistrict,
             xpBonusPercent: missionXpBonusPercent(app.repos, settled),
             ramp: rampFor(app.repos, settled),
           }))(standingEffectsFor(app.repos, settled, now)),

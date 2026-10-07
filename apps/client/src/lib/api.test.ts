@@ -170,6 +170,27 @@ describe('apiFetch', () => {
     await expect(getMe()).rejects.toThrow();
   });
 
+  /*
+   * Bug pass, 2026-10-06: these two escaped as a raw ZodError (its message is the issue list as
+   * JSON) and a bare TypeError, and screens print `error.message` as it comes.
+   */
+  it('turns a body of the wrong shape into a sentence that names the route', async () => {
+    fetchMock.mockResolvedValueOnce(fakeResponse({ ok: true, status: 200, body: { user: {} } }));
+    const error: unknown = await getMe().catch((thrown: unknown) => thrown);
+    expect(error).toBeInstanceOf(ApiRequestError);
+    expect(error).toMatchObject({ status: 200, code: 'BAD_RESPONSE' });
+    expect((error as Error).message).toMatch(/\/me/);
+    expect((error as Error).message).not.toMatch(/[[{]/);
+  });
+
+  it('turns a request that never reached the server into a sentence', async () => {
+    fetchMock.mockRejectedValueOnce(new TypeError('Failed to fetch'));
+    const error: unknown = await getMe().catch((thrown: unknown) => thrown);
+    expect(error).toBeInstanceOf(ApiRequestError);
+    expect(error).toMatchObject({ status: 0, code: 'NETWORK' });
+    expect((error as Error).message).not.toMatch(/Failed to fetch/);
+  });
+
   it('throws a typed ApiRequestError from the shared error envelope', async () => {
     fetchMock.mockResolvedValueOnce(
       fakeResponse({

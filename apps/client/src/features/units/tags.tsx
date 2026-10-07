@@ -28,6 +28,21 @@ import { RULE_CHIP, RULE_INK, ruleTone } from './rules';
  * Colossus, which cannot ride) has to keep reading as a cost, and the red word does that without
  * a coloured bar that made a two-line hover look like a dialog.
  */
+/** The ANTI-COMBINE tag (maintainer, 2026-10-07), one rung a level, drawn as a positive rule. */
+export function antiCombineRule(levels: number): {
+  id: string;
+  label: string;
+  description: string;
+} {
+  const numeral = ['I', 'II', 'III', 'IV', 'V'][Math.min(5, Math.max(1, levels)) - 1] ?? 'I';
+  const percent = 10 * levels;
+  return {
+    id: 'anti_combine',
+    label: `Anti-Combine ${numeral}`,
+    description: `Every unit of the crew fights a Combine force at +${percent}% offense and +${percent}% vitality: one rung for the Nave, and one for each city's last Combine district held whole.`,
+  };
+}
+
 function TagScrap({ title, ink, children }: { title: string; ink: string; children: ReactNode }) {
   return (
     <>
@@ -119,9 +134,15 @@ export function ModifierTag({
 export function AffinityTag({
   affinity,
   unitName,
+  ignored = false,
 }: {
   affinity: { id: string; label: string; note: string; good: boolean };
   unitName: string;
+  /**
+   * A weakness the crew's ground cancels (the Tolling Tower's Noisy, 2026-10-07): drawn in the
+   * tower's blue and struck through, the hover saying which ground does it.
+   */
+  ignored?: boolean;
 }) {
   return (
     <HoverCard
@@ -136,16 +157,25 @@ export function AffinityTag({
               ? `${unitName} fight better where this holds: ${affinity.note}.`
               : `${unitName} suffer where this holds: ${affinity.note}.`}
           </p>
+          {ignored && (
+            <p className="font-body text-[13px] leading-relaxed text-hextech-300">
+              Cancelled by your Tolling Tower: {unitName} ignore {affinity.label} everywhere while
+              the bells ring.
+            </p>
+          )}
         </div>
       }
     >
       <span
+        data-ignored={ignored ? 'yes' : undefined}
         className={cn(
           'flex h-5 items-center truncate rounded-sm border px-1.5',
           'font-display text-[10px] uppercase tracking-[0.08em]',
-          affinity.good
-            ? 'border-verdigris-500/60 bg-verdigris-700/25 text-verdigris-100'
-            : 'border-oxblood-500/60 bg-oxblood-500/15 text-oxblood-300',
+          ignored
+            ? 'border-hextech-300/70 bg-hextech-700/25 text-hextech-300 line-through decoration-hextech-300'
+            : affinity.good
+              ? 'border-verdigris-500/60 bg-verdigris-700/25 text-verdigris-100'
+              : 'border-oxblood-500/60 bg-oxblood-500/15 text-oxblood-300',
         )}
       >
         {affinity.label}

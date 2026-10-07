@@ -262,8 +262,10 @@ describe('nobody runs because somebody else did', () => {
    * Suppressors) from 19 kept fights to 3: the cascade only decides fights near the edge of the
    * attack holding, and where that edge sits moves with every retune. Measured that day over 17
    * to 20 Suppressors and thirty seeds each: the holding kept a stack in 7, 17, 5 and 3 fights,
-   * and cost one in none. Both halves are asserted, because "fewer overall" alone would pass on a
-   * rule that helped twice as often as it hurt.
+   * and cost one in none. Re-swept on 2026-10-07 when the Suppressors' Dug In became GUARD, a
+   * quarter more toughness on the defending side: the edge moved a step down, to 16 and 17
+   * Suppressors (12, 11, 2 and 1 kept over 16 to 19, none cost). Both halves are asserted,
+   * because "fewer overall" alone would pass on a rule that helped twice as often as it hurt.
    */
   it('keeps stacks that the same fights lose to the panic beside them', () => {
     const attacking: Army = { razors: 25, sparks: 25, scrapers: 25, anodics: 25 };
@@ -273,7 +275,7 @@ describe('nobody runs because somebody else did', () => {
     let shakenTotal = 0;
     let steadyTotal = 0;
     let kept = 0;
-    for (const suppressor of [17, 18, 19, 20]) {
+    for (const suppressor of [16, 17, 18, 19]) {
       const defending: Army = { suppressor };
       for (let seed = 0; seed < 30; seed += 1) {
         // The seed is part of the fixture, since a fight is deterministic from it.

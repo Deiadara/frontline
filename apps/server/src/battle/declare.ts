@@ -33,6 +33,7 @@ import {
 } from './ground.js';
 import { npcMuster } from './npc.js';
 import { notifyBase } from '../social/notify.js';
+import { logFightCalled } from '../factions/log.js';
 
 /**
  * Calling a fight (GDD §A4, battle rework).
@@ -121,16 +122,8 @@ function lostHereRecently(
   target: BattleTarget,
   now: Date,
 ): boolean {
-  const since = now.getTime() - LOST_CALL_COOLDOWN_HOURS * 3_600_000;
-  return repos.sieges
-    .resolvedFor(baseId, 50)
-    .some(
-      ({ battle, analysis }) =>
-        battle.attackerBaseId === baseId &&
-        analysis.winner === 'defender' &&
-        sameTarget(battle.target, target) &&
-        Date.parse(battle.scheduledFor) > since,
-    );
+  const since = new Date(now.getTime() - LOST_CALL_COOLDOWN_HOURS * 3_600_000).toISOString();
+  return repos.sieges.lostCallsSince(baseId, since).some((lost) => sameTarget(lost, target));
 }
 
 /** True when the target is already the subject of a call nobody has resolved yet. */
@@ -149,7 +142,7 @@ export function declareBattle(repos: Repositories, input: DeclareInput): Declare
 
   const district = findDistrict(target.districtId);
   if (!district) return { kind: 'refused', reason: 'no_such_place' };
-  // Saltmarch has ground in the atlas and no way onto it (bug pass, 2026-09-29): a call there took
+  // A shut city has ground in the atlas and no way onto it (bug pass, 2026-09-29): a call there took
   // plots in a city no screen draws, so the closed door is checked here rather than trusted to the UI.
   if (findCity(district.cityId)?.open !== true) return { kind: 'refused', reason: 'city_closed' };
   /*
@@ -306,6 +299,7 @@ export function declareBattle(repos: Repositories, input: DeclareInput): Declare
   });
 
   tellTheDefender(repos, battle, base, now);
+  logFightCalled(repos, battle, base, now);
   return { kind: 'ok', battle, base: { ...base, economy } };
 }
 
@@ -377,11 +371,18 @@ export function callPriceFor(
  * this crew lives in, or on the district itself, counts, and a fight this crew called does not.
  */
 export function fightsCalledOn(repos: Repositories, base: Base): number {
+  /*
+   * Off the summaries, read once (bug pass, 2026-10-06), as the board's price list is: `/me` ran
+   * a full parse of each pending fight's defender, so one unreadable defender answered 500 to
+   * every player in the world, on the read every screen polls.
+   */
+  const summaries = repos.bases.listSummaries();
   return repos.sieges
     .pending()
     .filter(
       (battle) =>
-        battle.attackerBaseId !== base.id && defendingBaseOf(repos, battle)?.id === base.id,
+        battle.attackerBaseId !== base.id &&
+        crewCalledOutAmong(summaries, battle.target, battle.defender)?.id === base.id,
     ).length;
 }
 

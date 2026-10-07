@@ -90,3 +90,50 @@ describe('blocking a sender', () => {
     );
   });
 });
+
+/** Bug pass, 2026-10-06: what one press in the mailbox left behind for the next. */
+describe('the mailbox after a refusal or a press', () => {
+  it('waits only on the row being unblocked', async () => {
+    const other = 'other-user';
+    fetchMock.mockImplementation((path: string) =>
+      String(path).endsWith('/messages/block')
+        ? new Promise(() => {})
+        : reply({
+            ...F.messagesScreen,
+            blocked: [
+              { userId: SENDER, name: 'Sable' },
+              { userId: other, name: 'Rook' },
+            ],
+          }),
+    );
+    open();
+    fireEvent.click(await screen.findByTestId(`unblock-${SENDER}`));
+    await waitFor(() => expect(screen.getByTestId(`unblock-${SENDER}`)).toBeDisabled());
+    expect(screen.getByTestId(`unblock-${other}`)).toBeEnabled();
+  });
+
+  it('opens a new letter without the last one’s refusal under it', async () => {
+    fetchMock.mockImplementation((path: string, init?: RequestInit) =>
+      String(path).endsWith('/messages') && init?.method === 'POST'
+        ? Promise.resolve(
+            new Response(
+              JSON.stringify({
+                error: { code: 'FORBIDDEN', message: 'They are not taking letters' },
+              }),
+              { status: 403, headers: { 'Content-Type': 'application/json' } },
+            ),
+          )
+        : reply({ ...F.messagesScreen, blocked: [] }),
+    );
+    open();
+    fireEvent.click(await screen.findByText(LETTER.subject));
+    fireEvent.click(await screen.findByTestId('reply'));
+    fireEvent.click(screen.getByTestId('send-message'));
+    expect(await screen.findByTestId('compose-error')).toBeVisible();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Never mind' }));
+    fireEvent.click(screen.getByTestId('compose'));
+    expect(await screen.findByTestId('compose-form')).toBeVisible();
+    expect(screen.queryByTestId('compose-error')).toBeNull();
+  });
+});

@@ -16,6 +16,7 @@ import {
   payrollLedger,
   payrollBonusPercent,
   buildingLevel,
+  findBuilding,
   committedPayroll,
   disruptionPercentAt,
   type Base,
@@ -30,7 +31,6 @@ import {
   useState,
   type CSSProperties,
   type ReactNode,
-  type RefObject,
 } from 'react';
 import { LevelUpBanner } from '../../components/LevelUp';
 import { StandingReadout } from '../../components/Meters';
@@ -41,6 +41,7 @@ import { Modal } from '../../components/ui/Modal';
 import { Panel } from '../../components/ui/Panel';
 import { ApiRequestError } from '../../lib/api';
 import { cn } from '../../lib/cn';
+import { SpyPointsLine } from '../../components/SpyPointsLine';
 import { announceWaived } from '../../lib/deltas';
 import {
   useBase,
@@ -62,7 +63,7 @@ import { ScreenLoad } from '../../components/ui/LoadFailure';
 import { DistrictScene } from './DistrictScene';
 import { formatRate, formatRemaining } from './format';
 import { Tutorial } from '../tutorial/Tutorial';
-import { ErrorNote } from '../../components/ui/ErrorNote';
+import { PressError } from '../../components/ui/PressError';
 
 /**
  * The district (GDD §A1): a place you look at and click, not a list of structure rows.
@@ -76,7 +77,9 @@ export function BasePanel() {
   const me = useMe();
   // §F2: the store is filled to the structure plus the crew's storage bonus, so the shelves quoted
   // here are computed the way `accrueProduction` fills them rather than off the buildings alone.
-  const crewStorage = useCrewStanding().data?.effects['storageCapacityPercent'] ?? 0;
+  const crewStanding = useCrewStanding().data;
+  const crewStorage = crewStanding?.effects['storageCapacityPercent'] ?? 0;
+  const spyPoints = crewStanding?.spyPoints;
   const baseId = me.data?.base?.id;
   const baseQuery = useBase(baseId);
   const base = baseQuery.data?.base ?? me.data?.base ?? null;
@@ -87,9 +90,13 @@ export function BasePanel() {
    * that refusal is the only response that ever carries it, and reading `build.data` alone dropped
    * it whenever the next press was for something the crew could not afford.
    */
-  const levelUp =
+  const announced =
     build.data?.levelUp ??
     (build.error instanceof ApiRequestError ? build.error.levelUp : undefined);
+  /** The level whose banner the player closed, on the narrow frame that offers the X. */
+  const [dismissedLevel, setDismissedLevel] = useState<number | null>(null);
+  const levelUp = announced?.level === dismissedLevel ? undefined : announced;
+  const railColumn = useRailColumn();
   // §B4 and §E: the two writes the plot dialog makes, both answering with the whole base. Filling
   // a bracket is not one of them any more: the yard cuts a card straight into it (2026-09-16).
   const boost = useBuyBuildBoost(baseId);
@@ -214,16 +221,28 @@ export function BasePanel() {
           // chrome by a hard-coded 96px, measured against a taller plaque that no longer exists:
           // the kind of constant that is right on the day it is typed and silently wrong after the
           // next layout change.
-          style={{ top: 'var(--scene-top, var(--hud-h, 0px))' }}
+          //
+          // Below the build strip when one is laid across the top (below 1280px, maintainer
+          // 2026-10-06): the notices opened over the middle orders and their cancel marks. Wider,
+          // `--scene-safe-top` is never set and this is the top it always was.
+          style={{ top: 'var(--scene-safe-top, var(--scene-top, var(--hud-h, 0px)))' }}
         >
           <div className="pointer-events-auto flex w-full max-w-2xl flex-col gap-2">
             {burning && <BurnNotice economy={base.economy} now={now} />}
-            {levelUp && <LevelUpBanner levelUp={levelUp} />}
+            {levelUp && (
+              <LevelUpBanner
+                levelUp={levelUp}
+                // An X on the narrow frame only, where it covers the scene's working half.
+                {...(railColumn ? {} : { onDismiss: () => setDismissedLevel(levelUp.level) })}
+              />
+            )}
           </div>
         </div>
       )}
 
       <ReportsDrawer>
+        {/* The crew's spy points, both ways, on the district's reports (maintainer, 2026-10-07). */}
+        {spyPoints !== undefined && <SpyPointsLine points={spyPoints} />}
         <Panel
           title={`Build queue (${base.buildQueue.length} / ${buildQueueCapacity(base.research.technologies)})`}
         >
@@ -254,19 +273,19 @@ export function BasePanel() {
               base.buildings,
               'scrap',
               storageCapacity(base.buildings, crewStorage),
-            ).toLocaleString()}{' '}
+            ).toLocaleString('en-US')}{' '}
             each of scrap and planks,{' '}
             {storageCapacityFor(
               base.buildings,
               'oil',
               storageCapacity(base.buildings, crewStorage),
-            ).toLocaleString()}{' '}
+            ).toLocaleString('en-US')}{' '}
             each of oil and supplies and{' '}
             {storageCapacityFor(
               base.buildings,
               'highQualityMetal',
               storageCapacity(base.buildings, crewStorage),
-            ).toLocaleString()}{' '}
+            ).toLocaleString('en-US')}{' '}
             HQ metal. Nothing goes past that: production stops there, and pay, loot or a refund that
             overflows is lost. Caps have no ceiling.
           </p>
@@ -301,7 +320,13 @@ export function BasePanel() {
           serverNow={baseQuery.data?.serverNow}
           receivedAt={baseQuery.dataUpdatedAt}
           pending={build.isPending}
-          error={build.error ?? boost.error ?? clear.error}
+          // The newest refusal (bug pass, 2026-10-06): a refused build stayed in front of a later
+          // refused burn or dismantle in the same window.
+          error={
+            [build, boost, clear]
+              .filter((write) => write.error !== null)
+              .sort((a, b) => b.submittedAt - a.submittedAt)[0]?.error ?? null
+          }
           onBuild={() =>
             build.mutate(
               {
@@ -325,7 +350,15 @@ export function BasePanel() {
           onClose={() => setSelectedPlot(null)}
           onBoost={() => boost.mutate({})}
           boostPending={boost.isPending}
-          onClearSlot={(slot) => clear.mutate({ building: selectedPlot, slot })}
+          onClearSlot={(slot) => {
+            const modification = base
+              ? findBuilding(base.buildings, selectedPlot)?.modifications[slot]
+              : undefined;
+            if (modification !== undefined) {
+              clear.mutate({ building: selectedPlot, slot, modification });
+            }
+          }}
+          clearing={clear.isPending}
           onGo={(path) => {
             setSelectedPlot(null);
             void navigate(path);
@@ -366,7 +399,7 @@ function BuildQueue({ base, serverNow, receivedAt }: BuildQueueProps) {
 
   return (
     <>
-      {cancel.error && <ErrorNote className="mx-4 mt-3">{cancel.error.message}</ErrorNote>}
+      {cancel.error && <PressError onDismiss={cancel.reset}>{cancel.error.message}</PressError>}
       <ol className="flex flex-col divide-y divide-surface-700" data-testid="build-queue">
         {base.buildQueue.map((entry, index) => {
           const progress = queueProgressAt(entry, now);
@@ -494,7 +527,7 @@ const RAIL_PLATE_TOUCH_PX = 2;
  * style attribute, and `plateTop` writes every plate's percentage into one.
  */
 function useRailCeiling(
-  rail: RefObject<HTMLElement>,
+  node: HTMLElement | null,
   room: MeasuredSize,
   orders: number,
   active: boolean,
@@ -502,7 +535,6 @@ function useRailCeiling(
   const [ceiling, setCeiling] = useState<number | null>(null);
 
   useLayoutEffect(() => {
-    const node = rail.current;
     if (node === null || !active) {
       setCeiling(null);
       return;
@@ -545,7 +577,7 @@ function useRailCeiling(
     };
     // The rail's own height is deliberately not a dependency: it is the thing being bounded, and
     // reading it back would be a loop. Its top and sides move only with the frame.
-  }, [rail, room.width, room.height, orders, active]);
+  }, [node, room.width, room.height, orders, active]);
 
   return ceiling;
 }
@@ -605,8 +637,8 @@ function BuildQueueRail({ base, serverNow, receivedAt, room, onStripHeight }: Bu
   const [open, setOpen] = useState(true);
   const toggleRef = useRef<HTMLButtonElement>(null);
   const column = useRailColumn();
-  const [railRef, rail] = useMeasuredSize<HTMLDivElement>();
-  const ceiling = useRailCeiling(railRef, room, base.buildQueue.length, column);
+  const [railRef, rail, railNode] = useMeasuredSize<HTMLDivElement>();
+  const ceiling = useRailCeiling(railNode, room, base.buildQueue.length, column);
   const [ordersRef, edges, readEdges] = useScrollEdges<HTMLDivElement>();
   // The strip's hint, and only the strip's: the column scrolls the way every list does.
   const hidden: ScrollEdges = open && !column ? edges : { start: false, end: false };
@@ -720,11 +752,7 @@ function BuildQueueRail({ base, serverNow, receivedAt, room, onStripHeight }: Bu
               />
             </div>
           ))}
-          {cancel.error && (
-            <ErrorNote backdrop className="shrink-0">
-              {cancel.error.message}
-            </ErrorNote>
-          )}
+          {cancel.error && <PressError>{cancel.error.message}</PressError>}
         </div>
       )}
       {(hidden.start || hidden.end) && (
@@ -915,13 +943,15 @@ function ProductionRows({
 function PayrollRows({ base }: { base: Base }) {
   const officers = base.commanders.length;
   // The server's book, the Fixer's share included (2026-10-04); the local one until it answers.
-  const served = useCrewStanding().data?.payroll;
+  const standing = useCrewStanding().data;
+  const served = standing?.payroll;
   const ledger =
     served ??
     payrollLedger(
       base.economy.payroll,
       buildingLevel(base.buildings, 'nexus'),
-      payrollBonusPercent(base.buildings),
+      // Plus the ground's share of the channel (the Printworks, 2026-10-07), as `Payroll.tsx`.
+      payrollBonusPercent(base.buildings) + (standing?.effects['payrollPercent'] ?? 0),
     );
 
   return (
@@ -932,9 +962,9 @@ function PayrollRows({ base }: { base: Base }) {
           panel a player is doing arithmetic on. */}
       <StatRow
         label="Payroll committed"
-        value={`${committedPayroll(base.economy.payroll.commitments).toLocaleString()} / ${ledger.capacity.toLocaleString()} caps`}
+        value={`${committedPayroll(base.economy.payroll.commitments).toLocaleString('en-US')} / ${ledger.capacity.toLocaleString('en-US')} caps`}
       />
-      <StatRow label="Payroll left" value={`${ledger.available.toLocaleString()} caps`} />
+      <StatRow label="Payroll left" value={`${ledger.available.toLocaleString('en-US')} caps`} />
     </dl>
   );
 }

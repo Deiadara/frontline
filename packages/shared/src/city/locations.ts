@@ -1,7 +1,12 @@
 import { missionSpeedCut } from '../economy/soft-bounds.js';
 import { CHAIR_PASSIVE_CAP } from '../crew/passives.js';
 import { z } from 'zod';
-import { ATTRIBUTE_GROUPS, type AttributeGroup } from '../attributes.js';
+import {
+  ATTRIBUTE_GROUPS,
+  ATTRIBUTE_LABELS,
+  type AttributeGroup,
+  type AttributeName,
+} from '../attributes.js';
 import { RESOURCE_KEYS, type PartialResources, type ResourceKey } from '../resources.js';
 import {
   UNIT_TIER_LABELS,
@@ -10,6 +15,7 @@ import {
   type UnitTier,
   type UnitTierStat,
 } from '../units/tiers.js';
+import { DAMAGE_TYPE_LABELS, type DamageType } from '../units/stats.js';
 import { envLabel, type EnvLabel, type EnvLabelId } from './labels.js';
 import { UNIT_RULES, type GrantableUnitMark, type UnitRuleId } from '../units/rules.js';
 import { timeSavingPercent, musterSpeedAfterTaper } from '../time/speed.js';
@@ -108,6 +114,22 @@ export const LOCATION_KINDS = [
   // Terminus's railway, appended for the same reason (maintainer, 2026-09-24). By sense it belongs
   // under "ground and defence": a platform is a piece of the map, not a workshop.
   'rail_station',
+  // Reliquary's tombs, appended for the same reason (maintainer, 2026-10-06). By sense it sits
+  // beside the Graveyard: it is the ground the Death Cloaks are raised on.
+  'mausoleum',
+  /*
+   * The rest of Reliquary's kinds (maintainer, 2026-10-06 and 2026-10-07), appended in the order
+   * the city was authored. By sense: a workshop and the stores belong under industry, a shrine and
+   * a stage under people, a bounty wall under war, a trophy hall under money, a laboratory under
+   * knowledge.
+   */
+  'workshop',
+  'shrine',
+  'bounty_wall',
+  'stage',
+  'trophy_hall',
+  'laboratory',
+  'stores',
 ] as const;
 export const LocationKindSchema = z.enum(LOCATION_KINDS);
 export type LocationKind = z.infer<typeof LocationKindSchema>;
@@ -123,13 +145,44 @@ export type LocationKind = z.infer<typeof LocationKindSchema>;
  * own requirement list (`{ kind: 'location', locationKind }`), so the gate is authored once, on the
  * thing it gates. `unitsUnlockedByLocation` reads it back for display.
  */
-export type HoldBonus =
+/**
+ * What every bonus may carry on top of its kind (maintainer, 2026-10-06).
+ *
+ * `ladder` is the figure at each of the five levels, written out, for a location whose pay the
+ * maintainer set level by level ("30% rising to 100%"); `scaledBonus` reads it instead of the
+ * scale. `whenDistrictWhole` marks a bonus paid only while the district is held whole, by the
+ * holder or their faction: the Saint's Inn's second helping of beds. `level` is stamped by
+ * `scaledBonus` on the kinds whose effect the server reads by level rather than by a figure (the
+ * Scriptorium's odds, the Chop Shop's rarities, a unit's door).
+ */
+export interface HoldBonusTuning {
+  ladder?: readonly number[];
+  whenDistrictWhole?: true;
+  level?: number;
+}
+
+/** The stats a flat point bonus can land on. Range and penetration had no channel before. */
+export const FLAT_UNIT_STATS = [
+  'armor',
+  'offense',
+  'range',
+  'evasion',
+  'speed',
+  'stealth',
+  'penetration',
+] as const;
+export type FlatUnitStat = (typeof FLAT_UNIT_STATS)[number];
+
+export type HoldBonus = HoldBonusCore & HoldBonusTuning;
+
+export type HoldBonusCore =
   | { kind: 'resource'; resource: ResourceKey; perHour: number }
   | { kind: 'defense_percent'; percent: number }
   | { kind: 'research_speed'; percent: number }
   | { kind: 'build_speed'; percent: number }
   | { kind: 'muster_speed'; percent: number }
-  | { kind: 'muster_cost'; percent: number }
+  /** Off every muster, or off one tier's when `tier` is set: Bloodstone's Hiring Hall and the rabble. */
+  | { kind: 'muster_cost'; percent: number; tier?: UnitTier }
   | { kind: 'unit_offense'; percent: number }
   | { kind: 'unit_vitality'; percent: number }
   | { kind: 'unit_armor'; percent: number }
@@ -142,7 +195,11 @@ export type HoldBonus =
    * weak one without being strictly better than it.
    */
   | { kind: 'unit_tier'; tier: UnitTier; stat: UnitTierStat; percent: number }
-  | { kind: 'unit_morale'; flat: number }
+  /**
+   * Points of morale on every unit, or on one tier of them when `tier` is set (the Martyr's
+   * Plinth, maintainer 2026-10-06: "unit morale to rabble only").
+   */
+  | { kind: 'unit_morale'; flat: number; tier?: UnitTier }
   | { kind: 'unit_speed'; percent: number }
   | { kind: 'unit_stealth'; percent: number }
   | { kind: 'loot_capacity'; percent: number }
@@ -153,11 +210,12 @@ export type HoldBonus =
   /** One resource goes further than it should: the same barrel does more work. */
   | { kind: 'resource_yield'; resource: ResourceKey; percent: number }
   /**
-   * Every crew that is out comes home sooner (§E). `inOwnCity` narrows it to jobs in the city the
-   * ground paying it stands in: the Blockhouse's "twenty per cent off the time every job in this
-   * city takes" (maintainer, 2026-09-24) is Terminus's work, not the world's.
+   * Every crew that is out comes home sooner (§E). `inDistrict` narrows it to jobs on the board of
+   * the district the ground paying it stands in (the Printworks' tunnels, Reliquary 2026-10-07).
+   * A by-city scope existed until the Blockhouse's "twenty per cent off every job in this city"
+   * became a level of ANTI-COMBINE (maintainer, 2026-10-07); nothing paid it after that.
    */
-  | { kind: 'mission_speed'; percent: number; inOwnCity?: true }
+  | { kind: 'mission_speed'; percent: number; inDistrict?: true }
   | { kind: 'mission_spoils'; percent: number }
   /** Off every price the traders quote. */
   | { kind: 'market_discount'; percent: number }
@@ -177,6 +235,12 @@ export type HoldBonus =
   | { kind: 'intel'; percent: number }
   /** Flat points on every officer's attributes in one group, training the crew cannot buy. */
   | { kind: 'officer_group'; group: AttributeGroup; flat: number }
+  /**
+   * The same on one named skill of every officer (maintainer, 2026-10-06: the Bulb-String Loft's
+   * Communication and Signals, the Wake House's Empathy and Resolve). Not the perk kind
+   * `officer_attribute`, which skips the officer carrying it: ground lifts everyone.
+   */
+  | { kind: 'officer_skill'; attribute: AttributeName; flat: number }
   /**
    * §A1: beds, on top of the flat {@link UNIT_SLOTS_PER_LOCATION} every held location gives.
    *
@@ -258,36 +322,119 @@ export type HoldBonus =
    * to arrive somewhere, and a mission board that priced half its jobs off a railway would be
    * pricing the wrong thing.
    */
-  | { kind: 'rail_link' };
+  | { kind: 'rail_link' }
+  /**
+   * A Mausoleum, Reliquary's city special (maintainer, 2026-10-06). One in every contested
+   * district there. Holding any one lets the crew muster the Death Cloaks; every one held is
+   * counted, because their `faith` rule pays per Mausoleum and so does their muster cap.
+   */
+  | { kind: 'faith' }
+  /*
+   * Reliquary's own channels (maintainer, 2026-10-06 and 2026-10-07). Each is a figure or a rule
+   * one location in the city pays and nothing else did before it; the folded field each lands in
+   * is named beside it, and the lane that spends the field is named in `docs/DISTRICTS.md`.
+   */
+  /**
+   * Flat points on one unit stat, for every unit or for the ones a scope names: a tier (the
+   * Casting Pit's armour on Heavies), a damage type (the Hammer Yard's blunt units), or the units
+   * carrying the GUARD rule (the Cloister Wall). Lands in `unitStatFlats`.
+   */
+  | {
+      kind: 'unit_stat_flat';
+      stat: FlatUnitStat;
+      flat: number;
+      tier?: UnitTier;
+      damageType?: DamageType;
+      rule?: 'guard';
+    }
+  /** Loot slots on every carrier, flat: the Straw Sack's bags. Lands in `carrierLootFlat`. */
+  | { kind: 'carrier_loot_flat'; flat: number }
+  /**
+   * A switch the holder throws (the Tolling Tower): on, every location in the district is Noisy
+   * and the holder's own units ignore Noisy everywhere. Whether it is on lives on the control row.
+   */
+  | { kind: 'noise_switch' }
+  /** A blueprint page a day, of a blueprint not yet finished, at odds set by the level. */
+  | { kind: 'daily_page' }
+  /** Units pinned on a wall fight the holder at a discount. `pins` is how many the wall holds. */
+  | { kind: 'pamphlets'; pins: number }
+  /** A chance, each day, of one battle stim in the stash. */
+  | { kind: 'daily_stim'; percent: number }
+  /** Points on the Infirmary's recovery of the crew's own casualties. */
+  | { kind: 'casualty_recovery'; percent: number }
+  /**
+   * The ground a unit is mustered on, by unit rather than by kind of place (the Saint's Shrine,
+   * the Watch Cell, the Crimson Stage, the Reliquary Lab). The location's level is the unit's
+   * door level, which `units/catalog.ts` spells out as `doorSteps`.
+   */
+  | { kind: 'unit_door'; unitId: string }
+  /** Off every drill's clock. */
+  | { kind: 'training_time'; percent: number }
+  /**
+   * The Bounty Wall: each battle job dealt on this district's board has `chancePercent` of being
+   * golden, and a golden job pays `rewardPercent` more.
+   */
+  | { kind: 'golden_jobs'; chancePercent: number; rewardPercent: number }
+  /** Components a day, at rarities set by the level. */
+  | { kind: 'daily_component'; count: number }
+  /** The Trophy Hall: a daily pay per unit type killed while it is held. */
+  | { kind: 'trophies' }
+  /** Points spies must beat to read this crew. */
+  | { kind: 'spy_defence'; percent: number }
+  /** More XP off every run. */
+  | { kind: 'mission_xp'; percent: number }
+  /** Bigger stores, every shelf but caps. */
+  | { kind: 'storage'; percent: number }
+  /** Each modification fitted on a producing structure makes it produce this much more. */
+  | { kind: 'modification_output'; percent: number }
+  /** Units sent into a faction mate's fight fight harder. */
+  | { kind: 'ally_fight'; percent: number }
+  /** More caps off every run. */
+  | { kind: 'mission_caps'; percent: number }
+  /** Player XP for each unit slot of the crew's own dead. */
+  | { kind: 'xp_per_loss'; perSlot: number }
+  /** Armour per modification fitted on a unit, stacking inside the cap. */
+  | { kind: 'modification_armor'; flat: number }
+  /** A bigger payroll book. */
+  | { kind: 'payroll'; percent: number }
+  /** While the named legend is alive in the force, every unit in it gets this. */
+  | {
+      kind: 'legend_aura';
+      unitId: string;
+      stat: 'offense_vitality' | 'penetration';
+      amount: number;
+    }
+  /** One level of ANTI-COMBINE on every unit: +10% offense and vitality against the Combine. */
+  | { kind: 'anti_combine' }
+  /** Enemy units that were intimidated pay this much more infamy when they die. */
+  | { kind: 'intimidated_infamy'; percent: number };
 
 /**
  * How far a location can be worked up, and what each level is worth.
  *
- * Ten levels, which is the shape the maintainer asked for once holding ground became a progression
- * track rather than a three-step errand. A location is still a post on a board, and the
- * interesting question about a post is still whether it is worth pouring anything into when
- * somebody could take it tomorrow. What changed is the answer: a capture no longer resets the
- * level, so the work is not destroyed, it changes hands.
+ * Five levels (maintainer, 2026-10-06), down from ten. A location is a post on a board, and the
+ * interesting question about a post is whether it is worth pouring anything into when somebody
+ * could take it tomorrow: a capture keeps the level, so the work is not destroyed, it changes
+ * hands. Ten levels made that ladder a slow walk through steps nobody could feel; five keeps every
+ * upgrade a decision, and every one of them visible on the card.
  *
  * ## Why these two curves
  *
- * `LEVEL_SCALE` is linear, and its first four entries are the ones that shipped. Every level adds
- * half of what the location was worth on the day it was taken, so level 4 is still 2.5x and level
- * 10 is 5.5x. Linear rather than compounding because the same multiplier lands on resource rates
- * *and* on percentages: a 25% defence bonus compounded ten times is a location nobody can retake.
+ * `LEVEL_SCALE` is linear and whole: a location at level 5 is worth five times what it was on the
+ * day it was taken, a little under the 5.5x the old level 10 paid. Linear rather than compounding
+ * because the same multiplier lands on resource rates *and* on percentages: a 25% defence bonus
+ * compounded five times is a location nobody can retake. A kind whose top would be too strong at
+ * five times carries its own `levelScale` in the catalogue; a location whose pay the maintainer
+ * set level by level carries a `ladder` on the bonus instead.
  *
- * `UPGRADE_COST_SCALE` grows faster than the output does, which is what keeps a high level a
- * decision instead of a formality. The first three steps are unchanged, roughly a doubling each,
- * and from level 5 the step settles at a flat 1.4x: the same growth `BUILDING_TIME_GROWTH` uses
- * for the twenty-level building ladder. Ten levels of the original doubling would have priced the
- * last upgrade at 256x the base and nobody would ever have bought it. At 1.4x the last one is
- * 33.7x, and the whole ladder costs about 110x the base price, against a level-20 structure's 100x.
- *
- * The late levels are deliberately a long investment. Now that a capture keeps the level, taking a
- * worked location off somebody is the cheaper way to own one, and that is the point: the map is
+ * `UPGRADE_COST_SCALE` is the old ladder read at every second step: the upgrade to level n costs
+ * what the upgrade to level 2n cost before, so the last one is still 33.7x the base and the whole
+ * climb about 64x, against the old climb's 110x. The clock compresses the same way
+ * (`UPGRADE_SECONDS_SCALE`, `city/upgrade.ts`). The late levels stay a long investment, and taking
+ * a worked location off somebody stays the cheaper way to own one, which is the point: the map is
  * meant to be fought over rather than farmed.
  */
-export const MAX_LOCATION_LEVEL = 10;
+export const MAX_LOCATION_LEVEL = 5;
 
 /**
  * Terminus's line: how long the middle leg of a linked journey takes, in minutes.
@@ -299,12 +446,23 @@ export const MAX_LOCATION_LEVEL = 10;
  */
 export const RAIL_LINK_MINUTES = 15;
 
-export const LEVEL_SCALE: readonly number[] = [1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5, 5, 5.5];
+export const LEVEL_SCALE: readonly number[] = [1, 2, 3, 4, 5];
 
-/** What each upgrade costs, as a multiple of the kind's own base price: one per step, 1 to 10. */
-export const UPGRADE_COST_SCALE: readonly number[] = [
-  1, 2.2, 4.5, 6.3, 8.8, 12.3, 17.2, 24.1, 33.7,
-];
+/**
+ * The gentler ladder for the kinds whose figure is a share of a fight (maintainer, 2026-10-06:
+ * "decide for each one individually so it is not too OP"). A Hospital's 12% vitality at five
+ * times is 60%; at this it is 48%, which is where the old level 8 stood.
+ */
+export const COMBAT_LEVEL_SCALE: readonly number[] = [1, 1.75, 2.5, 3.25, 4];
+
+/**
+ * Doubling over the ladder, for points on an officer's sheet: the Choir's "+5, scaled up to 10"
+ * (maintainer, 2026-10-07), and every other ground skill lift with it.
+ */
+export const OFFICER_LEVEL_SCALE: readonly number[] = [1, 1.25, 1.5, 1.75, 2];
+
+/** What each upgrade costs, as a multiple of the kind's own base price: one per step, 1 to 5. */
+export const UPGRADE_COST_SCALE: readonly number[] = [4.5, 8.8, 17.2, 33.7];
 
 /**
  * What every location upgrade is made of, as a ratio against its planks (maintainer, 2026-09-22).
@@ -358,8 +516,8 @@ export interface LocationSpec {
    * One number rather than a bundle, because the bundle's *shape* is now the same everywhere and
    * only its size is a property of the place. A Pawn Shop opens at 80 and a Construction Site at
    * 460, which is the spread the hand-written bundles already had; every later level scales by
-   * {@link UPGRADE_COST_SCALE} and {@link LOCATION_UPGRADE_PRICE_RISE}, so the top of the ladder
-   * runs from about 2,970 planks to about 17,050.
+   * {@link UPGRADE_COST_SCALE} and {@link LOCATION_UPGRADE_PRICE_RISE}, so the last upgrade runs
+   * from about 2,970 planks to about 17,050.
    */
   upgradeCost: number;
   /**
@@ -369,16 +527,18 @@ export interface LocationSpec {
    * "+50% oil" is a number going up, and "you get the underground tanks pumping again" is a thing
    * that happened to a petrol station you own.
    *
-   * Three, not nine. Levels 5 to 10 read {@link LATE_UPGRADE_NOTES} instead. Nine place-specific
-   * lines across forty-three kinds is 387 sentences, and the 258 of them nobody has a real idea
-   * for would read worse than a shared ladder does. What the shared lines describe is true of any
-   * ground somebody has held a long time: a standing crew, its own stores, its own power. The
-   * place-specific writing stays where a player meets it, on the three upgrades most locations
-   * ever actually see.
+   * Three, not four. The last level reads {@link LATE_UPGRADE_NOTES} instead, one line that is
+   * true of any ground somebody has held a long time. The place-specific writing stays where a
+   * player meets it, on the three upgrades every location sees first.
    */
   upgrades: readonly [string, string, string];
   /** A one-off infamy payment the moment it changes hands. Almost nothing has one. */
   captureInfamy?: number;
+  /**
+   * This kind's own ladder over the five levels, where {@link LEVEL_SCALE} would make its top
+   * too strong: the combat kinds read {@link COMBAT_LEVEL_SCALE}.
+   */
+  levelScale?: readonly number[];
 }
 
 /** Terser than repeating `envLabel` forty times below. */
@@ -632,6 +792,7 @@ export const LOCATION_CATALOG: Record<LocationKind, LocationSpec> = {
     blurb: 'A roofline, a water tower, a spoil heap. Whatever counts as looking down around here.',
     reward: 'Everything you hold in this city is harder to take off you.',
     bonuses: [{ kind: 'defense_percent', percent: 12 }],
+    levelScale: COMBAT_LEVEL_SCALE,
     baseDefense: 4,
     labels: [L('open', 3), L('elevated', 3), L('windy', 1)],
     upgradeCost: 210,
@@ -657,6 +818,7 @@ export const LOCATION_CATALOG: Record<LocationKind, LocationSpec> = {
        */
       { kind: 'unit_mark', unitId: 'ironsides', mark: 'stalwart' },
     ],
+    levelScale: COMBAT_LEVEL_SCALE,
     baseDefense: 5,
     labels: [L('crammed', 2), L('open', 1)],
     upgradeCost: 260,
@@ -694,6 +856,7 @@ export const LOCATION_CATALOG: Record<LocationKind, LocationSpec> = {
     blurb: 'A brick chamber where six storm drains meet. It goes everywhere.',
     reward: 'Your people can get places without being seen getting there.',
     bonuses: [{ kind: 'unit_stealth', percent: 15 }],
+    levelScale: COMBAT_LEVEL_SCALE,
     baseDefense: 2,
     labels: [L('crammed', 4), L('dark', 3), L('wet', 2), L('toxic', 1)],
     upgradeCost: 130,
@@ -756,6 +919,7 @@ export const LOCATION_CATALOG: Record<LocationKind, LocationSpec> = {
        */
       { kind: 'any_ride' },
     ],
+    levelScale: COMBAT_LEVEL_SCALE,
     baseDefense: 6,
     labels: [L('open', 3), L('eerie', 2), L('toxic', 1)],
     upgradeCost: 300,
@@ -789,18 +953,13 @@ export const LOCATION_CATALOG: Record<LocationKind, LocationSpec> = {
   fight_pit: {
     label: 'Fight Pit',
     blurb: 'A sunk ring, a standing crowd, and a bookmaker who knows everyone.',
-    reward:
-      'Your people are harder to frighten, and everybody on the books can hold a line, porters included.',
-    bonuses: [
-      { kind: 'unit_morale', flat: 8 },
-      /*
-       * The pit is where a hauler learns to stand somewhere and not move.
-       *
-       * `carriers_fight`, at the porters' own sheet (maintainer, 2026-09-27). They were halved on
-       * top of it; now their stats are the balance, which are a hauler's and not a fighter's.
-       */
-      { kind: 'carriers_fight' },
-    ],
+    reward: 'Every enemy you frighten before the first shot is worth twice the name when it dies.',
+    /*
+     * Double infamy for the intimidated, and nothing else (maintainer, 2026-10-06). The morale
+     * and the porters' line went with the rework; the pit stopped being anybody's door the same
+     * day, when the Condemned moved to the Watch Cell and the Crimson Dancer to her Stage.
+     */
+    bonuses: [{ kind: 'intimidated_infamy', percent: 100 }],
     baseDefense: 2,
     labels: [L('crammed', 3), L('noisy', 4)],
     upgradeCost: 130,
@@ -990,6 +1149,7 @@ export const LOCATION_CATALOG: Record<LocationKind, LocationSpec> = {
     blurb: 'Sealed theatres, cold storage, and a waiting room nobody waits in.',
     reward: 'Work can be done on people here that cannot be done anywhere else.',
     bonuses: [{ kind: 'unit_vitality', percent: 8 }],
+    levelScale: COMBAT_LEVEL_SCALE,
     baseDefense: 6,
     labels: [L('crammed', 3), L('cold', 1), L('eerie', 1)],
     upgradeCost: 200,
@@ -1004,6 +1164,7 @@ export const LOCATION_CATALOG: Record<LocationKind, LocationSpec> = {
     blurb: 'Four working theatres, a generator, and staff who stayed when the funding did not.',
     reward: 'What comes back from a fight comes back in better shape.',
     bonuses: [{ kind: 'unit_vitality', percent: 12 }],
+    levelScale: COMBAT_LEVEL_SCALE,
     baseDefense: 3,
     labels: [L('crammed', 2), L('noisy', 1)],
     upgradeCost: 170,
@@ -1039,6 +1200,7 @@ export const LOCATION_CATALOG: Record<LocationKind, LocationSpec> = {
       { kind: 'research_speed', percent: 8 },
       { kind: 'unit_offense', percent: 6 },
     ],
+    levelScale: COMBAT_LEVEL_SCALE,
     baseDefense: 7,
     labels: [L('crammed', 3), L('toxic', 3), L('dark', 3), L('eerie', 3)],
     upgradeCost: 290,
@@ -1099,6 +1261,7 @@ export const LOCATION_CATALOG: Record<LocationKind, LocationSpec> = {
     blurb: 'A drained reservoir the kids took over, and then the couriers after them.',
     reward: 'Everything you field moves faster.',
     bonuses: [{ kind: 'unit_speed', percent: 12 }],
+    levelScale: COMBAT_LEVEL_SCALE,
     baseDefense: 1,
     labels: [L('open', 3), L('noisy', 1)],
     upgradeCost: 130,
@@ -1219,6 +1382,7 @@ export const LOCATION_CATALOG: Record<LocationKind, LocationSpec> = {
       { kind: 'intimidation', flat: 12 },
       { kind: 'unit_morale', flat: 8 },
     ],
+    levelScale: COMBAT_LEVEL_SCALE,
     baseDefense: 9,
     labels: [L('elevated', 3), L('crammed', 2), L('dark', 1)],
     upgradeCost: 420,
@@ -1251,6 +1415,134 @@ export const LOCATION_CATALOG: Record<LocationKind, LocationSpec> = {
       'The board is rewritten in your hand. The timetable is whatever you say it is.',
     ],
   },
+  mausoleum: {
+    label: 'Mausoleum',
+    blurb:
+      'A family tomb the size of a chapel, white stone gone grey, a red lamp kept burning inside it and people living among the dead who do not mind the company.',
+    reward:
+      'The Death Cloaks are raised here. Every Mausoleum you hold makes each of them harder to kill and harder to stop, and lets you keep fifty more.',
+    bonuses: [
+      { kind: 'faith' },
+      // People live in the tombs, and a level opens more of the vaults to live in. Small, because
+      // the reason to take a Mausoleum is the Death Cloaks and not the beds.
+      { kind: 'unit_slots', flat: 6 },
+    ],
+    baseDefense: 3,
+    labels: [L('eerie', 3), L('dark', 2), L('cold', 1), L('crammed', 1)],
+    upgradeCost: 180,
+    upgrades: [
+      'The lamp is relit and the doors rehung. The families inside answer to you now.',
+      'The lower vaults are opened up. There is room in the dark for a great many more.',
+      'The tomb is yours in name as well: your mark is cut over the door, and the dead keep it.',
+    ],
+  },
+  /*
+   * Reliquary's own kinds (maintainer, 2026-10-06 and 2026-10-07). Each exists because one place
+   * in the city pays something no kind in the catalogue did: a sack-maker's loft, a saint's
+   * shrine, a bounty wall. Their catalogue pay is a placeholder a card never prints, because
+   * every location of these kinds carries its own authored list (`LocationSchema.bonuses`); what
+   * the entry decides is the icon, the ground, the defence and the price of working it up.
+   */
+  workshop: {
+    label: 'Workshop',
+    blurb: 'Benches, a forge hearth and a loft above it, and nothing in it that is not for sale.',
+    reward: 'Whatever this workshop makes, your people carry it.',
+    bonuses: [{ kind: 'carrier_loot_flat', flat: 5 }],
+    baseDefense: 3,
+    labels: [L('noisy', 2), L('crammed', 2), L('hot', 1)],
+    upgradeCost: 160,
+    upgrades: [
+      'The loft is cleared and a second bench goes in. Twice the hands.',
+      'A hearth that stays lit. The work stops waiting for the morning.',
+      'A master takes the floor, and the apprentices start finishing what they begin.',
+    ],
+  },
+  shrine: {
+    label: 'Shrine',
+    blurb: 'A relic under glass, a crimson cloth over it, and a queue up the hill to see it.',
+    reward: 'A saint answers to whoever keeps the shrine.',
+    bonuses: [{ kind: 'unit_door', unitId: 'the_saint' }],
+    baseDefense: 5,
+    labels: [L('elevated', 2), L('open', 1), L('eerie', 1)],
+    upgradeCost: 320,
+    upgrades: [
+      'The reliquary is reset and the lamps relit. Pilgrims come up the hill again.',
+      'A guard on the stair, and the saint sleeps lighter.',
+      'The shrine is dressed in your colours. What the saint does, he does in your name.',
+    ],
+  },
+  bounty_wall: {
+    label: 'Bounty Wall',
+    blurb: 'A wall of posted contracts, a clerk with a ledger, and crews reading it before dawn.',
+    reward: 'The best contracts in the district come to you first.',
+    bonuses: [{ kind: 'golden_jobs', chancePercent: 20, rewardPercent: 10 }],
+    baseDefense: 3,
+    labels: [L('crammed', 3), L('noisy', 2)],
+    upgradeCost: 200,
+    upgrades: [
+      'The clerk keeps your book first. Contracts reach you before they are posted.',
+      'A runner on the wall day and night. Nothing is posted that you have not seen.',
+      'The wall is yours: every contract in the quarter clears through your clerk.',
+    ],
+  },
+  stage: {
+    label: 'Stage',
+    blurb: 'Red lamps over a floor worn smooth, and a crowd that comes to watch somebody dance.',
+    reward: 'The Crimson Dancer answers to whoever keeps the stage.',
+    bonuses: [{ kind: 'unit_door', unitId: 'the_crimson_dancer' }],
+    baseDefense: 2,
+    labels: [L('dark', 3), L('crammed', 3), L('noisy', 2)],
+    upgradeCost: 300,
+    upgrades: [
+      'The boards are relaid and the lamps rewired. She dances every night now.',
+      'A band, a bar and a door policy. The crowd is yours as much as the stage is.',
+      'The stage is dressed in your colours, and she dances for nobody else.',
+    ],
+  },
+  trophy_hall: {
+    label: 'Trophy Hall',
+    blurb:
+      'A long hall with every wall hung with what was taken off the dead, and a keeper who writes it all down.',
+    reward: 'Every kind of enemy you have put on the wall pays you, every day.',
+    bonuses: [{ kind: 'trophies' }],
+    baseDefense: 4,
+    labels: [L('eerie', 2), L('dark', 2), L('crammed', 1)],
+    upgradeCost: 260,
+    upgrades: [
+      'The hall is lit and the keeper paid. The wall starts filling.',
+      'A second hall is opened. There is room for everything you will take.',
+      'People come to see the wall, and pay at the door.',
+    ],
+  },
+  laboratory: {
+    label: 'Laboratory',
+    blurb: 'Saints under glass, a centrifuge, and a theatre where the Combine does its quiet work.',
+    reward: 'What is grown here fights for whoever keeps it.',
+    bonuses: [{ kind: 'unit_door', unitId: 'juggernauts' }],
+    baseDefense: 6,
+    labels: [L('crammed', 3), L('cold', 2), L('eerie', 2), L('dark', 1)],
+    upgradeCost: 400,
+    upgrades: [
+      'The theatre is scrubbed and the cold store restocked. The work starts again.',
+      'A second theatre, and the sisters stop having to choose.',
+      'The laboratory answers to you alone, and what it makes is made to your order.',
+    ],
+  },
+  stores: {
+    label: 'Stores',
+    blurb:
+      'Vaults under the floor, dry and deep, with room for a siege and a ledger for every sack.',
+    reward: 'Everything you keep, you keep more of.',
+    bonuses: [{ kind: 'storage', percent: 10 }],
+    baseDefense: 4,
+    labels: [L('dark', 3), L('cold', 2), L('crammed', 2)],
+    upgradeCost: 220,
+    upgrades: [
+      'The lower vaults are pumped and shelved. Twice the room.',
+      'A hoist and a tally board. Nothing is lost between the door and the shelf.',
+      'The stores are yours end to end, and the ledger says so.',
+    ],
+  },
 };
 
 /** A location's level, brought inside `1..MAX_LOCATION_LEVEL`. Everything reads through this. */
@@ -1268,10 +1560,26 @@ export function clampLevel(level: number): number {
 /** The share of a location's officer group lift that is paid (maintainer, 2026-10-05). */
 export const GROUND_OFFICER_LIFT_SHARE = 0.5;
 
-export function scaledBonus(bonus: HoldBonus, level: number): HoldBonus {
+export function scaledBonus(
+  bonus: HoldBonus,
+  level: number,
+  /** The kind's own ladder, where the catalogue sets one (`LocationSpec.levelScale`). */
+  levelScale: readonly number[] = LEVEL_SCALE,
+): HoldBonus {
   const at = clampLevel(level);
-  const scale = LEVEL_SCALE[at - 1] as number;
+  /*
+   * A ladder written out beats every curve (maintainer, 2026-10-06): "30% rising to 100%" is
+   * five figures, and no multiplier lands on them exactly. The figure replaces whatever the kind
+   * would have scaled; `level` is stamped for the kinds the server reads by level alone.
+   */
+  if (bonus.ladder !== undefined) {
+    const figure = bonus.ladder[at - 1] ?? bonus.ladder[bonus.ladder.length - 1] ?? 0;
+    return { ...withLadderFigure(bonus, figure), level: at };
+  }
+  const scale = levelScale[at - 1] as number;
   const grow = (value: number): number => Math.round(value * scale);
+  const officer = (value: number): number =>
+    Math.max(1, Math.round(value * (OFFICER_LEVEL_SCALE[at - 1] as number)));
   /**
    * The same, for channels counted in whole small things: sessions and syringes.
    *
@@ -1292,16 +1600,44 @@ export function scaledBonus(bonus: HoldBonus, level: number): HoldBonus {
     case 'intimidation':
     case 'unit_slots':
       return { ...bonus, flat: grow(bonus.flat) };
+    // Whole, unlike the group lift: five on one skill is what the card promises and the ground
+    // pays outside the lift cap, so a level buys more of it and nothing halves it. On the
+    // officers' own ladder, which doubles over the five levels (maintainer, 2026-10-07).
+    case 'officer_skill':
+      return { ...bonus, flat: officer(bonus.flat) };
     /*
-     * Half, floored, and at least one (maintainer, 2026-10-05). The ground's group lift sits
-     * outside the officers' lift cap now (`liftedOfficerSheet`), so it is paid in full at every
-     * level; at its old size a Chapel at 10 lifted every mental skill of every officer by 28.
-     * Half the level's rounded figure, floored: +2, +4, +5, +6 ... +14 at level 10.
+     * Half, floored, and at least one (maintainer, 2026-10-05), then one more a level. The
+     * ground's group lift sits outside the officers' lift cap (`liftedOfficerSheet`), so it is
+     * paid in full at every level; at its old size a Chapel at 10 lifted every mental skill of
+     * every officer by 28. A Chapel now: +2, +3, +4, +5, +6 at level 5.
      */
     case 'officer_group':
       return {
         ...bonus,
-        flat: Math.max(1, Math.floor(grow(bonus.flat) * GROUND_OFFICER_LIFT_SHARE)),
+        flat: Math.max(1, Math.floor(bonus.flat * GROUND_OFFICER_LIFT_SHARE)) + (at - 1),
+      };
+    case 'unit_stat_flat':
+    case 'carrier_loot_flat':
+    case 'modification_armor':
+      return { ...bonus, flat: grow(bonus.flat) };
+    case 'pamphlets':
+      // One pin a level: the wall holds as many pamphlets as it has been worked up.
+      return { ...bonus, pins: at, level: at };
+    case 'daily_component':
+      return { ...bonus, count: grow(bonus.count), level: at };
+    case 'daily_page':
+    case 'trophies':
+    case 'unit_door':
+      return { ...bonus, level: at };
+    case 'xp_per_loss':
+      return { ...bonus, perSlot: grow(bonus.perSlot) };
+    case 'legend_aura':
+      return { ...bonus, amount: grow(bonus.amount) };
+    case 'golden_jobs':
+      return {
+        ...bonus,
+        chancePercent: Math.min(100, grow(bonus.chancePercent)),
+        rewardPercent: grow(bonus.rewardPercent),
       };
     case 'road_shortcut':
       return { ...bonus, minutes: grow(bonus.minutes) };
@@ -1317,15 +1653,94 @@ export function scaledBonus(bonus: HoldBonus, level: number): HoldBonus {
     case 'steady_nerve':
     case 'unit_mark':
     case 'rail_link':
+    case 'faith':
+    case 'noise_switch':
+    case 'anti_combine':
       return bonus;
     default:
       return { ...bonus, percent: grow(bonus.percent) };
   }
 }
 
-/** Everything a location is worth at a level. */
-export function bonusesAt(kind: LocationKind, level: number): HoldBonus[] {
-  return LOCATION_CATALOG[kind].bonuses.map((bonus) => scaledBonus(bonus, level));
+/** The bonus with one figure replaced by a ladder's entry: whichever field carries its size. */
+function withLadderFigure(bonus: HoldBonus, figure: number): HoldBonus {
+  switch (bonus.kind) {
+    case 'resource':
+      return { ...bonus, perHour: figure };
+    case 'training_sessions':
+    case 'battle_stims':
+    case 'unit_morale':
+    case 'intimidation':
+    case 'unit_slots':
+    case 'officer_skill':
+    case 'officer_group':
+    case 'unit_stat_flat':
+    case 'carrier_loot_flat':
+    case 'modification_armor':
+      return { ...bonus, flat: figure };
+    case 'road_shortcut':
+      return { ...bonus, minutes: figure };
+    case 'pamphlets':
+      return { ...bonus, pins: figure };
+    case 'daily_component':
+      return { ...bonus, count: figure };
+    case 'xp_per_loss':
+      return { ...bonus, perSlot: figure };
+    case 'legend_aura':
+      return { ...bonus, amount: figure };
+    case 'golden_jobs':
+      // One ladder, two figures: the chance climbs 20 to 100 and the bounty 10 to 50 together.
+      return { ...bonus, chancePercent: figure, rewardPercent: figure / 2 };
+    case 'carriers_fight':
+    case 'any_ride':
+    case 'steady_nerve':
+    case 'unit_mark':
+    case 'rail_link':
+    case 'faith':
+    case 'noise_switch':
+    case 'daily_page':
+    case 'trophies':
+    case 'unit_door':
+    case 'anti_combine':
+      return bonus;
+    default:
+      return { ...bonus, percent: figure };
+  }
+}
+
+/**
+ * What a location pays before any level: its own authored list when it has one, else its kind's.
+ *
+ * Authored payouts arrived with Reliquary (maintainer, 2026-10-06), where a Market pays forty
+ * caps rather than thirty and a Fence Camp houses people and pays nothing: the same kind of
+ * place, with its icon, its ground and its gating, worth a different figure on a different map.
+ */
+export function baseBonusesOf(location: Pick<Location, 'kind' | 'bonuses'>): readonly HoldBonus[] {
+  return location.bonuses ?? LOCATION_CATALOG[location.kind].bonuses;
+}
+
+/**
+ * Everything a location is worth at a level. Takes the location, or a bare kind for the kind's
+ * own list: a test asking what a Market pays has no particular Market in mind.
+ */
+export function bonusesAt(
+  at: LocationKind | Pick<Location, 'kind' | 'bonuses'>,
+  level: number,
+): HoldBonus[] {
+  const kind = typeof at === 'string' ? at : at.kind;
+  const base = typeof at === 'string' ? LOCATION_CATALOG[at].bonuses : baseBonusesOf(at);
+  const scale = LOCATION_CATALOG[kind].levelScale ?? LEVEL_SCALE;
+  // A ladder may say nothing at a level (the Exercise Yard's fifth session arrives at level 5
+  // alone): a bonus worth nothing is not on the card and not in the fold.
+  return base.map((bonus) => scaledBonus(bonus, level, scale)).filter(paysSomething);
+}
+
+function paysSomething(bonus: HoldBonus): boolean {
+  if ('flat' in bonus) return bonus.flat !== 0;
+  if ('percent' in bonus) return bonus.percent !== 0;
+  if ('perHour' in bonus) return bonus.perHour !== 0;
+  if ('count' in bonus) return bonus.count !== 0;
+  return true;
 }
 
 /**
@@ -1362,20 +1777,13 @@ export function upgradeCost(
 }
 
 /**
- * Levels 5 to 10, for every kind, in the player's words.
+ * The last level, for every kind, in the player's words.
  *
- * Shared rather than authored per location: see {@link LocationSpec.upgrades} for why. Each line
+ * Shared rather than authored per location: see {@link LocationSpec.upgrades} for why. The line
  * is about the *holding* rather than the machinery, which is the only way one sentence can be
- * honest about a Gas Station and a Planetarium at the same time. A player who has taken a location
- * this far has stopped thinking about what the building does and started thinking about who works
- * there.
+ * honest about a Gas Station and a Planetarium at the same time.
  */
-export const LATE_UPGRADE_NOTES: readonly [string, string, string, string, string, string] = [
-  'A standing crew on a rota, instead of whoever you can spare. Nobody has to be told twice.',
-  'Stores, spares and a bench on site. Nothing waits three days on a part from somewhere else.',
-  'The approach is cleared, lit and watched. What arrives here arrives because you let it.',
-  'Its own power and its own water. The place stops going quiet every time the district does.',
-  'Word gets round. People bring work here rather than waiting to be asked for it.',
+export const LATE_UPGRADE_NOTES: readonly [string] = [
   'It runs whether anybody is watching or not. This is as far as this ground goes.',
 ];
 
@@ -1409,6 +1817,13 @@ export const LocationSchema = z.object({
    * without one is not a location with a hole in it (maintainer request, 2026-09-15).
    */
   blurb: z.string().min(1).optional(),
+  /**
+   * What *this* place pays, when the kind's own list will not do. See {@link baseBonusesOf}.
+   *
+   * Typed as the bonus union rather than parsed: a location is authored in the atlas and never
+   * read off a wire, so the schema is here to shape the object, not to validate a stranger's.
+   */
+  bonuses: z.custom<readonly HoldBonus[]>((value) => Array.isArray(value)).optional(),
 });
 export type Location = z.infer<typeof LocationSchema>;
 
@@ -1430,6 +1845,8 @@ export interface TerritoryEffects {
   buildSpeedPercent: number;
   musterSpeedPercent: number;
   musterCostPercent: number;
+  /** Off one tier's musters only. See the `muster_cost` bonus's `tier`. */
+  musterCostByTier: Partial<Record<UnitTier, number>>;
   unitOffensePercent: number;
   unitVitalityPercent: number;
   /**
@@ -1443,6 +1860,8 @@ export interface TerritoryEffects {
   /** Per tier, the three unit stats a bonus can be scoped to. See the `unit_tier` bonus. */
   unitTierPercent: Partial<Record<UnitTier, Partial<Record<UnitTierStat, number>>>>;
   unitMoraleFlat: number;
+  /** Morale on one tier only, beside `unitMoraleFlat`. See the `unit_morale` bonus's `tier`. */
+  unitTierMoraleFlat: Partial<Record<UnitTier, number>>;
   unitSpeedPercent: number;
   unitStealthPercent: number;
   lootCapacityPercent: number;
@@ -1454,8 +1873,6 @@ export interface TerritoryEffects {
   resourceYieldPercent: PartialResources;
   /** §E: every crew that is out is home sooner. */
   missionSpeedPercent: number;
-  /** §E: the same, on jobs in one city only, by city id. See `inOwnCity` on the bonus. */
-  missionSpeedPercentByCity: Record<string, number>;
   /** §E: added to a run's pay premium at launch, so every job on the board is worth more. */
   missionSpoilsPercent: number;
   marketDiscountPercent: number;
@@ -1478,6 +1895,8 @@ export interface TerritoryEffects {
   intelYieldPercent: number;
   /** Flat points on every officer's attributes in a group. What the Chapel and the Station give. */
   officerGroupFlat: Partial<Record<AttributeGroup, number>>;
+  /** Flat points on one named skill of every officer. What the Bulb-String Loft gives. */
+  officerSkillFlat: Partial<Record<AttributeName, number>>;
   /**
    * §A1: beds the map adds to the district's own.
    *
@@ -1510,6 +1929,81 @@ export interface TerritoryEffects {
    * where the journey is priced (`city/rails.ts`) and never of this total.
    */
   railLink: boolean;
+  /**
+   * How many Mausoleums this crew holds: a count, unlike the switches above, because the Death
+   * Cloaks' `faith` rule and their muster cap both pay per tomb (`units/catalog.ts`).
+   */
+  mausoleums: number;
+  /*
+   * Reliquary's channels (maintainer, 2026-10-06 and 2026-10-07). Each is filled here by one
+   * `HoldBonus` kind of the same name and spent by one reader, named on the kind.
+   */
+  /** Flat points on a unit stat, each with the scope it was authored with. See `unit_stat_flat`. */
+  unitStatFlats: UnitStatFlat[];
+  /** Loot slots on every carrier, flat. */
+  carrierLootFlat: number;
+  /** The Tolling Towers this crew holds, by location id; whether each is on is on its control row. */
+  noiseSwitches: string[];
+  /** Scriptoria held, by level: one page a day each. */
+  dailyPages: number[];
+  /** The most pamphlets a wall this crew holds carries. The pins themselves are on the control row. */
+  pamphletPins: number;
+  /** §E: the same, on jobs in one district only, by district id. See `inDistrict` on the bonus. */
+  missionSpeedPercentByDistrict: Record<string, number>;
+  /** The chance, each day, of a stim in the stash. */
+  dailyStimPercent: number;
+  /** Points on the Infirmary's recovery of the crew's own casualties. */
+  casualtyRecoveryPercent: number;
+  /** The highest level of a door this crew holds for each unit it opens. See `unit_door`. */
+  doorLevels: Record<string, number>;
+  /** Off every drill's clock. */
+  trainingTimePercent: number;
+  /** The Bounty Wall's odds, by district id. */
+  goldenJobsByDistrict: Record<string, { chancePercent: number; rewardPercent: number }>;
+  /** Chop Shops held: how many components a day each, at the level that sets their rarity. */
+  dailyComponents: { count: number; level: number }[];
+  /** The highest Trophy Hall level held, or 0. */
+  trophyHallLevel: number;
+  /** Points spies must beat to read this crew. The home Gate adds its own in `standingEffectsFor`. */
+  intelResistancePercent: number;
+  /** More XP off every run. */
+  missionXpPercent: number;
+  /** The ground's share of the stores, beside the crew's own `storageCapacityPercent`. */
+  storageGroundPercent: number;
+  /** Each modification on a producing structure is worth this much more of its output. */
+  modificationOutputPercent: number;
+  /** Units sent into a faction mate's fight fight this much harder. */
+  allyFightPercent: number;
+  /** More caps off every run. */
+  missionCapsPercent: number;
+  /** Player XP per unit slot of the crew's own dead. */
+  xpPerSlotLost: number;
+  /** Armour per modification fitted on a unit. */
+  modificationArmorFlat: number;
+  /** A bigger payroll book. */
+  payrollPercent: number;
+  /** Auras legends cast over the force they fight in. */
+  legendAuras: LegendAura[];
+  /** Levels of ANTI-COMBINE, one per final district held: +10% each against the Combine. */
+  antiCombineLevels: number;
+  /** Enemy units that were intimidated pay this much more infamy when they die. */
+  intimidatedInfamyPercent: number;
+}
+
+/** One flat point bonus on a unit stat, with the scope it was authored with. */
+export interface UnitStatFlat {
+  stat: FlatUnitStat;
+  flat: number;
+  tier?: UnitTier;
+  damageType?: DamageType;
+  rule?: 'guard';
+}
+
+/** What a legend gives the force around it while alive. */
+export interface LegendAura {
+  unitId: string;
+  stat: 'offense_vitality' | 'penetration';
+  amount: number;
 }
 
 export function noTerritoryEffects(): TerritoryEffects {
@@ -1521,6 +2015,7 @@ export function noTerritoryEffects(): TerritoryEffects {
     buildSpeedPercent: 0,
     musterSpeedPercent: 0,
     musterCostPercent: 0,
+    musterCostByTier: {},
     unitOffensePercent: 0,
     unitVitalityPercent: 0,
     unitArmorPercent: 0,
@@ -1534,7 +2029,6 @@ export function noTerritoryEffects(): TerritoryEffects {
     infamyGainPercent: 0,
     resourceYieldPercent: {},
     missionSpeedPercent: 0,
-    missionSpeedPercentByCity: {},
     missionSpoilsPercent: 0,
     marketDiscountPercent: 0,
     blackMarketDiscountPercent: 0,
@@ -1545,6 +2039,8 @@ export function noTerritoryEffects(): TerritoryEffects {
     salvageRefundPercent: 0,
     intelYieldPercent: 0,
     officerGroupFlat: {},
+    officerSkillFlat: {},
+    unitTierMoraleFlat: {},
     unitSlotBonus: 0,
     roadMinutesOff: 0,
     carriersFight: false,
@@ -1552,21 +2048,55 @@ export function noTerritoryEffects(): TerritoryEffects {
     unitMarks: {},
     steadyNerve: false,
     railLink: false,
+    mausoleums: 0,
+    unitStatFlats: [],
+    carrierLootFlat: 0,
+    noiseSwitches: [],
+    dailyPages: [],
+    pamphletPins: 0,
+    missionSpeedPercentByDistrict: {},
+    dailyStimPercent: 0,
+    casualtyRecoveryPercent: 0,
+    doorLevels: {},
+    trainingTimePercent: 0,
+    goldenJobsByDistrict: {},
+    dailyComponents: [],
+    trophyHallLevel: 0,
+    intelResistancePercent: 0,
+    missionXpPercent: 0,
+    storageGroundPercent: 0,
+    modificationOutputPercent: 0,
+    allyFightPercent: 0,
+    missionCapsPercent: 0,
+    xpPerSlotLost: 0,
+    modificationArmorFlat: 0,
+    payrollPercent: 0,
+    legendAuras: [],
+    antiCombineLevels: 0,
+    intimidatedInfamyPercent: 0,
   };
+}
+
+/** Where a bonus is paid from, for the kinds that pay somewhere in particular. */
+export interface BonusGround {
+  districtId?: string | undefined;
+  locationId?: string | undefined;
 }
 
 /**
  * Folds one bonus into a running total. Mutates `into`. It is the accumulator of a reduce.
  *
- * `cityId` is the city of the ground paying it, which only a city-scoped bonus reads. One with no
- * city to belong to pays nothing rather than paying everywhere. Reduce through a lambda: handed
- * over point-free, the reduce's index would arrive as the city.
+ * `districtId` is the district of the ground paying it, which only a district-scoped bonus reads
+ * (the Printworks' tunnels, a Bounty Wall's golden jobs). One with no district to belong to pays
+ * nothing rather than paying everywhere. Reduce through a lambda: handed over point-free, the
+ * reduce's index would arrive as the ground.
  */
 export function applyHoldBonus(
   into: TerritoryEffects,
   bonus: HoldBonus,
-  cityId?: string,
+  ground: BonusGround = {},
 ): TerritoryEffects {
+  const { districtId, locationId } = ground;
   switch (bonus.kind) {
     case 'resource':
       into.perHour = {
@@ -1587,7 +2117,10 @@ export function applyHoldBonus(
       into.musterSpeedPercent += bonus.percent;
       return into;
     case 'muster_cost':
-      into.musterCostPercent += bonus.percent;
+      if (bonus.tier === undefined) into.musterCostPercent += bonus.percent;
+      else
+        into.musterCostByTier[bonus.tier] =
+          (into.musterCostByTier[bonus.tier] ?? 0) + bonus.percent;
       return into;
     case 'unit_offense':
       into.unitOffensePercent += bonus.percent;
@@ -1607,7 +2140,12 @@ export function applyHoldBonus(
       return into;
     }
     case 'unit_morale':
-      into.unitMoraleFlat += bonus.flat;
+      if (bonus.tier === undefined) into.unitMoraleFlat += bonus.flat;
+      else
+        into.unitTierMoraleFlat = {
+          ...into.unitTierMoraleFlat,
+          [bonus.tier]: (into.unitTierMoraleFlat[bonus.tier] ?? 0) + bonus.flat,
+        };
       return into;
     case 'unit_speed':
       into.unitSpeedPercent += bonus.percent;
@@ -1634,13 +2172,15 @@ export function applyHoldBonus(
       };
       return into;
     case 'mission_speed':
-      if (!bonus.inOwnCity) {
+      if (bonus.inDistrict) {
+        if (districtId !== undefined) {
+          into.missionSpeedPercentByDistrict = {
+            ...into.missionSpeedPercentByDistrict,
+            [districtId]: (into.missionSpeedPercentByDistrict[districtId] ?? 0) + bonus.percent,
+          };
+        }
+      } else {
         into.missionSpeedPercent += bonus.percent;
-      } else if (cityId !== undefined) {
-        into.missionSpeedPercentByCity = {
-          ...into.missionSpeedPercentByCity,
-          [cityId]: (into.missionSpeedPercentByCity[cityId] ?? 0) + bonus.percent,
-        };
       }
       return into;
     case 'mission_spoils':
@@ -1679,6 +2219,12 @@ export function applyHoldBonus(
         [bonus.group]: (into.officerGroupFlat[bonus.group] ?? 0) + bonus.flat,
       };
       return into;
+    case 'officer_skill':
+      into.officerSkillFlat = {
+        ...into.officerSkillFlat,
+        [bonus.attribute]: (into.officerSkillFlat[bonus.attribute] ?? 0) + bonus.flat,
+      };
+      return into;
     case 'road_shortcut':
       into.roadMinutesOff += bonus.minutes;
       return into;
@@ -1705,6 +2251,111 @@ export function applyHoldBonus(
     }
     case 'rail_link':
       into.railLink = true;
+      return into;
+    // Counted, not switched: the second tomb is worth exactly as much as the first.
+    case 'faith':
+      into.mausoleums += 1;
+      return into;
+    case 'unit_stat_flat': {
+      const {
+        kind: _kind,
+        ladder: _ladder,
+        whenDistrictWhole: _whole,
+        level: _level,
+        ...scoped
+      } = bonus;
+      into.unitStatFlats = [...into.unitStatFlats, scoped];
+      return into;
+    }
+    case 'carrier_loot_flat':
+      into.carrierLootFlat += bonus.flat;
+      return into;
+    case 'noise_switch':
+      if (locationId !== undefined) into.noiseSwitches = [...into.noiseSwitches, locationId];
+      return into;
+    case 'daily_page':
+      into.dailyPages = [...into.dailyPages, bonus.level ?? 1];
+      return into;
+    case 'pamphlets':
+      into.pamphletPins = Math.max(into.pamphletPins, bonus.pins);
+      return into;
+    case 'daily_stim':
+      into.dailyStimPercent += bonus.percent;
+      return into;
+    case 'casualty_recovery':
+      into.casualtyRecoveryPercent += bonus.percent;
+      return into;
+    case 'unit_door':
+      into.doorLevels = {
+        ...into.doorLevels,
+        [bonus.unitId]: Math.max(into.doorLevels[bonus.unitId] ?? 0, bonus.level ?? 1),
+      };
+      return into;
+    case 'training_time':
+      into.trainingTimePercent += bonus.percent;
+      return into;
+    case 'golden_jobs':
+      if (districtId !== undefined) {
+        const held = into.goldenJobsByDistrict[districtId] ?? {
+          chancePercent: 0,
+          rewardPercent: 0,
+        };
+        into.goldenJobsByDistrict = {
+          ...into.goldenJobsByDistrict,
+          [districtId]: {
+            chancePercent: Math.min(100, held.chancePercent + bonus.chancePercent),
+            rewardPercent: held.rewardPercent + bonus.rewardPercent,
+          },
+        };
+      }
+      return into;
+    case 'daily_component':
+      into.dailyComponents = [
+        ...into.dailyComponents,
+        { count: bonus.count, level: bonus.level ?? 1 },
+      ];
+      return into;
+    case 'trophies':
+      into.trophyHallLevel = Math.max(into.trophyHallLevel, bonus.level ?? 1);
+      return into;
+    case 'spy_defence':
+      into.intelResistancePercent += bonus.percent;
+      return into;
+    case 'mission_xp':
+      into.missionXpPercent += bonus.percent;
+      return into;
+    case 'storage':
+      into.storageGroundPercent += bonus.percent;
+      return into;
+    case 'modification_output':
+      into.modificationOutputPercent += bonus.percent;
+      return into;
+    case 'ally_fight':
+      into.allyFightPercent += bonus.percent;
+      return into;
+    case 'mission_caps':
+      into.missionCapsPercent += bonus.percent;
+      return into;
+    case 'xp_per_loss':
+      into.xpPerSlotLost += bonus.perSlot;
+      return into;
+    case 'modification_armor':
+      into.modificationArmorFlat += bonus.flat;
+      return into;
+    case 'payroll':
+      into.payrollPercent += bonus.percent;
+      return into;
+    case 'legend_aura':
+      into.legendAuras = [
+        ...into.legendAuras,
+        { unitId: bonus.unitId, stat: bonus.stat, amount: bonus.amount },
+      ];
+      return into;
+    case 'anti_combine':
+      into.antiCombineLevels += 1;
+      return into;
+    case 'intimidated_infamy':
+      into.intimidatedInfamyPercent += bonus.percent;
       return into;
   }
 }
@@ -1733,7 +2384,20 @@ const GROUP_LABELS: Record<AttributeGroup, string> = {
 export const TAPERS = '(tapers, no hard stop)';
 
 /** A bonus in one line, for a location card. Authored `reward` says *why*; this says how much. */
-export function describeHoldBonus(bonus: HoldBonus): string {
+/**
+ * A unit's name for a card, looked up by whoever has the catalogue. This module cannot read
+ * `units/catalog.ts` (it reads this one), so a caller with the names passes them in; without one
+ * the id is spelt out, which a test can read and a player should never meet.
+ */
+export type UnitNamer = (unitId: string) => string;
+const spellOut: UnitNamer = (unitId) =>
+  unitId
+    .split('_')
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(' ');
+
+export function describeHoldBonus(bonus: HoldBonus, unitName: UnitNamer = spellOut): string {
+  const whole = bonus.whenDistrictWhole ? ' while the whole district is held' : '';
   switch (bonus.kind) {
     case 'resource':
       return `+${bonus.perHour} ${RESOURCE_LABELS[bonus.resource]}/h`;
@@ -1751,13 +2415,17 @@ export function describeHoldBonus(bonus: HoldBonus): string {
     case 'muster_speed':
       return `-${timeSavingPercent(musterSpeedAfterTaper(bonus.percent))}% muster time`;
     case 'muster_cost':
-      return `-${bonus.percent}% muster cost`;
+      return bonus.tier === undefined
+        ? `-${bonus.percent}% muster cost`
+        : `-${bonus.percent}% muster cost on ${UNIT_TIER_LABELS[bonus.tier]} units`;
     case 'unit_offense':
       return `+${bonus.percent}% unit offense`;
     case 'unit_vitality':
       return `+${bonus.percent}% unit vitality`;
     case 'unit_morale':
-      return `+${bonus.flat} unit morale`;
+      return bonus.tier === undefined
+        ? `+${bonus.flat} unit morale`
+        : `+${bonus.flat} morale for ${UNIT_TIER_LABELS[bonus.tier]} units`;
     case 'unit_speed':
       return `+${bonus.percent}% unit speed`;
     case 'unit_stealth':
@@ -1776,7 +2444,7 @@ export function describeHoldBonus(bonus: HoldBonus): string {
       return `${RESOURCE_LABELS[bonus.resource]} goes ${bonus.percent}% further`;
     case 'mission_speed':
       // The saving the clock gives for this card alone, through the curve (`missionSpeedCut`).
-      return `-${timeSavingPercent(missionSpeedCut(bonus.percent))}% mission time${bonus.inOwnCity ? ' in this city' : ''} ${TAPERS}`;
+      return `-${timeSavingPercent(missionSpeedCut(bonus.percent))}% mission time${bonus.inDistrict ? ' in this district' : ''} ${TAPERS}`;
     // Points into the market's curve (`effectiveMarketDiscount`), not a percent off the till: a
     // level 10 Downtown Market printed "-55%" over a till charging 28.7% less (bug pass, 2026-10-05).
     case 'market_discount':
@@ -1805,10 +2473,12 @@ export function describeHoldBonus(bonus: HoldBonus): string {
       return `${tierStatAmount(bonus.stat, bonus.percent)} ${UNIT_TIER_LABELS[bonus.tier]} ${UNIT_TIER_STAT_LABELS[bonus.stat]}`;
     case 'officer_group':
       return `+${bonus.flat} to officer ${GROUP_LABELS[bonus.group]} skills`;
+    case 'officer_skill':
+      return `+${bonus.flat} ${ATTRIBUTE_LABELS[bonus.attribute]} on every officer`;
     case 'unit_slots':
       // The housing budget is called unit slots on every screen (maintainer request, 2026-09-15).
       // The channel keeps its internal name; only what a player reads changed.
-      return `+${bonus.flat} unit slots`;
+      return `+${bonus.flat} unit slots${whole}`;
     case 'road_shortcut':
       return `-${bonus.minutes} min off every road`;
     case 'carriers_fight':
@@ -1821,8 +2491,80 @@ export function describeHoldBonus(bonus: HoldBonus): string {
       return 'a stack that breaks shakes nobody';
     case 'rail_link':
       return `On the line: ${RAIL_LINK_MINUTES} min to any Station you hold`;
+    case 'faith':
+      return 'Death Cloaks mustered here, and +30 damage and vitality on each for every Mausoleum you hold';
+    case 'unit_stat_flat': {
+      const who =
+        bonus.rule === 'guard'
+          ? 'every unit with GUARD'
+          : bonus.tier !== undefined
+            ? `every ${UNIT_TIER_LABELS[bonus.tier]} unit`
+            : bonus.damageType !== undefined
+              ? `every ${DAMAGE_TYPE_LABELS[bonus.damageType]} unit`
+              : 'every unit';
+      return `+${bonus.flat} ${FLAT_STAT_LABELS[bonus.stat]} on ${who}`;
+    }
+    case 'carrier_loot_flat':
+      return `+${bonus.flat} loot slots on every carrier`;
+    case 'noise_switch':
+      return 'a switch: on, every location here is Noisy and your units ignore Noisy everywhere';
+    case 'daily_page':
+      return 'a blueprint page a day, of a blueprint you have not finished';
+    case 'pamphlets':
+      return `${bonus.pins} pamphlet${bonus.pins === 1 ? '' : 's'}: a pinned unit fights you at -5% damage and vitality`;
+    case 'daily_stim':
+      return `${bonus.percent}% chance of a battle stim each day`;
+    case 'casualty_recovery':
+      return `+${bonus.percent}% casualty recovery`;
+    case 'unit_door':
+      return `${unitName(bonus.unitId)} mustered here, stronger at every level`;
+    case 'training_time':
+      return `-${bonus.percent}% training time`;
+    case 'golden_jobs':
+      return `${bonus.chancePercent}% of fight jobs here are golden, paying +${bonus.rewardPercent}%`;
+    case 'daily_component':
+      return `${bonus.count} component${bonus.count === 1 ? '' : 's'} a day`;
+    case 'trophies':
+      return 'a daily pay for every kind of unit you have killed while holding it';
+    case 'spy_defence':
+      return `+${bonus.percent} defensive spy points`;
+    case 'mission_xp':
+      return `+${bonus.percent}% mission XP`;
+    case 'storage':
+      return `+${bonus.percent}% storage, every shelf but caps`;
+    case 'modification_output':
+      return `+${bonus.percent}% output per modification on a producing structure`;
+    case 'ally_fight':
+      return `+${bonus.percent}% damage and vitality for units sent into a faction mate's fight`;
+    case 'mission_caps':
+      return `+${bonus.percent}% mission caps`;
+    case 'xp_per_loss':
+      return `+${bonus.perSlot} XP for every unit slot of your own dead`;
+    case 'modification_armor':
+      return `+${bonus.flat} armour per modification a unit wears`;
+    case 'payroll':
+      return `+${bonus.percent}% payroll`;
+    case 'legend_aura':
+      return bonus.stat === 'penetration'
+        ? `+${bonus.amount} penetration on units fighting beside ${unitName(bonus.unitId)}`
+        : `+${bonus.amount}% damage and vitality on units fighting beside ${unitName(bonus.unitId)}`;
+    case 'anti_combine':
+      return 'ANTI-COMBINE: +10% damage and vitality against the Combine';
+    case 'intimidated_infamy':
+      return `+${bonus.percent}% infamy for enemy units that were intimidated`;
   }
 }
+
+/** What each flat stat is called on a card. */
+const FLAT_STAT_LABELS: Record<FlatUnitStat, string> = {
+  armor: 'armour',
+  offense: 'damage',
+  range: 'range',
+  evasion: 'evasion',
+  speed: 'speed',
+  stealth: 'stealth',
+  penetration: 'penetration',
+};
 
 /** Guards the label tables against a resource or a group being added and silently going unnamed. */
 for (const key of RESOURCE_KEYS) {

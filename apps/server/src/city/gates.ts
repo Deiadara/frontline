@@ -3,7 +3,6 @@ import {
   type GatePricing,
   CAPTURED_GATE_MAX_LEVEL,
   CAPTURED_GATE_START_LEVEL,
-  ALL_DISTRICTS,
   capturedGateDefensePercent,
   CapturedGateSchema,
   capturedGateCost,
@@ -27,6 +26,7 @@ import type { Repositories } from '../db/repos/index.js';
 import { creditBase, refuseWaste } from '../district/stores.js';
 import { settleEach } from '../world/guard.js';
 import { tallyGateLevelRaised } from '../feats/tally.js';
+import { holdsDistrictWhole, districtsHeldWhole, wholeHolderOf } from './holding.js';
 
 /**
  * §B7: the gate on a district a crew has taken whole (maintainer request).
@@ -34,50 +34,12 @@ import { tallyGateLevelRaised } from '../feats/tally.js';
  * Three things live here: who has access, how a gate is raised, and when that work lands.
  */
 
-/**
- * Whether this crew holds every location in a district.
- *
- * The gate is deliberately not in the list, and cannot be: it is its own `BattleTarget` kind
- * rather than a location, so "excluding gate, you cannot really capture that" is true by
- * construction rather than by a clause somebody has to keep remembering.
- *
- * A district with no locations answers false. There is no such district today, and a district that
- * is captured by owning nothing would be a strange thing to hand a free wall to.
+/*
+ * `holdsDistrictWhole` and `districtsHeldWhole` live in `./holding.ts` since the faction ruling
+ * (2026-10-07): a district is whole for a crew when its table holds every location. Re-exported
+ * here because every reader of the gate imported them from this module.
  */
-export function holdsDistrictWhole(
-  repos: Repositories,
-  baseId: string,
-  districtId: string,
-): boolean {
-  const district = findDistrict(districtId);
-  if (!district || district.locations.length === 0) return false;
-  const controls = repos.city.controls();
-  return district.locations.every((location) => {
-    const holder = controls.get(location.id)?.holder;
-    return holder?.kind === 'crew' && holder.baseId === baseId;
-  });
-}
-
-/**
- * Every district this crew holds outright, in map order.
- *
- * Every district in the **world**, not Ashfall's twelve (2026-09-24). `holdsDistrictWhole` above
- * already answered for any district on the map, because it resolves the id through `findDistrict`;
- * this one enumerated one city, so a Terminus district held end to end was true when asked about
- * and absent from the list the city screen draws gates from. The gate existed and nothing offered
- * it.
- */
-export function districtsHeldWhole(repos: Repositories, baseId: string): string[] {
-  const controls = repos.city.controls();
-  return ALL_DISTRICTS.filter(
-    (district) =>
-      district.locations.length > 0 &&
-      district.locations.every((location) => {
-        const holder = controls.get(location.id)?.holder;
-        return holder?.kind === 'crew' && holder.baseId === baseId;
-      }),
-  ).map((district) => district.id);
-}
+export { holdsDistrictWhole, districtsHeldWhole } from './holding.js';
 
 /**
  * The gate as it stands, creating it at level 1 the first time somebody holds the ground.
@@ -135,6 +97,25 @@ export function resetGateOnDistrictLost(
     upgradingSince: null,
   });
   return true;
+}
+
+/**
+ * Calls off a raise of this district's captured gate, refunding nobody (maintainer, 2026-10-06).
+ *
+ * For ground in the district changing hands (`putControl`): the work was the old holder's, and the
+ * crew that takes the ground takes the gate as it stands, without the half-built level and without
+ * the materials paid for it.
+ */
+export function dropGateRaise(repos: Repositories, districtId: string): void {
+  const gate = repos.capturedGates.find(districtId);
+  if (!gate || gate.upgradingTo === null) return;
+  repos.capturedGates.put({
+    ...gate,
+    upgradingTo: null,
+    upgradingUntil: null,
+    upgradingSince: null,
+    upgradePaid: null,
+  });
 }
 
 export type RaiseGateResult =
@@ -221,7 +202,26 @@ function gatePricingFor(repos: Repositories, base: Base, now: Date): GatePricing
  * hard the ground is for *somebody else* to take.
  */
 export function settleCapturedGates(repos: Repositories, now: Date): number {
-  const due = repos.capturedGates.due(now.toISOString());
+  const finished = repos.capturedGates.due(now.toISOString());
+  /*
+   * Not ahead of a fight at the gate that came first (bug pass, 2026-10-06), as location upgrades
+   * wait: gates settle before battles, so after a restart over both a raise finished after a
+   * fight's mark already counted in that fight. It waits for the fight; the next settle lands it.
+   * Read only when something is due, because this runs on the city read too.
+   */
+  const firstFight = new Map<string, number>();
+  if (finished.length > 0) {
+    for (const battle of repos.sieges.pending()) {
+      if (battle.target.kind !== 'gate') continue;
+      const mark = Date.parse(battle.scheduledFor);
+      const known = firstFight.get(battle.target.districtId);
+      if (known === undefined || mark < known) firstFight.set(battle.target.districtId, mark);
+    }
+  }
+  const due = finished.filter((gate) => {
+    const fight = firstFight.get(gate.districtId);
+    return fight === undefined || fight > Date.parse(gate.upgradingUntil ?? '');
+  });
   return settleEach(
     repos,
     'captured gates',
@@ -236,19 +236,13 @@ export function settleCapturedGates(repos: Repositories, now: Date): number {
         upgradingUntil: null,
         upgradingSince: null,
       });
-      // P8-C: counted for whoever holds the district whole when the level lands.
-      const holder = wholeHolderOf(repos, gate.districtId);
-      if (holder !== null) tallyGateLevelRaised(repos, holder, level - gate.level);
+      // P8-C: counted for whoever answers for the district when the level lands: its one
+      // holder, or the named defender of a table holding it together.
+      const district = findDistrict(gate.districtId);
+      const holder = district ? wholeHolderOf(repos, district) : null;
+      if (holder?.kind === 'crew') tallyGateLevelRaised(repos, holder.baseId, level - gate.level);
     },
   );
-}
-
-/** The crew holding every location in this district, or null when nobody does. */
-function wholeHolderOf(repos: Repositories, districtId: string): string | null {
-  const first = findDistrict(districtId)?.locations[0];
-  const holder = first ? repos.city.control(first.id)?.holder : undefined;
-  if (holder?.kind !== 'crew') return null;
-  return holdsDistrictWhole(repos, holder.baseId, districtId) ? holder.baseId : null;
 }
 
 /**

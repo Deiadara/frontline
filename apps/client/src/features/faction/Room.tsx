@@ -130,9 +130,11 @@ function Seat({
             <dt className="text-ink-400">Level</dt>
             <dd className="tabular-nums">{member.level}</dd>
             <dt className="text-ink-400">Units</dt>
-            <dd className="tabular-nums">{member.armySize.toLocaleString()}</dd>
+            <dd className="tabular-nums">{member.armySize.toLocaleString('en-US')}</dd>
             <dt className="text-ink-400">Earned here</dt>
-            <dd className="tabular-nums">{Math.round(member.infamyEarned).toLocaleString()}</dd>
+            <dd className="tabular-nums">
+              {Math.round(member.infamyEarned).toLocaleString('en-US')}
+            </dd>
           </dl>
           <p className="mt-2 font-body text-[11px] italic text-ink-400">
             Press for their file, and what you may do about them.

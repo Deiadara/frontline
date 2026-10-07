@@ -318,3 +318,37 @@ describe('§I4: the Trap panel', () => {
     expect(panel.getByTestId('trap-clear')).toBeDisabled();
   });
 });
+
+/**
+ * Bug pass, 2026-10-06: one failed background poll swapped the whole board for the failure screen,
+ * which unmounted the open fight and everything chosen on it, until the next poll put it back.
+ */
+describe('a failed poll under an open fight', () => {
+  it('keeps the board, and the fight, on screen', async () => {
+    const board = boardWith(viewFor('defender', HELD.id));
+    serve(board);
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    render(
+      <QueryClientProvider client={client}>
+        <MemoryRouter initialEntries={['/game/battles/press']}>
+          <Routes>
+            <Route path="/game/battles/:battleId" element={<BattlePage />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+    await screen.findByTestId('trap-picker');
+
+    fetchMock.mockImplementation((path: string) =>
+      path.endsWith('/battles')
+        ? Promise.resolve(new Response('bad gateway', { status: 502 }))
+        : reply(me),
+    );
+    await client.refetchQueries({ queryKey: ['battles'] });
+    await waitFor(() => expect(client.getQueryState(['battles'])?.status).toBe('error'));
+    expect(screen.getByTestId('trap-picker')).toBeInTheDocument();
+    expect(screen.queryByTestId('load-failure')).toBeNull();
+  });
+});

@@ -22,7 +22,7 @@ import {
   type PayrollLedger,
 } from '@frontline/shared';
 import { adminCaps, adminWaives } from '../admin/mode.js';
-import { crewEffectsFor } from '../crew/standing.js';
+import { standingEffectsFor } from '../crew/standing.js';
 import { officerDuty } from '../crew/duty.js';
 import type { Repositories } from '../db/repos/index.js';
 import { districtUnitSlots } from '../district/unit-slots.js';
@@ -178,23 +178,29 @@ export function bidCeilingFor(available: number, discountPercent: number): numbe
  * one that comes out of the stockpile, which is the worst kind of pricing bug because it looks
  * like a refund.
  */
-export function ledgerFor(
-  base: Base,
-  effects: Pick<CrewEffects, 'payrollStepDiscountPercent' | 'chairPoints'> = NO_LEDGER_EFFECTS,
-): PayrollLedger {
+export function ledgerFor(base: Base, effects: LedgerEffects = NO_LEDGER_EFFECTS): PayrollLedger {
   return payrollLedger(
     base.economy.payroll,
     buildingLevel(base.buildings, 'nexus'),
-    payrollBonusPercent(base.buildings),
+    // The district's cards and the ground's (`payrollPercent`, the Printworks held whole,
+    // maintainer 2026-10-07), on the one sum the Nexus book is multiplied by.
+    payrollBonusPercent(base.buildings) + effects.payrollPercent,
     effects.payrollStepDiscountPercent,
     // The Fixer's passive (maintainer, 2026-10-04).
     chairPassiveOf(effects, 'fixer', 'payroll'),
   );
 }
 
-const NO_LEDGER_EFFECTS: Pick<CrewEffects, 'payrollStepDiscountPercent' | 'chairPoints'> = {
+/** What the ledger reads off a crew's standing: pass `standingEffectsFor`, or the ground pays nothing. */
+export type LedgerEffects = Pick<
+  CrewEffects,
+  'payrollStepDiscountPercent' | 'chairPoints' | 'payrollPercent'
+>;
+
+const NO_LEDGER_EFFECTS: LedgerEffects = {
   payrollStepDiscountPercent: 0,
   chairPoints: {},
+  payrollPercent: 0,
 };
 
 /**
@@ -268,7 +274,7 @@ export function signRecruit(repos: Repositories, input: SignInput): SignResult {
   // Read once. The step discount is the same figure `GET /bar` and the payroll route apply, or the
   // step price on the response differs from the one that leaves the stockpile when the button is
   // pressed; the wage discount is what this crew's negotiators take off the contract.
-  const effects = crewEffectsFor(repos, base);
+  const effects = standingEffectsFor(repos, base);
   const wage = committedWage(price, effects.wageDiscountPercent);
   const ledger = ledgerFor(base, effects);
   if (!payrollFits(ledger, wage) && !adminWaives('no_payroll', admin)) {
@@ -343,6 +349,9 @@ export function releaseOfficer(
   base: Base,
   officerId: string,
   admin = false,
+  // The route's instant, the one it settled the base to (bug pass, 2026-10-06): this read the
+  // wall clock twice, so duty and the drill cancel were judged a moment after the settle.
+  now: Date = new Date(),
 ): ReleaseResult {
   const officer = base.commanders.find((held) => held.id === officerId);
   if (!officer) return { kind: 'refused', reason: 'not_on_the_books' };
@@ -351,7 +360,7 @@ export function releaseOfficer(
    * one go mid-run left the run with nobody at its head and a fight settling without the officer
    * the crew sent. Laid up is fine: the bed is not a job.
    */
-  const duty = officerDuty(repos, base, officer, new Date());
+  const duty = officerDuty(repos, base, officer, now);
   if (duty !== null && (duty.held === 'run' || duty.held === 'fight')) {
     return { kind: 'refused', reason: 'on_duty', held: duty.held };
   }
@@ -384,9 +393,7 @@ export function releaseOfficer(
    */
   const held = sessionFor(base.training, officerId);
   const training =
-    held === undefined
-      ? base.training
-      : cancelDrill(base.training, held.id, new Date().toISOString());
+    held === undefined ? base.training : cancelDrill(base.training, held.id, now.toISOString());
 
   const released: Base = {
     ...base,
@@ -410,7 +417,7 @@ export function releaseOfficer(
     base: released,
     officer,
     fee,
-    payroll: ledgerFor(released, crewEffectsFor(repos, released)),
+    payroll: ledgerFor(released, standingEffectsFor(repos, released)),
   };
 }
 

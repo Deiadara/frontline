@@ -1,6 +1,11 @@
 import { z } from 'zod';
 import { PartialResourcesSchema, ResourcesSchema } from './resources.js';
-import { FleetSchema, VehicleClassSchema, VehicleIdSchema } from './building/vehicles.js';
+import {
+  FleetSchema,
+  MAX_PER_VEHICLE,
+  VehicleClassSchema,
+  VehicleIdSchema,
+} from './building/vehicles.js';
 import { IdSchema } from './primitives.js';
 
 /**
@@ -66,6 +71,12 @@ export type GarageVehicle = z.infer<typeof GarageVehicleSchema>;
 export const GarageResponseSchema = z.object({
   /** The stockpile, so a cost line can grey what the crew cannot cover without a second query. */
   resources: ResourcesSchema,
+  /**
+   * Beds left in the district (`districtUnitSlots(...).spare`): a machine takes one, so a card's
+   * Max cannot offer a batch the door refuses for want of them. Defaults for the fixtures that
+   * predate it, where none means Max has nothing to offer.
+   */
+  spareUnitSlots: z.number().int().nonnegative().default(0),
   /** The Garage's own level, or 0 when it has not been built. The gate every row reads against. */
   garageLevel: z.number().int().nonnegative(),
   /** What is parked, by id. */
@@ -77,16 +88,17 @@ export const GarageResponseSchema = z.object({
 export type GarageResponse = z.infer<typeof GarageResponseSchema>;
 
 /**
- * Build one.
+ * Build a batch.
  *
- * One at a time and paid immediately, like a workshop upgrade rather than like a building: the
- * Garage has no queue of its own and adding one would be a second build queue with its own screen,
- * its own settle and its own bugs for a mechanic whose interesting decision is *which* machine.
+ * `count` of one machine, onto the units' bench as one order (maintainer, 2026-10-07: the card
+ * takes a number and a Max the way a unit's does). Bounded by the per-kind cap rather than the
+ * units' batch ceiling, because the yard never holds more than that many of one kind anyway.
  *
  * Moved here from `api.ts` with the rest of the yard when §B11 gave the Garage its own page.
  */
 export const BuildVehicleRequestSchema = z.object({
   vehicleId: VehicleIdSchema,
+  count: z.number().int().min(1).max(MAX_PER_VEHICLE).default(1),
 });
 export type BuildVehicleRequest = z.infer<typeof BuildVehicleRequestSchema>;
 

@@ -179,7 +179,7 @@ export function LockedChip({ amount }: { amount: number }) {
       className="inline-flex shrink-0 items-center gap-1 rounded-sm border border-brass-300/60 bg-brass-300/10 px-2 py-0.5 font-display text-[10px] font-bold uppercase tracking-[0.14em] text-brass-100"
     >
       <Icon name="lock" aria-hidden className="h-3 w-3 shrink-0" />
-      Locked {amount.toLocaleString()}
+      Locked {amount.toLocaleString('en-US')}
     </span>
   );
 }

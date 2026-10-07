@@ -40,6 +40,7 @@ import {
   describeBoostUnlock,
   describeBuildingRequirement,
   describeHoldBonus,
+  findUnit,
   describePerkBonus,
   describeRequirement,
   describeResearchPayout,
@@ -132,6 +133,9 @@ import {
   levelCeilingFor,
   type UnitStats,
 } from '@frontline/shared';
+
+/** A unit's name for a bonus line, where a card names one (a door, a legend's aura). */
+const unitNameOf = (unitId: string): string => findUnit(unitId)?.name ?? unitId;
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -560,7 +564,7 @@ function locationsSection(): Section {
       code(kind),
       spec.label,
       String(spec.baseDefense),
-      spec.bonuses.map(describeHoldBonus).join(', '),
+      spec.bonuses.map((bonus) => describeHoldBonus(bonus, unitNameOf)).join(', '),
       spec.labels.map(labelText).join(', '),
       // The whole first order, not the plank figure the catalogue stores: the mix is the same
       // everywhere now, and a reader wants to know what the bill looks like.

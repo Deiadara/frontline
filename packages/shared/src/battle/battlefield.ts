@@ -111,6 +111,16 @@ export const LOCATION_CONTEXTS: Record<LocationKind, readonly CombatContext[]> =
   // the railway. A platform is a long open strip with a canopy over part of it and nothing to
   // take cover behind, which is why taking one is loud and holding one is hard.
   rail_station: ['open_ground', 'urban'],
+  // A stone room full of niches, down a few steps from a street of them.
+  mausoleum: ['indoor', 'urban'],
+  // Reliquary's own kinds (2026-10-07): a loft, a hilltop shrine, a wall in a street, a hall.
+  workshop: ['indoor', 'urban'],
+  shrine: ['open_ground', 'urban'],
+  bounty_wall: ['urban'],
+  stage: ['indoor', 'urban'],
+  trophy_hall: ['indoor', 'urban'],
+  laboratory: ['indoor'],
+  stores: ['indoor'],
 };
 
 /**

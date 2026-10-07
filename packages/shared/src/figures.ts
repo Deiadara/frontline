@@ -23,6 +23,13 @@ export const FIGURE_FULL_CEILING = 1_000_000;
 /** The most characters {@link compactFigure} can return, which is what a column must reserve. */
 export const FIGURE_MAX_CHARS = 7;
 
+/** The magnitudes a figure is shortened to, largest first. */
+const UNITS: readonly (readonly [number, string])[] = [
+  [1_000_000_000_000, 'T'],
+  [1_000_000_000, 'B'],
+  [1_000_000, 'M'],
+];
+
 /**
  * The mantissa, at as many decimals as the width can afford.
  *
@@ -61,7 +68,14 @@ export function compactFigure(value: number): string {
   if (magnitude < FIGURE_FULL_CEILING) return whole.toLocaleString('en-US');
   // Each unit carries three orders of magnitude, so the mantissa never has to grow past four
   // figures inside one of them.
-  if (magnitude >= 1_000_000_000_000) return scaled(whole / 1_000_000_000_000, 'T');
-  if (magnitude >= 1_000_000_000) return scaled(whole / 1_000_000_000, 'B');
-  return scaled(whole / 1_000_000, 'M');
+  const at = UNITS.findIndex(([size]) => magnitude >= size);
+  const [size, suffix] = UNITS[at] ?? UNITS[UNITS.length - 1]!;
+  const label = scaled(whole / size, suffix);
+  // Rounding can carry a mantissa to a thousand, which is the next unit's one (bug pass,
+  // 2026-10-06): 999,999,999 read "1000M", five characters where every other figure is four.
+  if (at > 0 && Math.abs(parseFloat(label)) >= 1000) {
+    const [up, upSuffix] = UNITS[at - 1]!;
+    return scaled(whole / up, upSuffix);
+  }
+  return label;
 }

@@ -633,6 +633,8 @@ export const city: CityResponse = {
               }
             : null,
       isHome,
+      holderFaction: null,
+      wholeBy: null,
     };
   }),
 };
@@ -670,6 +672,8 @@ export const awayCity: CityResponse = {
       },
       base: null,
       isHome: false,
+      holderFaction: null,
+      wholeBy: null,
     };
   }),
 };
@@ -818,12 +822,19 @@ function locationViewsFor(district: District): DistrictDetailResponse['locations
       garrisonSize: mine ? 3 : null,
       garrison: mine ? { razors: 3 } : null,
       latestSpyReport: rivals ? spyReportOnRivals(location.id, location.name) : null,
-      bonuses: bonusesAt(location.kind, level).map(describeHoldBonus),
+      bonuses: bonusesAt(location.kind, level).map((bonus) => describeHoldBonus(bonus)),
       reward: spec.reward,
       // The same fold the server does: the ground's own character plus today's sky. `NOW` is a
       // fixed instant, so the fixture's labels are stable and a screenshot of them is comparable.
       labels: mergeLabels(spec.labels, weatherLabels(weatherAt(new Date(NOW)))),
       unlocks: unitsUnlockedByLocation(location.kind).map((unit) => unit.name),
+      holderFaction: null,
+      holderSide: mine ? ('mine' as const) : ('enemy' as const),
+      noisyFromTower: false,
+      switch: null,
+      pamphlets: null,
+      trophies: null,
+      door: null,
     };
   });
 }
@@ -1173,6 +1184,8 @@ export const unitsResponse: UnitsResponse = {
   resources: base.resources,
   musterCostReduction: 10,
   musterSpeedBonus: 34,
+  ignoredLabels: [],
+  antiCombineLevels: 0,
   // A Greenhouse 8 (half a point a level), Sealed Growrooms and Grey Water Loop: 14 points, which
   // the supplies line takes as 12.5 beside the 10 of cost cut (`suppliesLineCut`, 2026-10-01).
   musterSuppliesReduction: 14,
@@ -1270,6 +1283,8 @@ export const unitsResponse: UnitsResponse = {
       cost: unit.cost,
       musterSeconds: unit.musterSeconds,
       unitSlots: unit.unitSlots,
+      doorLevel: null,
+      doorSteps: [],
       /*
        * §A4: the Cyberhounds' own Doghouse, and nobody else's.
        *
@@ -1673,6 +1688,8 @@ function areaFixture(id: string, name: string, payPercent: number, activeMission
             leanings: [...leaningsFor(template)],
             // `lateGameBase` is well past the opening band, so there is none to quote.
             ramp: null,
+            golden: false,
+            goldenPercent: 0,
           }))
         : [],
     activeMissionId,
@@ -2469,6 +2486,7 @@ export const trainingResponse: TrainingResponse = {
       lastAttribute: 'stamina',
       // The player is never a casualty: §D4 is about officers.
       injuredUntil: null,
+      held: null,
     },
     {
       id: 'officer-1',
@@ -2488,6 +2506,7 @@ export const trainingResponse: TrainingResponse = {
       // §D6: the maintainer's own screenshot of the injured state. Twelve hours out, so the countdown
       // draws in its wide form and the red band is on a card the layout guards already measure.
       injuredUntil: new Date(Date.parse(NOW) + 12 * 3600 * 1000).toISOString(),
+      held: 'injury',
     },
   ],
 };
@@ -2557,6 +2576,7 @@ export const crewStanding: CrewStandingResponse = {
    * here would draw the board exactly as the bug did and prove nothing.
    */
   haulPercent: STANDING_EFFECTS.lootCapacityPercent + 25,
+  carrierFlat: 0,
   missionCapsPercent: 0,
 };
 
@@ -2839,7 +2859,11 @@ export const districtWithAddons: Base = {
 const GARAGE_LEVEL = 5;
 
 export const garage: GarageResponse = {
-  resources: base.resources,
+  // The late-game stockpile, which is the crew every Garage spec installs: the order box greys
+  // Build against what the crew can pay, and the starting purse does not cover a Scrappy.
+  resources: lateGameBase.resources,
+  // Enough beds for a batch, so the order box's Max has something to offer on the screenshot.
+  spareUnitSlots: 6,
   garageLevel: GARAGE_LEVEL,
   fleet: { motorcycle: 2 },
   capacity: fleetCapacity({ motorcycle: 2 }),
@@ -3588,6 +3612,7 @@ export const actionsResponse: ActionsResponse = {
       recallable: true,
       // Riding: two on the Scrappy, the rest walking, which is what the chip beside the line says.
       vehicles: { motorcycle: 1 },
+      byRail: false,
     },
     {
       id: 'col-2',
@@ -3604,6 +3629,7 @@ export const actionsResponse: ActionsResponse = {
       arrivesAt: new Date(Date.parse(BOARD_NOW) + 10 * 60_000).toISOString(),
       recallable: false,
       vehicles: {},
+      byRail: false,
     },
   ],
   // Somebody out looking: ten minutes into an hour's run to the Rustyard, which is twenty
@@ -3738,6 +3764,19 @@ export const factionScreen: FactionResponse = {
       size: 38,
     },
   ],
+  // The call above, logged the morning it was made rather than at its mark.
+  log: [
+    {
+      id: 'log-ally-battle-1',
+      kind: 'fight',
+      at: '2026-08-12T08:30:00.000Z',
+      userId: ALLY_ID,
+      name: 'Sable_Ninth',
+      targetName: 'The Tideline Market',
+      side: 'attacker',
+      units: 0,
+    },
+  ],
   serverNow: NOW,
 };
 
@@ -3760,6 +3799,7 @@ export const factionNone: FactionResponse = {
   pending: [],
   battles: [],
   armies: [],
+  log: [],
   serverNow: NOW,
 };
 

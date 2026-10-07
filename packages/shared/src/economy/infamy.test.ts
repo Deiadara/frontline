@@ -12,7 +12,6 @@ import {
   missionInfamyForKills,
   notorietyToField,
   spendInfamy,
-  unitsBeyondNotoriety,
 } from './infamy.js';
 import { notorietySpentTo } from './notoriety.js';
 import { startingEconomy } from './state.js';
@@ -141,17 +140,6 @@ describe('what a name lets you field (§D7)', () => {
     expect(notorietyToField('juggernauts')).toBe(NOTORIETY_TO_FIELD.heavy);
     expect(notorietyToField('the_colossus')).toBe(NOTORIETY_TO_FIELD.legendary);
     expect(NOTORIETY_TO_FIELD.legendary).toBeGreaterThan(NOTORIETY_TO_FIELD.heavy);
-  });
-
-  it('names exactly which units in a force are out of reach, and nothing else', () => {
-    const force = { razors: 20, juggernauts: 2, the_colossus: 1 };
-    expect(unitsBeyondNotoriety(force, 0).sort()).toEqual(['juggernauts', 'the_colossus']);
-    expect(unitsBeyondNotoriety(force, NOTORIETY_TO_FIELD.heavy)).toEqual(['the_colossus']);
-    expect(unitsBeyondNotoriety(force, NOTORIETY_TO_FIELD.legendary)).toEqual([]);
-  });
-
-  it('says nothing about a unit nobody is sending', () => {
-    expect(unitsBeyondNotoriety({ the_colossus: 0 }, 0)).toEqual([]);
   });
 
   /**

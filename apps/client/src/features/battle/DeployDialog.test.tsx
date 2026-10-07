@@ -99,6 +99,8 @@ function option(unitId: string, owned: number): UnitOption {
     cost: spec.cost,
     musterSeconds: spec.musterSeconds,
     unitSlots: spec.unitSlots,
+    doorLevel: null,
+    doorSteps: [],
     unlocked: true,
     missing: [],
     owned,
@@ -132,6 +134,8 @@ const roster: UnitsResponse = {
   musterCostReduction: 0,
   musterSpeedBonus: 0,
   built: [],
+  ignoredLabels: [],
+  antiCombineLevels: 0,
 };
 
 const fetchMock = vi.fn();
@@ -172,8 +176,8 @@ function open(
           army={army}
           loadouts={loadouts}
           bagPercent={0}
+          carrierFlat={0}
           // Above every gate in the catalogue, so nothing in this fixture is locked out by rank.
-          notoriety={100_000}
           mode={mode}
           pending={false}
           error={null}

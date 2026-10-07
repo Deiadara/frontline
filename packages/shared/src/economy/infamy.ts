@@ -1,6 +1,6 @@
 import { z } from 'zod';
-import { meetsNotoriety } from './notoriety.js';
-import { UNIT_TIERS, findUnit, type Army, type UnitSpec, type UnitTier } from '../units/index.js';
+import { UNIT_TIERS, findUnit, type UnitSpec, type UnitTier } from '../units/catalog.js';
+import type { Army } from '../units/muster.js';
 
 /**
  * Infamy (GDD §D7): the score the street keeps.
@@ -224,13 +224,16 @@ export function spendInfamy(infamy: number, cost: number): number | null {
 }
 
 /**
- * The **rank** a unit will not take the field without, as a `NOTORIETY_TIERS` index.
+ * The **rank** a unit will not muster without, as a `NOTORIETY_TIERS` index.
  *
  * Legendary units are people (and one machine) with a choice about who they work for, and the
  * board's rule is that they will not work for a nobody. This used to be a point threshold, which
  * made it fall over every time a crew bought anything: spend three hundred on contraband and the
  * Colossus walks off the roster, because the number the shop charged was the number the roster
  * read. A rank is bought once and kept, so what a crew may field is a thing they earned.
+ *
+ * Checked at the muster (`units/unlocks.ts`), and only there, since 2026-10-07. It used to sit on
+ * every door onto a field instead, which let a crew muster a unit it could then never send.
  *
  * Derived off the tier rather than authored per unit, so a legendary added later is gated the day
  * it is written. A unit that is not gated returns 0, and every call site can treat 0 as "anybody".
@@ -294,18 +297,6 @@ export function notorietyToField(unit: UnitSpec | string): number {
   // See `NOTORIETY_HEAVY_UNIT_SLOTS`: armour alone is not what the gate is about.
   if (SLOT_GATED_TIERS.includes(spec.tier) && spec.unitSlots < NOTORIETY_HEAVY_UNIT_SLOTS) return 0;
   return NOTORIETY_TO_FIELD[spec.tier];
-}
-
-/**
- * Every unit in a force that this crew's rank is not yet good enough to send.
- *
- * Returned as a list rather than a boolean so a refusal can name what is blocking it. Empty is the
- * common case and the cheap one.
- */
-export function unitsBeyondNotoriety(force: Army, notoriety: number): string[] {
-  return Object.entries(force)
-    .filter(([unitId, count]) => count > 0 && !meetsNotoriety(notoriety, notorietyToField(unitId)))
-    .map(([unitId]) => unitId);
 }
 
 /** Guards the rank table against a tier being added and silently going ungated. */

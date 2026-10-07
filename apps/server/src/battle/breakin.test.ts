@@ -22,6 +22,7 @@ import {
   MAX_LOCATION_LEVEL,
   RAID_DISRUPTION_HOURS,
   RESOURCE_KEYS,
+  createCommander,
   featMeasureKey,
   declarationWindow,
   raidDisruptionPercent,
@@ -184,7 +185,7 @@ const totalAcross = (world: World): Resources =>
   );
 
 /** Declares a raid on the victim's district, sends a column, and settles it. */
-async function breakIn(world: World): Promise<string> {
+async function breakIn(world: World, leaderId?: string): Promise<string> {
   const target: BattleTarget = { kind: 'district', districtId: world.victim.districtId };
   const declared = await world.app.inject({
     method: 'POST',
@@ -233,9 +234,26 @@ async function breakIn(world: World): Promise<string> {
     .prepare('UPDATE troop_movements SET departed_at = ?, arrives_at = ? WHERE battle_id = ?')
     .run(new Date(mark.getTime() - 60_000).toISOString(), mark.toISOString(), view.battle.id);
   settleMovements(world.app.repos, new Date());
+  if (leaderId !== undefined) {
+    const named = world.db
+      .prepare('UPDATE battle_deployments SET officer_id = ? WHERE battle_id = ? AND base_id = ?')
+      .run(leaderId, view.battle.id, world.raider.baseId);
+    expect(named.changes, 'fixture: the column has no deployment row to lead').toBe(1);
+  }
 
   expect(settleBattles(world.app.repos, world.app.skirmishEngine, new Date())).toHaveLength(1);
   return view.battle.id;
+}
+
+/** An officer on the raider's books, seated so they can lead, with whatever perks a case needs. */
+function seatOfficer(world: World, perks: string[]): string {
+  const base = world.app.repos.bases.findById(world.raider.baseId)!;
+  const officer = {
+    ...createCommander('raid-lead', 'Ines Varga', 'field_commander', { strength: 60 }),
+    perks,
+  };
+  world.app.repos.bases.updateCommanders(base.id, [...base.commanders, officer]);
+  return officer.id;
 }
 
 /** Hands the victim a location outright, so its hold bonus is live on their side of the fight. */
@@ -351,7 +369,7 @@ describe('breaking into a lived-in district', () => {
     });
     world.app.repos.bases.updateArmy(world.raider.baseId, { razors: 20 }, []);
     world.app.repos.bases.updateArmy(world.victim.baseId, { razors: 8 }, []);
-    give(world, 'steelbelt-bones');
+    give(world, 'bonded-row-rendering');
 
     const victimBefore = stockOf(world, world.victim.baseId);
     const raiderBefore = stockOf(world, world.raider.baseId);
@@ -382,6 +400,64 @@ describe('breaking into a lived-in district', () => {
       if (key === 'caps') continue;
       expect(lost, `the victim kept the ${key} the raiders carried out`).toBe(gained);
     }
+  });
+});
+
+/**
+ * The officer's loot perk on a raid (maintainer, 2026-10-06): the extra comes out of the victim's
+ * stockpile, capped by what they hold, and the Bone Market refund is not scaled by it. It used to
+ * scale everything the fight paid, so the extra was minted and the refund grew with it.
+ *
+ * Two worlds on one seed, one officer leading in each, the perk on one of them: the stub engine
+ * decides the fight the same way in both, so the perk is the only difference.
+ */
+describe("a leading officer's loot perk on a raid", () => {
+  async function raidLedBy(perks: string[]) {
+    const world = await makeWorld();
+    fill(world, world.victim.baseId);
+    world.app.repos.bases.updateArmy(world.raider.baseId, { razors: 20 }, []);
+    // The raider holds a Bone Market, so its own two dead are refunded in caps.
+    const market = world.app.repos.city.control('bonded-row-rendering')!;
+    world.app.repos.city.put({
+      ...market,
+      holder: { kind: 'crew', baseId: world.raider.baseId },
+      level: MAX_LOCATION_LEVEL,
+      garrison: {},
+    });
+    const leader = seatOfficer(world, perks);
+    const victimBefore = stockOf(world, world.victim.baseId);
+    const raiderBefore = stockOf(world, world.raider.baseId);
+    await breakIn(world, leader);
+    const victimAfter = stockOf(world, world.victim.baseId);
+    const raiderAfter = stockOf(world, world.raider.baseId);
+    const delta = (after: Resources, before: Resources) =>
+      Object.fromEntries(RESOURCE_KEYS.map((key) => [key, after[key] - before[key]])) as Record<
+        keyof Resources,
+        number
+      >;
+    return { lost: delta(victimBefore, victimAfter), gained: delta(raiderAfter, raiderBefore) };
+  }
+
+  it('takes the extra from the victim, creates nothing, and leaves the refund as it was', async () => {
+    const plain = await raidLedBy([]);
+    const perked = await raidLedBy(['picks_the_crate']);
+
+    const carried = RESOURCE_KEYS.filter((key) => key !== 'caps' && plain.lost[key] > 0);
+    expect(carried.length, 'the raid carried nothing out').toBeGreaterThan(0);
+    for (const key of carried) {
+      expect(perked.lost[key], `${key}: the victim lost no more to the perk`).toBe(
+        plain.lost[key] + Math.round((plain.lost[key] * 12) / 100),
+      );
+    }
+    for (const key of RESOURCE_KEYS) {
+      if (key === 'caps') continue;
+      expect(perked.gained[key], `${key} was created by the perk`).toBeLessThanOrEqual(
+        perked.lost[key],
+      );
+    }
+    // The refund is paid in caps and a raid never takes the till, so caps are the refund alone.
+    expect(plain.gained.caps, 'fixture: no Bone Market refund was paid').toBeGreaterThan(0);
+    expect(perked.gained.caps, 'the perk scaled the Bone Market refund').toBe(plain.gained.caps);
   });
 });
 
@@ -617,7 +693,7 @@ describe('one raid on the whole district', () => {
     const world = await makeWorld();
     fill(world, world.victim.baseId);
     world.app.repos.bases.updateArmy(world.raider.baseId, { razors: 20 }, []);
-    give(world, 'steelbelt-bones');
+    give(world, 'bonded-row-rendering');
 
     const victim = () => world.app.repos.bases.findById(world.victim.baseId)!;
     const before = standingEffectsFor(world.app.repos, victim(), new Date());

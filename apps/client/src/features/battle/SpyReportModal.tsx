@@ -53,7 +53,7 @@ export function SpyReportModal({ report, onClose }: { report: SpyReport; onClose
           {courier ? null : (
             <>
               {' · '}
-              <span className="tabular-nums">{report.capsPaid.toLocaleString()}</span> caps
+              <span className="tabular-nums">{report.capsPaid.toLocaleString('en-US')}</span> caps
             </>
           )}
         </p>
@@ -81,7 +81,9 @@ export function SpyReportModal({ report, onClose }: { report: SpyReport; onClose
           <Head label="Written" value={day} />
           <Head
             label="Paid"
-            value={courier ? 'Nothing: the courier' : `${report.capsPaid.toLocaleString()} caps`}
+            value={
+              courier ? 'Nothing: the courier' : `${report.capsPaid.toLocaleString('en-US')} caps`
+            }
           />
         </dl>
       </div>

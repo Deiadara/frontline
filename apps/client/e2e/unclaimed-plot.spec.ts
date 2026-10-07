@@ -32,7 +32,7 @@ async function unclaimed(page: Page): Promise<void> {
   );
 }
 
-/** What the map calls the plot for this crew: a number, not a crew name. */
+/** What the map calls an empty plot. */
 function plotName(): string {
   const district = findDistrict(PLOT);
   if (!district) throw new Error(`fixture error: no district ${PLOT}`);

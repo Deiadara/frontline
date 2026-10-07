@@ -12,7 +12,7 @@ import {
   type BlackMarketResponse,
 } from '@frontline/shared';
 import type { FastifyInstance } from 'fastify';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { buildApp } from '../app.js';
 import { placeBlackMarketBid, settleBlackMarketLots } from './shelf.js';
 import { standingEffectsFor } from '../crew/standing.js';
@@ -38,6 +38,7 @@ import { openDoors } from '../testing/doors.js';
 const instances: { app: FastifyInstance; db: AppDatabase }[] = [];
 
 afterEach(async () => {
+  vi.useRealTimers();
   for (const { app, db } of instances.splice(0)) {
     await app.close();
     db.close();
@@ -95,6 +96,14 @@ async function giveInfamy(app: FastifyInstance, token: string, infamy: number): 
   expect(res.statusCode).toBe(200);
   // The back room sits inside the Market, whose door is a level.
   openDoors(app, token, 'market');
+}
+
+/**
+ * The ordinary rules, from here on. Admin mode holds nothing on a bid (held bids, 2026-10-06), so a
+ * case about what a bid costs turns it off once the bench has handed the infamy over.
+ */
+function ordinaryRules(app: FastifyInstance): void {
+  Object.assign(app.config, { admin: false });
 }
 
 async function shelf(app: FastifyInstance, token: string): Promise<BlackMarketResponse> {
@@ -174,12 +183,31 @@ function closeOf(board: BlackMarketResponse): Date {
   return blackMarketClosesAt(board.day);
 }
 
+/**
+ * Noon on a day whose shelf opens at least one lot behind a rank, found rather than assumed.
+ *
+ * The shelf is drawn off the date, and on 2026-10-07 Ashfall's five asked for no name at all, which
+ * turned a case about the rank gate into a fixture error once a month or so. Walked forward from a
+ * fixed day so the case reads the same shelf on every run.
+ */
+function dayAskingForAName(): Date {
+  for (let offset = 0; offset < 60; offset += 1) {
+    const at = new Date(Date.UTC(2026, 9, 7, 9) + offset * 86_400_000);
+    const ranked = blackMarketBoard(blackMarketDay(at, 'Europe/Athens'), [0, 0, 0, 0, 0]).some(
+      (slot) => (findBlackMarketGood(slot.goodId)?.minNotoriety ?? 0) > 0,
+    );
+    if (ranked) return at;
+  }
+  throw new Error('fixture: no shelf in two months opens a ranked lot');
+}
+
 describe('POST /api/black-market/bid', () => {
-  it('writes the number where the whole city can read it, and spends nothing yet', async () => {
+  it('writes the number where the whole city can read it, and holds the infamy', async () => {
     const { app } = await makeApp();
     const one = await crew(app, 'operator_one');
     const two = await crew(app, 'operator_two');
     await giveInfamy(app, one.token, 5_000);
+    ordinaryRules(app);
 
     const before = await shelf(app, one.token);
     const lot = lotIn(before, 0);
@@ -192,8 +220,10 @@ describe('POST /api/black-market/bid', () => {
     expect(lotIn(mine, 0).leading?.amount).toBe(lot.nextBid);
     expect(lotIn(mine, 0).leading?.yours).toBe(true);
     expect(lotIn(mine, 0).yourBid).toBe(lot.nextBid);
-    // Nothing is escrowed. The infamy is checked again at the close and leaves there.
-    expect(mine.infamy).toBe(before.infamy);
+    // Held when placed (maintainer, 2026-10-06): the infamy leaves with the bid, and the write's
+    // own answer already shows the lower wallet.
+    expect(mine.infamy).toBe(before.infamy - lot.nextBid);
+    expect(res.json<{ blackMarket: BlackMarketResponse }>().blackMarket.infamy).toBe(mine.infamy);
     expect(mine.takenToday).toBe(0);
 
     // And the other crew sees the same table, under a name rather than as "yours".
@@ -360,6 +390,7 @@ describe('the close', () => {
     const two = await crew(app, 'operator_two');
     await giveInfamy(app, one.token, 500_000);
     await giveInfamy(app, two.token, 500_000);
+    ordinaryRules(app);
 
     const board = await shelf(app, one.token);
     const goodId = board.offers[0]!.slot.goodId;
@@ -369,13 +400,16 @@ describe('the close', () => {
     const winning = nextLotBid(opening, opening);
     expect((await bid(app, one.token, 0, goodId, winning)).statusCode).toBe(200);
 
-    const before = await shelf(app, one.token);
+    // Both bids are holding their infamy until the close.
+    expect((await shelf(app, one.token)).infamy).toBe(500_000 - winning);
+    expect((await shelf(app, two.token)).infamy).toBe(500_000 - opening);
     settleBlackMarketLots(app.repos, closeOf(board), 'Europe/Athens');
 
     const winner = await shelf(app, one.token);
-    expect(winner.infamy).toBe(before.infamy - winning);
+    // Paid once, at the bid: the close takes nothing more.
+    expect(winner.infamy).toBe(500_000 - winning);
     expect(winner.takenToday).toBe(1);
-    // The crew that was outbid pays nothing.
+    // The crew that was outbid gets its hold back.
     expect((await shelf(app, two.token)).infamy).toBe(500_000);
 
     if (spec.boost) {
@@ -413,6 +447,7 @@ describe('the close', () => {
     const two = await crew(app, 'operator_two');
     await giveInfamy(app, one.token, 500_000);
     await giveInfamy(app, two.token, 500_000);
+    ordinaryRules(app);
     const me = await app.inject({ method: 'GET', url: '/api/me', headers: auth(one.token) });
     const { base: mine, user } = me.json<{ base: { id: string }; user: { id: string } }>();
     app.repos.users.updateProfile(user.id, { displayName: 'Vex' });
@@ -499,38 +534,98 @@ describe('the close', () => {
     expect((await shelf(app, patient.token)).takenToday).toBe(1);
   });
 
-  it('passes a leader who has spent their infamy to the crew behind them', async () => {
+  /**
+   * The infamy was taken at the bid, so a leader who spends the rest of their wallet afterwards
+   * still takes the crate. What can still pass a leader over is the fence's own door: here their
+   * name has slipped below the crate's rank. They get their hold back with everybody else who did
+   * not take it.
+   */
+  it('passes a leader whose name has slipped to the crew behind them, and hands the hold back', async () => {
+    // Only the clock, so the routes' `new Date()` reads the pinned shelf and nothing else waits.
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(dayAskingForAName());
     const { app } = await makeApp();
-    const broke = await crew(app, 'operator_one');
+    const slipped = await crew(app, 'operator_one');
     const solvent = await crew(app, 'operator_two');
-    await giveInfamy(app, broke.token, 500_000);
+    await giveInfamy(app, slipped.token, 500_000);
     await giveInfamy(app, solvent.token, 500_000);
+    ordinaryRules(app);
 
-    const board = await shelf(app, broke.token);
-    const goodId = board.offers[0]!.slot.goodId;
-    const opening = lotIn(board, 0).reserve;
-    expect((await bid(app, solvent.token, 0, goodId, opening)).statusCode).toBe(200);
-    expect((await bid(app, broke.token, 0, goodId, nextLotBid(opening, opening))).statusCode).toBe(
-      200,
-    );
+    const board = await shelf(app, slipped.token);
+    const slot = board.offers.findIndex((offer) => offer.minNotoriety > 0);
+    if (slot === -1) throw new Error('fixture: nothing on the shelf asks for a name');
+    const goodId = board.offers[slot]!.slot.goodId;
+    const opening = lotIn(board, slot).reserve;
+    const leading = nextLotBid(opening, opening);
+    expect((await bid(app, solvent.token, slot, goodId, opening)).statusCode).toBe(200);
+    expect((await bid(app, slipped.token, slot, goodId, leading)).statusCode).toBe(200);
 
-    // Nothing is escrowed, so a leader can walk into the close unable to pay for what they said.
-    await giveInfamy(app, broke.token, 0);
+    const slippedId = app.repos.users.findByUsername('operator_one')!.id;
+    const base = app.repos.bases.findByOwnerId(slippedId)!;
+    app.repos.bases.updateEconomy(base.id, { ...base.economy, notoriety: 0 });
     settleBlackMarketLots(app.repos, closeOf(board), 'Europe/Athens');
 
-    expect((await shelf(app, broke.token)).takenToday).toBe(0);
+    const passed = await shelf(app, slipped.token);
+    expect(passed.takenToday).toBe(0);
+    expect(passed.infamy, 'the passed leader never got its hold back').toBe(500_000);
     const winner = await shelf(app, solvent.token);
     expect(winner.takenToday).toBe(1);
     expect(winner.infamy).toBe(500_000 - opening);
     // The leader is told it could not take the crate, not that operator_two outbid it (bug pass,
     // 2026-09-29): its own bid was the higher one.
-    const brokeId = app.repos.users.findByUsername('operator_one')!.id;
     const told = app.repos.social
-      .notifications(brokeId, 20)
+      .notifications(slippedId, 20)
       .find((entry) => entry.kind === 'market_outbid');
+    // Formatted as the notice formats it: a lot over a thousand reads "1,904" (found 2026-10-06,
+    // on a day the shelf opened one that high).
     expect(told?.title).toMatch(
-      new RegExp(`^You could not take .+ at the close, so operator_two did at ${opening} infamy$`),
+      new RegExp(
+        `^You could not take .+ at the close, so operator_two did at ${opening.toLocaleString('en')} infamy$`,
+      ),
     );
+  });
+
+  it('lets a crew raise on its own wallet plus the hold its last bid is keeping', async () => {
+    const { app } = await makeApp();
+    const one = await crew(app, 'operator_one');
+    const two = await crew(app, 'operator_two');
+    await giveInfamy(app, one.token, 500_000);
+    await giveInfamy(app, two.token, 500_000);
+    ordinaryRules(app);
+    const board = await shelf(app, one.token);
+    const goodId = board.offers[0]!.slot.goodId;
+    const opening = lotIn(board, 0).reserve;
+    const second = nextLotBid(opening, opening);
+    const raised = nextLotBid(opening, second);
+    // Exactly the raise: it only clears if the first bid's hold comes back first. Set on the row
+    // rather than through the bench, which moves the rank and with it the city's reserve.
+    const oneId = app.repos.users.findByUsername('operator_one')!.id;
+    const base = app.repos.bases.findByOwnerId(oneId)!;
+    app.repos.bases.updateEconomy(base.id, { ...base.economy, infamy: raised });
+
+    const first = await bid(app, one.token, 0, goodId, opening);
+    expect(first.statusCode, first.body).toBe(200);
+    const over = await bid(app, two.token, 0, goodId, second);
+    expect(over.statusCode, over.body).toBe(200);
+    const outbid = await shelf(app, one.token);
+    expect(outbid.infamy).toBe(raised - opening);
+    expect(outbid.offers[0]!.affordable, 'the card greyed a raise the wallet covers').toBe(true);
+
+    expect((await bid(app, one.token, 0, goodId, raised)).statusCode).toBe(200);
+    expect((await shelf(app, one.token)).infamy).toBe(0);
+  });
+
+  it('holds nothing on a bid placed in admin mode', async () => {
+    const { app } = await makeApp();
+    const one = await crew(app, 'operator_one');
+    await giveInfamy(app, one.token, 5_000);
+    const board = await shelf(app, one.token);
+
+    expect(
+      (await bid(app, one.token, 0, board.offers[0]!.slot.goodId, lotIn(board, 0).nextBid))
+        .statusCode,
+    ).toBe(200);
+    expect((await shelf(app, one.token)).infamy).toBe(5_000);
   });
 
   it('turns the slot over for the whole city once it has gone', async () => {

@@ -20,7 +20,6 @@ import {
   cityIsOpen,
   counterScore,
   displayNameOf,
-  districtHolder,
   expose,
   findDistrict,
   findLocation,
@@ -63,6 +62,11 @@ import {
   type SpyStrength,
   type SpyTarget,
   type SpyTier,
+  type SpyPoints,
+  SPY_TIERS,
+  openSpyTiers,
+  territoryEffectsFor,
+  EVERY_LOCATION,
 } from '@frontline/shared';
 import { adminCaps, adminWaives } from '../admin/mode.js';
 import { mergeArmies } from '../battle/forces.js';
@@ -79,6 +83,7 @@ import {
   standingEffectsFor,
 } from '../crew/standing.js';
 import type { Repositories } from '../db/repos/index.js';
+import { alliesOf, wholeHolderOf } from '../city/holding.js';
 import { tallySpyJobReturned, tallySpyJobUnnoticed, tallySpyReport } from '../feats/tally.js';
 import { notifyBase } from '../social/notify.js';
 import { workingOfficer } from '../crew/roster.js';
@@ -252,8 +257,16 @@ function crewCounter(
      */
     // ...and the district's counter-intelligence cards (Encrypted Core), which are points of the
     // same kind and are in neither fold (2026-10-01).
+    // ...and the ground's own points against spies (the Chapter of Silence, 2026-10-07), off the
+    // territory fold alone, which is the standing fold less the gate counted below.
     intelResistancePercent:
       crewEffectsFor(repos, holder, now).intelResistancePercent +
+      territoryEffectsFor(
+        holder.id,
+        EVERY_LOCATION,
+        repos.city.controls(),
+        alliesOf(repos, holder.id),
+      ).intelResistancePercent +
       counterIntelPoints(holder.buildings),
     gateLevel,
     officersPercent: officersSpyDefencePercent(repos, holder, now),
@@ -326,7 +339,8 @@ export function groundBehind(
       return refused('own_ground');
     }
     if (control.holder.kind === 'unoccupied') return refused('nothing_there');
-    if (districtHolder(district, controls) !== null) return refused('not_the_gate');
+    // Shut by one holder or by a table holding it together (2026-10-07).
+    if (wholeHolderOf(repos, district) !== null) return refused('not_the_gate');
 
     // The holder's garrison, the postings on it and, with the rung, the cells, of whoever would
     // defend it against the reader (`standsAgainst`).
@@ -406,7 +420,8 @@ export function groundBehind(
     };
   }
 
-  const holder = districtHolder(district, controls);
+  // The table's named defender answers for a gate held together (2026-10-07).
+  const holder = wholeHolderOf(repos, district);
   if (holder === null || holder.kind === 'unoccupied') return refused('nothing_there');
   if (holder.kind === 'crew' && holder.baseId === reader.id) return refused('own_ground');
   /*
@@ -491,6 +506,27 @@ export function spyStrengthFor(
     chairPoints: whispersChairPoints(repos, base, now) ?? 0,
     intelPercent: standingEffectsFor(repos, base, now).intelYieldPercent,
     tier,
+  };
+}
+
+/**
+ * The crew's own two totals (maintainer, 2026-10-07), for the Master of Whispers' seat, the Spy
+ * Reports tab and the district reports: what its spies score at the best tier its Lab has opened,
+ * and what a spy on its own gate meets. Both run the same arithmetic the contest does, so the
+ * figures a player reads are the ones a job is settled on.
+ */
+export function spyPointsFor(repos: Repositories, base: Base, now: Date): SpyPoints {
+  const tiers = openSpyTiers(base.research.technologies);
+  const best = tiers[tiers.length - 1] ?? SPY_TIERS[0];
+  const defence = crewCounter(
+    repos,
+    base,
+    gateStanding(repos, base.districtId, buildingLevel(base.buildings, 'gate'), now),
+    now,
+  );
+  return {
+    offence: Math.round(spyScore(spyStrengthFor(repos, base, best, now))),
+    defence: Math.round(counterScore(defence)),
   };
 }
 
@@ -597,8 +633,8 @@ export function sendSpy(
 
   const looked = groundBehind(repos, base, target, now);
   if (looked.kind === 'refused') return looked;
-  // The Combine holds Saltmarch's seat and its Hulls, so there is always somebody to read there,
-  // and nothing a crew could do with the report (bug pass, 2026-09-29).
+  // A shut city has garrisons on its ground, so there is always somebody to read there, and
+  // nothing a crew could do with the report (bug pass, 2026-09-29).
   if (!cityIsOpen(looked.ground.district.cityId)) return { kind: 'refused', reason: 'city_closed' };
 
   const plan = planSpy(repos, base, looked.ground.district.id, tier, now);
@@ -961,9 +997,13 @@ export function snapshotSpying(repos: Repositories, now: Date): number {
     (run) => {
       const base = repos.bases.findById(run.baseId);
       if (!base) return;
-      const looked = spyArrivesAt(run);
+      /*
+       * Dated when the ground was read, which is now (maintainer, 2026-10-06). Normally that is
+       * the second they arrived; after a restart over a fight it is the restart, and dating it at
+       * the arrival showed the ground as the later fight left it under an earlier time.
+       */
       repos.spying.putSnapshot(run.id, {
-        report: { ...writeSpyReport(repos, base, run, now), writtenAt: looked.toISOString() },
+        report: writeSpyReport(repos, base, run, now),
         // Whose ground it was when they looked: the crew that could have seen them (review,
         // 2026-10-02). Read at the return, a place that changed hands meanwhile told its new
         // holder about a look taken on the old one's ground.

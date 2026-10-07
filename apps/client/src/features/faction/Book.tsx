@@ -1,6 +1,7 @@
 import {
   FACTION_BLURB_MAX,
   FACTION_NAME_MAX,
+  FACTION_NAME_MIN,
   FACTION_RANKS,
   FACTION_RANK_BLURBS,
   FACTION_RANK_LABELS,
@@ -13,6 +14,7 @@ import { useState } from 'react';
 import { Button } from '../../components/ui/Button';
 import { Confirm } from '../../components/ui/Confirm';
 import { Modal } from '../../components/ui/Modal';
+import { PressError } from '../../components/ui/PressError';
 import { cn } from '../../lib/cn';
 import { BadgeBuilder } from './BadgeBuilder';
 import { FactionBadge } from './FactionBadge';
@@ -38,6 +40,7 @@ export function Book({
   onDisband,
   onClose,
   busy,
+  refusal = null,
 }: {
   data: FactionResponse;
   faction: NonNullable<FactionResponse['faction']>;
@@ -46,6 +49,11 @@ export function Book({
   onDisband: () => void;
   onClose: () => void;
   busy: boolean;
+  /**
+   * The refusal of the last write made here, drawn in the window (bug pass, 2026-10-06): the page
+   * drew it under the backdrop, so the player heard the refusal and could not read it.
+   */
+  refusal?: string | null;
 }) {
   const rank = data.rank;
   const [name, setName] = useState(faction.name);
@@ -78,7 +86,7 @@ export function Book({
               <BadgeBuilder badge={badge} onChange={setBadge} />
               <Button
                 className="self-start"
-                disabled={busy || name.trim().length < 3}
+                disabled={busy || name.trim().length < FACTION_NAME_MIN}
                 data-testid="save-identity"
                 onClick={() => onIdentity(name.trim(), badge)}
               >
@@ -170,6 +178,8 @@ export function Book({
           </section>
         )}
       </div>
+
+      {refusal !== null && <PressError>{refusal}</PressError>}
 
       {disbanding && (
         <Confirm

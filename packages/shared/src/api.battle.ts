@@ -10,7 +10,7 @@ import {
 import { BaseSchema } from './base.js';
 import { LocationHolderKindSchema } from './city/control.js';
 import { FleetSchema } from './building/vehicles.js';
-import { LevelUpSchema, RailQuoteSchema } from './api.js';
+import { LevelUpSchema, RailQuoteSchema, SpyPointsSchema } from './api.js';
 import { IdSchema, IsoDateTimeSchema } from './primitives.js';
 import { OfficerRoleSchema } from './roles.js';
 import { ArmySchema, UnitIdSchema, UnitStatsSchema } from './units/index.js';
@@ -331,6 +331,8 @@ export const MovementViewSchema = z.object({
    * settle. Defaulted, so a payload from before the field parses as a column that walks.
    */
   vehicles: FleetSchema.default({}),
+  /** On Terminus's line, which leaves the machines behind: it takes no seat. */
+  byRail: z.boolean().default(false),
 });
 export type MovementView = z.infer<typeof MovementViewSchema>;
 
@@ -433,11 +435,18 @@ export const BattlesResponseSchema = z.object({
    * forgetting what the caps bought.
    */
   spyReports: z.array(SpyReportSchema).default([]),
+  /** The crew's own spy points, for the Spy Reports tab's heading line. See `SpyPointsSchema`. */
+  spyPoints: SpyPointsSchema.optional(),
   /** The half-hour marks a declaration could name right now. */
   slots: z.array(IsoDateTimeSchema),
   /** §D7: what the caller's name is worth. Boosts are priced per fight, on each `BattleView`. */
   infamy: z.number().int().nonnegative(),
   callPrices: CallPricesSchema,
+  /**
+   * Whether a call is free in this build (testing mode waives the price, `routes/admin.ts`). The
+   * declare dialog lets a call through on it rather than refusing one the route would accept.
+   */
+  callPriceWaived: z.boolean().optional(),
   /** Every district this crew can see into, and whether its gate is armed or down. */
   gates: z.array(DistrictGateViewSchema),
   structures: z.array(StructureDefenceSchema),

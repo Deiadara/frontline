@@ -325,6 +325,26 @@ describe('a standing order on the world clock', () => {
     expect(repos.missions.listActiveByBaseId(base.id)).toHaveLength(0);
   });
 
+  /*
+   * ...and every rung the save checks, not only the unlock and the slot count (bug pass,
+   * 2026-10-06): a slot saved as a fitted size, an order or a chase the crew no longer holds kept
+   * running on it. It stalls with the save's own sentence.
+   */
+  it('stalls a slot naming a size, an order or a chase past what the crew holds', () => {
+    const cases = [
+      [{ unitSlots: 4, force: {} }, 'Naming a size instead of a party is a later rung'],
+      [{ order: 'battles' as const }, 'You have not earned that order yet'],
+      [{ optimiseFor: 'caps' as const }, 'Chasing one resource is a later rung'],
+    ] as const;
+    for (const [over, words] of cases) {
+      const { repos, base } = stack();
+      slot(repos, base, over);
+      expect(settleAutomations(repos, NOW), words).toBe(0);
+      expect(repos.missions.listActiveByBaseId(base.id)).toHaveLength(0);
+      expect(repos.automations.get(base.id, 0)?.stalled).toBe(words);
+    }
+  });
+
   it('will not use a second slot before the seventh rung opens it', () => {
     const { repos, base } = stack();
     slot(repos, base);

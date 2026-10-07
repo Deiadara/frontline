@@ -1,6 +1,8 @@
 import {
   DEFAULT_CITY_ID,
   LEADERBOARD_LIMIT,
+  PLAYER_LOOKUP_LIMIT,
+  PlayerLookupQuerySchema,
   averageLevel,
   cityOf,
   LeaderboardBoardSchema,
@@ -8,8 +10,10 @@ import {
   ranked,
   type FactionStanding,
   type LeaderboardResponse,
+  type PlayerLookupResponse,
   type PlayerStanding,
   displayNameOf,
+  suggestPlayers,
   featMeasureKey,
 } from '@frontline/shared';
 import type { FastifyInstance } from 'fastify';
@@ -146,11 +150,17 @@ export function registerLeaderboardRoutes(app: FastifyInstance): void {
     const inScope = new Set(players.map((entry) => entry.userId));
     // Each member's level off the standings already read, rather than a whole base per member.
     const levelOf = new Map(all.map((entry) => [entry.userId, entry.level]));
+    // Every seat in one read, grouped here (bug pass, 2026-10-06): it was a query per faction, on a
+    // board every open tab refetches on each world broadcast.
+    const membersOf = new Map<string, string[]>();
+    for (const [userId, factionId] of app.repos.factions.factionOfEveryone()) {
+      membersOf.set(factionId, [...(membersOf.get(factionId) ?? []), userId]);
+    }
     const rows: FactionStanding[] = app.repos.factions.all().flatMap((faction) => {
-      const members = app.repos.factions.members(faction.id);
+      const members = membersOf.get(faction.id) ?? [];
       // Any member in the city puts the faction on the local board. See the note at the top.
-      if (local && !members.some((row) => inScope.has(row.userId))) return [];
-      const levels = members.map((row) => levelOf.get(row.userId) ?? 0);
+      if (local && !members.some((userId) => inScope.has(userId))) return [];
+      const levels = members.map((userId) => levelOf.get(userId) ?? 0);
       return [
         {
           rank: 1,
@@ -179,5 +189,21 @@ export function registerLeaderboardRoutes(app: FastifyInstance): void {
       entries: withRanks.slice(0, LEADERBOARD_LIMIT),
       yourRank: yours?.rank ?? null,
     };
+  });
+
+  /*
+   * The letter composer's name lookup (maintainer, 2026-10-06).
+   *
+   * Out of every player in the game, ranked as the whole board ranks them so the `#` beside a name
+   * agrees with the standings. The composer used to match against the board itself, which stops at
+   * `LEADERBOARD_LIMIT`, so the exact name of somebody ranked lower read as "no such player".
+   */
+  app.get('/players/lookup', { preHandler: app.authenticate }, (request): PlayerLookupResponse => {
+    const { q } = parseBody(PlayerLookupQuerySchema, request.query);
+    const userId = request.currentUser.id;
+    const everybody = rankedPlayers(standings(app.repos)).filter(
+      (entry) => entry.userId !== userId,
+    );
+    return { players: suggestPlayers(everybody, q, PLAYER_LOOKUP_LIMIT) };
   });
 }

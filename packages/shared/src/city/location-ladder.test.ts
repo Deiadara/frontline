@@ -43,41 +43,45 @@ function figure(kind: LocationKind, bonusKind: HoldBonus['kind'], level: number)
 }
 
 describe('the level ladder', () => {
-  it('keeps levels 1 to 4 where they shipped', () => {
-    expect(LEVEL_SCALE.slice(0, 4)).toEqual([1, 1.5, 2, 2.5]);
+  it('is five whole steps, priced off the old ladder’s even rungs', () => {
+    expect(LEVEL_SCALE).toEqual([1, 2, 3, 4, 5]);
     expect(LEVEL_SCALE).toHaveLength(MAX_LOCATION_LEVEL);
-    expect(UPGRADE_COST_SCALE.slice(0, 3)).toEqual([1, 2.2, 4.5]);
+    expect(UPGRADE_COST_SCALE).toEqual([4.5, 8.8, 17.2, 33.7]);
   });
 
-  it('clamps a level into 1..10 and drops a fraction', () => {
+  it('clamps a level into 1..5 and drops a fraction', () => {
     expect(clampLevel(0)).toBe(1);
     expect(clampLevel(-3)).toBe(1);
     expect(clampLevel(2.9)).toBe(2);
     expect(clampLevel(11)).toBe(MAX_LOCATION_LEVEL);
   });
 
-  it('rounds a scaled half up, so a small bonus still moves at level 2', () => {
-    // The Foundry's 3 HQ metal: 4.5 at level 2 and 7.5 at level 4, both rounded up.
-    expect([1, 2, 3, 4, 10].map((level) => figure('foundry', 'resource', level))).toEqual([
-      3, 5, 6, 8, 17,
+  it('multiplies a figure by the level, whole, and bends a share of a fight on the combat ladder', () => {
+    // The Foundry's 3 HQ metal: three a level.
+    expect([1, 2, 3, 4, 5].map((level) => figure('foundry', 'resource', level))).toEqual([
+      3, 6, 9, 12, 15,
     ]);
     // A Pirate Radio's 3 intimidation reads the same path through the flat channels.
     expect([1, 2, 4].map((level) => figure('pirate_radio', 'intimidation', level))).toEqual([
-      3, 5, 8,
+      3, 6, 12,
     ]);
     expect(bonusesAt('scrap_press', 4)).toEqual([
-      { kind: 'resource', resource: 'scrap', perHour: 60 },
-      { kind: 'resource', resource: 'planks', perHour: 45 },
+      { kind: 'resource', resource: 'scrap', perHour: 96 },
+      { kind: 'resource', resource: 'planks', perHour: 72 },
+    ]);
+    // A Hospital's 12% vitality tops out at four times, not five (`COMBAT_LEVEL_SCALE`).
+    expect([1, 2, 3, 4, 5].map((level) => figure('hospital', 'unit_vitality', level))).toEqual([
+      12, 21, 30, 39, 48,
     ]);
   });
 
   it('pays at least one more session and one more syringe at every level', () => {
-    expect(Array.from({ length: 10 }, (_, i) => figure('gym', 'training_sessions', i + 1))).toEqual(
-      [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
-    );
+    expect(Array.from({ length: 5 }, (_, i) => figure('gym', 'training_sessions', i + 1))).toEqual([
+      1, 2, 3, 4, 5,
+    ]);
     expect(
-      Array.from({ length: 10 }, (_, i) => figure('black_clinic', 'battle_stims', i + 1)),
-    ).toEqual([2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
+      Array.from({ length: 5 }, (_, i) => figure('black_clinic', 'battle_stims', i + 1)),
+    ).toEqual([2, 4, 6, 8, 10]);
   });
 
   it('leaves the rules alone at any level', () => {
@@ -89,8 +93,8 @@ describe('the level ladder', () => {
   });
 
   it('scales the flat minutes off the road like any other quantity', () => {
-    expect([1, 2, 10].map((level) => figure('tram_depot', 'road_shortcut', level))).toEqual([
-      4, 6, 22,
+    expect([1, 2, 5].map((level) => figure('tram_depot', 'road_shortcut', level))).toEqual([
+      4, 8, 20,
     ]);
   });
 });
@@ -99,18 +103,18 @@ describe('what a level costs', () => {
   // The Pawn Shop asks 80 planks for its first upgrade, the cheapest in the catalogue.
   const PAWN = LOCATION_CATALOG.pawn_shop.upgradeCost;
 
-  it('is the catalogue figure, a tenth dearer, in the shared mix', () => {
+  it('is the catalogue figure, times the step, a tenth dearer, in the shared mix', () => {
     expect(PAWN).toBe(80);
-    // 80 x 1.1 = 88 planks, and the rest of the mix off that: 8.8, 26.4, 35.2, 17.6.
+    // 80 x 4.5 x 1.1 = 396 planks, and the rest of the mix off that: 39.6, 118.8, 158.4, 79.2.
     expect(upgradeCost('pawn_shop', 1)).toEqual({
-      planks: 88,
-      highQualityMetal: 9,
-      scrap: 26,
-      oil: 35,
-      caps: 18,
+      planks: 396,
+      highQualityMetal: 40,
+      scrap: 119,
+      oil: 158,
+      caps: 79,
     });
-    // The last step: 80 x 33.7 x 1.1 = 2965.6 planks.
-    expect(upgradeCost('pawn_shop', 9)).toEqual({
+    // The last step: 80 x 33.7 x 1.1 = 2965.6 planks, what the old upgrade to 10 cost.
+    expect(upgradeCost('pawn_shop', 4)).toEqual({
       planks: 2966,
       highQualityMetal: 297,
       scrap: 890,
@@ -121,7 +125,7 @@ describe('what a level costs', () => {
   });
 
   it('takes the Engineer`s cut on top, never past half and never below nothing', () => {
-    const half = { planks: 44, highQualityMetal: 4, scrap: 13, oil: 18, caps: 9 };
+    const half = { planks: 198, highQualityMetal: 20, scrap: 59, oil: 79, caps: 40 };
     expect(upgradeCost('pawn_shop', 1, 50)).toEqual(half);
     expect(upgradeCost('pawn_shop', 1, 90)).toEqual(half);
     expect(upgradeCost('pawn_shop', 1, -20)).toEqual(upgradeCost('pawn_shop', 1));
@@ -129,11 +133,11 @@ describe('what a level costs', () => {
 
   it('hands back ninety percent of what was paid, floored per line', () => {
     expect(cancelRefund(upgradeCost('pawn_shop', 1)!)).toEqual({
-      planks: 79,
-      highQualityMetal: 8,
-      scrap: 23,
-      oil: 31,
-      caps: 16,
+      planks: 356,
+      highQualityMetal: 36,
+      scrap: 107,
+      oil: 142,
+      caps: 71,
     });
   });
 });
@@ -157,11 +161,11 @@ describe('the territory fold', () => {
   const blockhouse = findDistrict('blockhouse')!;
   const glasshouse = findDistrict('glasshouse-fields')!;
 
-  it('pays 20 beds for the block, 3 a level above the first, and the catalogue`s own on top', () => {
+  it('pays 20 beds for the block, 7 a level above the first, and the catalogue`s own on top', () => {
     const kitchen = glasshouse.locations.find((one) => one.kind === 'soup_kitchen')!;
     const controls = new Map([held(kitchen, 'mine', 4)]);
-    // 20 + 3 x 3 + round(15 x 2.5 = 37.5) = 67.
-    expect(territoryEffectsFor('mine', [kitchen], controls).unitSlotBonus).toBe(67);
+    // 20 + 7 x 3 + 15 x 4 = 101.
+    expect(territoryEffectsFor('mine', [kitchen], controls).unitSlotBonus).toBe(101);
     expect(territoryEffectsFor('theirs', [kitchen], controls).unitSlotBonus).toBe(0);
   });
 
@@ -183,13 +187,12 @@ describe('the territory fold', () => {
     expect(territoryEffectsFor('mine', steelbelt.locations, missing).musterCostPercent).toBe(0);
   });
 
-  it('pays the Blockhouse`s mission cut on Terminus jobs only', () => {
+  it('pays the Blockhouse held whole in a level of ANTI-COMBINE and nothing on the clock', () => {
     const controls = new Map(blockhouse.locations.map((one) => held(one, 'mine')));
     const effects = territoryEffectsFor('mine', blockhouse.locations, controls);
+    expect(effects.antiCombineLevels).toBe(1);
     expect(effects.missionSpeedPercent).toBe(0);
-    expect(effects.missionSpeedPercentByCity).toEqual({ terminus: 25 });
-    expect(missionSpeedPercentIn(effects, 'coldwater-halt')).toBe(25);
-    expect(missionSpeedPercentIn(effects, 'neon-docks')).toBe(0);
+    expect(missionSpeedPercentIn(effects, 'coldwater-halt')).toBe(0);
     expect(missionSpeedPercentIn(effects, 'misc')).toBe(0);
   });
 });

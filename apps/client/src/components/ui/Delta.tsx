@@ -241,7 +241,7 @@ function DeltaFigure({
           "-1,200" is a receipt. `toLocaleString` for the same reason every other figure in the
           game has it: 1200 and 1,200 are not equally readable at a glance. */}
       {spend ? '-' : '+'}
-      {Math.abs(mark.amount).toLocaleString()}
+      {Math.abs(mark.amount).toLocaleString('en-US')}
       {unit !== undefined && <span className="text-[13px] font-bold">{unit}</span>}
     </span>
   );

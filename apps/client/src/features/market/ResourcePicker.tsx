@@ -4,6 +4,14 @@ import { ResourceIcon } from '../../components/Resources';
 import { cn } from '../../lib/cn';
 
 /**
+ * What is held, whole. The stockpile settles in fractions, and the raw figure printed `1,234.568`
+ * in a 60px tile (bug pass, 2026-10-06); the HUD rounds the same number.
+ */
+function heldFigure(held: Partial<Record<ResourceKey, number>>, key: ResourceKey): string {
+  return Math.round(held[key] ?? 0).toLocaleString('en-US');
+}
+
+/**
  * Pick a material by pointing at it.
  *
  * There are six materials and every one of them has painted art the game already draws in the
@@ -67,7 +75,7 @@ export function ResourcePicker({
             aria-label={RESOURCE_LABELS[key]}
             disabled={off}
             onClick={() => onChange(key)}
-            data-tip={`${RESOURCE_LABELS[key]} · ${(held[key] ?? 0).toLocaleString()} held`}
+            data-tip={`${RESOURCE_LABELS[key]} · ${heldFigure(held, key)} held`}
             data-testid={testId === undefined ? undefined : `${testId}-${key}`}
             className={cn(
               'door-tile group relative flex flex-col items-center gap-1 rounded-lg border px-1',
@@ -94,7 +102,7 @@ export function ResourcePicker({
               )}
             />
             <span className="relative z-[2] flex items-center gap-0.5 font-display text-[10px] font-bold leading-none tabular-nums">
-              {caption?.(key) ?? (held[key] ?? 0).toLocaleString()}
+              {caption?.(key) ?? heldFigure(held, key)}
             </span>
           </button>
         );

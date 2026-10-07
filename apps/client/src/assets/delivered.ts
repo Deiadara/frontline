@@ -49,7 +49,7 @@ export function buildingPortraitUrl(kind: BuildingKind): string | null {
 /**
  * A city's painting on the world screen, pending a manifest entry for it.
  *
- * Named off the city id, so dropping `city-ashfall.webp` (and `city-saltmarch.webp`, and so on for
+ * Named off the city id, so dropping `city-ashfall.webp` (and `city-reliquary.webp`, and so on for
  * the five in `CITIES`) into `assets/` puts the painting on the card with no TypeScript edit.
  * Until one lands, `CityPortrait` draws its procedural skyline and nothing is missing.
  *

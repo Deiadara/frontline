@@ -2,6 +2,7 @@ import {
   ARMY_COUNT_MAX,
   ATTRIBUTE_NAMES,
   OFFICER_ROLES,
+  displayNameOf,
   createCommander,
   type Attributes,
   AdminGrantRequestSchema,
@@ -64,6 +65,7 @@ import { rollName } from '../bar/names.js';
 import { createRng } from '../characters/rng.js';
 import { legendaryRoom } from '../units/muster.js';
 import { officerDuty } from '../crew/duty.js';
+import { putControl } from '../city/actions.js';
 import type { Repositories } from '../db/repos/index.js';
 
 /**
@@ -193,12 +195,14 @@ function forgetTheOldRuns(repos: Repositories, baseId: string): void {
  */
 function leaveTheOldFaction(
   repos: Repositories,
-  user: { id: string; username: string },
+  user: { id: string; username: string; displayName: string | null },
   now: Date,
   successorId: string | undefined,
 ) {
   const held = repos.factions.membershipOf(user.id);
-  if (held) leaveFaction(repos, held, user.username, now, successorId);
+  // The name the table knows them by, as the real route passes (bug pass, 2026-10-06): the login
+  // handle went into the "has left" notice, and no screen shows a login handle.
+  if (held) leaveFaction(repos, held, displayNameOf(user), now, successorId);
 }
 
 function snapshot(app: FastifyInstance, base: Base): AdminSnapshot {
@@ -277,19 +281,34 @@ function mockBattleOn(app: FastifyInstance, base: Base, now: Date): ScheduledBat
   );
   const candidates: BattleTarget[] = [];
   if (held.length === 0) {
+    const calledOn = new Set(
+      app.repos.sieges
+        .pending()
+        .flatMap((battle) => (battle.target.kind === 'location' ? [battle.target.locationId] : [])),
+    );
     // In the operator's own city, so the ground handed out is somewhere they can actually march to.
     const spare = districtsOfCity(cityOfDistrict(base.districtId)).flatMap((district) =>
       district.locations
         .filter((location) => {
           const control = app.repos.city.control(location.id);
-          return !control || control.holder.kind !== 'crew';
+          // Not a Combine leader's plot, and not ground a fight is already called on (2026-10-06).
+          return (
+            (!control || control.holder.kind !== 'crew') &&
+            !combineLeaderAt(location.id) &&
+            !calledOn.has(location.id)
+          );
         })
         .map((location) => ({ districtId: district.id, locationId: location.id })),
     )[0];
     if (!spare) throw new AppError('PLACE_UNAVAILABLE', 'No ground left in the city to hand you');
     const control = app.repos.city.control(spare.locationId);
     if (!control) throw new AppError('PLACE_UNAVAILABLE', 'No ground left in the city to hand you');
-    app.repos.city.put({ ...control, holder: { kind: 'crew', baseId: base.id }, garrison: {} });
+    // Through `putControl`, so the old and new holders settle production up to the hand-over.
+    putControl(
+      app.repos,
+      { ...control, holder: { kind: 'crew', baseId: base.id }, garrison: {} },
+      now,
+    );
     candidates.push({ kind: 'location', ...spare });
   }
   for (const control of held) {
@@ -491,7 +510,7 @@ export function registerAdminRoutes(app: FastifyInstance): void {
         app.repos.bases.updateArmy(next.id, army, next.musterQueue);
       }
 
-      if (body.footholds === 'every-city') grantFootholds(app, next.id);
+      if (body.footholds === 'every-city') grantFootholds(app, next.id, new Date());
 
       if (body.technologies !== undefined || body.researchDepth !== undefined) {
         const technologies = [...new Set([...next.research.technologies, ...grantedRungs(body)])];
@@ -805,7 +824,7 @@ function findLocationDistrict(locationId: string) {
  * a Combine leader's own plot, and never the last open plot of a district, which would shut it.
  * Held with a small garrison so it reads as ground somebody is standing on.
  */
-function grantFootholds(app: FastifyInstance, baseId: string): void {
+function grantFootholds(app: FastifyInstance, baseId: string, now: Date): void {
   const controls = app.repos.city.controls();
   for (const city of CITIES.filter((one) => one.open)) {
     const districts = districtsOfCity(city.id);
@@ -837,11 +856,17 @@ function grantFootholds(app: FastifyInstance, baseId: string): void {
     const pick = candidates.find((one) => one.empty) ?? candidates[0];
     if (!pick) continue;
     const control = controls.get(pick.location.id)!;
-    app.repos.city.put({
-      ...control,
-      holder: { kind: 'crew', baseId },
-      upgradingUntil: null,
-      garrison: { razors: 10 },
-    });
+    // Through `putControl`, so the old and new holders settle production up to the hand-over
+    // (2026-10-06): a direct write paid the new ground back to the crew's last settle.
+    putControl(
+      app.repos,
+      {
+        ...control,
+        holder: { kind: 'crew', baseId },
+        upgradingUntil: null,
+        garrison: { razors: 10 },
+      },
+      now,
+    );
   }
 }

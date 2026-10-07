@@ -7,8 +7,9 @@ See `docs/ARCHITECTURE.md`, `docs/SPEC-server.md`, `docs/SPEC-client.md`.
 
 - Before making changes, unless it is a request that needs no major assumptions (e.g. doing a bugpass or changing values), prompt the user with questions to make everything clear, especially concerning design decisions and major changes to game behavior. For this use AskUserQuestion tool and prompt them to click.
 - When mentioning changes or bugs or design decision to the user, assume they have not read the code and thus need an explanation of how the mechanic or the behavior currently works for the topic in discussion (e.g. when mentioning a battle engine variable, explain what it does as well)
-- When a new prompt is given while owrking on something else, prioritize them as you see fit (unless stated to prioritize something specific) but do not drop the rest of the items. The job is done when all requests are done not when the new one is.
+- When a new prompt is given while working on something else, prioritize them as you see fit (unless stated to prioritize something specific) but do not drop the rest of the items. The job is done when all requests are done not when the new one is.
 - Make sure the game can always be stopped by Ctrl + C in the console
+- Even if the work is big and multiple batches etc, do it without asking, and split it or queue it as you see fit, but don't stop and say stuff like Shall I start with batch 1 or Want me to proceed with the fixes etc.
 
 ## Writing style (project rule, applies to every file in this repo)
 

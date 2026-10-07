@@ -136,3 +136,21 @@ describe('infamy on the report', () => {
     expect(infamyIn('theirs')).toBe(true);
   });
 });
+
+/*
+ * A trap is the defender's, laid on the ground they hold. It was drawn red on both reports, so the
+ * side whose own trap "took 12" read it as a loss (maintainer, 2026-10-06).
+ */
+describe('the trap tile', () => {
+  const trapped = { ...analysis, trap: { name: 'Razor Wire', killed: 12, slowed: false } };
+
+  it('is green on the report of the side that laid it', () => {
+    render(<BattleReportModal analysis={trapped} side="defender" onClose={() => undefined} />);
+    expect(screen.getByText('took 12')).toHaveClass('text-verdigris-300');
+  });
+
+  it('is red on the report of the side it went off under', () => {
+    render(<BattleReportModal analysis={trapped} side="attacker" onClose={() => undefined} />);
+    expect(screen.getByText('took 12')).toHaveClass('text-oxblood-300');
+  });
+});

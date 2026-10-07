@@ -125,7 +125,7 @@ export const LOCATION_MARKS: Readonly<Record<string, Mark>> = {
   // of the painting at 1024x768, and a sign at 0.94 was not on screen there at all.
   'steelbelt-pumps': { x: 0.7, y: 0.86 },
   'steelbelt-kennels': { x: 0.885, y: 0.66, side: 'left' },
-  'steelbelt-bones': { x: 0.87, y: 0.31, side: 'left' },
+  'steelbelt-canteen': { x: 0.87, y: 0.31, side: 'left' },
 
   /*
    * Chrome Row, read off the 3780x1800 delivery against a twentieth grid. No labelled copy was

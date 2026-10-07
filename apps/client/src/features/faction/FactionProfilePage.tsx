@@ -1,6 +1,7 @@
 import {
   FACTION_RANK_LABELS,
   MAX_FACTION_MEMBERS,
+  seatOrder,
   type FactionProfileMember,
 } from '@frontline/shared';
 import { Link, useParams } from 'react-router-dom';
@@ -180,7 +181,7 @@ export function FactionProfilePage() {
                 className="font-display text-[38px] font-bold leading-none tabular-nums text-brass-100"
                 data-testid="faction-profile-earned"
               >
-                {Math.round(faction.infamyEarned).toLocaleString()}
+                {Math.round(faction.infamyEarned).toLocaleString('en-US')}
               </p>
               <p className="min-w-0 flex-1 font-body text-[12px] leading-snug text-ink-300">
                 Every declared fight won while wearing it, whoever won it and whether or not they
@@ -206,7 +207,9 @@ export function FactionProfilePage() {
             note="Everybody standing under the badge, and what each of them is worth"
           >
             <ul className="flex flex-col gap-2" data-testid="faction-profile-members">
-              {members.map((member) => (
+              {/* In seat order, as the room and the roster are (bug pass, 2026-10-06): the server
+                  sends join order, which put a leader who took over later mid-list. */}
+              {seatOrder(members).map((member) => (
                 <Member key={member.userId} member={member} />
               ))}
             </ul>
@@ -257,7 +260,7 @@ function Member({ member }: { member: FactionProfileMember }) {
 
       <span className="flex shrink-0 items-center gap-3">
         <Figure label="Level" value={String(member.level)} />
-        <Figure label="Infamy" value={Math.round(member.infamy).toLocaleString()} />
+        <Figure label="Infamy" value={Math.round(member.infamy).toLocaleString('en-US')} />
         {/* The mail, addressed. Not offered on your own row: a player writing to themselves is a
             control that can only be a mistake. */}
         {!member.isYou && (

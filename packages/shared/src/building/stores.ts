@@ -120,7 +120,9 @@ export function creditStores(
  */
 export function describeWaste(wasted: PartialResources): string {
   const parts = RESOURCE_ORDER.flatMap((key) => {
-    const amount = wasted[key] ?? 0;
+    // Whole, as every stockpile figure is shown (bug pass, 2026-10-06): the stores settle in
+    // fractions, and a report read "went to waste (37.413 Scrap)".
+    const amount = Math.round(wasted[key] ?? 0);
     return amount > 0 ? [`${amount.toLocaleString('en-US')} ${RESOURCE_LABELS[key]}`] : [];
   });
   if (parts.length <= 1) return parts[0] ?? 'nothing';

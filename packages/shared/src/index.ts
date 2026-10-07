@@ -62,6 +62,7 @@ export * from './battle/attrition.js';
 export * from './battle/salvage.js';
 export * from './battle/battlefield.js';
 export * from './battle/effects.js';
+export * from './battle/doors.js';
 export * from './battle/engine.js';
 export * from './battle/forecast.js';
 export * from './battle/luck.js';

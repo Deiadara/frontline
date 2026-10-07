@@ -18,6 +18,7 @@ import type {
   LaunchMissionResponse,
   LevelUp,
   MeResponse,
+  MissionsResponse,
   MusterUnitsResponse,
   BuildStructureResponse,
   ResearchResponse,
@@ -25,6 +26,7 @@ import type {
   CityResponse,
 } from '@frontline/shared';
 import {
+  keepPreviousData,
   useMutation,
   useMutationState,
   useQuery,
@@ -66,6 +68,9 @@ import {
   sendMessage,
   setNotificationSettings,
   upgradeLocation,
+  throwSwitch,
+  pinPamphlets,
+  swapPamphlet,
   getDistrict,
   getUnits,
   plantSleepers,
@@ -147,6 +152,7 @@ import {
   recallMove,
   cancelGateRaise,
   cancelDrill,
+  lookupPlayers,
 } from './api';
 import { useSession } from '../store/session';
 import { useViewedCity } from '../store/viewedCity';
@@ -217,6 +223,7 @@ export const queryKeys = {
   faction: ['faction'] as const,
   feats: ['feats'] as const,
   leaderboard: (board: string, localOnly: boolean) => ['leaderboard', board, localOnly] as const,
+  playerLookup: (q: string) => ['player-lookup', q] as const,
   crewProfile: (id: string) => ['crew-profile', id] as const,
   factionProfile: (id: string) => ['faction-profile', id] as const,
   messages: ['messages'] as const,
@@ -253,6 +260,21 @@ function announceLevelUp(queryClient: QueryClient, levelUp: LevelUp | undefined)
     previous ? { ...previous, levelUp } : previous,
   );
 }
+
+/**
+ * Hand a prefetched board's level-up to the shell, and keep it off the cached board.
+ *
+ * `GET /missions` drains the level marker, and the shell warms that route at start while nobody
+ * is reading it. A level crossed inside that one request was drained into a cache entry only the
+ * Missions page reads, and said to nobody unless that page was opened before the entry was
+ * collected (bug pass, 2026-10-06). The toast says it now, and the page does not say it again.
+ */
+const announcedFrom =
+  (queryClient: QueryClient) =>
+  ({ levelUp, ...board }: MissionsResponse): MissionsResponse => {
+    announceLevelUp(queryClient, levelUp);
+    return board;
+  };
 
 /**
  * Write a base a write route answered with over the district cache.
@@ -634,6 +656,9 @@ export function useIncreasePayroll() {
       void queryClient.invalidateQueries({ queryKey: queryKeys.me });
       // The Crew screen prints the book (maintainer, 2026-09-30).
       void queryClient.invalidateQueries({ queryKey: queryKeys.crew });
+      // ...and the book window reads the ledger off the crew's standing, which does not poll: the
+      // raise left it on the old size and the old price for the next step (bug pass, 2026-10-06).
+      void queryClient.invalidateQueries({ queryKey: queryKeys.crewStanding });
       // The district's own copy of the base, which prints the book and the caps this just spent.
       // See the note in `useReleaseOfficer`.
       void queryClient.invalidateQueries({ queryKey: ['base'] });
@@ -925,6 +950,20 @@ export const useUpgradeLocation = (baseId: string | undefined, districtId: strin
   useCityWrite(upgradeLocation, baseId, () => districtId ?? null);
 
 /*
+ * Reliquary's three sheet controls (2026-10-07): the Tolling Tower's switch, the Pamphlet Wall's
+ * pins and the paid pin swap. The same write path as an upgrade, plus `me`: the switch changes
+ * which labels the crew ignores and the swap spends caps, both of which the shell reads there.
+ */
+export const useThrowSwitch = (baseId: string | undefined, districtId: string | undefined) =>
+  useCityWrite(throwSwitch, baseId, () => districtId ?? null, [queryKeys.me]);
+
+export const usePinPamphlets = (baseId: string | undefined, districtId: string | undefined) =>
+  useCityWrite(pinPamphlets, baseId, () => districtId ?? null, [queryKeys.me]);
+
+export const useSwapPamphlet = (baseId: string | undefined, districtId: string | undefined) =>
+  useCityWrite(swapPamphlet, baseId, () => districtId ?? null, [queryKeys.me]);
+
+/*
  * Changing your mind on the ground (maintainer request, 2026-09-12). The same write path as the
  * orders they undo, so the district, the crew and the map are re-read exactly as they were when
  * the work was started; the stockpile moved both times.
@@ -1002,6 +1041,10 @@ export function useDeployQuote(body: DeployRequest | null) {
     queryFn: () => quoteDeploy(body!),
     enabled: signedIn && body !== null,
     staleTime: 10_000,
+    // The last answer stays up while the next one is asked, for the same fight (bug pass,
+    // 2026-10-06): each stepper press cleared it, which hid the train toggle (unticking it) and
+    // pulled the road line out of the footer and put it back.
+    placeholderData: (previous) => (previous !== undefined && body !== null ? previous : undefined),
     // The answer carries a landing time measured from the moment it was asked (`arrivesAt`), so a
     // window left open near the mark is re-asked rather than promising a landing that has slipped.
     refetchInterval: 15_000,
@@ -1344,6 +1387,12 @@ function settingsMutation<TArgs>(mutationFn: (args: TArgs) => Promise<SettingsRe
       mutationFn,
       onSuccess: (settings) => {
         queryClient.setQueryData(queryKeys.settings, settings);
+        // The account as the write left it, straight into `/me` too: the tutorial reads its cards
+        // from there, and a card stayed up with live buttons until the re-read below landed, so a
+        // quick second press marked the same step again (bug pass, 2026-10-06).
+        queryClient.setQueryData<MeResponse>(queryKeys.me, (me) =>
+          me === undefined ? me : { ...me, user: settings.user },
+        );
         void queryClient.invalidateQueries({ queryKey: queryKeys.me });
       },
     });
@@ -1394,7 +1443,7 @@ export function usePrefetchScreens(ready: boolean): void {
      */
     const warm: [readonly unknown[], () => Promise<unknown>][] = [
       [queryKeys.battles, () => getBattles()],
-      [[...queryKeys.missions, ''], () => getMissions()],
+      [[...queryKeys.missions, ''], () => getMissions().then(announcedFrom(queryClient))],
       [queryKeys.units, () => getUnits()],
       [queryKeys.crew, () => getCrew()],
       [queryKeys.actions, () => getActions()],
@@ -1553,9 +1602,9 @@ export function useLogoutEverywhere() {
 /**
  * Marks opening tutorial cards as shown.
  *
- * `settingsMutation` already writes the answer into the settings cache and re-reads `/me`, which
- * is where the card list lives (`user.tutorialSeen`), so the next card appears without this
- * having to know anything about the tutorial.
+ * `settingsMutation` already writes the answer into the settings cache and into `/me`, which is
+ * where the card list lives (`user.tutorialSeen`), so the next card appears without this having to
+ * know anything about the tutorial.
  */
 export const useMarkTutorialSeen = settingsMutation(markTutorialSeen);
 
@@ -1699,6 +1748,10 @@ function districtMutation<TArgs, TResponse extends { base: BaseDetailResponse['b
         if (baseId !== undefined) {
           void queryClient.invalidateQueries({ queryKey: queryKeys.base(baseId) });
         }
+        // The yard's board reads what is bolted where off the same buildings, and does not poll:
+        // a dismantle left its card saying "Dismantle" on a bracket already empty (bug pass,
+        // 2026-10-06).
+        void queryClient.invalidateQueries({ queryKey: queryKeys.scrapyard });
       },
     });
   };
@@ -1740,6 +1793,9 @@ export function useBuildVehicle() {
        */
       void queryClient.invalidateQueries({ queryKey: queryKeys.units });
       void queryClient.invalidateQueries({ queryKey: ['base'] });
+      // The yard prices against the same stockpile and beds and does not poll (bug pass,
+      // 2026-10-06).
+      void queryClient.invalidateQueries({ queryKey: queryKeys.scrapyard });
     },
   });
 }
@@ -1880,6 +1936,11 @@ function useFactionMutation<TInput>(
       // A seat taken or given up moves `faction_seats`, and `/me` above already moves the badge:
       // left alone, the board under it disagreed with it for as long as it stayed fresh.
       void queryClient.invalidateQueries({ queryKey: queryKeys.feats });
+      // A faction's public file and the standings carry its name, badge and members, and neither
+      // polls: a rename, a kick or a departure stood there for the cache's thirty seconds, and a
+      // crew that had just left was still told the file was "Your table" (bug pass, 2026-10-06).
+      void queryClient.invalidateQueries({ queryKey: ['faction-profile'] });
+      void queryClient.invalidateQueries({ queryKey: ['leaderboard'] });
     },
   });
 }
@@ -2096,6 +2157,26 @@ export function useFactionProfile(id: string | undefined) {
     queryKey: queryKeys.factionProfile(id ?? ''),
     queryFn: () => getFactionProfile(id ?? ''),
     enabled: signedIn && id !== undefined,
+  });
+}
+
+/**
+ * The letter composer's name lookup (maintainer, 2026-10-06), asked of the server so a player
+ * outside the standings' top hundred can be written to.
+ *
+ * Nothing is asked for nothing typed. The previous answer is kept while the next one is on its way,
+ * so the list under the field does not blink on every key; the composer filters it against the new
+ * text itself, so a kept answer never offers a name the new text does not match.
+ */
+export function usePlayerLookup(text: string) {
+  const signedIn = useSession((s) => s.signedIn);
+  const q = text.trim();
+  return useQuery({
+    queryKey: queryKeys.playerLookup(q),
+    queryFn: () => lookupPlayers(q),
+    enabled: signedIn && q !== '',
+    placeholderData: keepPreviousData,
+    staleTime: 30_000,
   });
 }
 

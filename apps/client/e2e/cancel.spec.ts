@@ -249,8 +249,8 @@ test('the road wears one X on every row that can still be turned round', async (
   await expect(page.getByTestId('recall-job-m-1')).toBeVisible();
   await expect(page.getByTestId('recall-job-m-1-window')).toHaveText(LEFT_TO_DECIDE);
   // The spy job is fifteen minutes into two hours, and its window is a tenth of the whole job.
-  await expect(page.getByTestId('spy-run')).toBeVisible();
-  await expect(page.getByTestId('recall-spy')).toHaveCount(0);
+  await expect(page.getByTestId(/^spy-run-/)).toBeVisible();
+  await expect(page.getByTestId(/^recall-spy-/)).toHaveCount(0);
 
   const sent = page.waitForRequest((request) => request.url().endsWith('/api/missions/recall'));
   await page.getByTestId('recall-job-m-1').click();

@@ -48,6 +48,8 @@ const offer: MissionOffer = {
   failedXp: 20,
   leanings: ['road'],
   ramp: null,
+  golden: false,
+  goldenPercent: 0,
 };
 
 const area: MissionArea = {
@@ -68,7 +70,7 @@ function open(stores: MissionStores | undefined): HTMLElement {
       fleet={{}}
       loadouts={{}}
       bagPercent={0}
-      notoriety={100}
+      carrierFlat={0}
       marks={{}}
       carriersFight={false}
       anyRide={false}

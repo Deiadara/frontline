@@ -8,6 +8,7 @@ import {
   type Attributes,
 } from '../attributes.js';
 import { applyHoldBonus, noTerritoryEffects, type TerritoryEffects } from '../city/locations.js';
+import type { EnvLabelId } from '../city/labels.js';
 import { perksOf, type PerkBonus } from './perks.js';
 import type { UnitTier, UnitTierStat } from '../units/tiers.js';
 import type { BuildingKind } from '../building/kinds.js';
@@ -155,14 +156,10 @@ export interface CrewOnlyEffects {
   wageDiscountPercent: number;
   /** Taken off what the next `Increase Payroll` step costs. */
   payrollStepDiscountPercent: number;
-  /** More of a job's pay in caps, applied when the run comes home (`withMissionCaps`). */
-  missionCapsPercent: number;
-  // `intelYieldPercent` used to live here. It is a `TerritoryEffects` channel now, because a
-  // Watchtower and a spy perk buy the same thing and should land in one place.
-  /** Points a rival's spies must beat: perks only since 2026-10-01, never an attribute. */
-  intelResistancePercent: number;
-  /** How much faster the wounded come back after a fight instead of staying dead. */
-  casualtyRecoveryPercent: number;
+  // `missionCapsPercent`, `intelResistancePercent` and `casualtyRecoveryPercent` used to live
+  // here. They are `TerritoryEffects` channels now (2026-10-07), because Reliquary's ground pays
+  // each of them and a perk and a location buying the same thing should land in one place, the
+  // way `intelYieldPercent` moved before them.
   /**
    * Whether a unit the Infirmary brought back still carries its share of the haul.
    *
@@ -298,6 +295,15 @@ export interface ConditionalCrewEffects {
    * fold leaves it as it was.
    */
   chairPoints: Partial<Record<OfficerRole, number>>;
+  /**
+   * Reliquary's two crew-wide lists off the control rows (2026-10-07), filled by the server's
+   * standing fold and spent by the engine. `pamphletUnits` are the unit ids pinned on every
+   * Pamphlet Wall the crew holds: those units fight the crew at `PAMPHLET_PENALTY_PERCENT` less.
+   * `ignoredLabels` are the ground labels the crew's units shrug off: `noisy` while a Tolling
+   * Tower it holds is switched on. Lists so two sources merge end to end like `chairLeads`.
+   */
+  pamphletUnits: string[];
+  ignoredLabels: EnvLabelId[];
 }
 
 /** One rung's lesson, filed under the chair whose track it sits on. */
@@ -330,9 +336,6 @@ export function noCrewEffects(): CrewEffects {
     buildCostPercent: 0,
     wageDiscountPercent: 0,
     payrollStepDiscountPercent: 0,
-    missionCapsPercent: 0,
-    intelResistancePercent: 0,
-    casualtyRecoveryPercent: 0,
     recoveredCarryLoot: false,
     cohesionPercent: 0,
     unitEvasionFlat: 0,
@@ -359,6 +362,8 @@ export function noCrewEffects(): CrewEffects {
     chairLeads: [],
     chairTeaches: [],
     chairPoints: {},
+    pamphletUnits: [],
+    ignoredLabels: [],
   };
 }
 
@@ -430,7 +435,8 @@ export const CONDITIONAL_CHANNEL_LABELS: Readonly<
   },
   leadLootPercent: {
     label: 'What comes back off the ground',
-    when: 'Only on a fight or a run one of your officers is leading',
+    // A fight pays it only on a raid, out of the victim's stockpile (maintainer, 2026-10-06).
+    when: 'Only on a raid or a run one of your officers is leading',
   },
   leadArrivalPercent: {
     label: 'Off the time on the road',
@@ -662,14 +668,8 @@ export function applyPerkBonus(into: CrewEffects, bonus: PerkBonus): CrewEffects
     case 'payroll_step_discount':
       into.payrollStepDiscountPercent += bonus.percent;
       return into;
-    case 'mission_caps':
-      into.missionCapsPercent += bonus.percent;
-      return into;
     case 'intel_resistance':
       into.intelResistancePercent += bonus.percent;
-      return into;
-    case 'casualty_recovery':
-      into.casualtyRecoveryPercent += bonus.percent;
       return into;
     case 'cohesion':
       into.cohesionPercent += bonus.percent;
@@ -968,12 +968,27 @@ export function combineEffects(territory: TerritoryEffects, crew: CrewEffects): 
     perHour: mergeCounts(crew.perHour, territory.perHour),
     resourceYieldPercent: mergeCounts(crew.resourceYieldPercent, territory.resourceYieldPercent),
     officerGroupFlat: mergeCounts(crew.officerGroupFlat, territory.officerGroupFlat),
-    missionSpeedPercentByCity: mergeCounts(
-      crew.missionSpeedPercentByCity,
-      territory.missionSpeedPercentByCity,
+    officerSkillFlat: mergeCounts(crew.officerSkillFlat, territory.officerSkillFlat),
+    unitTierMoraleFlat: mergeCounts(crew.unitTierMoraleFlat, territory.unitTierMoraleFlat),
+    missionSpeedPercentByDistrict: mergeCounts(
+      crew.missionSpeedPercentByDistrict,
+      territory.missionSpeedPercentByDistrict,
     ),
     unitTierPercent: mergeTierCounts(crew.unitTierPercent, territory.unitTierPercent),
     unitMarks: mergeMarks(crew.unitMarks, territory.unitMarks),
+    musterCostByTier: mergeCounts(crew.musterCostByTier, territory.musterCostByTier),
+    // Reliquary's list and keyed channels (2026-10-07): lists end to end, doors at their highest
+    // level, the Bounty Wall's odds added per district.
+    unitStatFlats: [...crew.unitStatFlats, ...territory.unitStatFlats],
+    noiseSwitches: [...crew.noiseSwitches, ...territory.noiseSwitches],
+    dailyPages: [...crew.dailyPages, ...territory.dailyPages],
+    dailyComponents: [...crew.dailyComponents, ...territory.dailyComponents],
+    legendAuras: [...crew.legendAuras, ...territory.legendAuras],
+    doorLevels: mergeMaxima(crew.doorLevels, territory.doorLevels),
+    goldenJobsByDistrict: mergeGoldenOdds(
+      crew.goldenJobsByDistrict,
+      territory.goldenJobsByDistrict,
+    ),
     // The switches are ORed, not added: ground and people are two ways of buying the same
     // permission, and holding both does not buy it twice. See `applyHoldBonus`.
     carriersFight: crew.carriersFight || territory.carriersFight,
@@ -1005,9 +1020,19 @@ type RecordChannel =
   | 'perHour'
   | 'resourceYieldPercent'
   | 'officerGroupFlat'
-  | 'missionSpeedPercentByCity'
+  | 'officerSkillFlat'
+  | 'unitTierMoraleFlat'
+  | 'missionSpeedPercentByDistrict'
   | 'unitTierPercent'
   | 'unitMarks'
+  | 'musterCostByTier'
+  | 'unitStatFlats'
+  | 'noiseSwitches'
+  | 'dailyPages'
+  | 'dailyComponents'
+  | 'legendAuras'
+  | 'doorLevels'
+  | 'goldenJobsByDistrict'
   // The four switches are folded above too. They are not records, but they are not summable
   // either, and this is the one list `combineEffects` narrows against.
   | 'carriersFight'
@@ -1019,9 +1044,19 @@ const RECORD_CHANNELS = new Set<string>([
   'perHour',
   'resourceYieldPercent',
   'officerGroupFlat',
-  'missionSpeedPercentByCity',
+  'officerSkillFlat',
+  'unitTierMoraleFlat',
+  'missionSpeedPercentByDistrict',
   'unitTierPercent',
   'unitMarks',
+  'musterCostByTier',
+  'unitStatFlats',
+  'noiseSwitches',
+  'dailyPages',
+  'dailyComponents',
+  'legendAuras',
+  'doorLevels',
+  'goldenJobsByDistrict',
   'carriersFight',
   'anyRide',
   'steadyNerve',
@@ -1214,6 +1249,16 @@ export function mergeCrewEffects(into: CrewEffects, extra: CrewEffects): CrewEff
       );
     } else if (key === 'officerAttributeAtLeast') {
       total[key] = { ...(a as object), ...(b as object) };
+    } else if (key === 'doorLevels') {
+      total[key] = mergeMaxima(
+        (a ?? {}) as Record<string, number>,
+        (b ?? {}) as Record<string, number>,
+      );
+    } else if (key === 'goldenJobsByDistrict') {
+      total[key] = mergeGoldenOdds(
+        (a ?? {}) as TerritoryEffects['goldenJobsByDistrict'],
+        (b ?? {}) as TerritoryEffects['goldenJobsByDistrict'],
+      );
     } else if (Array.isArray(a) || Array.isArray(b)) {
       // The list channels (`chairLeads`, `chairTeaches`): two sources are two lists, end to end. `mergeCounts`
       // read a list as a record and handed back one with no `filter`, which took every fight
@@ -1230,4 +1275,30 @@ export function mergeCrewEffects(into: CrewEffects, extra: CrewEffects): CrewEff
     }
   }
   return total as unknown as CrewEffects;
+}
+
+/** Two maps of levels, the higher kept per key: a door is as open as the best one held. */
+export function mergeMaxima(
+  a: Record<string, number>,
+  b: Record<string, number>,
+): Record<string, number> {
+  const out: Record<string, number> = { ...a };
+  for (const [key, value] of Object.entries(b)) out[key] = Math.max(out[key] ?? 0, value);
+  return out;
+}
+
+/** The Bounty Wall's odds from two sources, per district: chances add to a ceiling of 100. */
+export function mergeGoldenOdds(
+  a: TerritoryEffects['goldenJobsByDistrict'],
+  b: TerritoryEffects['goldenJobsByDistrict'],
+): TerritoryEffects['goldenJobsByDistrict'] {
+  const out = { ...a };
+  for (const [districtId, odds] of Object.entries(b)) {
+    const held = out[districtId] ?? { chancePercent: 0, rewardPercent: 0 };
+    out[districtId] = {
+      chancePercent: Math.min(100, held.chancePercent + odds.chancePercent),
+      rewardPercent: held.rewardPercent + odds.rewardPercent,
+    };
+  }
+  return out;
 }

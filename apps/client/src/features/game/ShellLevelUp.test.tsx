@@ -47,6 +47,21 @@ describe('the level-up the shell found', () => {
     expect(screen.queryByTestId('shell-level-up')).not.toBeInTheDocument();
   });
 
+  /** Bug pass, 2026-10-06: a second level-up inherited what was left of the first one's clock. */
+  it('gives a level crossed under the toast its own five seconds', () => {
+    const view = render(<ShellLevelUp levelUp={crossed} />);
+    act(() => {
+      vi.advanceTimersByTime(4_500);
+    });
+    view.rerender(
+      <ShellLevelUp levelUp={{ ...crossed, level: 6, grants: playerLevelGrants(6) }} />,
+    );
+    act(() => {
+      vi.advanceTimersByTime(2_000);
+    });
+    expect(screen.getByTestId('level-up-toast')).toHaveAccessibleName('Level up: level 6');
+  });
+
   /** Hovering holds the clock, so the one player who wants to read an unlock can. */
   it('holds the clock while the pointer is on it', () => {
     render(<ShellLevelUp levelUp={crossed} />);

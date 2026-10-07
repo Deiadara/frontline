@@ -28,8 +28,18 @@ vi.mock('../../lib/queries', async (importOriginal) => ({
     dataUpdatedAt: Date.parse(F.trainingResponse.serverNow),
     refetch: () => undefined,
   }),
-  useStartTraining: () => ({ mutate: () => undefined, isPending: false, error: null }),
-  useCancelDrill: () => ({ mutate: () => undefined, isPending: false, error: null }),
+  useStartTraining: () => ({
+    mutate: () => undefined,
+    reset: () => undefined,
+    isPending: false,
+    error: null,
+  }),
+  useCancelDrill: () => ({
+    mutate: () => undefined,
+    reset: () => undefined,
+    isPending: false,
+    error: null,
+  }),
 }));
 
 const OVERSEER = F.trainingResponse.subjects[0]!;

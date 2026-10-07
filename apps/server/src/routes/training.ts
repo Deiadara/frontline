@@ -15,12 +15,14 @@ import {
   CancelDrillRequestSchema,
   cancelDrill,
   drillCancellable,
+  drillHoldBlocker,
 } from '@frontline/shared';
 import type { FastifyInstance } from 'fastify';
-import { requireAreaFor } from '../progression/doors.js';
+import { requireArea } from '../progression/doors.js';
 import {
   drillSecondsBySubject,
   officerMarksBySubject,
+  drillHolds,
   projectTraining,
   settleTrainingFor,
 } from '../crew/training.js';
@@ -30,6 +32,7 @@ import { chairLineContext } from '../crew/roster.js';
 import { ledgerFor } from '../bar/hire.js';
 import { AppError, parseBody } from '../errors.js';
 import { standingEffectsFor } from '../crew/standing.js';
+import { spyPointsFor } from '../spying/spying.js';
 import { settledOwnBase } from './own-base.js';
 import { adminSeconds } from '../admin/mode.js';
 
@@ -86,6 +89,7 @@ export function registerTrainingRoutes(app: FastifyInstance): void {
         queueSlotsFor(app, base),
         drillSecondsBySubject(app.repos, base, overseer, new Date(now)),
         officerMarksBySubject(app.repos, base, new Date(now)),
+        drillHolds(app.repos, base, new Date(now)),
       );
     })();
   });
@@ -103,12 +107,12 @@ export function registerTrainingRoutes(app: FastifyInstance): void {
       queueSlotsFor(app, settled.base),
       drillSecondsBySubject(app.repos, settled.base, settled.overseer, new Date(now)),
       officerMarksBySubject(app.repos, settled.base, new Date(now)),
+      drillHolds(app.repos, settled.base, new Date(now)),
     );
   });
 
   /** §F2: put one person through one hour of one thing. */
   app.post('/training', { preHandler: app.authenticate }, (request): TrainingResponse => {
-    requireAreaFor(app.repos, request.currentUser.id, 'training');
     const { subjectId, attribute } = parseBody(StartTrainingRequestSchema, request.body);
     const now = new Date().toISOString();
 
@@ -118,12 +122,20 @@ export function registerTrainingRoutes(app: FastifyInstance): void {
         settledOwnBase(app, request.currentUser.id, new Date(now)),
         now,
       );
+      // After the settle, which can bank a finished build's XP and the level that opens this door
+      // (bug pass, 2026-10-06): read off the raw row, that crew was refused until the next read.
+      requireArea(base, 'training');
 
       const sheet =
         subjectId === OVERSEER_SUBJECT
           ? overseer?.attributes
           : base.commanders.find((officer) => officer.id === subjectId)?.attributes;
       if (!sheet) throw new AppError('NOT_FOUND', 'Nobody on your books by that id');
+      // Nobody away from the floor drills: a run, a fight or a sickbed (maintainer, 2026-10-06).
+      const away = drillHoldBlocker(
+        drillHolds(app.repos, base, new Date(now)).get(subjectId) ?? null,
+      );
+      if (away !== null) throw new AppError('TRAINING_REFUSED', away);
 
       const blocker = trainingBlocker(
         base.training,
@@ -166,6 +178,7 @@ export function registerTrainingRoutes(app: FastifyInstance): void {
         queueSlotsFor(app, base),
         seconds,
         officerMarksBySubject(app.repos, base, new Date(now)),
+        drillHolds(app.repos, base, new Date(now)),
       );
     })();
   });
@@ -200,7 +213,7 @@ export function registerTrainingRoutes(app: FastifyInstance): void {
       overseer: settled.overseer,
       chairs,
       overseerGrade,
-      payroll: ledgerFor(settled.base, effects),
+      payroll: ledgerFor(settled.base, standing),
       // Every numeric channel of the fold, not the `EFFECT_CHANNELS` list: that list is the sheet's
       // twenty-two, and the perk-only channels (`payrollStepDiscountPercent` among them) are not on
       // it, so filtering by it dropped exactly the figures this response exists to carry. `perHour`
@@ -219,7 +232,10 @@ export function registerTrainingRoutes(app: FastifyInstance): void {
       // schema: `effects` is people-only on purpose, and a held Pawn Shop and the three raid
       // modifications are worth up to 83 points that a board reading `effects` never quoted.
       haulPercent: standing.lootCapacityPercent,
+      carrierFlat: standing.carrierLootFlat,
       missionCapsPercent: standing.missionCapsPercent,
+      // The crew's own spy totals, for the Master of Whispers' seat (2026-10-07).
+      spyPoints: spyPointsFor(app.repos, settled.base, new Date(now)),
     };
   });
 }

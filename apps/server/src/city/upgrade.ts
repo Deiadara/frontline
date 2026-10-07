@@ -21,8 +21,8 @@ import { creditBase, refuseWaste } from '../district/stores.js';
  * Working a location up a level (§A4).
  *
  * The board-game half of the city: what a location is worth is whatever its holders have poured
- * into it. Nine upgrades, each dearer than the last, the first three an authored sentence about
- * what actually changed on the ground and the rest a shared ladder (`LATE_UPGRADE_NOTES`). None of
+ * into it. Four upgrades, each dearer than the last, the first three an authored sentence about
+ * what actually changed on the ground and the last a shared ladder (`LATE_UPGRADE_NOTES`). None of
  * it is lost when somebody takes the location off you: the levels go with the ground, which is
  * settled in `battle/resolve.ts` rather than here. What that capture does clear is an upgrade
  * still under way, so a level charged for and not yet banked dies with the holding.
@@ -34,15 +34,15 @@ import { creditBase, refuseWaste } from '../district/stores.js';
 /**
  * How long a level takes to work up. Longer at each step, like the price.
  *
- * The first three entries are the ones that shipped, so a level 1, 2 or 3 location still takes
- * exactly as long as it did. From there the step is 1.25x rather than the price's 1.4x: the clock
- * is what a player waits through, and matching the money curve would put the tenth level on the
- * hard ground at over a day. At 1.25x the worst case in the catalogue (an Abandoned Nuclear Plant,
- * `baseDefense` 7) is about eight hours for its last level, which is the same "better part of a
- * working day" the top of the building ladder asks for.
+ * Four steps, one per upgrade on the five-level ladder (maintainer, 2026-10-06): each upgrade to
+ * level n takes what the old nine-step clock gave the upgrade to level 2n, the same way
+ * `UPGRADE_COST_SCALE` reads the old price ladder at every second step. So the last level still
+ * takes 11.5x the base, which on the worst ground in the catalogue (an Abandoned Nuclear Plant,
+ * `baseDefense` 7) is about eight hours, the same "better part of a working day" the top of the
+ * building ladder asks for; the whole climb is shorter because the in-between levels are gone.
  */
 export const UPGRADE_BASE_SECONDS = 900;
-export const UPGRADE_SECONDS_SCALE: readonly number[] = [1, 1.8, 3, 3.75, 4.7, 5.9, 7.3, 9.2, 11.5];
+export const UPGRADE_SECONDS_SCALE: readonly number[] = [3, 5.9, 9.2, 11.5];
 
 export function upgradeSeconds(kind: Location['kind'], level: number): number {
   const step = Math.min(UPGRADE_SECONDS_SCALE.length, Math.max(1, level)) - 1;
@@ -182,7 +182,13 @@ export function cancelUpgrade(
   // What was paid at the start, not today's price: the Engineer's cut is read live, and a chair
   // changed between the two would refund more or less than was spent (bug pass, 2026-10-04).
   const refund = adminCost(
-    cancelRefund(control.upgradePaid ?? upgradeCost(location.kind, control.level) ?? {}),
+    // A row from before the price was kept is refunded off the Engineer's cut as it stands now,
+    // the nearest thing to what was paid; the bare catalogue price paid back more than went in.
+    cancelRefund(
+      control.upgradePaid ??
+        upgradeCost(location.kind, control.level, engineerCutFor(repos, base, now)) ??
+        {},
+    ),
     admin,
   );
   const credit = creditBase(repos, base, refund, now);

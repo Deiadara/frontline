@@ -5,7 +5,7 @@ import { Confirm } from '../../components/ui/Confirm';
 import { FactionBadge } from '../faction/FactionBadge';
 import { refusalText } from '../faction/refusal';
 import { useAnswerFactionInvite } from '../../lib/queries';
-import { ErrorNote } from '../../components/ui/ErrorNote';
+import { PressError } from '../../components/ui/PressError';
 import { useUnlockFacts } from '../../lib/unlocks';
 
 /**
@@ -45,7 +45,7 @@ export function InviteCard({ invite }: { invite: MessageInvite }) {
         </div>
       </div>
 
-      {answer.error && <ErrorNote>{refusalText(answer.error.message)}</ErrorNote>}
+      {answer.error && <PressError>{refusalText(answer.error.message)}</PressError>}
 
       {invite.open ? (
         <div className="flex flex-wrap gap-2">

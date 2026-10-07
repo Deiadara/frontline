@@ -31,6 +31,9 @@ describe('fitting a plate into the band', () => {
   it('has no size at all before the room has been measured', () => {
     expect(fitting({ width: 0, height: 0 }, ASPECT, 'width')).toEqual({ width: 0, height: 0 });
     expect(fitting({ width: 1280, height: 0 }, ASPECT, 'cover')).toEqual({ width: 0, height: 0 });
+    // A measure that is not a number is no measure (bug pass, 2026-10-06), and so is no aspect.
+    expect(fitting({ width: NaN, height: 720 }, ASPECT, 'cover')).toEqual({ width: 0, height: 0 });
+    expect(fitting({ width: 1280, height: 720 }, 0, 'whole')).toEqual({ width: 0, height: 0 });
   });
 
   it('draws the picture at its own aspect in every mode', () => {

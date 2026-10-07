@@ -1,4 +1,5 @@
 import {
+  featMeasureKey,
   MAX_ATTRIBUTE,
   MISC_AREA_ID,
   areasOffering,
@@ -913,7 +914,7 @@ describe('what a battle job is fought with', () => {
   });
 
   it('gets the medics onto the winner’s dead, and the Bone Market onto the losses', async () => {
-    const graveyard = 'steelbelt-bones';
+    const graveyard = 'bonded-row-rendering';
     const plain = await runJob('plain_job', () => {});
     const kitted = await runJob('kitted_job', (stack) => hold(stack, graveyard));
 
@@ -925,5 +926,11 @@ describe('what a battle job is fought with', () => {
       caps(kitted.stack),
       'the Bone Market paid nothing for the people who did not come back',
     ).toBeGreaterThan(caps(plain.stack));
+    // ...and what it paid is earned, as a fight's refund is (bug pass, 2026-10-06).
+    const earnedCaps = (stack: Stack): number =>
+      stack.repos.feats.tallies(stack.base.id)[featMeasureKey('resources_earned', 'caps')] ?? 0;
+    expect(earnedCaps(kitted.stack) - earnedCaps(plain.stack)).toBe(
+      caps(kitted.stack) - caps(plain.stack),
+    );
   });
 });

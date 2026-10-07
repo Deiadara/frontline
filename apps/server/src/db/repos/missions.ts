@@ -46,6 +46,8 @@ interface MissionRow {
   /** Both absent on a database stopped short of 0137. */
   infamy_paid?: number | null;
   refund_json?: string | null;
+  /** Absent on a database stopped short of 0147. */
+  carry_capacity?: number | null;
   resolved_at: string | null;
 }
 
@@ -92,6 +94,8 @@ export interface MissionResolution {
   /** The infamy and the Bone Market refund the return banked (`Mission.infamyPaid`, `refund`). */
   infamyPaid?: number;
   refund?: PartialResources;
+  /** What the crew could lift at the mark (`Mission.carryCapacity`). */
+  carryCapacity?: number;
 }
 
 export interface MissionsRepo {
@@ -171,6 +175,9 @@ function rowToStored(row: MissionRow): StoredMission {
       ...(row.refund_json === null || row.refund_json === undefined
         ? {}
         : { refund: readJson(row.refund_json) }),
+      ...(row.carry_capacity === null || row.carry_capacity === undefined
+        ? {}
+        : { carryCapacity: row.carry_capacity }),
       resolvedAt: row.resolved_at,
       /*
        * The three frozen enum columns, repaired on the way out like the force and the fleet above,
@@ -242,15 +249,15 @@ export function createMissionsRepo(db: AppDatabase): MissionsRepo {
   const activeBasesStmt = db.prepare(
     "SELECT DISTINCT base_id FROM missions WHERE status = 'active'",
   );
-  // Lazy for the reason `insertStmt` is: it names `wasted_json` (0124), `xp_paid` (0136) and the
-  // two from 0137.
+  // Lazy for the reason `insertStmt` is: it names `wasted_json` (0124), `xp_paid` (0136), the
+  // two from 0137 and `carry_capacity` (0147).
   let resolveHeld: Statement | null = null;
   const resolveStmt = (): Statement =>
     (resolveHeld ??= db.prepare(
       `UPDATE missions
           SET status = 'resolved', outcome = ?, rewards_json = ?, spoils_json = ?, resolved_at = ?,
               page_won = ?, lost_json = ?, reported = ?, found_json = ?, wasted_json = ?,
-              xp_paid = ?, infamy_paid = ?, refund_json = ?
+              xp_paid = ?, infamy_paid = ?, refund_json = ?, carry_capacity = ?
         WHERE id = ?`,
     ));
 
@@ -318,6 +325,7 @@ export function createMissionsRepo(db: AppDatabase): MissionsRepo {
         xpPaid,
         infamyPaid,
         refund,
+        carryCapacity,
       },
     ) {
       resolveStmt().run(
@@ -333,6 +341,7 @@ export function createMissionsRepo(db: AppDatabase): MissionsRepo {
         xpPaid ?? null,
         infamyPaid ?? null,
         refund === undefined ? null : JSON.stringify(refund),
+        carryCapacity ?? null,
         missionId,
       );
     },

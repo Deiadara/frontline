@@ -7,6 +7,7 @@ import {
   plateAspect,
   type CapturedGateView,
   type District,
+  type FactionMark,
   type LocationHolderKind,
 } from '@frontline/shared';
 import { useNavigate } from 'react-router-dom';
@@ -17,12 +18,12 @@ import { useCancelGateRaise, useCity, useMe, useRaiseGate } from '../../lib/quer
 import { formatRemaining } from '../base/format';
 import { useServerClock } from '../missions/useServerClock';
 import { Icon } from '../../components/ui/Icon';
-import { Insignia } from '../../components/ui/Insignia';
+import { SIDE_SIGN, SideMark, type Side } from '../city/SideMark';
 import { cn } from '../../lib/cn';
 import { OnPlate, PlateRoom, type OnPlateAt } from './PlateRoom';
 import { Tutorial } from '../tutorial/Tutorial';
 import { useViewedCity } from '../../store/viewedCity';
-import { ErrorNote } from '../../components/ui/ErrorNote';
+import { PressError } from '../../components/ui/PressError';
 
 /**
  * The `/game` index: the city itself, painted, with a tag on every district (GDD §A4).
@@ -210,17 +211,23 @@ function DistrictTag({
   district,
   label,
   holder,
+  wholeBy,
+  holderFaction,
   mine,
   onOpen,
 }: {
   district: District;
   /** What to print: a crew's name on residential ground, the district's own name otherwise. */
   label: string;
-  /**
-   * Who holds the whole district, when one party does. The Combine and the looters wear their mark
-   * on the tag (maintainer, 2026-09-30); anybody else, or a split district, draws the name alone.
-   */
+  /** Who holds the whole district, when one party does, for the glyph beside the name. */
   holder: LocationHolderKind | null;
+  /**
+   * Whose side holds every location (maintainer, 2026-10-07): the reader's crew or faction draws
+   * the tag green with the faction emblem (the crew glyph at no table); anybody else, the looters
+   * or the Combine draws it red with their mark; a split district draws the name alone, grey.
+   */
+  wholeBy: Side | null;
+  holderFaction: FactionMark | null;
   /** This crew's own ground, which is the one tag that leads somewhere different. */
   mine: boolean;
   onOpen: () => void;
@@ -288,13 +295,21 @@ function DistrictTag({
            */
           mine
             ? 'border-ember-300/70 bg-surface-950/90 text-ember-300'
-            : 'border-surface-600 bg-surface-950/90 text-ink-200 group-hover:border-brass-300/70 group-hover:text-brass-100',
+            : wholeBy !== null
+              ? SIDE_SIGN[wholeBy]
+              : 'border-surface-600 bg-surface-950/90 text-ink-200 group-hover:border-brass-300/70 group-hover:text-brass-100',
         )}
+        data-whole-by={wholeBy ?? undefined}
       >
-        {holder !== null && (
+        {wholeBy !== null && (
           // Out of the flow's height: 14px of mark on an 11px line would grow every tag it is on
           // by a pixel, and the tags are placed by their bottom edge (`OnPlate anchor="bottom"`).
-          <Insignia holder={holder} className="-my-1 mr-1.5 h-3.5 w-3.5" />
+          <SideMark
+            side={wholeBy}
+            faction={holderFaction}
+            holder={holder}
+            className="-my-1 mr-1.5 h-3.5 w-3.5"
+          />
         )}
         {label}
       </span>
@@ -357,6 +372,22 @@ export function CityView() {
       summary.holder === null ? [] : [[summary.district.id, summary.holder.kind] as const],
     ),
   );
+  /** Whose side each whole district is on, and the faction's emblem, for the tags' colour. */
+  const sides = new Map(
+    (city.data?.districts ?? []).map(
+      (summary) =>
+        [
+          summary.district.id,
+          { wholeBy: summary.wholeBy, holderFaction: summary.holderFaction },
+        ] as const,
+    ),
+  );
+  /** Who lives on each plot, off the same read, for the name on its tag. */
+  const residents = new Map(
+    (city.data?.districts ?? []).flatMap((summary) =>
+      summary.base === null ? [] : [[summary.district.id, summary.base.name] as const],
+    ),
+  );
   const raise = useRaiseGate();
   const cancel = useCancelGateRaise();
   // The city read's clock, for the gate panel's countdown and its first-tenth window.
@@ -379,16 +410,17 @@ export function CityView() {
               <DistrictTag
                 district={district}
                 /*
-                 * Your own plot is called after your crew, live off the base rather than off a
-                 * stored copy, so renaming the crew renames the tag on the next poll. The other
-                 * three are numbered: see `plotName` for why they are not named after the people
-                 * living on them.
+                 * A plot is called after the crew living on it, yours live off the base rather
+                 * than off a stored copy, so renaming the crew renames the tag on the next poll.
                  */
                 label={districtDisplayName(district, {
                   ownDistrictId: myBase.districtId,
                   ownName: myBase.name,
+                  residentName: residents.get(district.id) ?? null,
                 })}
                 holder={holders.get(district.id) ?? null}
+                wholeBy={sides.get(district.id)?.wholeBy ?? null}
+                holderFaction={sides.get(district.id)?.holderFaction ?? null}
                 mine={mine}
                 /*
                  * Your own ground is the one tag that does not lead to the district screen. That
@@ -446,15 +478,37 @@ export function CityView() {
               gate={gate}
               stock={myBase?.resources ?? {}}
               now={now}
-              pending={raise.isPending || cancel.isPending}
-              onRaise={() => raise.mutate({ districtId: gate.districtId })}
-              onCancel={() => cancel.mutate({ districtId: gate.districtId })}
+              // This gate's own press only (bug pass, 2026-10-06): raising one gate greyed the
+              // button on every other gate on the screen.
+              pending={
+                (raise.isPending && raise.variables.districtId === gate.districtId) ||
+                (cancel.isPending && cancel.variables.districtId === gate.districtId)
+              }
+              // Each press clears the other's refusal, so the line below is always the latest
+              // one and never an old raise hiding a newer cancel (bug pass, 2026-10-06).
+              onRaise={() => {
+                cancel.reset();
+                raise.mutate({ districtId: gate.districtId });
+              }}
+              onCancel={() => {
+                raise.reset();
+                cancel.mutate({ districtId: gate.districtId });
+              }}
             />
           ))}
           {(raise.error ?? cancel.error) && (
-            <ErrorNote backdrop className="pointer-events-auto">
+            <PressError>
+              {/* Which gate it was about, with more than one on the screen. */}
+              {gates.length > 1 &&
+                `${
+                  gates.find(
+                    (gate) =>
+                      gate.districtId ===
+                      (raise.error ? raise.variables : cancel.variables)?.districtId,
+                  )?.districtName ?? 'That gate'
+                }: `}
               {(raise.error ?? cancel.error)?.message}
-            </ErrorNote>
+            </PressError>
           )}
         </div>
       )}

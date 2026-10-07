@@ -109,36 +109,35 @@ describe('whose boards a crew is shown', () => {
 });
 
 /**
- * The two Terminus districts that pay mission speed (maintainer, 2026-09-24).
+ * The Yards pay mission speed and the Blockhouse pays ANTI-COMBINE (maintainer, 2026-10-07; it
+ * paid 25 on the same channel until then).
  *
  * `mission_speed` is a divisor channel: the job leg is `minutes / (1 + percent/100)`, the percent
- * bent under its ceiling (`missionSpeedCut`). The Yards pay 12 and the Blockhouse 25, and the rule the atlas
- * enforces is that a unified bonus may not repeat a kind found *inside its own district*, so two
- * districts paying the same kind is allowed and intended. What this checks is that the two add up
- * and that the total is nowhere near the clamp, because a pair that silently capped would make the
- * second district worth nothing.
+ * bent under its ceiling (`missionSpeedCut`). What this checks is that the Yards' figure stands
+ * nowhere near the clamp with a second source beside it, because a pair that silently capped
+ * would make the second worth nothing.
  */
-describe('holding both ends of the line', () => {
+describe('the Yards and a second source of speed', () => {
   const speedOf = (districtId: string): number => {
     const bonus = unifiedBonusFor(districtId)?.bonus;
     return bonus?.kind === 'mission_speed' ? bonus.percent : 0;
   };
 
-  it('pays both districts, and the pair is still under the ceiling', () => {
+  it('pays the Yards, leaves the Blockhouse to ANTI-COMBINE, and stays under the ceiling with both', () => {
     const yards = speedOf('marshalling-yards');
-    const blockhouse = speedOf('blockhouse');
     expect(yards).toBe(12);
-    expect(blockhouse).toBe(25);
-    expect(yards + blockhouse).toBeLessThan(MISSION_SPEED_CEILING);
+    expect(unifiedBonusFor('blockhouse')?.bonus.kind).toBe('anti_combine');
+    expect(speedOf('blockhouse')).toBe(0);
+    expect(yards + 25).toBeLessThan(MISSION_SPEED_CEILING);
   });
 
-  it('takes more off the clock for both than for either alone', () => {
+  it('takes more off the clock for two sources than for either alone', () => {
     const yards = speedOf('marshalling-yards');
-    const blockhouse = speedOf('blockhouse');
+    const tunnels = 25;
     const job = 240;
-    const both = hastenedMinutes(job, yards + blockhouse);
-    expect(both).toBeLessThan(hastenedMinutes(job, blockhouse));
-    expect(hastenedMinutes(job, blockhouse)).toBeLessThan(hastenedMinutes(job, yards));
+    const both = hastenedMinutes(job, yards + tunnels);
+    expect(both).toBeLessThan(hastenedMinutes(job, tunnels));
+    expect(hastenedMinutes(job, tunnels)).toBeLessThan(hastenedMinutes(job, yards));
     expect(both).toBeGreaterThan(hastenedMinutes(job, 1_000));
   });
 });

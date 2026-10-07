@@ -15,7 +15,7 @@ import { ApiRequestError } from '../../lib/api';
 import { Button } from '../../components/ui/Button';
 import { Modal } from '../../components/ui/Modal';
 import { NumberField } from '../../components/ui/NumberField';
-import { ErrorNote } from '../../components/ui/ErrorNote';
+import { PressError } from '../../components/ui/PressError';
 
 /**
  * Choosing who goes (GDD §A5).
@@ -70,9 +70,20 @@ export function ForcePicker({
     })
     .sort((a, b) => a.unit.name.localeCompare(b.unit.name));
 
-  const chosen = Object.values(force).reduce((total, count) => total + count, 0);
+  /*
+   * What would actually go: the picks, against the roster as it stands now (bug pass, 2026-10-06).
+   * A unit that left the roster under the open picker lost its row and kept its count, and the
+   * press sent a force the player could not see or correct.
+   */
+  const sending: Army = Object.fromEntries(
+    available.flatMap(({ unit, count }) => {
+      const picked = Math.min(force[unit.id] ?? 0, count);
+      return picked > 0 ? [[unit.id, picked]] : [];
+    }),
+  );
+  const chosen = Object.values(sending).reduce((total, count) => total + count, 0);
   // With the crew's brackets, as the raid pays it (`battle/resolve.ts` passes the same map).
-  const capacity = Math.round(lootCapacityOf(force, 0, loadouts));
+  const capacity = Math.round(lootCapacityOf(sending, 0, loadouts));
 
   const set = (unitId: string, value: number, max: number) => {
     const clamped = Math.max(0, Math.min(max, Math.trunc(value)));
@@ -103,7 +114,10 @@ export function ForcePicker({
           </p>
         ) : (
           available.map(({ unit, count }) => (
-            <label
+            // A box, not a `<label>` (bug pass, 2026-10-06). A label with no `for` labels its first
+            // labelable child, which is the field's "one fewer" stepper, so pressing the unit's
+            // name took one off the count. The field carries its own name.
+            <div
               key={unit.id}
               className="flex items-center justify-between gap-3 border border-surface-700 p-2"
             >
@@ -122,14 +136,14 @@ export function ForcePicker({
                   label={`How many ${unit.name}`}
                   min={0}
                   max={count}
-                  value={force[unit.id] ?? 0}
+                  value={sending[unit.id] ?? 0}
                   onChange={(next) => set(unit.id, next, count)}
                 />
                 <span className="font-display text-[11px] tabular-nums text-ink-300">
                   / {count}
                 </span>
               </span>
-            </label>
+            </div>
           ))
         )}
 
@@ -148,7 +162,7 @@ export function ForcePicker({
          */}
         {facingSize !== undefined && (
           <Odds
-            force={force}
+            force={sending}
             facingSize={facingSize}
             battlefield={battlefield}
             loadouts={loadouts}
@@ -160,9 +174,9 @@ export function ForcePicker({
         {/* Why it cannot go, on the button row and to its left (maintainer, 2026-09-25). */}
         {error !== null && error !== undefined && (
           <div className="mr-auto flex min-w-0 flex-col gap-1.5">
-            <ErrorNote>
+            <PressError>
               {error instanceof ApiRequestError ? error.message : 'That did not go through'}
-            </ErrorNote>
+            </PressError>
           </div>
         )}
         <Button variant="ghost" size="sm" onClick={onClose}>
@@ -172,7 +186,7 @@ export function ForcePicker({
           size="sm"
           variant="danger"
           disabled={chosen === 0 || pending}
-          onClick={() => onConfirm(force)}
+          onClick={() => onConfirm(sending)}
         >
           {pending ? 'Working…' : confirmLabel}
         </Button>

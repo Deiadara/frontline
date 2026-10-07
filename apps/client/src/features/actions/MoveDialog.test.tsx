@@ -82,5 +82,10 @@ describe('a move the server will not quote', () => {
       expect(screen.getByTestId('move-time')).toHaveTextContent('There is no road to that'),
     );
     expect(screen.getByTestId('move-confirm')).toBeDisabled();
+    // ...and the button says so on hover (maintainer rule, 2026-10-06).
+    expect(screen.getByTestId('move-confirm')).toHaveAttribute(
+      'data-tip',
+      'There is no road to that',
+    );
   });
 });

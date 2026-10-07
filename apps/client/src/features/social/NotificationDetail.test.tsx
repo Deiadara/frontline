@@ -100,3 +100,14 @@ describe('the receipt of a crew coming home', () => {
     expect(screen.queryByTestId(`mission-wasted-${MISSION.id}`)).toBeNull();
   });
 });
+
+/** Bug pass, 2026-10-06: "Go there" was a button inside a link, two tab stops for one action. */
+describe('the way to what a receipt is about', () => {
+  it('is one link, with no button inside it', () => {
+    open(MISSION);
+    const go = screen.getByTestId('detail-go');
+    expect(go.tagName).toBe('A');
+    expect(go.querySelector('button')).toBeNull();
+    expect(go).toHaveTextContent('Go there');
+  });
+});

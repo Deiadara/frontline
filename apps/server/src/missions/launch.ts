@@ -171,6 +171,8 @@ export function launchMission(args: {
    * business knowing what a crew or a perk is.
    */
   missionSpoilsPercent?: number;
+  /** The Bounty Wall's premium on this card (`golden.ts`), frozen on the row; 0 for a plain job. */
+  goldenPercent?: number;
   /** Which board it came off (`missions.areas.ts`). The area is locked until this crew is home. */
   areaId: string;
   /**
@@ -200,6 +202,7 @@ export function launchMission(args: {
     ramp = null,
     leadSpeedPercent = 0,
     missionSpoilsPercent = 0,
+    goldenPercent = 0,
     unitSpeedPercent = 0,
     anyRide = false,
     areaId,
@@ -298,6 +301,9 @@ export function launchMission(args: {
         // The opening band's premium, the same figure the card printed (`missions.ramp.ts`).
         (ramp?.payPercent ?? 0),
       xp: missionXp(template, priced.totalMinutes, grade),
+      // Apart from `payPercent` rather than folded into it, so the report can say the gold was
+      // the gold and nothing else is multiplied by it (the return pays it, `missions/resolve.ts`).
+      ...(goldenPercent > 0 && { goldenPercent }),
       grade,
       force,
       vehicles,

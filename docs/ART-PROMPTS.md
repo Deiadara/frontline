@@ -2012,7 +2012,7 @@ the central horizontal eighth of the canvas; the rest is fully transparent.
 
 ---
 
-## 6. Icons: 62 assets
+## 6. Icons: 69 assets
 
 **Class framing:**
 
@@ -2103,6 +2103,14 @@ One marker per _kind_ of place, not per place: thirty-one places share twenty ki
 | `icon-location-glasshouse`            | `160075` | `SUBJECT: A gabled glass house seen from above, beds of #86e6a8 growth showing through the panes, one grow-lamp inside reading warm #f59e0b.`                                                               |
 | `icon-location-combine-chapel`        | `160076` | `SUBJECT: A steel-and-glass chapel at the top of a tower seen three-quarter from above, a long table under a vaulted roof where the pews would be, one cold #22d3ee light down the length of it.`           |
 | `icon-location-rail-station`          | `160077` | `SUBJECT: A single railway platform seen three-quarter from above, a canopy on iron columns over half its length, a running-in board at the near end and a warm #f59e0b lamp burning over the empty track.` |
+| `icon-location-mausoleum`             | `160078` | `SUBJECT: A family tomb the size of a small chapel seen three-quarter from above, white stone gone grey, an iron door standing open and one deep #dc2626 lamp burning red inside the dark of it.`           |
+| `icon-location-workshop`              | `160079` | `SUBJECT: A sack-maker's loft seen three-quarter from above, a bench under a window, bales of straw and finished sacks stacked by the door, one warm #f59e0b lamp over the work.`                           |
+| `icon-location-shrine`                | `160080` | `SUBJECT: A hilltop shrine seen three-quarter from above, a relic under glass on a white stone altar, a crimson #dc2626 cloth draped over it and a line of small candles up the steps.`                     |
+| `icon-location-bounty-wall`           | `160081` | `SUBJECT: A street wall papered with posted contracts seen three-quarter from above, a clerk's ledger desk against it under one #f59e0b lamp, torn notices and nails.`                                      |
+| `icon-location-stage`                 | `160082` | `SUBJECT: A low wooden stage in a vaulted hall seen three-quarter from above, boards worn smooth, red #dc2626 lamps along its edge and a scatter of empty chairs before it.`                                |
+| `icon-location-trophy-hall`           | `160083` | `SUBJECT: A long stone hall seen three-quarter from above, its walls hung with helmets, plates and broken weapons on hooks, a keeper's lectern at the end under one #f59e0b lamp.`                          |
+| `icon-location-laboratory`            | `160084` | `SUBJECT: A convent laboratory seen three-quarter from above, saints' bones under glass beside a centrifuge and steel benches, cold #22d3ee light from the instruments.`                                    |
+| `icon-location-stores`                | `160085` | `SUBJECT: Deep stone vaults under a cathedral floor seen three-quarter from above, sacks and crates on long shelves, a tally board by the stair and one warm #f59e0b lamp.`                                 |
 
 ### 6.5 Garage machines: ids match `VehicleId`
 
@@ -2193,6 +2201,7 @@ Ids are the kebab-cased `UnitSpec.id` in `@frontline/shared` (`road_reavers` →
 | `unit-syndic`             | Syndic             | Legendary              | `145036` |
 | `unit-executioner`        | Executioner        | Legendary              | `145037` |
 | `unit-directive-xero`     | Directive Xero     | Legendary              | `145038` |
+| `unit-death-cloaks`       | Death Cloaks       | Rabble                 | `145039` |
 
 ### 7.1 `unit-razors`
 
@@ -2420,6 +2429,12 @@ SUBJECT: A tall figure in black tactical armour with no insignia, a heavy hooked
 
 ```
 SUBJECT: An old man in a plain grey high-collared uniform seated at the head of a long steel table under a vaulted glass roof, hands folded, a single #22d3ee light from above. No weapon visible. Everything in the room is arranged around him, and he is looking straight at the viewer.
+```
+
+### 7.39 `unit-death-cloaks`
+
+```
+SUBJECT: Three mourners in grey burial cloth shoulder to shoulder in a tomb doorway, faces hooded and unlit, one holding a red lamp low, the others carrying stone-mason's hammers. White stone behind them, deep #dc2626 lamplight from below, cold grey fill from the open door.
 ```
 
 ## 8. Consistency protocol

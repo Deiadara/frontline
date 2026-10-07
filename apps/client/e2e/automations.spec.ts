@@ -52,6 +52,7 @@ function response(over: Partial<AutomationsResponse> = {}): AutomationsResponse 
       id: one.id,
       name: one.name,
       role: one.role,
+      out: false,
     })),
     serverNow: NOW,
     ...over,

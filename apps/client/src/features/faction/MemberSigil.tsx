@@ -1,3 +1,4 @@
+import { useId } from 'react';
 import { cn } from '../../lib/cn';
 import { sigilOf } from './sigil';
 
@@ -69,6 +70,9 @@ export function MemberSigil({
   name: string;
   className?: string;
 }) {
+  // One filter per instance (bug pass, 2026-10-06): a fixed id repeated on every copy is a
+  // duplicate in the document, and each copy resolves to whichever was mounted first.
+  const ink = `member-ink-${useId().replace(/:/g, '')}`;
   const { skull, face, hat } = sigilOf(seed);
   const strokes = [
     ...BODY,
@@ -87,7 +91,7 @@ export function MemberSigil({
       <defs>
         {/* The same pad-and-paper roughening the officer mark and the track sigils use, so every
             drawn thing in this game reads as one hand. */}
-        <filter id="member-ink" x="-20%" y="-20%" width="140%" height="140%">
+        <filter id={ink} x="-20%" y="-20%" width="140%" height="140%">
           <feTurbulence type="fractalNoise" baseFrequency="0.8" numOctaves="3" seed="17" />
           <feDisplacementMap
             in="SourceGraphic"
@@ -98,7 +102,7 @@ export function MemberSigil({
         </filter>
       </defs>
       <g
-        filter="url(#member-ink)"
+        filter={`url(#${ink})`}
         fill="none"
         stroke="currentColor"
         strokeWidth="3.4"

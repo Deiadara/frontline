@@ -453,9 +453,6 @@ export const MISSION_FORCE_REFUSAL_TEXT: Record<MissionForceRefusal, string> = {
   needs_fighters: 'Somebody there has to be able to fight. Porters do not go in alone',
 };
 
-/** §D7: a unit above the crew's rank refuses the contract, on every door onto a field. */
-export const NAME_TOO_SMALL_TEXT = 'They will not take a contract from a name that small';
-
 /**
  * Loot slots this crew can carry home.
  *
@@ -477,12 +474,14 @@ export function missionCarry(
   bonusPercent = 0,
   /** ...and the marks they have been granted, so Haul Rigging is worth the research slot. */
   rules: LineRules = bareLineRules(),
+  /** The Straw Sack's bags (`carrierLootFlat`): slots on every carrier, the same as on a raid. */
+  carrierFlat = 0,
 ): number {
   // Delegated rather than written twice. The doc above claimed "the same figure the raid path
   // uses, and deliberately" while this was a second arithmetic that ignored `picker`, ignored
   // `lootCapacityPercent` and ignored granted marks: a Scavenger carried 22 on a raid and 10 on a
   // job, and the Pawn Shop was worth nothing to a crew that only ran jobs.
-  return lootCapacityOf(force, bonusPercent, loadouts, rules);
+  return lootCapacityOf(force, bonusPercent, loadouts, rules, carrierFlat);
 }
 
 /** The slots a payout takes up, by the same weights a raid is measured in. */

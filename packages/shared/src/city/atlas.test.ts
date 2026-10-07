@@ -3,7 +3,7 @@ import { CITIES, DEFAULT_CITY_ID, findCity } from './cities.js';
 import {
   ALL_DISTRICTS,
   ATLAS_UNIFIED_BONUSES,
-  SALTMARCH_CITY_ID,
+  RELIQUARY_CITY_ID,
   TERMINUS_CITY_ID,
   cityOf,
   districtsOfCity,
@@ -76,11 +76,14 @@ describe('the atlas', () => {
      * Terminus was grown to Ashfall's size when it opened (maintainer, 2026-09-24): eight contested
      * districts and four plots, the same as the city a player starts in, because a second playable
      * city that was a third of the size would read as a side area rather than as somewhere to
-     * live. Saltmarch is still the three-district sketch it was authored as, and is shut.
+     * live. Reliquary is being authored to the same shape, and is shut until it is finished.
      */
     expect(countsOf(DEFAULT_CITY_ID)).toEqual({ contested: 8, plots: 4 });
     expect(countsOf(TERMINUS_CITY_ID)).toEqual({ contested: 8, plots: 4 });
-    expect(countsOf(SALTMARCH_CITY_ID)).toEqual({ contested: 3, plots: 4 });
+    // Reliquary was authored a district at a time and finished on 2026-10-07: eight contested
+    // and the four plots, the same shape. Saltmarch's three-district sketch went on 2026-10-06, to
+    // keep the world screen at five.
+    expect(countsOf(RELIQUARY_CITY_ID)).toEqual({ contested: 8, plots: 4 });
 
     // Four plots everywhere, which is the half of the shape that matters most: a city is somewhere
     // to live before it is somewhere to fight, and a crew has to be able to get an address.
@@ -204,7 +207,9 @@ describe('the atlas', () => {
     const contested = ALL_DISTRICTS.filter(
       (one) => one.kind === 'contested' && one.cityId !== DEFAULT_CITY_ID,
     );
-    expect(contested.length).toBe(11);
+    // Eight Terminus and eight Reliquary (finished 2026-10-07); Saltmarch's three went on
+    // 2026-10-06.
+    expect(contested.length).toBe(16);
 
     for (const district of contested) {
       const unified = ATLAS_UNIFIED_BONUSES[district.id];
@@ -263,11 +268,16 @@ describe('the atlas', () => {
  * reader can see them, and this is what refuses the next one that drifts.
  */
 describe('an id is the name on the tag', () => {
-  /** Lowercased, hyphenated, and a leading "The" dropped: `The Last Platform` is `last-platform`. */
+  /**
+   * Lowercased, hyphenated, and a leading "The" dropped: `The Last Platform` is `last-platform`.
+   * An apostrophe is not a word break: `Saint's Rest` is `saints-rest` (2026-10-07), not
+   * `saint-s-rest`, which no reader would type.
+   */
   const slug = (name: string): string =>
     name
       .toLowerCase()
       .replace(/^the /, '')
+      .replace(/['\u2019]/g, '')
       .replace(/[^a-z0-9]+/g, '-')
       .replace(/^-|-$/g, '');
 

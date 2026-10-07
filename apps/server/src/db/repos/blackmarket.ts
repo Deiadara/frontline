@@ -30,6 +30,12 @@ export interface BlackBid {
   /** The district the crate goes to if this wins, and whose infamy pays for it. */
   baseId: string;
   amount: number;
+  /**
+   * Infamy this bid took off the ledger when it was placed (maintainer, 2026-10-06): the bid after
+   * the crew's standing, or nothing in admin mode. Handed back on a raise and to every bidder the
+   * close does not pick; the winner's is the price.
+   */
+  held: number;
   at: string;
 }
 
@@ -40,7 +46,7 @@ export interface BlackLotResult {
   slotIndex: number;
   /** Denormalised: the catalogue a shelf was drawn from can move under a results panel. */
   goodId: string;
-  /** Null when nobody in the ranking could pay, or everybody in it was at their allowance. */
+  /** Null when everybody in the ranking was turned away: rank, plans already known, allowance. */
   winnerUserId: string | null;
   price: number | null;
   settledAt: string;
@@ -98,7 +104,7 @@ export interface BlackMarketRepo {
   recordResult(result: BlackLotResult): void;
 }
 
-const BID_COLUMNS = 'day, lot_id, slot_index, user_id, base_id, amount, at';
+const BID_COLUMNS = 'day, lot_id, slot_index, user_id, base_id, amount, held, at';
 const LOT_RESULT_COLUMNS = 'day, lot_id, slot_index, good_id, winner_user_id, price, settled_at';
 
 interface BidRow {
@@ -108,6 +114,7 @@ interface BidRow {
   user_id: string;
   base_id: string;
   amount: number;
+  held: number;
   at: string;
 }
 
@@ -143,6 +150,7 @@ function rowToBid(row: BidRow): BlackBid {
     userId: row.user_id,
     baseId: row.base_id,
     amount: row.amount,
+    held: row.held,
     at: row.at,
   };
 }
@@ -189,12 +197,13 @@ export function createBlackMarketRepo(db: AppDatabase): BlackMarketRepo {
   const placeBidStmt = lazy(() =>
     db.prepare(
       `INSERT INTO black_market_bids
-       (day, lot_id, slot_index, user_id, base_id, amount, at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+       (day, lot_id, slot_index, user_id, base_id, amount, held, at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT (day, lot_id, user_id) DO UPDATE SET
        slot_index = excluded.slot_index,
        base_id = excluded.base_id,
        amount = excluded.amount,
+       held = excluded.held,
        at = excluded.at,
        updated_at = excluded.updated_at`,
     ),
@@ -299,6 +308,7 @@ export function createBlackMarketRepo(db: AppDatabase): BlackMarketRepo {
         bid.userId,
         bid.baseId,
         bid.amount,
+        bid.held,
         bid.at,
         bid.at,
       );

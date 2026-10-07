@@ -182,7 +182,7 @@ function Destination({
 }: {
   destination: NavDestination;
   /**
-   * The caption under a shut door (`Lv 5`, `Build it`, `Rank 3`), or `null` when it is open.
+   * The caption under a shut door (`Lv 5`, `Build it`, `Ill-Reputed`), or `null` when it is open.
    *
    * A string rather than the level it used to be, because five of the nine doors are not opened
    * by a level and `Lv 0` under the Scrapyard is worse than nothing: it points at a number that

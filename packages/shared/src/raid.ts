@@ -99,19 +99,31 @@ export const MAX_RAID_SHARE = 0.25;
  * up, and a second set of constants for the carriers would be two things to retune and one of
  * them would be forgotten.
  *
- * ## Whole kilograms, rounded up
+ * ## Whole slots, rounded up
  *
- * Per unit, and rounded **up** rather than to nearest. Loot is counted in whole kilograms
- * downstream (`plunder` floors every line it takes), so a fractional bag is a bag that quietly
- * rounds away: ten Haulers at 25.4 kg each is 254 kg on paper and 250 in the hold. Rounding the
- * per-unit figure up is what makes the bonus "only matter in integers" and makes it matter at
- * all, and the whole group is then a count of whole bags rather than a total that has to be
- * rounded again.
+ * Per unit, and rounded **up** rather than to nearest. Loot is counted in whole slots downstream
+ * (`plunder` floors every line it takes), so a fractional bag is a bag that quietly rounds away:
+ * ten Haulers at 25.4 each is 254 on paper and 250 in the hold. Rounding the per-unit figure up
+ * is what makes the bonus "only matter in integers" and makes it matter at all, and the whole
+ * group is then a count of whole bags rather than a total that has to be rounded again.
+ *
+ * The crew's own bag bonus (`bonusPercent`, the Pawn Shop and its kind) is folded in here, per
+ * unit, for the same reason (maintainer, 2026-10-07): applied to the total afterwards it put
+ * `34.2 loot slots` and `28.500000000000004 loot slots` on the send dialog, and a figure for one
+ * unit that is not a whole number is not a figure anybody can add up.
  */
-function carriedBy(unit: UnitSpec, count: number, fitted: FittedUpgrades): number {
+function carriedBy(
+  unit: UnitSpec,
+  count: number,
+  fitted: FittedUpgrades,
+  bonusPercent: number,
+  /** Slots on top of the sheet, per body, after the percentage: bags are bags, not a bigger back. */
+  flat = 0,
+): number {
+  if (count <= 0) return 0;
   const sheet = upgradedStats(unit.stats, fitted).lootCapacity;
-  if (unit.pack !== true || count <= 0) return sheet * count;
-  return Math.ceil(sheet * (1 + packBonusPercent(count) / 100)) * count;
+  const packed = unit.pack === true ? 1 + packBonusPercent(count) / 100 : 1;
+  return (Math.ceil(sheet * packed * (1 + bonusPercent / 100)) + flat) * count;
 }
 
 /**
@@ -145,15 +157,23 @@ export function lootCapacityOf(
    * bug the removed mark used to cause. `battle/resolve.ts` and `missions/resolve.ts` both pass it.
    */
   rules: LineRules = bareLineRules(),
+  /** The Straw Sack (`carrierLootFlat`, maintainer 2026-10-06): this many slots more on every carrier. */
+  carrierFlat = 0,
 ): number {
-  let base = 0;
+  let total = 0;
   for (const [unitId, count] of Object.entries(army)) {
     const found = findUnit(unitId);
     if (!found) continue;
     const unit = markedUnit(found, rules);
-    base += carriedBy(unit, count, fittedFor(loadouts, unitId));
+    total += carriedBy(
+      unit,
+      count,
+      fittedFor(loadouts, unitId),
+      Math.max(0, bonusPercent),
+      unit.tier === 'carrier' ? Math.max(0, carrierFlat) : 0,
+    );
   }
-  return Math.max(0, base) * (1 + Math.max(0, bonusPercent) / 100);
+  return total;
 }
 
 /**
@@ -236,6 +256,31 @@ export function plunder(
   }
 
   return taken;
+}
+
+/**
+ * What an officer's loot perk adds to a raid's haul (`leadLootPercent`; maintainer, 2026-10-06).
+ *
+ * The extra is taken from the victim like the haul itself: `percent` more of every line the raiders
+ * carried off, capped by what the victim still holds once the haul is out. So nothing is created,
+ * and a victim with nothing left on a line loses nothing more of it. Not bounded by the hold or by
+ * `MAX_RAID_SHARE`: the perk promises "more loot", not "a bigger truck", and the truck is already
+ * full on most raids. Before this ruling the perk scaled whatever the fight paid, so the extra came
+ * from nowhere, and it scaled the Bone Market refund as well.
+ */
+export function leadLootExtra(
+  stock: Resources,
+  haul: PartialResources,
+  percent: number,
+): PartialResources {
+  const extra: PartialResources = {};
+  if (percent <= 0) return extra;
+  for (const key of RESOURCE_KEYS) {
+    const taken = haul[key] ?? 0;
+    const more = Math.min(Math.round((taken * percent) / 100), Math.max(0, stock[key] - taken));
+    if (more > 0) extra[key] = more;
+  }
+  return extra;
 }
 
 /** The weight of a bundle: what a defender's readout means by "they could carry it all". */

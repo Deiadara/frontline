@@ -2,6 +2,8 @@ import {
   ATTRIBUTES_BY_GROUP,
   EVERY_LOCATION,
   LOCATION_CATALOG,
+  MAX_LOCATION_LEVEL,
+  MAX_OFFICER_LIFT,
   RESEARCH_ITEMS,
   STARTING_RESOURCES,
   TRAININGS_PER_DAY,
@@ -16,6 +18,7 @@ import {
   effectiveMarketDiscount,
   effectiveStats,
   findDistrict,
+  findLocation,
   findUnit,
   gainInfamy,
   hastenedMinutes,
@@ -151,13 +154,14 @@ const PLAIN_RATES = {
   veteranPercent: 0,
   speedPercent: 0,
   locationLevels: new Map(),
+  costPercentByTier: {},
 };
 
 describe('what the ground makes', () => {
   it('pays a Gas Station`s oil and scrap into the hourly rate, scaled by its level', () => {
     const { repos, base } = holding('gas_station', 3);
-    // 18 and 8 at level 1, twice that at level 3.
-    expect(productionRatesFor(repos, base, NOW)).toMatchObject({ oil: 36, scrap: 16 });
+    // 18 and 8 at level 1, three times that at level 3: a level pays its number (`LEVEL_SCALE`).
+    expect(productionRatesFor(repos, base, NOW)).toMatchObject({ oil: 54, scrap: 24 });
   });
 
   it('makes the oil the ground pumps go further with a Nuclear Plant beside it', () => {
@@ -221,8 +225,11 @@ describe('what the ground does in a fight', () => {
     expect(stimmed(after).unitMoraleFlat - before.unitMoraleFlat).toBe(2);
   });
 
-  it('the four rules reach the fold the engine reads', () => {
-    expect(holding('fight_pit').after.carriersFight).toBe(true);
+  it('the three rules and the Fight Pit`s cut reach the fold the engine reads', () => {
+    // The pit pays double infamy for the intimidated and no longer puts the porters in the line
+    // (maintainer, 2026-10-06); `carriers_fight` is Field Commander's and the Lab's now.
+    expect(holding('fight_pit').after.intimidatedInfamyPercent).toBe(100);
+    expect(holding('fight_pit').after.carriersFight).toBe(false);
     expect(holding('war_machine_graveyard').after.anyRide).toBe(true);
     expect(holding('chapel').after.steadyNerve).toBe(true);
     expect(holding('barricade').after.unitMarks).toMatchObject({ ironsides: ['stalwart'] });
@@ -246,10 +253,12 @@ describe('what the ground does in a fight', () => {
 
   it('Pawn Shop: a bigger truck', () => {
     const { before, after } = holding('pawn_shop');
-    const army = { anodics: 10 };
-    expect(lootCapacityOf(army, after.lootCapacityPercent)).toBeCloseTo(
-      lootCapacityOf(army, before.lootCapacityPercent) * 1.15,
-      6,
+    // Per unit and in whole slots (`raid.ts`, maintainer 2026-10-07), so the bonus lands on one
+    // Anodic's bag, rounded up, and ten of them carry ten of that.
+    const one = lootCapacityOf({ anodics: 1 }, before.lootCapacityPercent);
+    expect(lootCapacityOf({ anodics: 1 }, after.lootCapacityPercent)).toBe(Math.ceil(one * 1.15));
+    expect(lootCapacityOf({ anodics: 10 }, after.lootCapacityPercent)).toBe(
+      Math.ceil(one * 1.15) * 10,
     );
   });
 });
@@ -379,16 +388,103 @@ describe('what the ground does for the crew', () => {
   });
 
   /** Maintainer, 2026-10-05: the ground's group lift sits outside the officers' ten-point cap. */
-  it('Broadcast Station at level 10: fourteen points, past the lift cap', () => {
+  it('Broadcast Station at level 5: six points, paid in full outside the lift cap', () => {
     const { repos, base } = stack();
     const officer = createCommander('o1', 'Vell', 'engineer', makeAttributes(30));
     const crew: Base = { ...base, commanders: [officer] };
     const bare = liftedOfficerSheet(officer, officerLiftRoom(repos, crew, NOW)).attributes;
-    take(repos, base.id, somewhere('broadcast_station'), 10);
+    // Five on the card: half of that floored, then one a level (`officer_group` in `scaledBonus`).
+    take(repos, base.id, somewhere('broadcast_station'), MAX_LOCATION_LEVEL);
     const lifted = liftedOfficerSheet(officer, officerLiftRoom(repos, crew, NOW)).attributes;
     for (const name of ATTRIBUTES_BY_GROUP.social) {
-      expect(lifted[name] - bare[name], name).toBe(14);
+      expect(lifted[name] - bare[name], name).toBe(6);
     }
+  });
+});
+
+/**
+ * Reliquary's ground (maintainer, 2026-10-06). The city is shut, so `somewhere` cannot find it;
+ * these take the authored plots by id, which is also the point: a Market here pays what the atlas
+ * says and not what a Market pays.
+ */
+describe('what Reliquary`s ground does', () => {
+  const DEATH_CLOAKS = findUnit('death_cloaks')!;
+  const at = (id: string): Location => {
+    const found = findLocation(id);
+    if (!found) throw new Error(`no ${id}`);
+    return found;
+  };
+  const stats = (unitId: string, effects: CrewEffects) =>
+    effectiveStats(findUnit(unitId)!, FIELD, { defending: false, outnumbered: 0 }, effects);
+
+  it('Mausoleum: thirty damage and vitality on a Death Cloak for every tomb held, and the beds', () => {
+    const { repos, base } = stack();
+    const bare = standingEffectsFor(repos, base, NOW);
+    take(repos, base.id, at('gravefields-mausoleums'));
+    const one = standingEffectsFor(repos, base, NOW);
+    take(repos, base.id, at('candlemarket-tomb'));
+    const two = standingEffectsFor(repos, base, NOW);
+    expect([bare.mausoleums, one.mausoleums, two.mausoleums]).toEqual([0, 1, 2]);
+    expect(stats('death_cloaks', two).offense - stats('death_cloaks', bare).offense).toBe(60);
+    expect(stats('death_cloaks', two).vitality - stats('death_cloaks', bare).vitality).toBe(60);
+    // Faith is theirs alone: a Razor beside them gains nothing from the tombs.
+    expect(stats('razors', two).offense).toBe(stats('razors', bare).offense);
+    expect(DEATH_CLOAKS.faith).toBe(true);
+    expect(two.unitSlotBonus - bare.unitSlotBonus).toBe(2 * (6 + 20));
+  });
+
+  it('pays what the atlas wrote on the plot, not what the kind pays', () => {
+    const { repos, base } = stack();
+    const bare = standingEffectsFor(repos, base, NOW);
+    take(repos, base.id, at('candlemarket-waxstalls'));
+    take(repos, base.id, at('candlemarket-chandlery'));
+    take(repos, base.id, at('candlemarket-hostels'));
+    take(repos, base.id, at('gravefields-mourners'));
+    take(repos, base.id, at('gravefields-cemetery'));
+    const after = standingEffectsFor(repos, base, NOW);
+    expect((after.perHour.caps ?? 0) - (bare.perHour.caps ?? 0), 'the Wax Stalls').toBe(40);
+    expect((after.perHour.oil ?? 0) - (bare.perHour.oil ?? 0), 'the Chandlery').toBe(20);
+    expect(
+      (after.perHour.highQualityMetal ?? 0) - (bare.perHour.highQualityMetal ?? 0),
+      'Mourners Row',
+    ).toBe(2);
+    // Five plots: twenty beds each, and the Hostels' fifty on top. No caps from the camp.
+    expect(after.unitSlotBonus - bare.unitSlotBonus).toBe(5 * 20 + 50);
+    expect(after.infamyGainPercent - bare.infamyGainPercent, 'the Cemetery').toBe(5);
+    // Nothing the kinds would have paid leaks through: a Pawn Shop's bigger truck, for one.
+    expect(after.lootCapacityPercent).toBe(bare.lootCapacityPercent);
+  });
+
+  it('Martyr`s Plinth: ten morale on the rabble and none on anybody else', () => {
+    const { repos, base } = stack();
+    const bare = standingEffectsFor(repos, base, NOW);
+    take(repos, base.id, at('candlemarket-plinth'));
+    const after = standingEffectsFor(repos, base, NOW);
+    expect(after.unitMoraleFlat).toBe(bare.unitMoraleFlat);
+    expect(stats('razors', after).morale - stats('razors', bare).morale).toBe(10);
+    expect(stats('sluggers', after).morale).toBe(stats('sluggers', bare).morale);
+  });
+
+  it('Bulb-String Loft and the Wake House: five points on four named skills, past the lift cap', () => {
+    const { repos, base } = stack();
+    const officer = createCommander('o1', 'Vell', 'engineer', makeAttributes(30));
+    const crew: Base = { ...base, commanders: [officer] };
+    const bare = liftedOfficerSheet(officer, officerLiftRoom(repos, crew, NOW)).attributes;
+    take(repos, base.id, at('candlemarket-loft'));
+    take(repos, base.id, at('gravefields-wakehouse'));
+    const lifted = liftedOfficerSheet(officer, officerLiftRoom(repos, crew, NOW)).attributes;
+    const moved = Object.fromEntries(
+      Object.entries(lifted)
+        .map(([name, value]) => [name, value - bare[name as keyof typeof bare]] as const)
+        .filter(([, gained]) => gained !== 0),
+    );
+    expect(moved).toEqual({ communication: 5, signals: 5, empathy: 5, resolve: 5 });
+    // Outside the cap, like the group lift: level 5 pays the level's whole figure, twice the card
+    // (`OFFICER_LEVEL_SCALE`), even though the cap on lifts is ten.
+    take(repos, base.id, at('candlemarket-loft'), MAX_LOCATION_LEVEL);
+    const high = liftedOfficerSheet(officer, officerLiftRoom(repos, crew, NOW)).attributes;
+    expect(high.communication - bare.communication).toBe(10);
+    expect(high.communication - bare.communication).toBeGreaterThanOrEqual(MAX_OFFICER_LIFT);
   });
 });
 
@@ -404,10 +500,13 @@ describe('the sweep covers the catalogue', () => {
         'battle_stims',
         'black_market_discount',
         'build_speed',
-        'carriers_fight',
+        'carrier_loot_flat',
         'defense_percent',
+        'faith',
+        'golden_jobs',
         'infamy_gain',
         'intel',
+        'intimidated_infamy',
         'intimidation',
         'loot_capacity',
         'market_discount',
@@ -423,8 +522,11 @@ describe('the sweep covers the catalogue', () => {
         'road_shortcut',
         'salvage_refund',
         'steady_nerve',
+        'storage',
         'training_sessions',
         'travel_speed',
+        'trophies',
+        'unit_door',
         'unit_mark',
         'unit_morale',
         'unit_offense',

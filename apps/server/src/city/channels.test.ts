@@ -49,6 +49,14 @@ function magnitude(bonus: HoldBonus): number {
   if ('perHour' in bonus) return bonus.perHour;
   if ('flat' in bonus) return bonus.flat;
   if ('minutes' in bonus) return bonus.minutes;
+  if ('perSlot' in bonus) return bonus.perSlot;
+  if ('amount' in bonus) return bonus.amount;
+  if ('chancePercent' in bonus) return bonus.chancePercent + bonus.rewardPercent;
+  if ('count' in bonus) return bonus.count;
+  if ('pins' in bonus) return bonus.pins;
+  // A door, a wall of trophies and a daily page carry the level they are held at (`scaledBonus`
+  // writes it), which is what the readers ladder on (`doorLevels`, `TROPHY_PAY_SCALE`).
+  if ('level' in bonus && bonus.level !== undefined) return bonus.level;
   // The rules carry no quantity at all and do not ladder with a level (`scaledBonus`), so they
   // contribute nothing to the "worked up is worth more" sum below rather than a made-up one.
   if (!('percent' in bonus)) return 0;

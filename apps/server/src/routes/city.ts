@@ -18,6 +18,10 @@ import {
   RecallSleepersRequestSchema,
   SLEEPER_REFUSAL_TEXT,
   CELL_LOCKED_TEXT,
+  PinPamphletsRequestSchema,
+  SwapPamphletRequestSchema,
+  ThrowSwitchRequestSchema,
+  type District,
 } from '@frontline/shared';
 import type { FastifyInstance } from 'fastify';
 import { plantSleepers, recallSleepers } from '../city/sleepers.js';
@@ -32,6 +36,7 @@ import { settleBase } from '../district/settle.js';
 import { AppError, cityQuery, parseBody, type ErrorCode } from '../errors.js';
 import { recallSpy, sendSpy } from '../spying/spying.js';
 import { cancelGateRaise, raiseCapturedGate } from '../city/gates.js';
+import { pinPamphlets, swapPamphlet, throwSwitch } from '../city/ground.js';
 import { settleWorld } from '../world/settle.js';
 
 /**
@@ -414,6 +419,56 @@ export function registerCityRoutes(app: FastifyInstance): void {
       base: outcome.base,
     };
   });
+
+  /*
+   * Reliquary's sheet controls (maintainer, 2026-10-06): the Tolling Tower's switch and the
+   * Pamphlet Wall's pins, each answering with the district the way every other city write does.
+   * The refusals are `city/ground.ts`'s, in the player's words; the client greys the control
+   * off the view's fields first and shows what slips past beside it.
+   */
+  app.post('/city/switch', { preHandler: app.authenticate }, (request): CityMutationResponse => {
+    const { locationId, on } = parseBody(ThrowSwitchRequestSchema, request.body);
+    const now = new Date();
+    const base = settled(app, request.currentUser.id, now);
+    const district = districtOfLocation(locationId);
+    app.db.transaction(() => throwSwitch(app.repos, base, locationId, on, now))();
+    return { district: projectDistrict(app.repos, base, district, now, app.config.admin), base };
+  });
+
+  app.post('/city/pamphlets', { preHandler: app.authenticate }, (request): CityMutationResponse => {
+    const { locationId, pins } = parseBody(PinPamphletsRequestSchema, request.body);
+    const now = new Date();
+    const base = settled(app, request.currentUser.id, now);
+    const district = districtOfLocation(locationId);
+    app.db.transaction(() => pinPamphlets(app.repos, base, locationId, pins))();
+    return { district: projectDistrict(app.repos, base, district, now, app.config.admin), base };
+  });
+
+  app.post(
+    '/city/pamphlets/swap',
+    { preHandler: app.authenticate },
+    (request): CityMutationResponse => {
+      const { locationId, from, to } = parseBody(SwapPamphletRequestSchema, request.body);
+      const now = new Date();
+      const base = settled(app, request.currentUser.id, now);
+      const district = districtOfLocation(locationId);
+      const swapped = app.db.transaction(() =>
+        swapPamphlet(app.repos, base, locationId, { from, to }, now),
+      )();
+      return {
+        district: projectDistrict(app.repos, swapped.base, district, now, app.config.admin),
+        base: swapped.base,
+      };
+    },
+  );
+}
+
+/** The district a location stands in, for the answer every city write gives back. */
+function districtOfLocation(locationId: string): District {
+  const location = findLocation(locationId);
+  const district = location ? findDistrict(location.districtId) : undefined;
+  if (!district) throw new AppError('NOT_FOUND', 'No such location');
+  return district;
 }
 
 /** Which API code each upgrade refusal answers with. Shaped like `REFUSAL_ERRORS` above. */

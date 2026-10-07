@@ -10,7 +10,7 @@ import {
 import type { ReactNode } from 'react';
 import { Button } from './ui/Button';
 import { cn } from '../lib/cn';
-import { ErrorNote } from './ui/ErrorNote';
+import { PressError } from './ui/PressError';
 import { Modal } from './ui/Modal';
 import { useCrewStanding, useIncreasePayroll } from '../lib/queries';
 
@@ -94,10 +94,10 @@ export function RaisePayroll({
           {pending ? 'Raising…' : `Increase payroll · +${ledger.stepSize}`}
         </Button>
         <span className="font-display text-[11px] uppercase tracking-[0.16em] text-ink-300">
-          {price.toLocaleString()} caps, once
+          {price.toLocaleString('en-US')} caps, once
         </span>
       </div>
-      {error !== null && <ErrorNote>{error}</ErrorNote>}
+      {error !== null && <PressError>{error}</PressError>}
     </>
   );
 }
@@ -143,7 +143,9 @@ function PayrollBook({ base }: { base: Base }) {
     payrollLedger(
       base.economy.payroll,
       buildingLevel(base.buildings, CENTRAL_BUILDING),
-      payrollBonusPercent(base.buildings),
+      // The Quarters' own book plus what the crew's ground adds (the Printworks held whole,
+      // 2026-10-07): `payrollPercent` is the territory's share of the same channel.
+      payrollBonusPercent(base.buildings) + (effects?.['payrollPercent'] ?? 0),
       effects?.['payrollStepDiscountPercent'],
     );
 
@@ -152,12 +154,13 @@ function PayrollBook({ base }: { base: Base }) {
       <dl className="flex flex-col gap-2.5">
         <Figure label="Committed to officers">
           <span className="font-display text-sm font-semibold tabular-nums text-ink-100">
-            {ledger.committed.toLocaleString()} / {ledger.capacity.toLocaleString()} caps
+            {ledger.committed.toLocaleString('en-US')} / {ledger.capacity.toLocaleString('en-US')}{' '}
+            caps
           </span>
         </Figure>
         <Figure label="Left to promise">
           <span className="font-display text-sm font-semibold tabular-nums text-brass-300">
-            {ledger.available.toLocaleString()}
+            {ledger.available.toLocaleString('en-US')}
           </span>
         </Figure>
       </dl>

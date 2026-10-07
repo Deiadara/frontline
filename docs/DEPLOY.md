@@ -75,8 +75,8 @@ is a timestamp in the database rather than a timer in the process.
   exits on purpose and systemd starts a fresh one two seconds later.
 - **Floods.** Caddy caps request bodies and slow clients. The server caps request bodies (64 KB),
   requests per account and per address (`apps/server/src/limits/rules.ts`), failed sign-ins per
-  account from any number of addresses (ten a quarter hour, refused before the password is
-  hashed), live streams per
+  account and per address (ten a quarter hour, refused before the password is hashed), live
+  streams per
   account (8), per address (40) and in total (2,000), and open sockets (`MAX_CONNECTIONS`). The
   rate-limit table itself is capped, and IPv6 callers are counted by their /64.
 - **Hostile input.** Every request body is parsed against a shared schema with bounded strings,

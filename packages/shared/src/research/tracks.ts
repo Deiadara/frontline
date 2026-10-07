@@ -268,6 +268,33 @@ const KIND_FAMILY: Readonly<Record<ResearchBonus['kind'], PayoutFamily>> = {
   any_ride: 'travel',
   unit_mark: 'battle',
   steady_nerve: 'battle',
+  // Reliquary's (2026-10-06): a tomb is where the Death Cloaks are raised, and a skill is a skill.
+  faith: 'battle',
+  officer_skill: 'people',
+  // ...and the rest of the city's channels (2026-10-07), filed by what each changes. No rung pays
+  // any of them; the map does, and this table is what lets a rung be written for one tomorrow.
+  unit_stat_flat: 'battle',
+  carrier_loot_flat: 'yield',
+  noise_switch: 'battle',
+  daily_page: 'yield',
+  pamphlets: 'battle',
+  daily_stim: 'battle',
+  unit_door: 'battle',
+  training_time: 'people',
+  golden_jobs: 'yield',
+  daily_component: 'yield',
+  trophies: 'yield',
+  spy_defence: 'counterintel',
+  mission_xp: 'yield',
+  storage: 'yield',
+  modification_output: 'yield',
+  ally_fight: 'battle',
+  xp_per_loss: 'yield',
+  modification_armor: 'battle',
+  payroll: 'thrift',
+  legend_aura: 'battle',
+  anti_combine: 'battle',
+  intimidated_infamy: 'yield',
 
   // Filed by what it changes, the same way the rules above are: this one decides how much of a
   // haul reaches the yard, so it sits with `loot_capacity` and `mission_spoils` rather than with

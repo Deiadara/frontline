@@ -7,8 +7,10 @@ import { openDatabase, runMigrations, type AppDatabase } from '../db/index.js';
 import { AUTH_LIMIT, LOGIN_FAILURE_LIMIT } from './rules.js';
 
 /**
- * The per-account sign-in lock (maintainer, 2026-09-30). The per-address limit already stops one
- * machine guessing; these are the cases it cannot see, where every guess comes from somewhere new.
+ * The sign-in lock: wrong passwords counted per account and per address (maintainer, 2026-09-30;
+ * 2026-10-06). The per-address limit stops one machine guessing at everything; this stops it
+ * guessing at one account, and it shuts only the address that did the guessing, so a stranger
+ * missing on purpose cannot keep the owner out.
  */
 
 const instances: { app: FastifyInstance; db: AppDatabase }[] = [];
@@ -40,29 +42,35 @@ async function world(): Promise<FastifyInstance> {
   return app;
 }
 
-/** Every call from an address of its own, so the per-address budget never comes into it. */
-let nextAddress = 0;
-function signIn(app: FastifyInstance, username: string, password: string) {
-  nextAddress += 1;
+/** Where the guesses come from, unless a case says otherwise. Not where the accounts registered. */
+const GUESSER = '198.51.100.7';
+const OWNER = '203.0.113.9';
+
+function signIn(app: FastifyInstance, username: string, password: string, from = GUESSER) {
   return app.inject({
     method: 'POST',
     url: '/api/auth/login',
     payload: { username, password },
-    remoteAddress: `10.${(nextAddress >> 16) & 255}.${(nextAddress >> 8) & 255}.${nextAddress & 255}`,
+    remoteAddress: from,
   });
 }
 
-async function missTimes(app: FastifyInstance, username: string, times: number): Promise<number[]> {
+async function missTimes(
+  app: FastifyInstance,
+  username: string,
+  times: number,
+  from = GUESSER,
+): Promise<number[]> {
   const statuses: number[] = [];
   for (let i = 0; i < times; i += 1)
-    statuses.push((await signIn(app, username, 'wrong')).statusCode);
+    statuses.push((await signIn(app, username, 'wrong', from)).statusCode);
   return statuses;
 }
 
 describe('failed sign-ins against one account', () => {
-  it('shuts the account after ten misses from ten different addresses', async () => {
+  it('shuts the account to an address after ten misses from it', async () => {
     const app = await world();
-    // Well past what one address may try, so only an account-wide count can be what stops it.
+    // Under what one address may try, so it is this lock and not the address's budget that stops it.
     expect(LOGIN_FAILURE_LIMIT.quota).toBeLessThan(AUTH_LIMIT.quota);
 
     expect(await missTimes(app, 'Operator', LOGIN_FAILURE_LIMIT.quota)).toEqual(
@@ -73,7 +81,7 @@ describe('failed sign-ins against one account', () => {
     expect(locked.statusCode).toBe(429);
     const { error } = locked.json<{ error: { code: string; message: string } }>();
     expect(error.code).toBe('RATE_LIMITED');
-    expect(error.message).toMatch(/too many wrong passwords for this account/i);
+    expect(error.message).toMatch(/too many wrong passwords for this account from here/i);
     expect(error.message).toMatch(/15 more minutes/);
     expect(Number(locked.headers['retry-after'])).toBeGreaterThan(14 * 60);
   });
@@ -115,6 +123,26 @@ describe('failed sign-ins against one account', () => {
     await missTimes(app, 'nosuchplayer', LOGIN_FAILURE_LIMIT.quota);
 
     expect((await signIn(app, 'nosuchplayer', PASSWORD)).statusCode).toBe(429);
+  });
+
+  it("lets the owner in from their own address while a stranger's is shut", async () => {
+    const app = await world();
+    await missTimes(app, 'Operator', LOGIN_FAILURE_LIMIT.quota);
+    expect((await signIn(app, 'Operator', PASSWORD)).statusCode).toBe(429);
+
+    expect((await signIn(app, 'Operator', PASSWORD, OWNER)).statusCode).toBe(200);
+    // ...and the owner getting in does not reopen the stranger's door.
+    expect((await signIn(app, 'Operator', PASSWORD)).statusCode).toBe(429);
+  });
+
+  it('counts one IPv6 /64 as one address', async () => {
+    const app = await world();
+    for (let host = 0; host < LOGIN_FAILURE_LIMIT.quota; host += 1) {
+      await signIn(app, 'Operator', 'wrong', `2001:db8:1:2::${(host + 1).toString(16)}`);
+    }
+
+    expect((await signIn(app, 'Operator', PASSWORD, '2001:db8:1:2::ff')).statusCode).toBe(429);
+    expect((await signIn(app, 'Operator', PASSWORD, '2001:db8:1:3::1')).statusCode).toBe(200);
   });
 
   it('leaves every other account alone', async () => {

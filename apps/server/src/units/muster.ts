@@ -7,6 +7,7 @@ import {
   VEHICLES,
   buildingLevel,
   vehicleBuildSeconds,
+  vehicleBatchSeconds,
   clampLevel,
   homeMusterBonus,
   musterSuppliesReduction,
@@ -18,6 +19,8 @@ import {
   canAfford,
   findUnit,
   heldPlaceKindsOf,
+  doorsOn,
+  baseBonusesOf,
   isHeldBy,
   isUnitUnlocked,
   LEGENDARY_CAP,
@@ -37,6 +40,7 @@ import {
   type PlayerXpAward,
   type MusterOrder,
   type UnitSpec,
+  type UnitTier,
   type UnlockContext,
   type Fleet,
   type VehicleSpec,
@@ -66,6 +70,8 @@ export const MUSTER_REFUSALS = [
   'locked',
   'queue_full',
   'already_have_one',
+  // As many as the ground allows (`UnitSpec.capPerHold`): the Death Cloaks' fifty a Mausoleum.
+  'at_the_cap',
   'no_unit_slots',
   'cannot_afford',
 ] as const;
@@ -96,15 +102,25 @@ export function buildableVehiclesFor(base: Base): Set<string> {
 /** What this crew's territory does to unlocks: the place kinds it currently holds. */
 export function unlockContextFor(repos: Repositories, base: Base): UnlockContext {
   const controls = repos.city.controls();
+  const held = (locationId: string): boolean => {
+    const control = controls.get(locationId);
+    return control !== undefined && isHeldBy(control, base.id);
+  };
   return {
     buildings: base.buildings,
-    heldPlaceKinds: heldPlaceKindsOf(EVERY_LOCATION, (locationId) => {
-      const control = controls.get(locationId);
-      return control !== undefined && isHeldBy(control, base.id);
-    }),
+    heldPlaceKinds: heldPlaceKindsOf(EVERY_LOCATION, held),
+    // The doors authored on the ground itself (Reliquary, 2026-10-07): the Shrine the Saint
+    // answers to is one location, not a kind of place.
+    heldDoors: new Set(
+      EVERY_LOCATION.filter((location) => held(location.id)).flatMap((location) =>
+        doorsOn(baseBonusesOf(location)),
+      ),
+    ),
     buildableVehicles: buildableVehiclesFor(base),
     // §D12a: thirteen units are behind a blueprint document, and the document lives in the inventory.
     inventory: base.inventory,
+    // §D7: the heaviest sheets will not muster for a nobody.
+    notoriety: base.economy.notoriety,
   };
 }
 
@@ -162,6 +178,8 @@ export function musterRatesFor(
   const effects = standingEffectsFor(repos, base, now);
   return {
     costPercent: effects.musterCostPercent,
+    // The Hiring Hall (maintainer, 2026-10-06): off the rabble's price only, applied per unit.
+    costPercentByTier: effects.musterCostByTier,
     // §B5: the Greenhouse, and the modifications that grow with it.
     suppliesPercent: musterSuppliesReduction(base.buildings),
     veteranPercent: chairPassiveOf(effects, 'veteran', 'muster_cost'),
@@ -181,13 +199,15 @@ export function ratesForUnit(rates: MusterRates, unit: UnitSpec): MusterRates {
   const home = homeMusterBonus(unit, rates.locationLevels);
   return {
     ...rates,
-    costPercent: rates.costPercent + home.costPercent,
+    costPercent: rates.costPercent + home.costPercent + (rates.costPercentByTier[unit.tier] ?? 0),
     speedPercent: rates.speedPercent + home.speedPercent,
   };
 }
 
 export interface MusterRates {
   costPercent: number;
+  /** Off one tier's price only (the Hiring Hall's rabble). Read only through {@link ratesForUnit}. */
+  costPercentByTier: Partial<Record<UnitTier, number>>;
   suppliesPercent: number;
   /** The Veteran's passive, off every line after the other cuts (2026-10-04). */
   veteranPercent: number;
@@ -294,7 +314,15 @@ export function settleMuster(repos: Repositories, base: Base, now: Date): Muster
     // discount should make the batch arrive sooner, not be worth less to have mustered.
     const perUnit = xpForClock('unitMustered', findUnit(batch.unitId)?.musterSeconds ?? 0);
     for (let i = 0; i < batch.count; i += 1) {
-      const { base: progressed, award } = awardPlayerXp(repos, carried, 'unitMustered', 0, perUnit);
+      // At the settle's instant, as every award is (bug pass, 2026-10-06).
+      const { base: progressed, award } = awardPlayerXp(
+        repos,
+        carried,
+        'unitMustered',
+        0,
+        perUnit,
+        now,
+      );
       carried = progressed;
       awards.push(award);
     }
@@ -395,13 +423,15 @@ export function queueVehicle(
   input: {
     base: Base;
     vehicle: VehicleSpec;
-    /** Already discounted by the Garage, so a refund is against the price paid. */
+    /** Already discounted by the Garage, so a refund is against the price paid. The whole batch. */
     cost: PartialResources;
+    /** How many, as one order: the bench delivers them one at a time like a batch of Razors. */
+    count: number;
     now: Date;
     admin?: boolean;
   },
 ): { kind: 'queued'; base: Base; order: MusterOrder } | { kind: 'refused'; reason: string } {
-  const { base, vehicle, cost, now, admin = false } = input;
+  const { base, vehicle, cost, count, now, admin = false } = input;
 
   if (base.musterQueue.length >= MAX_MUSTER_QUEUE && !adminWaives('queue_full', admin)) {
     return { kind: 'refused', reason: BENCH_FULL_MESSAGE };
@@ -411,15 +441,19 @@ export function queueVehicle(
   const order: MusterOrder = {
     id: randomUUID(),
     unitId: vehicle.id,
-    count: 1,
+    count,
     delivered: 0,
     // Behind whatever is already on the bench, which is what makes it one bench rather than a
     // second queue that happens to be drawn in the same list.
     startedAt: musterStartsAt(base.musterQueue, now).toISOString(),
-    // §B6: the yard's own level takes time off the build (`vehicleBuildSeconds`). The Gauntlet's
-    // muster cut deliberately does not reach a machine: it is built, not mustered.
+    // §B6: the yard's own level takes time off the build (`vehicleBuildSeconds`), and the batch
+    // rule the units follow takes more off every machine after the first. The Gauntlet's muster
+    // cut deliberately does not reach a machine: it is built, not mustered.
     durationSeconds: adminSeconds(
-      vehicleBuildSeconds(vehicle, buildingLevel(base.buildings, 'garage')),
+      vehicleBatchSeconds(
+        vehicleBuildSeconds(vehicle, buildingLevel(base.buildings, 'garage')),
+        count,
+      ),
       admin,
     ),
     paid: charged,
@@ -444,11 +478,41 @@ export function queueVehicle(
  * (bug pass, 2026-09-29), so there is one answer to it.
  */
 export function legendaryRoom(repos: Repositories, base: Base, unit: UnitSpec): number {
-  const everywhere = mergeArmies(
+  return Math.max(
+    0,
+    LEGENDARY_CAP - alreadyHolds(unit, everywhereArmy(repos, base), base.musterQueue),
+  );
+}
+
+/** Everybody the crew has, wherever they stand: home, on held ground, abroad and at the gate. */
+function everywhereArmy(repos: Repositories, base: Base): Army {
+  return mergeArmies(
     mergeArmies(base.army, garrisonedUnits(repos, base)),
     mergeArmies(unitsAbroad(repos, base), base.gateArmy ?? {}),
   );
-  return Math.max(0, LEGENDARY_CAP - alreadyHolds(unit, everywhere, base.musterQueue));
+}
+
+/**
+ * How many more of a unit capped on held ground the crew may raise, or null for a unit with no
+ * such cap (`UnitSpec.capPerHold`, 2026-10-06).
+ *
+ * Counted everywhere the crew has people, like `legendaryRoom`, and against every held location of
+ * the kind: a Death Cloak congregation is fifty a tomb, wherever it is standing.
+ */
+export function heldCapRoom(repos: Repositories, base: Base, unit: UnitSpec): number | null {
+  const cap = unit.capPerHold;
+  if (cap === undefined) return null;
+  const controls = repos.city.controls();
+  const held = EVERY_LOCATION.filter((location) => {
+    const control = controls.get(location.id);
+    return (
+      location.kind === cap.locationKind && control !== undefined && isHeldBy(control, base.id)
+    );
+  }).length;
+  return Math.max(
+    0,
+    cap.each * held - alreadyHolds(unit, everywhereArmy(repos, base), base.musterQueue),
+  );
 }
 
 export function queueMuster(repos: Repositories, input: MusterInput): MusterResult {
@@ -471,6 +535,11 @@ export function queueMuster(repos: Repositories, input: MusterInput): MusterResu
   }
   if (unit.unique && count > legendaryRoom(repos, base, unit)) {
     return { kind: 'refused', reason: 'already_have_one' };
+  }
+  const room = heldCapRoom(repos, base, unit);
+  if (room !== null && count > room) {
+    const refused = refuse('at_the_cap');
+    if (refused) return refused;
   }
 
   // §A4: the unit's own rates, so a worked Doghouse actually shows up on the Cyberhounds' bill.

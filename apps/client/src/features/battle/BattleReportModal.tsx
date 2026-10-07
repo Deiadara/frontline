@@ -170,7 +170,7 @@ export function BattleReportModal({
               icon="infamy"
               meaning="infamy"
               label="Infamy earned"
-              value={mine.infamy > 0 ? `+${mine.infamy.toLocaleString()}` : '0'}
+              value={mine.infamy > 0 ? `+${mine.infamy.toLocaleString('en-US')}` : '0'}
               tone={mine.infamy > 0 ? 'good' : undefined}
             />
             <Tile
@@ -192,7 +192,9 @@ export function BattleReportModal({
                 meaning="trap"
                 label={analysis.trap.name}
                 value={analysis.trap.slowed ? 'slowed them' : `took ${analysis.trap.killed}`}
-                tone="bad"
+                // A trap is laid by the side holding the ground, so it is the defender's own work:
+                // green on their report, red on the attacker's (maintainer, 2026-10-06).
+                tone={side === 'defender' ? 'ours' : 'bad'}
               />
             )}
             {mine.officer && (
@@ -461,18 +463,19 @@ function Tile({
   meaning: string;
   label: string;
   value: ReactNode;
-  tone?: 'good' | 'bad' | undefined;
+  tone?: 'good' | 'ours' | 'bad' | undefined;
 }) {
+  const ink =
+    tone === 'good'
+      ? 'text-brass-300'
+      : tone === 'ours'
+        ? 'text-verdigris-300'
+        : tone === 'bad'
+          ? 'text-oxblood-300'
+          : undefined;
   return (
     <li className="flex min-w-0 items-start gap-2 border border-surface-700/60 px-2.5 py-2">
-      <Glyph
-        icon={icon}
-        meaning={meaning}
-        className={cn(
-          'mt-0.5',
-          tone === 'good' ? 'text-brass-300' : tone === 'bad' ? 'text-oxblood-300' : 'text-ink-200',
-        )}
-      />
+      <Glyph icon={icon} meaning={meaning} className={cn('mt-0.5', ink ?? 'text-ink-200')} />
       <span className="flex min-w-0 flex-col gap-0.5">
         <span className="font-display text-[10px] uppercase tracking-[0.18em] text-ink-300">
           {label}
@@ -480,11 +483,7 @@ function Tile({
         <span
           className={cn(
             'font-display text-[13px] font-semibold tabular-nums',
-            tone === 'good'
-              ? 'text-brass-300'
-              : tone === 'bad'
-                ? 'text-oxblood-300'
-                : 'text-ink-100',
+            ink ?? 'text-ink-100',
           )}
         >
           {value}
@@ -547,7 +546,7 @@ function SideSheet({
                     row.tone === 'bad' && row.of(side) > 0 ? 'text-oxblood-300' : 'text-ink-100',
                   )}
                 >
-                  {row.of(side).toLocaleString()}
+                  {row.of(side).toLocaleString('en-US')}
                 </dd>
               </div>
             ))}

@@ -32,7 +32,9 @@ describe('held-ground toughness', () => {
   });
 
   it('reaches the engine: a defender with more held ground is tougher, however much it has', () => {
-    const unit = findUnit('wardens')!;
+    // Razors rather than Wardens since 2026-10-07: the Wardens carry GUARD now, which is +25
+    // toughness on the defence *outside* the held-ground curve, and this test is about the curve.
+    const unit = findUnit('razors')!;
     const vitality = (defensePercent: number) =>
       effectiveStats(
         unit,

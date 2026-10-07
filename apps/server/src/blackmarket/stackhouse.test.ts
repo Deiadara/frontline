@@ -254,4 +254,31 @@ describe('the Stackhouse book', () => {
       stackhouse_wins: 1,
     });
   });
+
+  /**
+   * Admin mode charges nothing for a bet, so the stake on record is nothing (maintainer,
+   * 2026-10-06). It recorded the typed figure, and a win paid twice that in real caps.
+   */
+  it('records an admin bet at what it charged, and pays out on that', async () => {
+    const { app, db } = await makeApp();
+    const me = await crew(app, 'punter');
+    const mate = await crew(app, 'mate');
+    sameTable(app, me, mate);
+    fight(app, 'won', mate.baseId, 180);
+    fight(app, 'never', mate.baseId, 180);
+    Object.assign(app.config, { admin: true });
+
+    const placed = await bet(app, me, 'won', 'attacker', 5_000);
+    expect(placed.statusCode, placed.body).toBe(200);
+    expect(placed.json<StackhouseResponse>().activeBet).toMatchObject({ stake: 0 });
+    expect(caps(app, me)).toBe(20_000);
+    land(db, 'won', 'attacker');
+    expect((await book(app, me)).lastResult).toMatchObject({ outcome: 'won', stake: 0, payout: 0 });
+    expect(caps(app, me), 'an admin bet minted caps on a win').toBe(20_000);
+
+    expect((await bet(app, me, 'never', 'defender', 5_000)).statusCode).toBe(200);
+    app.repos.sieges.abandon('never', new Date().toISOString());
+    expect((await book(app, me)).lastResult).toMatchObject({ outcome: 'refunded', payout: 0 });
+    expect(caps(app, me), 'an admin bet minted caps on a refund').toBe(20_000);
+  });
 });

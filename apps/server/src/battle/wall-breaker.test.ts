@@ -1,4 +1,5 @@
 import {
+  CAPTURED_GATE_MAX_LEVEL,
   DECLARE_INFAMY_COST,
   TRAP_CATALOG,
   NOTORIETY_TO_FIELD,
@@ -113,8 +114,8 @@ describe('what a gate comes down to', () => {
   });
 
   it('takes one level off a district gate, and its raise with it', () => {
-    expect(lowerDistrictGate(districtGate(6))).toMatchObject({ level: 5, upgradingTo: null });
-    expect(lowerDistrictGate(districtGate(6, 7))).toMatchObject({ level: 5, upgradingTo: 6 });
+    expect(lowerDistrictGate(districtGate(5))).toMatchObject({ level: 4, upgradingTo: null });
+    expect(lowerDistrictGate(districtGate(4, 5))).toMatchObject({ level: 3, upgradingTo: 4 });
   });
 
   it('leaves a district gate at one, and never raises one at zero', () => {
@@ -295,23 +296,29 @@ describe('a Colossus at the gate', () => {
    * Only the gate the fight is at (maintainer, 2026-09-28: "A gate bonus only counts when fighting
    * at that gate"). The defender's home Gate is in another district and was never in this fight,
    * so it keeps its level; it used to come down with the district's.
+   *
+   * The district gate starts at `CAPTURED_GATE_MAX_LEVEL`, five. The fixture had it at six until
+   * the ceiling came down from ten (2026-10-06): the repo reads a stored level past the ceiling
+   * back as the ceiling, so a six was already a five before the Colossus arrived and the settle
+   * wrote four. Nothing about the fight itself moved; the engine here is a spy with the winner
+   * named, so there is no seed or force size to sweep.
    */
   it.each(['attacker', 'defender'] as const)(
     'takes a level off the district gate, and only that one, when the %s wins',
     async (winner) => {
       const { stack, resolved } = await fightAtTheDistrictGate(winner, WITH_COLOSSUS, {
         home: 4,
-        district: 6,
+        district: CAPTURED_GATE_MAX_LEVEL,
       });
       expect(homeGateOf(stack)).toBe(4);
-      expect(districtGateOf(stack)).toBe(5);
+      expect(districtGateOf(stack)).toBe(CAPTURED_GATE_MAX_LEVEL - 1);
       // The level counts towards the Breaker feats, for the crew that called the fight.
       expect(levelsBroken(stack)).toBe(1);
       expect(resolved.analysis.log).not.toContain(
         'The Gate came down a level under the Colossus, from 4 to 3.',
       );
       expect(resolved.analysis.log).toContain(
-        'The district gate came down a level under the Colossus, from 6 to 5.',
+        'The district gate came down a level under the Colossus, from 5 to 4.',
       );
     },
   );
@@ -319,10 +326,10 @@ describe('a Colossus at the gate', () => {
   it('leaves both gates standing when no Colossus came', async () => {
     const { stack, resolved } = await fightAtTheDistrictGate('defender', WITHOUT, {
       home: 4,
-      district: 6,
+      district: CAPTURED_GATE_MAX_LEVEL,
     });
     expect(homeGateOf(stack)).toBe(4);
-    expect(districtGateOf(stack)).toBe(6);
+    expect(districtGateOf(stack)).toBe(CAPTURED_GATE_MAX_LEVEL);
     expect(levelsBroken(stack)).toBe(0);
     expect(resolved.analysis.log.join('\n')).not.toContain('Colossus');
   });

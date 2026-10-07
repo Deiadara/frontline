@@ -17,7 +17,7 @@ import { cn } from '../../lib/cn';
 import { useMarket, useUnlockBlueprint } from '../../lib/queries';
 import { RARITY_TAG, RarityTag } from '../../lib/rarity';
 import { BlueprintGlyph, PageGlyph } from './BlueprintGlyph';
-import { ErrorNote } from '../../components/ui/ErrorNote';
+import { PressError } from '../../components/ui/PressError';
 
 /**
  * The Blueprints tab of the research page (§D4 to §D11, §I1d).
@@ -124,17 +124,33 @@ export function BlueprintsSection() {
                   category={one}
                   count={countIn(one)}
                   selected={one === category}
-                  onSelect={() => setChosen(one)}
+                  onSelect={() => {
+                    setChosen(one);
+                    // A refusal is about the drawer it was said in (bug pass, 2026-10-06).
+                    unlock.reset();
+                  }}
                 />
               ))}
               <div className="ml-auto">
-                <ShowUnlocked on={showUnlocked} onToggle={() => setShowUnlocked(!showUnlocked)} />
+                <ShowUnlocked
+                  on={showUnlocked}
+                  onToggle={() => {
+                    setShowUnlocked(!showUnlocked);
+                    unlock.reset();
+                  }}
+                />
               </div>
             </div>
 
             {rows.length === 0 ? (
               <p className="font-body text-[13px] leading-relaxed text-ink-300">
-                {showUnlocked ? 'Nothing in this drawer at all.' : EMPTY_COPY[category]}
+                {showUnlocked
+                  ? 'Nothing in this drawer at all.'
+                  : // Not "no pages" to a crew that holds documents here, all of them unlocked
+                    // (bug pass, 2026-10-06): the switch beside this is where they are.
+                    known.some((holding) => holding.blueprint.category === category)
+                    ? 'Everything in this drawer is unlocked. Show unlocked to see it.'
+                    : EMPTY_COPY[category]}
               </p>
             ) : (
               /*
@@ -154,8 +170,16 @@ export function BlueprintsSection() {
                   <DocumentRow
                     key={holding.blueprint.id}
                     holding={holding}
-                    pending={unlock.isPending}
-                    onUnlock={(blueprintId) => unlock.mutate({ blueprintId })}
+                    // This row's own press only (bug pass, 2026-10-06).
+                    pending={
+                      unlock.isPending && unlock.variables.blueprintId === holding.blueprint.id
+                    }
+                    onUnlock={(blueprintId) => {
+                      // Held on this drawer: the document unlocked leaves it, and an unpinned
+                      // cabinet then fell through to the next drawer under the pointer.
+                      setChosen(category);
+                      unlock.mutate({ blueprintId });
+                    }}
                   />
                 ))}
               </ul>
@@ -168,10 +192,10 @@ export function BlueprintsSection() {
           banner puts it through the catalogue's own wording map. It printed the raw string until
           now: a player one page short of a document read the literal word `missing_pages`. */}
       {unlock.error !== null && (
-        <ErrorNote>
+        <PressError>
           {BLUEPRINT_UNLOCK_MESSAGES[unlock.error.message as BlueprintUnlockRefusal] ??
             unlock.error.message}
-        </ErrorNote>
+        </PressError>
       )}
     </div>
   );

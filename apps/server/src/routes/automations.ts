@@ -4,9 +4,11 @@ import {
   NO_RIGHT_HAND_TEXT,
   SaveAutomationRequestSchema,
   automationPowers,
+  automationRungRefusal,
   findUnit,
   officerIsInjured,
   type AutomationsResponse,
+  type Base,
 } from '@frontline/shared';
 import { randomUUID } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
@@ -48,15 +50,7 @@ export function registerAutomationRoutes(app: FastifyInstance): void {
     return {
       powers,
       slots: app.repos.automations.forBase(base.id),
-      // Only officers who could actually be named: on the books, not out on something else, not
-      // hurt. A picker offering somebody the runner would then refuse is a picker that lies.
-      officers: base.commanders
-        .filter(
-          (one) =>
-            officerDuty(app.repos, base, one, now) === null &&
-            !officerIsInjured(one.injuredUntil, now),
-        )
-        .map((one) => ({ id: one.id, name: one.name, role: one.role })),
+      officers: namableOfficers(app, base, now),
       serverNow: now.toISOString(),
     };
   });
@@ -67,21 +61,8 @@ export function registerAutomationRoutes(app: FastifyInstance): void {
     const now = new Date();
     const powers = readPowers(base.research.technologies);
 
-    if (!powers.unlocked) {
-      throw new AppError('FORBIDDEN', 'The Open Door, on the Right Hand track, opens this');
-    }
-    if (body.slot >= powers.slots) {
-      throw new AppError('FORBIDDEN', 'You have not earned that slot yet');
-    }
-    if (!powers.orders.includes(body.order)) {
-      throw new AppError('FORBIDDEN', 'You have not earned that order yet');
-    }
-    if (body.unitSlots !== null && !powers.bestFit) {
-      throw new AppError('FORBIDDEN', 'Naming a size instead of a party is a later rung');
-    }
-    if (body.optimiseFor !== null && !powers.optimise) {
-      throw new AppError('FORBIDDEN', 'Chasing one resource is a later rung');
-    }
+    const pastTheLadder = automationRungRefusal(powers, body);
+    if (pastTheLadder !== null) throw new AppError('FORBIDDEN', pastTheLadder);
     /*
      * Exactly one way of saying who goes.
      *
@@ -90,7 +71,9 @@ export function registerAutomationRoutes(app: FastifyInstance): void {
      * by a player wondering why their orders were ignored.
      */
     const named = Object.keys(body.force).length > 0;
-    if (named === (body.unitSlots !== null)) {
+    // Switching an order off is never refused for its party (bug pass, 2026-10-06): a party every
+    // unit of which has been retired reads as empty, and refusing "neither" kept the order on.
+    if (body.enabled && named === (body.unitSlots !== null)) {
       throw new AppError('VALIDATION_ERROR', 'Name a party or a size, not both and not neither');
     }
     /*
@@ -107,7 +90,10 @@ export function registerAutomationRoutes(app: FastifyInstance): void {
      * for, and an empty one would be the "neither" the line above already refuses.
      */
     const unknown = Object.keys(body.force).filter((unitId) => findUnit(unitId) === undefined);
-    if (unknown.length > 0) {
+    // On switching on only, like the officer check below: anything that names no unit is dropped
+    // when the slot is read back (`withoutRetiredUnits`), so an order switched off with one stored
+    // can never run on it.
+    if (body.enabled && unknown.length > 0) {
       throw new AppError('VALIDATION_ERROR', `No such unit: ${unknown.join(', ')}`);
     }
 
@@ -118,7 +104,10 @@ export function registerAutomationRoutes(app: FastifyInstance): void {
       body.officerId === null || body.officerId === undefined
         ? undefined
         : base.commanders.find((officer) => officer.id === body.officerId);
-    if (body.officerId !== null && body.officerId !== undefined && !namedOfficer) {
+    // Only when switching on (bug pass, 2026-10-06): an officer released at the Bar stays named on
+    // the slot, and refusing the switch-off kept the order on, which locks the mission board to
+    // the Right Hand while the runner stalls on every tick.
+    if (body.enabled && body.officerId !== null && body.officerId !== undefined && !namedOfficer) {
       throw new AppError('NOT_FOUND', 'Nobody on your books by that id');
     }
     // Nobody with no chair leads anything (2026-09-28), so an order switched on naming one would
@@ -165,14 +154,28 @@ export function registerAutomationRoutes(app: FastifyInstance): void {
     return {
       powers,
       slots,
-      officers: base.commanders
-        .filter(
-          (one) =>
-            officerDuty(app.repos, base, one, now) === null &&
-            !officerIsInjured(one.injuredUntil, now),
-        )
-        .map((one) => ({ id: one.id, name: one.name, role: one.role })),
+      officers: namableOfficers(app, base, now),
       serverNow: now.toISOString(),
     };
+  });
+}
+
+/**
+ * Who the order sheets may name: officers on the books, not out on something else, not hurt. A
+ * picker offering somebody the runner would then refuse is a picker that lies.
+ *
+ * A slot's own leader is kept while out on that slot's run (maintainer, 2026-10-06), marked `out`:
+ * dropping them left a running order's dropdown reading "Choose the officer who leads".
+ */
+function namableOfficers(
+  app: FastifyInstance,
+  base: Base,
+  now: Date,
+): AutomationsResponse['officers'] {
+  const named = new Set(app.repos.automations.forBase(base.id).map((slot) => slot.officerId));
+  return base.commanders.flatMap((one) => {
+    const out =
+      officerDuty(app.repos, base, one, now) !== null || officerIsInjured(one.injuredUntil, now);
+    return out && !named.has(one.id) ? [] : [{ id: one.id, name: one.name, role: one.role, out }];
   });
 }

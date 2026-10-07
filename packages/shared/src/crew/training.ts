@@ -10,6 +10,7 @@ import {
 } from '../attributes.js';
 import { IdSchema, IsoDateTimeSchema } from '../primitives.js';
 import { GAME_TIMEZONE, dayInZone } from '../time/zone.js';
+import type { LeaderHold } from '../missions.leading.js';
 
 /**
  * Deliberate practice (GDD §F2).
@@ -249,6 +250,38 @@ export function nextDrillStart(state: TrainingState, now: string): string {
 /** Why this session cannot start, or `null` when it can. Player-facing wording. */
 export type TrainingBlocker = string;
 
+/**
+ * The refusals in the player's words, one copy for the server's `trainingBlocker` and the client's
+ * dimmed drill (bug pass, 2026-10-06): the two had drifted into different sentences for the same
+ * rule ("Nothing left today" against "No sessions left today").
+ */
+export const TRAINING_BLOCKERS = {
+  noSessions: 'No sessions left today',
+  inSession: 'Already in a session',
+  inQueue: 'Already in the queue',
+  queueFull: 'The queue is full',
+  lastTime: 'Trained that last time',
+  maxed: 'Nothing left to learn here',
+} as const;
+
+/**
+ * Somebody away from the floor cannot drill (maintainer, 2026-10-06): out leading a run, held for
+ * a fight, or laid up. The bench may, which is why `bench` answers null. One sentence for the
+ * route and the dimmed drill.
+ */
+export function drillHoldBlocker(held: LeaderHold | null): TrainingBlocker | null {
+  switch (held) {
+    case 'run':
+      return 'Out leading a run';
+    case 'fight':
+      return 'Held for a fight';
+    case 'injury':
+      return 'Laid up';
+    default:
+      return null;
+  }
+}
+
 export function trainingBlocker(
   state: TrainingState,
   subjectId: string,
@@ -260,15 +293,17 @@ export function trainingBlocker(
   slots = TRAINING_QUEUE_SLOTS,
 ): TrainingBlocker | null {
   const rolled = rollDay(state, now);
-  if (trainingsLeft(rolled, now, extra) <= 0) return 'No sessions left today';
+  if (trainingsLeft(rolled, now, extra) <= 0) return TRAINING_BLOCKERS.noSessions;
   const held = sessionFor(rolled, subjectId);
   if (held) {
-    return drillUnderway(held, Date.parse(now)) ? 'Already in a session' : 'Already in the queue';
+    return drillUnderway(held, Date.parse(now))
+      ? TRAINING_BLOCKERS.inSession
+      : TRAINING_BLOCKERS.inQueue;
   }
   // After the per-person check, so someone already on the list reads the more exact refusal.
-  if (rolled.sessions.length >= slots) return 'The queue is full';
-  if (rolled.last[subjectId] === attribute) return 'Trained that last time';
-  if (sheet[attribute] >= MAX_ATTRIBUTE) return 'Nothing left to learn here';
+  if (rolled.sessions.length >= slots) return TRAINING_BLOCKERS.queueFull;
+  if (rolled.last[subjectId] === attribute) return TRAINING_BLOCKERS.lastTime;
+  if (sheet[attribute] >= MAX_ATTRIBUTE) return TRAINING_BLOCKERS.maxed;
   return null;
 }
 

@@ -9,7 +9,7 @@ import {
   FOUND_FACTION_PLAYER_LEVEL,
   playerXpToNextLevel,
 } from '@frontline/shared';
-import { crewEffectsFor } from '../crew/standing.js';
+import { crewEffectsFor, standingEffectsFor } from '../crew/standing.js';
 import { offerOpeningInvitationAt } from '../factions/opening.js';
 import type { Repositories } from '../db/repos/index.js';
 
@@ -41,13 +41,20 @@ export function professorXpPercent(
   return chairPassiveOf(crewEffectsFor(repos, base, now), 'professor', 'mission_xp');
 }
 
-/** What a mission's XP is paid with: every award's bonus and the Professor's on top. */
+/**
+ * What a mission's XP is paid with: every award's bonus, the Professor's, and the ground's
+ * (`missionXpPercent`, the Choir Loft, maintainer 2026-10-07) on top.
+ */
 export function missionXpBonusPercent(
   repos: Repositories,
   base: Base,
   now: Date = new Date(),
 ): number {
-  return playerXpBonusPercent(repos, base, now) + professorXpPercent(repos, base, now);
+  return (
+    playerXpBonusPercent(repos, base, now) +
+    professorXpPercent(repos, base, now) +
+    standingEffectsFor(repos, base, now).missionXpPercent
+  );
 }
 
 export interface AwardedXp {
@@ -71,6 +78,8 @@ export function awardPlayerXp(
   extraPercent = 0,
   /** The figure to pay instead of the source's table entry, for sources that price themselves. */
   amount?: number,
+  /** The instant the crew's share is read at; a settle passes its own (see `playerXpBonusPercent`). */
+  now: Date = new Date(),
 ): AwardedXp {
   const award = resolvePlayerXpAward(
     { level: base.level, xpIntoLevel: base.progression.xpIntoLevel },
@@ -87,7 +96,7 @@ export function awardPlayerXp(
      * `crewEffectsFor` rather than `standingEffectsFor`: what a crew has learnt to squeeze out of
      * a job is about the people, and holding a Gas Station does not teach anybody anything.
      */
-    playerXpBonusPercent(repos, base) + extraPercent,
+    playerXpBonusPercent(repos, base, now) + extraPercent,
     amount,
   );
   repos.bases.updateProgression(base.id, award.level, award.progression);
@@ -105,7 +114,8 @@ export function awardPlayerXp(
   // Crossing the Faction door's level is when the seeded faction's letter arrives: before it the
   // crew could not accept (`factions/opening.ts`).
   if (base.level < FOUND_FACTION_PLAYER_LEVEL && award.level >= FOUND_FACTION_PLAYER_LEVEL) {
-    offerOpeningInvitationAt(repos, base.ownerId, award.level, new Date().toISOString());
+    // Dated at the award's own instant, like the rest of it (bug pass, 2026-10-06).
+    offerOpeningInvitationAt(repos, base.ownerId, award.level, now.toISOString());
   }
   if (award.levelsGained > 0) {
     repos.bases.setPendingLevelUp(

@@ -97,3 +97,38 @@ describe('what the picker says the odds are', () => {
     ).not.toBe(bare);
   });
 });
+
+/** Bug pass, 2026-10-06: what a press on a row, and on the button, actually does. */
+describe('picking a force', () => {
+  const picker = (army: Record<string, number>, onConfirm: (force: unknown) => void = () => {}) => (
+    <ForcePicker
+      title="Send Sleepers"
+      blurb="Who goes."
+      army={army}
+      pending={false}
+      error={null}
+      confirmLabel="Go"
+      onClose={() => undefined}
+      onConfirm={onConfirm}
+    />
+  );
+
+  it('leaves the count alone when the unit’s name is pressed', () => {
+    render(picker({ razors: 5 }));
+    const field = screen.getByLabelText('How many Razors');
+    fireEvent.change(field, { target: { value: '3' } });
+    fireEvent.click(screen.getByText('Razors'));
+    expect(field).toHaveValue('3');
+  });
+
+  it('sends only what is still on the roster, at most what is there', () => {
+    const sent: unknown[] = [];
+    const view = render(picker({ razors: 5, wardens: 4 }, (force) => sent.push(force)));
+    fireEvent.change(screen.getByLabelText('How many Razors'), { target: { value: '5' } });
+    fireEvent.change(screen.getByLabelText('How many Wardens'), { target: { value: '4' } });
+    // The Wardens go home under the open picker, and two Razors are lost.
+    view.rerender(picker({ razors: 3 }, (force) => sent.push(force)));
+    fireEvent.click(screen.getByRole('button', { name: 'Go' }));
+    expect(sent).toEqual([{ razors: 3 }]);
+  });
+});

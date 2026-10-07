@@ -1,13 +1,11 @@
 import {
   armySize,
+  bareLineRules,
   formatClock,
   VEHICLES,
   findUnit,
   fleetCapacity,
-  meetsNotoriety,
   mergeFleets,
-  notorietyTier,
-  notorietyToField,
   lootCapacityOf,
   ridingUnitSlots,
   type Army,
@@ -34,6 +32,7 @@ import { heldToLine, readColumn } from './column';
 import { OnThisGround } from './EffectiveCard';
 import { formatDuration } from '../base/format';
 import { ErrorNote } from '../../components/ui/ErrorNote';
+import { PressError } from '../../components/ui/PressError';
 import { usePlayerZone } from '../settings/usePlayerZone';
 
 /**
@@ -53,7 +52,8 @@ import { usePlayerZone } from '../settings/usePlayerZone';
  * The machines are picked in this window now, under the units, and what they seat caps what goes:
  * *"once you choose vehicles you're limited up to that much"*. So a crew that wants forty unit
  * slots somewhere and owns one Scar takes eight slots' worth, and that is all the machines carry to
- * this fight: what already stands there and what is still walking count against the same seats.
+ * this fight: the columns still on the road and this batch count against the same seats, and a
+ * unit that has landed rides nothing and frees its seat (maintainer, 2026-10-06).
  *
  * Three rules hold the ceiling honest, and each of them is a shared function rather than a second
  * arithmetic that agrees by inspection:
@@ -122,12 +122,15 @@ interface DeployDialogProps {
   loadouts: UnitLoadouts;
   /** §A4: what the crew's holdings and perks add to the bag, so the loot figure is the real one. */
   bagPercent: number;
+  /** The Straw Sack's bags: slots on every carrier, flat (`CrewStandingResponse.carrierFlat`). */
+  carrierFlat: number;
   /** §C3: where the column starts, so the window can quote the road. Null puts no clock on it. */
-  /** §D7: the crew's rank, which is what decides who will take a contract. */
-  notoriety: number;
   mode: DeployMode;
-  /** This crew's columns still walking to the fight, which the seats carry as surely as the batch. */
-  walking?: Army;
+  /**
+   * This crew's columns still on the road to the fight, one army a column, which the seats carry
+   * as surely as the batch. A column on the train is left out: it took no machine.
+   */
+  walking?: readonly Army[];
   pending: boolean;
   error: unknown;
   onClose: () => void;
@@ -144,15 +147,15 @@ export function DeployDialog({
   army,
   loadouts,
   bagPercent,
-  notoriety,
+  carrierFlat,
   mode,
-  walking = {},
+  walking = [],
   pending,
   error,
   onClose,
   onConfirm,
 }: DeployDialogProps) {
-  const [deltas, setDeltas] = useState<Record<string, number>>({});
+  const [typed, setDeltas] = useState<Record<string, number>>({});
   const copy = COPY[mode];
 
   /*
@@ -192,6 +195,19 @@ export function DeployDialog({
    * player read that twenty came home and nothing had moved. Only your own come back.
    */
   const alreadyThere = (mode === 'line' ? view.own?.army : view.own?.perimeter) ?? {};
+  /*
+   * What was typed, held inside what is true now (bug pass, 2026-10-06). The bounds were applied
+   * only on a press, so a withdrawal typed before the board ticked into the last hour, or a count
+   * of units that have since left home, stayed on the field and in the order, and the server
+   * refused numbers the window no longer allowed. Clamped here, so the field, the column and the
+   * request all read the same figure.
+   */
+  const deltas: Record<string, number> = Object.fromEntries(
+    Object.entries(typed).map(([id, delta]) => [
+      id,
+      clamp(delta, view.withdrawalOpen ? -(alreadyThere[id] ?? 0) : 0, army[id] ?? 0),
+    ]),
+  );
   const onGround = view.own?.army ?? {};
   const onRing = view.own?.perimeter ?? {};
   /** §C3: whether anything is being driven to this fight at all. */
@@ -237,9 +253,12 @@ export function DeployDialog({
    */
   const [byRail, setByRail] = useState(false);
   const onTheTrain = rail !== null && byRail;
+  // Only on a settled answer: a quote still being re-asked carries the last one's rail, and the
+  // toggle is not reset by a question in flight.
+  const settledQuote = quote.data !== undefined && !quote.isPlaceholderData;
   useEffect(() => {
-    if (rail === null && byRail) setByRail(false);
-  }, [rail, byRail]);
+    if (settledQuote && rail === null && byRail) setByRail(false);
+  }, [settledQuote, rail, byRail]);
   const road = onTheTrain ? rail.minutes : (quote.data?.minutes ?? null);
   /*
    * Whether the column makes the mark, in the server's own words (maintainer, 2026-09-28: "it'll
@@ -275,30 +294,13 @@ export function DeployDialog({
   const ownedFleet = mergeFleets(view.yard, view.vehicles);
   const seats = fleetCapacity(loadedFleet);
   /*
-   * Everybody the machines will have carried there by the mark, as the server counts it (bug pass,
-   * 2026-10-02): this crew's own line and ring after this batch, and its columns still walking.
-   * The batch alone let Max fill two seats a column already on the road had taken, and the send
-   * came back "no room in what you have loaded".
+   * What the machines must seat, as the server counts it (`seatsAsked`): this batch whole, and
+   * every column still on the road, each at most the seats there are (one too big for them fills
+   * them once and walks). Whoever has landed rides nothing (maintainer, 2026-10-06).
    */
-  const after = (held: Army, moving: boolean): Army =>
-    moving
-      ? Object.fromEntries(
-          [...new Set([...Object.keys(held), ...Object.keys(deltas)])].map((id) => [
-            id,
-            Math.max(0, (held[id] ?? 0) + (deltas[id] ?? 0)),
-          ]),
-        )
-      : held;
-  const aboard = ridingUnitSlots(
-    [
-      after(view.own?.army ?? {}, mode === 'line'),
-      after(view.own?.perimeter ?? {}, mode !== 'line'),
-      walking,
-    ].reduce<Army>((all, part) => {
-      for (const [id, count] of Object.entries(part)) all[id] = (all[id] ?? 0) + (count ?? 0);
-      return all;
-    }, {}),
-    anyRide,
+  const aboard = walking.reduce(
+    (total, column) => total + Math.min(seats, ridingUnitSlots(column, anyRide)),
+    ridingUnitSlots(sending, anyRide),
   );
   /** Nothing loaded is the walk, and the walk has no ceiling. See the note at the top. */
   const capped = seats > 0;
@@ -314,7 +316,9 @@ export function DeployDialog({
    * not. Read off the fitted sheet with the crew's bag channel on it, the same figure the settler
    * spends, so the number here and the number that decides the haul cannot drift apart.
    */
-  const lootSlots = Math.round(lootCapacityOf(sending, bagPercent, loadouts));
+  const lootSlots = Math.round(
+    lootCapacityOf(sending, bagPercent, loadouts, bareLineRules(), carrierFlat),
+  );
 
   return (
     <Modal
@@ -354,8 +358,6 @@ export function DeployDialog({
           <div className="grid grid-cols-1 gap-3 md:grid-cols-2" data-testid="deploy-grid">
             {rows.map((unit) => {
               const atHome = army[unit.id] ?? 0;
-              const gate = notorietyToField(unit.id);
-              const locked = !meetsNotoriety(notoriety, gate);
               // Nothing comes back off the ground in the last hour; sending is still open.
               const min = view.withdrawalOpen ? -(alreadyThere[unit.id] ?? 0) : 0;
               const value = deltas[unit.id] ?? 0;
@@ -380,27 +382,22 @@ export function DeployDialog({
                 <div
                   key={unit.id}
                   data-testid={`deploy-${unit.id}`}
-                  className={cn(
-                    'flex flex-wrap items-center justify-between gap-3 border p-2',
-                    locked ? 'border-oxblood-500/40 bg-oxblood-300/5' : 'border-surface-700',
-                  )}
+                  className="flex flex-wrap items-center justify-between gap-3 border border-surface-700 p-2"
                 >
                   <span className="min-w-0 flex-1">
                     <UnitName unit={unit.name} option={options.get(unit.id)} roster={roster.data} />
                     <span className="block font-body text-[11px] text-ink-300">
-                      {locked
-                        ? `Will not sign for a crew under ${notorietyTier(gate)}`
-                        : `${atHome} at home · ${alreadyThere[unit.id] ?? 0} ${copy.where}`}
+                      {`${atHome} at home · ${alreadyThere[unit.id] ?? 0} ${copy.where}`}
                       {/* §C3: this one is not getting on the truck. Only worth saying once there is
                           a truck: with nothing loaded every unit walks and the note is noise. */}
-                      {!locked && riding && walksAlways(unit.id, anyRide) && (
+                      {riding && walksAlways(unit.id, anyRide) && (
                         <span className="text-oxblood-300" data-testid={`walks-${unit.id}`}>
                           {' · '}walks
                         </span>
                       )}
                       {/* Why the stepper stopped short of the yard, said on the row it stopped.
                           The running total in the footer is the other half of that answer. */}
-                      {!locked && ceiling < atHome && (
+                      {ceiling < atHome && (
                         <span className="text-brass-300" data-testid={`seated-${unit.id}`}>
                           {' · '}seats {ceiling}
                         </span>
@@ -436,7 +433,7 @@ export function DeployDialog({
                     <Button
                       size="sm"
                       variant="ghost"
-                      disabled={locked || half < 1}
+                      disabled={half < 1}
                       onClick={() => set(half)}
                       data-testid={`deploy-half-${unit.id}`}
                       data-tip={
@@ -450,7 +447,7 @@ export function DeployDialog({
                     <Button
                       size="sm"
                       variant="ghost"
-                      disabled={locked || ceiling < 1}
+                      disabled={ceiling < 1}
                       onClick={() => set(ceiling)}
                       data-testid={`deploy-max-${unit.id}`}
                       data-tip={
@@ -466,7 +463,6 @@ export function DeployDialog({
                       min={min}
                       max={ceiling}
                       value={value}
-                      disabled={locked}
                       onChange={set}
                       data-testid={copy.testId(unit.id)}
                     />
@@ -483,6 +479,7 @@ export function DeployDialog({
           seats={seats}
           aboard={aboard}
           shut={!view.deploymentOpen}
+          locked={!view.withdrawalOpen}
           pending={takeVehicles.isPending}
           onTake={(id, count) =>
             takeVehicles.mutate({
@@ -512,12 +509,14 @@ export function DeployDialog({
           </ErrorNote>
         )}
 
-        {takeVehicles.error !== null && <ErrorNote>{takeVehicles.error.message}</ErrorNote>}
+        {takeVehicles.error && (
+          <PressError onDismiss={takeVehicles.reset}>{takeVehicles.error.message}</PressError>
+        )}
 
         {error !== null && error !== undefined && (
-          <ErrorNote>
+          <PressError>
             {error instanceof ApiRequestError ? error.message : 'That did not go through'}
-          </ErrorNote>
+          </PressError>
         )}
       </div>
 
@@ -660,6 +659,8 @@ function UnitName({
           unit={option}
           garrisoned={roster.garrisoned[option.id] ?? 0}
           abroad={roster.abroad[option.id] ?? 0}
+          // The door's own, as the roster counts it (bug pass, 2026-10-06).
+          atGate={roster.gateArmy[option.id] ?? 0}
           carriersFight={roster.carriersFight ?? false}
         />
       }
@@ -688,6 +689,7 @@ function VehicleRows({
   seats,
   aboard,
   shut,
+  locked,
   pending,
   onTake,
 }: {
@@ -700,6 +702,12 @@ function VehicleRows({
   aboard: number;
   /** The mark has passed: nothing moves either way. */
   shut: boolean;
+  /**
+   * Inside the lock: machines may still go in, never come back out. The server refuses a
+   * narrowing then (`garrison_locked`), and the page's own machine panel already says so; this
+   * window's "-" was left live (bug pass, 2026-10-06).
+   */
+  locked: boolean;
   pending: boolean;
   onTake: (id: VehicleId, count: number) => void;
 }) {
@@ -744,7 +752,7 @@ function VehicleRows({
                   <Button
                     size="sm"
                     variant="ghost"
-                    disabled={shut || pending || taking === 0 || !spare}
+                    disabled={shut || locked || pending || taking === 0 || !spare}
                     onClick={() => onTake(spec.id, taking - 1)}
                     data-testid={`deploy-take-less-${spec.id}`}
                     data-tip={

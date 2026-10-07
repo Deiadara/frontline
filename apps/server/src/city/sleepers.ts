@@ -2,7 +2,6 @@ import { randomUUID } from 'node:crypto';
 import {
   cellCanHold,
   cityIsOpen,
-  districtHolder,
   findDistrict,
   findLocation,
   findUnit,
@@ -13,6 +12,7 @@ import {
   type SleeperRefusal,
 } from '@frontline/shared';
 import type { Repositories } from '../db/repos/index.js';
+import { wholeHolderOf } from './holding.js';
 import { landedBy } from '../battle/alignment.js';
 import { mergeArmies, removeForce } from '../battle/forces.js';
 import { travelMsTo } from '../battle/movement.js';
@@ -84,7 +84,7 @@ export function plantSleepers(repos: Repositories, input: PlantInput): SleeperRe
   }
   // A district held end to end is shut, and a cell cannot be planted behind its gate
   // (maintainer, 2026-09-29): the gate is the one thing there to call on.
-  if (district && districtHolder(district, repos.city.controls()) !== null) {
+  if (district && wholeHolderOf(repos, district) !== null) {
     return { kind: 'refused', reason: 'district_shut' };
   }
 
@@ -200,7 +200,7 @@ export function sendCellsHomeFromShutDistrict(
   now: Date,
 ): SleeperCell[] {
   const district = findDistrict(districtId);
-  if (!district || districtHolder(district, repos.city.controls()) === null) return [];
+  if (!district || wholeHolderOf(repos, district) === null) return [];
   const sent: SleeperCell[] = [];
   for (const location of district.locations) {
     for (const cell of repos.sleepers.onOrBoundFor(location.id)) {

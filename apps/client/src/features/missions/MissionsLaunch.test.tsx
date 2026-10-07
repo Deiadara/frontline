@@ -74,6 +74,8 @@ function areaOf(id: string, name: string, payPercent = 0): MissionArea {
       leanings: [...leaningsFor(template)],
       // Out of the opening band. The band's own case has its own test below.
       ramp: null,
+      golden: false,
+      goldenPercent: 0,
     })),
     activeMissionId: null,
   };

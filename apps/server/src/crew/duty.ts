@@ -64,7 +64,7 @@ export function officerDuty(
   // The jobs first, the injury after (bug pass, 2026-09-28): the release and reseat routes let an
   // injured officer go, so an injury read first could free somebody still named for a fight or
   // still out on a run.
-  if (repos.sieges.leadingElsewhere(officer.id, exceptBattleId ?? '').length > 0) {
+  if (repos.sieges.leadingElsewhere(officer.id, exceptBattleId ?? '', base.id).length > 0) {
     return { held: 'fight', until: null };
   }
   const run = repos.missions

@@ -189,8 +189,10 @@ function priceOf(
 export function buildQuotesFor(
   repos: Repositories,
   base: Base,
+  /** The request's instant, so an Engineer laid up or a chair settling in reads as `queueBuild` will. */
+  now: Date = new Date(),
 ): Partial<Record<BuildingKind, PartialResources>> {
-  const effects = standingEffectsFor(repos, base);
+  const effects = standingEffectsFor(repos, base, now);
   const quotes: Partial<Record<BuildingKind, PartialResources>> = {};
   for (const structure of BUILDING_KINDS) {
     const level = nextQueuedLevel(structure, base.buildings, base.buildQueue);
@@ -267,7 +269,9 @@ export function buildClocksFor(
   now: Date,
   admin: boolean,
 ): Partial<Record<BuildingKind, number>> {
-  const effects = standingEffectsFor(repos, base);
+  // At `now`, the instant the clock is quoted for (bug pass, 2026-10-06): the fold read the wall
+  // clock while the quote beside it reasoned about the request's.
+  const effects = standingEffectsFor(repos, base, now);
   const clocks: Partial<Record<BuildingKind, number>> = {};
   for (const structure of BUILDING_KINDS) {
     const level = nextQueuedLevel(structure, base.buildings, base.buildQueue);
@@ -290,7 +294,7 @@ export function queueBuild(repos: Repositories, input: BuildInput): BuildResult 
   const { base, structure, id, now, admin = false } = input;
   // The gate reads the same price the charge does. Computed before the refusal, because "can you
   // afford it" and "what will you be charged" have to be one number.
-  const effects = standingEffectsFor(repos, base);
+  const effects = standingEffectsFor(repos, base, now);
   const quotedLevel = nextQueuedLevel(structure, base.buildings, base.buildQueue);
   const quoted =
     quotedLevel === null ? null : priceOf(structure, quotedLevel, base.buildings, effects);

@@ -342,6 +342,18 @@ export type OverseerChoicesResponse = z.infer<typeof OverseerChoicesResponseSche
  * what is on the map for anybody to read. What is *standing* on somebody else's ground is not: a
  * garrison is known only through a spy report (`LocationView.latestSpyReport`).
  */
+/** A faction as a map tag draws it: the name for the hover, the badge for the emblem. */
+export const FactionMarkSchema = z.object({ name: z.string().min(1), badge: BadgeSchema });
+export type FactionMark = z.infer<typeof FactionMarkSchema>;
+
+/**
+ * The crew's own spy strength, both ways, as points on the contest's scale (maintainer,
+ * 2026-10-07): what its runners carry out, and what a rival's must beat. The crew's own numbers
+ * and nobody else's; the fold they come off is private (`PRIVATE_CHANNELS`).
+ */
+export const SpyPointsSchema = z.object({ offence: z.number(), defence: z.number() });
+export type SpyPoints = z.infer<typeof SpyPointsSchema>;
+
 export const DistrictSummarySchema = z.object({
   district: DistrictSchema,
   /** Minutes from this crew's home district, with their travel bonuses already applied. */
@@ -354,6 +366,15 @@ export const DistrictSummarySchema = z.object({
   base: BaseSummarySchema.nullable(),
   /** This crew's own home. Exactly one district on the map has this set. */
   isHome: z.boolean(),
+  /*
+   * Whose the whole district is, for the tag on the city map (maintainer, 2026-10-07): green with
+   * the faction emblem when it is the reader's crew's or their faction's; red with the holder's
+   * mark when another crew, another faction, the looters or the Combine hold every location; grey
+   * and bare while nobody holds it whole. A district is whole for a faction when its members
+   * between them hold every location.
+   */
+  holderFaction: FactionMarkSchema.nullable().default(null),
+  wholeBy: z.enum(['mine', 'ally', 'enemy']).nullable().default(null),
 });
 export type DistrictSummary = z.infer<typeof DistrictSummarySchema>;
 
@@ -446,6 +467,50 @@ export const LocationViewSchema = z.object({
   labels: z.array(EnvLabelSchema),
   /** Names of units holding this kind of location would unlock. Usually empty. */
   unlocks: z.array(z.string()),
+  /*
+   * Reliquary (maintainer, 2026-10-07). Every field below is defaulted so a fixture written
+   * before it still parses; the server fills what the ground has.
+   */
+  /** The holder's faction, for the tag's emblem; null for the looters, the Combine, and no table. */
+  holderFaction: FactionMarkSchema.nullable().default(null),
+  /** Whose side the holder is on, for the tag's colour: the reader's own, a faction mate, anybody else, or nobody. */
+  holderSide: z.enum(['mine', 'ally', 'enemy', 'unoccupied']).default('unoccupied'),
+  /** Whether the Noisy on this ground is the Tolling Tower's, drawn with a blue outline. */
+  noisyFromTower: z.boolean().default(false),
+  /** The Tolling Tower's switch, on its own sheet: on or off, and when it may next be thrown. */
+  switch: z
+    .object({ on: z.boolean(), changesAt: IsoDateTimeSchema.nullable() })
+    .nullable()
+    .default(null),
+  /** The Pamphlet Wall: what is pinned, how many pins, and whether the pins may be set or swapped. */
+  pamphlets: z
+    .object({
+      pins: z.array(z.string()),
+      capacity: z.number().int().nonnegative(),
+      unlocked: z.boolean(),
+      swapCostCaps: z.number().int().nonnegative().nullable(),
+      swapAvailableAt: IsoDateTimeSchema.nullable(),
+    })
+    .nullable()
+    .default(null),
+  /** The Trophy Hall: kills by unit id since it was taken, and what the wall pays today. */
+  trophies: z
+    .object({
+      counted: z.record(z.string(), z.number().int().nonnegative()),
+      perDay: PartialResourcesSchema,
+    })
+    .nullable()
+    .default(null),
+  /** A unit's door: who is mustered here, at what level, and what each level gives them. */
+  door: z
+    .object({
+      unitId: z.string().min(1),
+      name: z.string().min(1),
+      level: z.number().int().min(1),
+      steps: z.array(z.string()),
+    })
+    .nullable()
+    .default(null),
 });
 export type LocationView = z.infer<typeof LocationViewSchema>;
 
@@ -548,6 +613,8 @@ export const DistrictDetailResponseSchema = z.object({
    * nobody of theirs had ever looked.
    */
   spyGateReport: SpyReportSchema.nullable().default(null),
+  /** The reader's own spy points, on their own district's reports. See `SpyPointsSchema`. */
+  spyPoints: SpyPointsSchema.optional(),
   serverNow: IsoDateTimeSchema,
 });
 export type DistrictDetailResponse = z.infer<typeof DistrictDetailResponseSchema>;
@@ -574,6 +641,31 @@ export const UpgradeLocationRequestSchema = z.object({
   locationId: z.string().min(1),
 });
 export type UpgradeLocationRequest = z.infer<typeof UpgradeLocationRequestSchema>;
+
+/*
+ * Reliquary's three writes on a location the crew holds (maintainer, 2026-10-07), each answered
+ * with the district like every other city write. The switch is the Tolling Tower's; the pins are
+ * the Pamphlet Wall's, set all at once and locked until the wall is next worked up; the swap is
+ * the one paid change a full, maxed wall allows, on a cooldown.
+ */
+export const ThrowSwitchRequestSchema = z.object({
+  locationId: z.string().min(1),
+  on: z.boolean(),
+});
+export type ThrowSwitchRequest = z.infer<typeof ThrowSwitchRequestSchema>;
+
+export const PinPamphletsRequestSchema = z.object({
+  locationId: z.string().min(1),
+  pins: z.array(z.string().min(1)),
+});
+export type PinPamphletsRequest = z.infer<typeof PinPamphletsRequestSchema>;
+
+export const SwapPamphletRequestSchema = z.object({
+  locationId: z.string().min(1),
+  from: z.string().min(1),
+  to: z.string().min(1),
+});
+export type SwapPamphletRequest = z.infer<typeof SwapPamphletRequestSchema>;
 
 /** Every city write answers with the district it touched, so the client never re-derives state. */
 export const CityMutationResponseSchema = z.object({
@@ -659,6 +751,12 @@ export const UnitOptionSchema = z.object({
   musterSeconds: z.number().int().positive(),
   unitSlots: z.number().int().positive(),
   /**
+   * A unit raised on an authored door (Reliquary, 2026-10-07): the level of the best door the
+   * crew holds, or null with none, and what each level gives it, for the roster to print.
+   */
+  doorLevel: z.number().int().min(1).nullable().default(null),
+  doorSteps: z.array(z.string()).default([]),
+  /**
    * §A4: percentage points this unit's *own* ground takes off, on top of `musterCostReduction`.
    *
    * Per unit rather than on the response, because that is what the rule is: working the Doghouse
@@ -693,6 +791,12 @@ export const UnitOptionSchema = z.object({
     })
     .optional(),
   unlocked: z.boolean(),
+  /**
+   * The most of this unit the crew may still add under a cap tied to held ground
+   * (`UnitSpec.capPerHold`, 2026-10-06), everything standing and queued already counted. Absent
+   * for a unit with no such cap; **Max** reads it beside the beds.
+   */
+  room: z.number().int().nonnegative().optional(),
   /** The clauses this crew has not met, in the player's words. Empty when unlocked. */
   missing: z.array(z.string()),
   /** How many are at home. Garrisoned units are counted separately. */
@@ -858,6 +962,13 @@ export const UnitsResponseSchema = z.object({
    * and `?? false` is the reading every crew without the waiver gets.
    */
   anyRide: z.boolean().optional(),
+  /**
+   * Environment labels the crew's units ignore everywhere (the Tolling Tower's Noisy, maintainer
+   * 2026-10-07), so the roster can draw the weakness crossed out. Empty for a crew with none.
+   */
+  ignoredLabels: z.array(z.string()).default([]),
+  /** Levels of ANTI-COMBINE the crew holds, drawn as a tag on every unit card. */
+  antiCombineLevels: z.number().int().nonnegative().default(0),
   /**
    * The crew's walking pace bonus (`unitSpeedPercent`, off the standing fold), which the march to a
    * fight puts on every walker (`battle/movement.ts`). The deploy window and the battle page read
@@ -1168,6 +1279,13 @@ export const MissionOfferSchema = z.object({
    * does the same, so the two arrive at the same figure.
    */
   ramp: EarlyRampBandSchema.nullable().default(null),
+  /**
+   * The Bounty Wall (maintainer, 2026-10-07): a battle job dealt golden on a board where the
+   * crew holds one, drawn with a gold outline and paying `goldenPercent` more. Rolled off the
+   * deal's seed, so the same card is golden on every read of the same day.
+   */
+  golden: z.boolean().default(false),
+  goldenPercent: z.number().int().nonnegative().default(0),
 });
 export type MissionOffer = z.infer<typeof MissionOfferSchema>;
 
@@ -1833,6 +1951,11 @@ export const TrainingSubjectSchema = z.object({
   /** §D4: when they are back on their feet, or null while they are fit. Always null for the Overseer. */
   injuredUntil: IsoDateTimeSchema.nullable().default(null),
   /**
+   * What keeps them off the floor right now, or null: a run, a fight or an injury
+   * (`drillHoldBlocker`). The bench is never a hold here: somebody benched still drills.
+   */
+  held: LeaderHoldSchema.nullable().default(null),
+  /**
    * How long an hour on the floor takes this person, in seconds (maintainer, 2026-10-01).
    *
    * `drillSeconds` of their lifted sheet: their Speed, Resolve and Organization take up to half
@@ -1926,10 +2049,17 @@ export const CrewStandingResponseSchema = z.object({
    */
   haulPercent: z.number().default(0),
   /**
+   * The Straw Sack's bags (`carrierLootFlat`, Reliquary 2026-10-07): loot slots on every carrier,
+   * flat, off the same standing fold and spent by the same two settles as `haulPercent`.
+   */
+  carrierFlat: z.number().default(0),
+  /**
    * Cap Counter's cut of a job's caps (`withMissionCaps`), off the same standing fold and for the
    * same reason: the return pays it, and a crew that is out is quoted what it will bring home.
    */
   missionCapsPercent: z.number().default(0),
+  /** The crew's own spy points, for the Master of Whispers' seat. See `SpyPointsSchema`. */
+  spyPoints: SpyPointsSchema.optional(),
 });
 export type CrewStandingResponse = z.infer<typeof CrewStandingResponseSchema>;
 
@@ -1994,7 +2124,7 @@ export const MarketResponseSchema = z.object({
   barterRate: z.number().positive(),
   /**
    * The crew's market discount as the **raw sum** of its sources (`market/discount.ts`): what comes
-   * off a won lot at the close, off the supply run's price and off the Broker's cut. Raw because
+   * off a lot bid when it is placed, off the supply run's price and off the Broker's cut. Raw because
    * every shared price function puts it through the curve itself; a curved figure passed to one
    * would be discounted twice. A screen that prints the discount prints
    * `effectiveMarketDiscount` of this.

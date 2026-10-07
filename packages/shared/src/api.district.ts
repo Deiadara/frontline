@@ -1,6 +1,11 @@
 import { z } from 'zod';
 import { BaseSchema } from './base.js';
-import { AcceptWasteSchema, BuildingKindSchema, MAX_MODIFICATION_SLOTS } from './building/index.js';
+import {
+  AcceptWasteSchema,
+  BuildingKindSchema,
+  MAX_MODIFICATION_SLOTS,
+  ModificationIdSchema,
+} from './building/index.js';
 import { ModificationRaritySchema } from './modification-rarity.js';
 import { PartialResourcesSchema, ResourcesSchema } from './resources.js';
 import { IdSchema, IsoDateTimeSchema } from './primitives.js';
@@ -40,6 +45,12 @@ export const ClearModificationRequestSchema = z.object({
     .int()
     .min(0)
     .max(MAX_MODIFICATION_SLOTS - 1),
+  /**
+   * The card the player saw in that bracket. A slot index alone is positional, and the server
+   * closes the gap behind a card it removes, so a press on stale data named the card after it.
+   * The server refuses when the bracket holds anything else.
+   */
+  modification: ModificationIdSchema,
 });
 export type ClearModificationRequest = z.infer<typeof ClearModificationRequestSchema>;
 

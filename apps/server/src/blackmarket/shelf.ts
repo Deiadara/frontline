@@ -33,7 +33,7 @@ import { adminInfamy, adminWaives } from '../admin/mode.js';
 import { calibreOf, citiesFor } from '../city/stakes.js';
 import { standingEffectsFor } from '../crew/standing.js';
 import { missedLotTitle, outcomeAgainst } from '../bar/auction.js';
-import { bidderNames, projectLotAuction } from '../market/auction.js';
+import { bidderNames, heldBy, projectLotAuction } from '../market/auction.js';
 import { notify } from '../social/notify.js';
 import { tellPagesFound } from '../social/pages.js';
 import { settleEach } from '../world/guard.js';
@@ -47,6 +47,14 @@ import { shownNameOf } from '../social/names.js';
  * who may bid on it, lives in `@frontline/shared` so the screen and the server agree without a
  * second copy, and the auction itself is the Runner's: `projectLotAuction` and `rankLotBids` are
  * the same functions the barrow settles with.
+ *
+ * ## A bid is paid for when it is placed
+ *
+ * Held bids (maintainer, 2026-10-06), as at the Runner's barrow: the infamy a bid would cost comes
+ * off the ledger when it is placed, after the crew's standing, and the figure is kept on the row
+ * (`BlackBid.held`). A raise hands the old hold back and takes the new one. At midnight the crate's
+ * taker has already paid, and every other bidder, the ones the close turned away included, gets
+ * their hold back.
  *
  * ## The close is not a scheduled job
  *
@@ -158,7 +166,8 @@ export function projectBlackMarket(
           lot.leading?.yours !== true &&
           !known &&
           base.economy.notoriety >= (spec?.minNotoriety ?? 0) &&
-          infamy >= discountedInfamy(lot.nextBid, discount),
+          // A raise hands this crew's own hold on the lot back before it takes the new one.
+          infamy + heldBy(onThisLot, base.ownerId) >= discountedInfamy(lot.nextBid, discount),
         /** The rank the fence wants, so the shelf can say why rather than just refusing. */
         minNotoriety: spec?.minNotoriety ?? 0,
         alreadyKnown: known,
@@ -203,16 +212,18 @@ export interface BlackBidCommand {
   zone: string;
   /** Whose back room the bid is placed in. The route has already checked the crew may stand here. */
   cityId?: string;
-  /** Admin mode: the bid is not held to the crew's infamy, and the close charges nothing. */
+  /** Admin mode: the bid is not held to the crew's infamy, and takes none of it. */
   admin?: boolean;
 }
 
 /**
  * A public bid on one of the fence's lots.
  *
- * Nothing is escrowed and nothing changes hands: the row is a position, and `settleBlackMarketLots`
- * is what turns the highest one into a crate at midnight. Every judgement is `blackBidRefusal`'s,
- * which is shared, so the control that lit up and the door that refuses are reading one rule.
+ * The infamy leaves the ledger here: see "A bid is paid for when it is placed" above.
+ * `settleBlackMarketLots` is what turns the highest bid into a crate at midnight. Every judgement
+ * is `blackBidRefusal`'s, which is shared, so the control that lit up and the door that refuses
+ * are reading one rule; it is handed the infamy this crew would have once its own earlier bid on
+ * this lot came back.
  */
 export function placeBlackMarketBid(repos: Repositories, command: BlackBidCommand): BlackBidResult {
   const { base, userId, slotIndex, goodId, now, zone } = command;
@@ -226,17 +237,19 @@ export function placeBlackMarketBid(repos: Repositories, command: BlackBidComman
     (best, bid) => (best === undefined || bid.amount > best.amount ? bid : best),
     undefined,
   );
+  const back = heldBy(bids, userId);
+  const discountPercent = standingEffectsFor(repos, base).blackMarketDiscountPercent;
 
   const refusal = blackBidRefusal({
     slotIndex,
     goodId,
     board,
     amount,
-    infamy: infamyOf(base),
+    infamy: infamyOf(base) + back,
     cityLevel: cityLevelFor(repos, cityId),
     leading: leader?.amount ?? null,
     leadingIsYou: leader?.userId === userId,
-    discountPercent: standingEffectsFor(repos, base).blackMarketDiscountPercent,
+    discountPercent,
     notoriety: base.economy.notoriety,
     inventory: base.inventory,
     /*
@@ -273,6 +286,10 @@ export function placeBlackMarketBid(repos: Repositories, command: BlackBidComman
     return { kind: 'refused', reason: refusal };
   }
 
+  const held = adminInfamy(discountedInfamy(amount, discountPercent), command.admin ?? false);
+  const left = spendInfamy(infamyOf(base) + back, held);
+  if (left === null) return { kind: 'refused', reason: 'not_enough_infamy' };
+  repos.bases.updateEconomy(base.id, { ...base.economy, infamy: left });
   repos.blackMarket.placeBid({
     day,
     lotId,
@@ -280,6 +297,7 @@ export function placeBlackMarketBid(repos: Repositories, command: BlackBidComman
     userId,
     baseId: base.id,
     amount,
+    held,
     at: now.toISOString(),
   });
   return { kind: 'placed' };
@@ -313,18 +331,13 @@ interface BlackLotAward {
  * closes have already written, so a crew leading three lots takes the first one it is allowed and
  * the other two fall to whoever is behind them.
  */
-export function settleBlackMarketLots(
-  repos: Repositories,
-  now: Date,
-  zone: string,
-  admin = false,
-): number {
+export function settleBlackMarketLots(repos: Repositories, now: Date, zone: string): number {
   return settleEach(
     repos,
     'black market lots',
     repos.blackMarket.unsettled(now),
     (lot) => `${lot.day}:${lot.lotId}:${lot.slotIndex}`,
-    (lot) => closeBlackLot(repos, lot, now, zone, admin),
+    (lot) => closeBlackLot(repos, lot, now, zone),
   );
 }
 
@@ -333,7 +346,6 @@ function closeBlackLot(
   lot: { day: string; lotId: string; slotIndex: number },
   now: Date,
   zone: string,
-  admin: boolean,
 ): void {
   const { day, lotId, slotIndex } = lot;
   // What the bells are dated: the lot closed at midnight, whenever the tick got to it.
@@ -355,8 +367,9 @@ function closeBlackLot(
   // would settle it again on every read for ever. It goes down as a lot nobody took.
   const { winner, ranked } =
     slot && spec
-      ? awardBlackLot(repos, { day, cityId, slot, spec, bids, now, closedAt, zone, admin })
+      ? awardBlackLot(repos, { day, cityId, slot, spec, bids, now, closedAt, zone })
       : { winner: null, ranked: [] };
+  returnHeldInfamy(repos, bids, winner?.userId ?? null);
 
   repos.blackMarket.recordResult({
     day,
@@ -374,12 +387,36 @@ function closeBlackLot(
 }
 
 /**
+ * Every hold on a lot back to its bidder, except the taker's, which is the price.
+ *
+ * Read fresh per bidder: the hand-over and an earlier refund in the same close have both written
+ * ledgers since the bids were read. Added straight on rather than through `gainInfamy`, which
+ * rounds the whole wallet: a refund gives back exactly what was taken and touches nothing else.
+ */
+function returnHeldInfamy(
+  repos: Repositories,
+  bids: readonly BlackBid[],
+  takerUserId: string | null,
+): void {
+  for (const bid of bids) {
+    if (bid.userId === takerUserId || bid.held <= 0) continue;
+    const base = repos.bases.findById(bid.baseId);
+    if (!base) continue;
+    repos.bases.updateEconomy(base.id, {
+      ...base.economy,
+      infamy: base.economy.infamy + bid.held,
+    });
+  }
+}
+
+/**
  * Walks the ranking and hands the crate to the first crew that can have it.
  *
- * Four things can move between a bid and the close and all four are checked again here: the crew's
- * infamy, its rank, its allowance for the day, and the reserve itself, which is weighted by a city
- * average that drifts as the street levels up. Anybody the check turns away passes to the crew
- * behind them rather than voiding the lot.
+ * Three things can move between a bid and the close and all three are checked again here: the
+ * crew's rank, its allowance for the day, and the reserve itself, which is weighted by a city
+ * average that drifts as the street levels up. The infamy is not among them: the bid took it when
+ * it was placed. Anybody the check turns away passes to the crew behind them, and gets their hold
+ * back with everybody else who did not take the crate.
  */
 function awardBlackLot(
   repos: Repositories,
@@ -393,7 +430,6 @@ function awardBlackLot(
     now: Date;
     closedAt: Date;
     zone: string;
-    admin: boolean;
   },
 ): BlackLotAward {
   const { day, cityId, slot, spec, bids, now, closedAt } = lot;
@@ -408,7 +444,7 @@ function awardBlackLot(
   for (const entry of ranked) {
     const bid = bids.find((row) => row.userId === entry.userId);
     const base = bid ? repos.bases.findById(bid.baseId) : undefined;
-    if (!base) continue;
+    if (!bid || !base) continue;
     // §D7: a crew whose name has slipped since it bid is not handed the good stock either.
     if (base.economy.notoriety < (spec.minNotoriety ?? 0)) continue;
     // A crew that came by the same plans since it bid gets nothing from a second copy.
@@ -417,19 +453,14 @@ function awardBlackLot(
     // every slot walks away with one crate and the rest of the city takes the other four.
     if (repos.blackMarket.takenOn(base.id, day) >= blackMarketTakesPerDay(base.level)) continue;
 
-    const charge = adminInfamy(
-      discountedInfamy(entry.amount, standingEffectsFor(repos, base).blackMarketDiscountPercent),
-      lot.admin,
-    );
-    const left = spendInfamy(base.economy.infamy, charge);
-    if (left === null) continue;
+    // What the bid took when it was placed, which is what the crate cost this crew.
+    const charge = bid.held;
 
     handOver(repos, {
       base,
       spec,
       day,
       slotIndex: slot.index,
-      infamyLeft: left,
       charge,
       now,
       closedAt,
@@ -440,7 +471,7 @@ function awardBlackLot(
 }
 
 /**
- * The crate changing hands: the ledger, the inventory or the stash, the receipt, the feats, the bell.
+ * The crate changing hands: the inventory or the stash, the receipt, the feats, the bell.
  *
  * A boost goes to the stash and waits for a fight. Everything else lands in the inventory, which is
  * where the workshop, the lab and the build queue already look for parts and blueprints: a back
@@ -453,20 +484,18 @@ function handOver(
     spec: BlackMarketGoodSpec;
     day: string;
     slotIndex: number;
-    infamyLeft: number;
-    /** What actually left the wallet, not the catalogue's figure: the receipt records this. */
+    /** What the bid held off the wallet, not the catalogue's figure: the receipt records this. */
     charge: number;
     now: Date;
     closedAt: Date;
   },
 ): void {
-  const { base, spec, day, slotIndex, infamyLeft, charge, now, closedAt } = won;
+  const { base, spec, day, slotIndex, charge, now, closedAt } = won;
+  // Paid for already: the bid's hold is the price, so the ledger is not touched here.
   const paid: Base = {
     ...base,
-    economy: { ...base.economy, infamy: infamyLeft },
     inventory: spec.grants ? addItems(base.inventory, spec.grants) : base.inventory,
   };
-  repos.bases.updateEconomy(paid.id, paid.economy);
   if (spec.grants) repos.bases.updateHoldings(paid.id, paid.resources, paid.inventory);
   if (spec.boost) {
     repos.blackMarket.writeStash(paid.id, addToStash(repos.blackMarket.stashFor(paid.id), spec.id));

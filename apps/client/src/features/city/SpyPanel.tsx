@@ -23,7 +23,7 @@ import { DrawnGlyph } from '../../components/ui/DrawnMarks';
 import { cn } from '../../lib/cn';
 import { useRecallSpy, useSpy } from '../../lib/queries';
 import { formatDuration, formatRemaining } from '../base/format';
-import { ErrorNote } from '../../components/ui/ErrorNote';
+import { PressError } from '../../components/ui/PressError';
 import { usePlayerZone } from '../settings/usePlayerZone';
 
 /**
@@ -117,7 +117,8 @@ export function SpyPanel({
           now={now}
           here={sameSpyTarget(run.target, target)}
           full={partiesFull}
-          pending={recall.isPending}
+          // This job's press only: one pending recall used to grey every job's button.
+          pending={recall.isPending && recall.variables?.runId === run.id}
           onRecall={() => recall.mutate({ runId: run.id, districtId: run.districtId })}
           testId={testId}
           // The way out goes on the last line the panel draws, which is this one when no party
@@ -125,6 +126,13 @@ export function SpyPanel({
           actions={blocker === null && !free && index === runs.length - 1 ? actions : undefined}
         />
       ))}
+      {/* A refused recall said nothing (bug pass, 2026-10-06): its window can shut on the server
+          a beat before the countdown here reaches zero. */}
+      {recall.error && (
+        <PressError onDismiss={recall.reset} data-testid={`${testId}-recall-error`}>
+          {recall.error.message}
+        </PressError>
+      )}
       {blocker !== null && (
         <p
           className="font-body text-xs leading-relaxed text-oxblood-300"
@@ -149,7 +157,11 @@ export function SpyPanel({
             </span>
             . The caps go now and do not come back.
           </p>
-          {spy.error && <ErrorNote data-testid={`${testId}-error`}>{spy.error.message}</ErrorNote>}
+          {spy.error && (
+            <PressError onDismiss={spy.reset} data-testid={`${testId}-error`}>
+              {spy.error.message}
+            </PressError>
+          )}
           <div className="flex flex-wrap items-center justify-between gap-3">
             <Button
               size="sm"
@@ -248,7 +260,7 @@ function TierPicker({
                     short ? 'text-oxblood-300' : 'text-brass-300',
                   )}
                 >
-                  {spec.caps.toLocaleString()} caps
+                  {spec.caps.toLocaleString('en-US')} caps
                 </span>
               )}
             </button>

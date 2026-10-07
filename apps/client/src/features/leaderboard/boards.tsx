@@ -6,7 +6,7 @@ import {
   ranked,
   standingName,
 } from '@frontline/shared';
-import type { ReactNode, RefObject } from 'react';
+import type { MutableRefObject, ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { cn } from '../../lib/cn';
 import { crewFileHref } from '../city/LocationSheet';
@@ -107,7 +107,7 @@ function Figure({ value, testId }: { value: number; testId?: string }) {
       )}
       data-testid={testId}
     >
-      {Math.round(value).toLocaleString()}
+      {Math.round(value).toLocaleString('en-US')}
     </span>
   );
 }
@@ -164,11 +164,11 @@ export function PlayerBoard({
   entries: readonly PlayerStanding[];
   youUserId: string;
   /** Hung on the reader's own row so the plaque at the foot of the page can scroll to it. */
-  youRow: RefObject<HTMLLIElement>;
+  youRow: MutableRefObject<HTMLLIElement | null>;
   /** The username the standings were opened on, from `?focus=`, if any. */
   focus: string | undefined;
   /** The row that username landed on, so the page can scroll it into view. */
-  focusRow: RefObject<HTMLLIElement>;
+  focusRow: MutableRefObject<HTMLLIElement | null>;
   sort: PlayerSort;
 }) {
   return (
@@ -192,7 +192,12 @@ export function PlayerBoard({
           return (
             <li
               key={entry.userId}
-              ref={sought ? focusRow : you ? youRow : undefined}
+              // Both, when the reader searched for themselves (bug pass, 2026-10-06): one ref only,
+              // and Find me pointed at nothing.
+              ref={(row) => {
+                if (sought) focusRow.current = row;
+                if (you) youRow.current = row;
+              }}
               data-testid={`standing-${entry.username}`}
               data-you={you ? 'true' : undefined}
               data-sought={sought ? 'true' : undefined}

@@ -318,7 +318,7 @@ for (const id of PAINTED) {
        * A sign is a small plate placed in the painting's own coordinates, and the sweep above keeps
        * it inside the picture. Its card is much larger, opens on hover and focus, and is positioned
        * against the *window*, so the two are clipped by different boxes and only one of them was
-       * ever checked. The Chandlery sits at x=0.918 of the Docks and the Bone Market at x=0.849 of
+       * ever checked. The Chandlery sits at x=0.918 of the Docks and the Shift Canteen at x=0.849 of
        * the Steelbelt: both open a card wider than the gap between them and the right edge.
        */
       test(`keeps every sign's card on the screen at ${tag}`, async ({ page }) => {

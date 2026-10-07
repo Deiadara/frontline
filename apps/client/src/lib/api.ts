@@ -12,6 +12,7 @@ import {
   type CreateFactionRequest,
   type LeaveFactionRequest,
   LeaderboardResponseSchema,
+  PlayerLookupResponseSchema,
   ClaimAllResponseSchema,
   ClaimFeatResponseSchema,
   CrewProfileResponseSchema,
@@ -79,6 +80,9 @@ import {
   AdminSnapshotSchema,
   AdminMutationResponseSchema,
   type UpgradeLocationRequest,
+  type ThrowSwitchRequest,
+  type PinPamphletsRequest,
+  type SwapPamphletRequest,
   type PlantSleepersRequest,
   type RecallSleepersRequest,
   type CancelMusterRequest,
@@ -225,7 +229,7 @@ export async function apiFetch<Schema extends z.ZodType>(
   init?: RequestInit,
 ): Promise<z.infer<Schema>> {
   const { epoch } = useSession.getState();
-  const res = await fetch(`${API_BASE_URL}${path}`, {
+  const res = await reach(`${API_BASE_URL}${path}`, {
     ...init,
     headers: apiHeaders(init?.headers),
     credentials: API_CREDENTIALS,
@@ -251,7 +255,37 @@ export async function apiFetch<Schema extends z.ZodType>(
     throw new ApiRequestError(res.status, code, message, parsed.data?.levelUp, parsed.data?.waste);
   }
 
-  return schema.parse(await readJson(res, path));
+  const body = schema.safeParse(await readJson(res, path));
+  if (!body.success) {
+    /*
+     * Zod's own message is its issue list as JSON, and about seventy screens print `error.message`
+     * under a button. A shape this page does not read is almost always a tab older than the server
+     * it is talking to, so the sentence says what fixes it (bug pass, 2026-10-06).
+     */
+    throw new ApiRequestError(
+      res.status,
+      'BAD_RESPONSE',
+      `${path} answered in a shape this page does not read. Reload to pick up the latest version.`,
+    );
+  }
+  return body.data;
+}
+
+/**
+ * `fetch`, with a failure to reach the server as an `ApiRequestError` rather than the browser's
+ * bare `TypeError` ("Failed to fetch", "Load failed"), which every screen would otherwise print as
+ * it came. Status 0 is what the browser reports for a request that never got an answer.
+ */
+async function reach(url: string, init: RequestInit): Promise<Response> {
+  try {
+    return await fetch(url, init);
+  } catch {
+    throw new ApiRequestError(
+      0,
+      'NETWORK',
+      'Could not reach the server. Check your connection and try again.',
+    );
+  }
 }
 
 /**
@@ -377,6 +411,18 @@ export const recallSleepers = (body: RecallSleepersRequest) =>
 /** §A4: work a location you hold up one level. */
 export const upgradeLocation = (body: UpgradeLocationRequest) =>
   apiFetch('/city/upgrade', CityMutationResponseSchema, jsonBody(body));
+
+/** Reliquary (2026-10-07): throw the Tolling Tower's switch on a tower this crew holds. */
+export const throwSwitch = (body: ThrowSwitchRequest) =>
+  apiFetch('/city/switch', CityMutationResponseSchema, jsonBody(body));
+
+/** Set every pin on a Pamphlet Wall at once, while the wall is unlocked. */
+export const pinPamphlets = (body: PinPamphletsRequest) =>
+  apiFetch('/city/pamphlets', CityMutationResponseSchema, jsonBody(body));
+
+/** The one paid change a full, maxed wall allows: one pin for another. */
+export const swapPamphlet = (body: SwapPamphletRequest) =>
+  apiFetch('/city/pamphlets/swap', CityMutationResponseSchema, jsonBody(body));
 
 // --- declared battles and the §D7 sinks ---
 
@@ -667,6 +713,10 @@ export const getLeaderboard = (board: LeaderboardBoard, localOnly: boolean) =>
     `/leaderboard?board=${board}&localOnly=${localOnly ? 'true' : 'false'}`,
     LeaderboardResponseSchema,
   );
+
+/** The letter composer's name lookup: the best few players answering to what was typed. */
+export const lookupPlayers = (q: string) =>
+  apiFetch(`/players/lookup?q=${encodeURIComponent(q)}`, PlayerLookupResponseSchema);
 
 /**
  * A crew's file, by crew id or by owner id (maintainer request, 2026-09-11). Public: the same page for

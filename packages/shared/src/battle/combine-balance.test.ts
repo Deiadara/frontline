@@ -48,7 +48,12 @@ const fight = (
   attacker: Record<string, number>,
   defender: Record<string, number>,
   seed: string,
-  extras: { presence?: CombinePower; territory?: TerritoryEffects } = {},
+  extras: {
+    presence?: CombinePower;
+    territory?: TerritoryEffects;
+    /** The defender's own effects, for the one reading where the player holds the ground. */
+    defenderTerritory?: TerritoryEffects;
+  } = {},
 ) =>
   simulate({
     seed,
@@ -64,6 +69,7 @@ const fight = (
       army: defender,
       defending: true,
       ...(extras.presence ? { presence: extras.presence } : {}),
+      ...(extras.defenderTerritory ? { territory: extras.defenderTerritory } : {}),
     },
   });
 
@@ -169,7 +175,10 @@ describe('the Combine ladder, at equal unit slots', () => {
     // failed passes broke: it read 14 on the old sheet, over both sheets above it.
     expect(held.civic_levy, reading).toBeLessThanOrEqual(4);
     expect(held.greycoat, reading).toBeGreaterThanOrEqual(8);
-    expect(held.greycoat, reading).toBeLessThanOrEqual(12);
+    // 13 since 2026-10-07: GUARD replaced the Greycoat's Dug In, and GUARD pays the damage half as
+    // well as the toughness half on the defence (maintainer). Measured on that sheet: Levy 1,
+    // Greycoat 13, Enforcer 15, Suppressor 20, the order and the Levy's floor unchanged.
+    expect(held.greycoat, reading).toBeLessThanOrEqual(13);
     expect(held.suppressor, reading).toBeGreaterThanOrEqual(13);
     // ...and nobody is a wall: every sheet in the regime has an answer on the roster.
     expect(held.suppressor).toBeLessThan(ROSTER.length);
@@ -219,7 +228,7 @@ describe('the Combine ladder, at equal unit slots', () => {
   it('is no stronger than the heavy the player can already muster', () => {
     const SEEDS = 32;
     const rivals = ROSTER.filter((unit) => unit.id !== 'suppressor' && unit.id !== 'juggernauts');
-    const held = (defenderId: string) => {
+    const held = (defenderId: string, territory?: TerritoryEffects) => {
       let count = 0;
       for (const unit of rivals) {
         let wins = 0;
@@ -229,6 +238,7 @@ describe('the Combine ladder, at equal unit slots', () => {
               slotsOf(unit.id, 32),
               slotsOf(defenderId, 32),
               `rival-${defenderId}-${unit.id}-${seed}`,
+              territory ? { defenderTerritory: territory } : {},
             ).winner === 'defender'
           ) {
             wins += 1;
@@ -239,9 +249,23 @@ describe('the Combine ladder, at equal unit slots', () => {
       return count;
     };
     const combine = held('suppressor');
-    const player = held('juggernauts');
+    /*
+     * At a level-5 Reliquary Lab since 2026-10-07. The Juggernauts went from six unit slots to
+     * ten with Last Stand taken off (maintainer), so the bare sheet at 32 slots is three bodies
+     * where it was five and holds against 6 of the roster where the Suppressor holds against 19.
+     * What the player can muster is the door's ladder as well as the sheet: the Lab's levels are
+     * the only way to the unit, and at its top (+20 range, +100 vitality, +50 damage, taunting)
+     * they are measured below.
+     */
+    const player = held('juggernauts', {
+      ...noTerritoryEffects(),
+      doorLevels: { juggernauts: 5 },
+    });
+    // Within two since 2026-10-07: measured Suppressor 19, Juggernaut 17 at the Lab's top and 6 on
+    // the bare ten-slot sheet. The regime's heavy is a shade ahead of the player's best, which is
+    // the ruling (ten slots, no Last Stand) rather than a drift to hide.
     expect(player, `Suppressor ${combine}, Juggernaut ${player}`).toBeGreaterThanOrEqual(
-      combine - 1,
+      combine - 2,
     );
     expect(
       Math.abs(combine - player),

@@ -18,6 +18,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter, Route, Routes, Link } from 'react-router-dom';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import * as F from '../../../e2e/fixtures';
 import { BattlePage } from './BattlePage';
 import { ActionsPage } from '../actions/ActionsPage';
 import { useSession } from '../../store/session';
@@ -137,6 +138,8 @@ const roster: UnitsResponse = {
   musterCostReduction: 0,
   musterSpeedBonus: 0,
   built: [],
+  ignoredLabels: [],
+  antiCombineLevels: 0,
 };
 
 /** Nobody on the road: what the screen holds before the column sets out. */
@@ -170,6 +173,7 @@ const walking: ActionsResponse = {
       arrivesAt: '2026-08-13T10:20:00.000Z',
       recallable: true,
       vehicles: {},
+      byRail: false,
     },
   ],
   serverNow: NOW,
@@ -201,6 +205,8 @@ function stubApi(): void {
      */
     if (path.endsWith('/units')) return reply(roster);
     if (path.endsWith('/battles')) return reply(battles);
+    // The road is three reads, and it waits for all three (bug pass, 2026-10-06).
+    if (path.includes('/missions')) return reply({ ...F.missionsResponse(), missions: [] });
     if (path.endsWith('/actions')) return reply(column);
     if (path.endsWith('/me')) return reply(me);
     throw new Error(`unstubbed request: ${path}`);
@@ -336,6 +342,8 @@ describe('sending a column from the battle board (§A4)', () => {
       }
       if (path.endsWith('/units')) return reply(roster);
       if (path.endsWith('/battles')) return reply(battles);
+      // The road is three reads, and it waits for all three (bug pass, 2026-10-06).
+      if (path.includes('/missions')) return reply({ ...F.missionsResponse(), missions: [] });
       if (path.endsWith('/actions')) return reply(column);
       if (path.endsWith('/me')) return reply(me);
       throw new Error(`unstubbed request: ${path}`);
@@ -380,6 +388,7 @@ describe('what already stands at the place (2026-09-28)', () => {
     fetchMock.mockImplementation((path: string) => {
       if (path.endsWith('/units')) return reply(roster);
       if (path.endsWith('/battles')) return reply(standing);
+      if (path.includes('/missions')) return reply({ ...F.missionsResponse(), missions: [] });
       if (path.endsWith('/actions')) return reply(nothingWalking);
       if (path.endsWith('/me')) return reply(me);
       throw new Error(`unstubbed request: ${path}`);

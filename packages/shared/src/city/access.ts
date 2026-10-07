@@ -46,8 +46,9 @@ export const MAX_WEIGHTED_LOCATIONS = 10;
 /**
  * Whether this crew may walk into that city's bar and its market.
  *
- * Never a city that is not open (maintainer, 2026-09-29): ground claimed in Saltmarch before its
- * doors were shut opened its Bar, fence, Runner, board and missions to the crew holding it.
+ * Never a city that is not open (maintainer, 2026-09-29): ground claimed in Saltmarch, the shut
+ * city of the day, before its doors were shut opened its Bar, fence, Runner, board and missions to
+ * the crew holding it. Reliquary is the shut city with ground now.
  */
 export function canEnterCity(stake: CityStake): boolean {
   return cityIsOpen(stake.cityId) && (stake.resident || stake.locationsHeld > 0);

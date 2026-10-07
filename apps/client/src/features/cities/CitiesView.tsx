@@ -29,7 +29,8 @@ export interface CityChoosing {
  * fourth ride low. The stagger is the whole reason the screen reads as a wall of portraits rather
  * than as a filmstrip: five identical rectangles on one baseline is a table with the lines rubbed
  * out, and a row that rises and falls is something you look along. It is symmetric because the
- * count is odd, which is also why the count is odd.
+ * count is odd, which is also why the count is odd: when Reliquary arrived it took Saltmarch's
+ * place rather than a sixth column (maintainer, 2026-10-06).
  *
  * Each card carries three things and nothing else: the name, what the street calls it, and what the
  * place is. The counts of contested ground and plots that used to sit under the blurb are gone
@@ -136,7 +137,9 @@ function CityCard({
    * decides: the client cannot see who lives where and must not guess.
    */
   const pressable = choosing === undefined ? city.open : offer?.available === true;
-  const chosen = choosing !== undefined && choosing.selectedId === city.id;
+  // Only while it can still be taken (bug pass, 2026-10-06): a city that filled while it was the
+  // pick went on saying "Chosen" on a card drawn shut.
+  const chosen = pressable && choosing !== undefined && choosing.selectedId === city.id;
   const press = choosing === undefined ? onEnter : () => choosing.onSelect(city.id);
   const Tag = pressable ? 'button' : 'div';
 

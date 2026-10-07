@@ -49,7 +49,7 @@ import {
 import { PerkTags } from '../../components/PerkTags';
 import { PayrollBookDialog } from '../../components/Payroll';
 import { DrawnButton } from '../../components/ui/DrawnButton';
-import { ErrorNote } from '../../components/ui/ErrorNote';
+import { PressError } from '../../components/ui/PressError';
 
 /** Devotion reads in the player's own accent; a walkout reads as a warning. */
 const BLOCKER_LABEL: Record<JoinBlocker, string> = {
@@ -139,8 +139,12 @@ export function BarPage() {
    * results, or none of them.
    */
   const [open, setOpen] = useState<'stool' | 'raise' | 'crew' | 'results' | null>(null);
-  /** Which chair the stool screen is showing. An index, so the arrows are arithmetic. */
-  const [seat, setSeat] = useState(0);
+  /*
+   * Who the stool screen is showing, by recruit id (bug pass, 2026-10-06). It was an index, which
+   * carried across a switch of city and the midnight turnover: the seventh person here opened on
+   * the seventh person there. An id that is not in this room starts the stool at the first seat.
+   */
+  const [seatId, setSeatId] = useState<string | null>(null);
   /** §H7: which table's bidding screen is open, if any. */
   const [biddingOn, setBiddingOn] = useState<string | null>(null);
   /*
@@ -185,9 +189,12 @@ export function BarPage() {
   const serverNow = useServerClock(data?.serverNow, barQuery.dataUpdatedAt);
   const barDay = dayInZone(serverNow);
 
-  // Clamped rather than wrapped on read: the roster can shrink under an open screen when the room
-  // turns over, and an index past the end would render nothing with no way back.
-  const chair = recruits.length === 0 ? 0 : Math.min(seat, recruits.length - 1);
+  // An id no longer in the room reads as the first seat: the roster turns over under an open
+  // screen at midnight, and a seat that matched nobody would render nothing with no way back.
+  const chair = Math.max(
+    0,
+    recruits.findIndex((recruit) => recruit.id === seatId),
+  );
   const shown = recruits[chair];
   /*
    * Stops at both ends. It used to wrap, and wrapping is wrong for this screen: the roster is a
@@ -196,11 +203,7 @@ export function BarPage() {
    * of the first person as though they had missed them. The arrows go dead there to say so.
    */
   const step = (by: number) =>
-    setSeat((current) => {
-      if (recruits.length === 0) return 0;
-      const from = Math.min(current, recruits.length - 1);
-      return Math.max(0, Math.min(recruits.length - 1, from + by));
-    });
+    setSeatId(recruits[Math.max(0, Math.min(recruits.length - 1, chair + by))]?.id ?? null);
 
   const bidding = recruits.find((recruit) => recruit.id === biddingOn);
   const biddingTable = biddingOn === null ? undefined : auctionFor(biddingOn);
@@ -342,7 +345,7 @@ export function BarPage() {
                       Payroll left
                     </span>
                     <span className="mt-1 font-display text-[15px] font-bold tabular-nums text-ink-100">
-                      {(data?.payroll.available ?? 0).toLocaleString()}
+                      {(data?.payroll.available ?? 0).toLocaleString('en-US')}
                     </span>
                   </span>
                 </div>
@@ -762,20 +765,20 @@ const OUTCOME_WORD: Record<BarAuctionResult['outcome'], string> = {
 
 /** What happened, in one sentence, with the figures a player would want to argue with. */
 export function resultLine(result: BarAuctionResult): string {
-  const price = result.price?.toLocaleString() ?? '';
+  const price = result.price?.toLocaleString('en-US') ?? '';
   switch (result.outcome) {
     case 'won':
       return `Yours at ${price} caps.`;
     case 'lost':
-      return `${result.winner ?? 'Somebody'} took them at ${price}. You were at ${result.yourFinal.toLocaleString()}.`;
+      return `${result.winner ?? 'Somebody'} took them at ${price}. You were at ${result.yourFinal.toLocaleString('en-US')}.`;
     case 'passed':
       // Two stories: somebody further down took them, or nobody did. The second used to print
       // "so they went to the next bid at ." with no name and no price.
       return result.winner === null
-        ? `You were highest at ${result.yourFinal.toLocaleString()} and could not take them. Nobody behind you could either.`
-        : `You were at ${result.yourFinal.toLocaleString()} and could not take them, so they went to ${result.winner} at ${price}.`;
+        ? `You were highest at ${result.yourFinal.toLocaleString('en-US')} and could not take them. Nobody behind you could either.`
+        : `You were at ${result.yourFinal.toLocaleString('en-US')} and could not take them, so they went to ${result.winner} at ${price}.`;
     case 'unsold':
-      return `Nobody could take them. You were at ${result.yourFinal.toLocaleString()}.`;
+      return `Nobody could take them. You were at ${result.yourFinal.toLocaleString('en-US')}.`;
   }
 }
 
@@ -1119,14 +1122,14 @@ function AuctionStrip({
             className="font-display text-[22px] font-bold leading-none tabular-nums text-brass-100"
             data-testid={`leading-${recruit.id}`}
           >
-            {(auction.leading?.amount ?? auction.reserve).toLocaleString()}
+            {(auction.leading?.amount ?? auction.reserve).toLocaleString('en-US')}
           </span>
         </div>
 
         <span className="min-w-0 truncate font-body text-[11px] leading-snug text-ink-300">
           {auction.leading === null
             ? 'Their floor, and nobody is in yet.'
-            : `Held by ${leaderName(auction)} · their floor is ${auction.reserve.toLocaleString()} · ${auction.bidders.toLocaleString()} ${auction.bidders === 1 ? 'crew is' : 'crews are'} in`}
+            : `Held by ${leaderName(auction)} · their floor is ${auction.reserve.toLocaleString('en-US')} · ${auction.bidders.toLocaleString('en-US')} ${auction.bidders === 1 ? 'crew is' : 'crews are'} in`}
         </span>
 
         <AuctionClock auction={auction} now={now} testId={`clock-${recruit.id}`} />
@@ -1210,14 +1213,14 @@ function BidTerms({ recruit, locked }: { recruit: BarRecruit; locked: boolean })
       </p>
       {requirement.minInfamy > 0 && (
         <p className={line}>
-          With <span className={value}>{requirement.minInfamy.toLocaleString()} infamy</span> still
-          in the account
+          With <span className={value}>{requirement.minInfamy.toLocaleString('en-US')} infamy</span>{' '}
+          still in the account
         </p>
       )}
       {requirement.minFactionInfamy > 0 && (
         <p className={line}>
           And a faction that has earned{' '}
-          <span className={value}>{requirement.minFactionInfamy.toLocaleString()}</span>
+          <span className={value}>{requirement.minFactionInfamy.toLocaleString('en-US')}</span>
         </p>
       )}
       {!locked && (
@@ -1256,7 +1259,9 @@ function OfficerRow({ officer, caps }: { officer: BarOfficer; caps: number }) {
             {commander.role === null ? BENCH_LABEL : OFFICER_ROLE_LABELS[commander.role]}
           </span>
           <span className="shrink-0 font-display text-[11px] uppercase tracking-[0.14em] text-ink-300">
-            <span className="tabular-nums text-ink-200">{officer.weeklyWage.toLocaleString()}</span>{' '}
+            <span className="tabular-nums text-ink-200">
+              {officer.weeklyWage.toLocaleString('en-US')}
+            </span>{' '}
             caps
           </span>
         </div>
@@ -1274,7 +1279,7 @@ function OfficerRow({ officer, caps }: { officer: BarOfficer; caps: number }) {
         {confirming ? (
           <div className="flex flex-wrap items-center gap-2 border-t border-surface-700 pt-2">
             <span className="font-body text-[12px] leading-snug text-ink-200">
-              {officer.dismissalFee.toLocaleString()} caps to end it, paid now.
+              {officer.dismissalFee.toLocaleString('en-US')} caps to end it, paid now.
             </span>
             <Button
               size="sm"
@@ -1285,7 +1290,15 @@ function OfficerRow({ officer, caps }: { officer: BarOfficer; caps: number }) {
             >
               {release.isPending ? 'Ending it…' : 'Let them go'}
             </Button>
-            <Button size="sm" variant="ghost" onClick={() => setConfirming(false)}>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => {
+                setConfirming(false);
+                // The refusal was about the release just declined (bug pass, 2026-10-06).
+                release.reset();
+              }}
+            >
               Keep them
             </Button>
             {!affordable && (
@@ -1302,7 +1315,9 @@ function OfficerRow({ officer, caps }: { officer: BarOfficer; caps: number }) {
             Let them go
           </button>
         )}
-        {release.error !== null && <ErrorNote>{release.error.message}</ErrorNote>}
+        {release.error && (
+          <PressError onDismiss={release.reset}>{release.error.message}</PressError>
+        )}
       </div>
     </li>
   );

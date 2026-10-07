@@ -51,9 +51,15 @@ export function LabelChip({
   label,
   size = 'md',
   when,
+  fromTower = false,
 }: {
   label: EnvLabel;
   size?: 'sm' | 'md';
+  /**
+   * The Noisy the Tolling Tower puts on every location of its district (2026-10-07): drawn with
+   * the tower's blue outline, and the hover says where it comes from. Only ever true of Noisy.
+   */
+  fromTower?: boolean;
   /**
    * When this one holds, for a characteristic that is not permanent.
    *
@@ -80,17 +86,25 @@ export function LabelChip({
               {when}
             </p>
           )}
+          {fromTower && (
+            <p className="font-display text-[11px] uppercase tracking-[0.14em] text-hextech-300">
+              Noisy from the Tolling Tower
+            </p>
+          )}
         </div>
       }
     >
       <span
         data-testid={`label-${label.id}`}
         data-tier={label.tier}
+        data-from-tower={fromTower ? 'yes' : undefined}
         className={cn(
           'inline-flex shrink-0 items-center gap-1 rounded-sm border font-display uppercase tracking-[0.12em]',
           size === 'sm' ? 'px-1.5 py-px text-[10px]' : 'px-2 py-0.5 text-[11px]',
           TONES[spec.tone],
           WEIGHTS[Math.min(WEIGHTS.length, Math.max(1, label.tier)) - 1],
+          // An outline rather than a border swap, so the chip keeps its size and its tone's ink.
+          fromTower && 'outline outline-1 outline-offset-1 outline-hextech-300',
         )}
       >
         {/* A real space between the word and the numeral. `gap-1` puts one on the screen and none
@@ -111,17 +125,26 @@ export function LabelRow({
   size = 'md',
   className,
   when,
+  noisyFromTower = false,
 }: {
   labels: readonly EnvLabel[];
   size?: 'sm' | 'md';
   className?: string;
   when?: LabelWhen | undefined;
+  /** Whether the Noisy in this row is the Tolling Tower's. See `LabelChip`. */
+  noisyFromTower?: boolean;
 }) {
   if (labels.length === 0) return null;
   return (
     <div className={cn('flex flex-wrap items-center gap-1', className)} data-testid="labels">
       {labels.map((label) => (
-        <LabelChip key={label.id} label={label} size={size} when={when?.(label)} />
+        <LabelChip
+          key={label.id}
+          label={label}
+          size={size}
+          when={when?.(label)}
+          fromTower={noisyFromTower && label.id === 'noisy'}
+        />
       ))}
     </div>
   );
@@ -141,12 +164,14 @@ export function Characteristics({
   size = 'sm',
   className,
   when,
+  noisyFromTower = false,
   'data-testid': testId = 'characteristics',
 }: {
   labels: readonly EnvLabel[];
   size?: 'sm' | 'md';
   className?: string;
   when?: LabelWhen;
+  noisyFromTower?: boolean;
   'data-testid'?: string | undefined;
 }) {
   return (
@@ -159,7 +184,7 @@ export function Characteristics({
           Nothing notable. Whoever you send fights on their own sheet.
         </span>
       ) : (
-        <LabelRow labels={labels} size={size} when={when} />
+        <LabelRow labels={labels} size={size} when={when} noisyFromTower={noisyFromTower} />
       )}
     </div>
   );

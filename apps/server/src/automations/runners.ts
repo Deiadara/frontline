@@ -1,15 +1,14 @@
 import {
   chairPassiveOf,
   MISSION_FORCE_REFUSAL_TEXT,
-  NAME_TOO_SMALL_TEXT,
   concurrentMissionSlots,
-  unitsBeyondNotoriety,
   districtsOfCity,
   bestFitParty,
   MISC_AREA_ID,
   ORDER_SEQUENCES,
   areaIsOpen,
   automationPowers,
+  automationRungRefusal,
   bestLeader,
   composeProfile,
   findUnit,
@@ -64,6 +63,7 @@ import { officerAsLeader } from '../missions/leaders.js';
 import { officerDuty } from '../crew/duty.js';
 import { removeForce } from '../battle/forces.js';
 import { enemyForce } from '../missions/enemy.js';
+import { goldenPercentFor } from '../missions/golden.js';
 import { fightChanceFor, rankFightLeaders } from '../missions/fight-leaders.js';
 import { tallyAutomatedParty } from '../feats/tally.js';
 import { settleBase } from '../district/settle.js';
@@ -293,16 +293,6 @@ function forceFor(
   rank?: (army: Army, unitSlots: number) => (unitId: string) => number,
 ): { force: Army } | { stall: string } {
   /*
-   * §D7's ceiling, on this door too (bug pass, 2026-09-23).
-   *
-   * A standing order was the fourth way onto a field and the only one that did not ask what the
-   * crew's name is worth: `POST /missions` checks `unitsBeyondNotoriety` and refuses with "they
-   * will not take a contract from a name that small", and this did not, so a crew at Nobody could
-   * field a Colossus by writing an order instead of pressing send. Both branches needed it, and
-   * the fitted branch needed it most: `bestFitParty` ranks by offense per slot, so it actively
-   * *prefers* the heavy sheets the gate exists to withhold.
-   */
-  /*
    * Each stall says its own reason (bug pass, 2026-10-02): all four used to read "The party you
    * named is not at home", so a party of porters on a fight sat at home under a sentence that
    * blamed their absence, for ever.
@@ -310,9 +300,6 @@ function forceFor(
   const sendable = (party: Army): { force: Army } | { stall: string } => {
     const refusal = missionForceRefusal(party, base.army, template.kind, rules);
     if (refusal !== null) return { stall: MISSION_FORCE_REFUSAL_TEXT[refusal] };
-    if (unitsBeyondNotoriety(party, base.economy.notoriety).length > 0) {
-      return { stall: NAME_TOO_SMALL_TEXT };
-    }
     return { force: party };
   };
   const notHome = { stall: 'The party you named is not at home' };
@@ -341,28 +328,21 @@ function forceFor(
   /*
    * The fifth rung: the size, in unit slots, filled most suitable unit first (`bestFitParty`).
    *
-   * Fitted out of what the crew may *field*, not out of everything on the books, so a slot whose
-   * best party would be refused fills with the next best one instead of stalling. A crew whose
-   * whole roster is above its rank still stalls, which is correct: there is nothing to send.
+   * Out of everything at home: the §D7 rank gate sits on the muster now, so whatever is on the
+   * books may be sent.
    */
-  const fieldableArmy = Object.fromEntries(
-    Object.entries(base.army).filter(
-      ([unitId, count]) =>
-        unitsBeyondNotoriety({ [unitId]: count }, base.economy.notoriety).length === 0,
-    ),
-  ) as Army;
   // Filled once by the catalogue's own order first: it is free, and a yard that cannot fill the
   // size at all is refused here without a single practice fight being run for it.
   const short = { stall: `Not enough units at home to fill ${String(automation.unitSlots)}` };
-  const plain = bestFitParty(fieldableArmy, automation.unitSlots, template.kind);
+  const plain = bestFitParty(base.army, automation.unitSlots, template.kind);
   if (!plain) return short;
   const picked =
     template.kind === 'battle' && rank
       ? bestFitParty(
-          fieldableArmy,
+          base.army,
           automation.unitSlots,
           template.kind,
-          rank(fieldableArmy, automation.unitSlots),
+          rank(base.army, automation.unitSlots),
         )
       : plain;
   if (!picked) return short;
@@ -406,8 +386,11 @@ function leaderFor(
    * fight depends on who is standing in it; here the first free officer stands in until then,
    * so a slot with nobody free stalls before a party is filled.
    */
-  const best = template.kind === 'battle' ? free[0] : bestLeader(free, offerProfile(template));
-  return best ? { leader: asLeader(best, room) } : { stall: 'No officer is free to lead' };
+  // Ranked on the lifted sheets, as the board ranks its bench (bug pass, 2026-10-06): ranked on
+  // the printed ones, a slot sent the officer the lifts left behind, and froze the odds on them.
+  const lifted = free.map((one) => asLeader(one, room));
+  const best = template.kind === 'battle' ? lifted[0] : bestLeader(lifted, offerProfile(template));
+  return best ? { leader: best } : { stall: 'No officer is free to lead' };
 }
 
 /**
@@ -560,7 +543,13 @@ const missionsRunner: AutomationRunner = {
               room,
             ) ?? lead.leader)
           : lead.leader;
-      const carry = missionCarry(force, base.unitLoadouts, effects.lootCapacityPercent, effects);
+      const carry = missionCarry(
+        force,
+        base.unitLoadouts,
+        effects.lootCapacityPercent,
+        effects,
+        effects.carrierLootFlat,
+      );
       const offer = offerFor(
         candidate.template,
         candidate.grade,
@@ -596,6 +585,7 @@ const missionsRunner: AutomationRunner = {
       template: chosen.template,
       areaId: chosen.areaId,
       grade: chosen.grade,
+      goldenPercent: goldenPercentFor(effects, chosen.areaId, chosen.boardKey, chosen.template),
       // A fight's chance is frozen off the practice fights, exactly as the hand-sent launch does it.
       ...(chosen.template.kind === 'battle' && officer
         ? {
@@ -734,9 +724,6 @@ export function settleAutomations(repos: Repositories, now: Date, admin = false)
       if (!raw) return;
 
       const powers = automationPowers(raw.research.technologies);
-      // The ladder is read every tick rather than trusted from when the slot was written: research
-      // can be cancelled, and a slot that outlived its rung must stop rather than keep running.
-      if (!powers.unlocked || automation.slot >= powers.slots) return;
 
       /*
        * Still out? Then the only question is whether it has come home since we last looked.
@@ -786,6 +773,17 @@ export function settleAutomations(repos: Repositories, now: Date, admin = false)
         // Written only when it changes, so a slot stalled for an hour is one write and not 3,600.
         if (reason !== slot.stalled) repos.automations.put({ ...slot, stalled: reason });
       };
+
+      /*
+       * The ladder is read every tick rather than trusted from when the slot was written: research
+       * can be cancelled or a rung renamed, and a slot that outlived its rung must stop rather than
+       * keep running. Every rung the save checks, stalled with the save's own words.
+       */
+      const pastTheLadder = automationRungRefusal(powers, slot);
+      if (pastTheLadder !== null) {
+        stallFor(pastTheLadder);
+        return;
+      }
 
       /*
        * The orders are the Right Hand's work (maintainer, 2026-09-29): with nobody fit in the chair,

@@ -85,6 +85,7 @@ describe('an ally who reinforced somebody else’s attack', () => {
     const declarer = await register(app, 'the_declarer');
     const helper = await register(app, 'the_helper');
     const watcher = await register(app, 'the_watcher');
+    app.repos.users.updateProfile(helper.userId, { displayName: 'Helper' });
 
     // All three at one table: reinforcing somebody's fight is what a faction is for.
     const founded = await app.inject({
@@ -171,18 +172,19 @@ describe('an ally who reinforced somebody else’s attack', () => {
     expect(sizeOf('attacker'), 'fixture: nobody joined the attack').toBeGreaterThan(0);
     expect(sizeOf('defender')).not.toBe(sizeOf('attacker'));
 
-    const screen = await app.inject({
-      method: 'GET',
-      url: '/api/factions',
-      headers: auth(watcher.token),
-    });
-    const rows = screen.json<FactionResponse>().battles.filter((row) => row.battleId === battleId);
-    // Both allies are in this fight, so the screen carries a row each: the declarer's was right
-    // under the old code too, and the helper's is the one the finding is about.
-    expect(rows.map((row) => row.memberUserId).sort()).toEqual(
-      [declarer.userId, helper.userId].sort(),
-    );
-    const listed = rows.find((row) => row.memberUserId === helper.userId);
+    const fightsOn = async (reader: { token: string }) =>
+      (await app.inject({ method: 'GET', url: '/api/factions', headers: auth(reader.token) }))
+        .json<FactionResponse>()
+        .battles.filter((row) => row.battleId === battleId);
+
+    // Both allies are in this fight, and it is listed once, under the mate who called it
+    // (maintainer, 2026-10-06): a row each counted the fight twice in the room.
+    expect((await fightsOn(watcher)).map((row) => row.memberUserId)).toEqual([declarer.userId]);
+
+    // The declarer reads their own call off the Battles screen, so here it is the helper's row.
+    const rows = await fightsOn(declarer);
+    expect(rows.map((row) => row.memberUserId)).toEqual([helper.userId]);
+    const listed = rows[0];
     if (!listed) throw new Error('the reinforcing ally is not on the faction screen');
 
     expect(listed.side).toBe('attacker');
@@ -190,6 +192,27 @@ describe('an ally who reinforced somebody else’s attack', () => {
     // strength, which is the number the battle board deliberately blurs.
     expect(listed.committed).toBe(sizeOf('attacker'));
     expect(listed.committed).not.toBe(sizeOf('defender'));
+    // By the name they go by, as the room prints them (bug pass, 2026-10-06).
+    expect(listed.memberName).toBe('Helper');
+    /*
+     * The room's log keeps the call and the help when they happened (maintainer, 2026-10-06), not
+     * at the mark, and help is the reader's own: the watcher sees the call and nobody's column.
+     */
+    const logOf = async (reader: { token: string }) =>
+      (await app.inject({ method: 'GET', url: '/api/factions', headers: auth(reader.token) }))
+        .json<FactionResponse>()
+        .log.map((entry) => ({ kind: entry.kind, userId: entry.userId, units: entry.units }));
+    const scheduledFor = app.repos.sieges.find(battleId)!.scheduledFor;
+    const helperLog = await logOf(helper);
+    expect(helperLog).toEqual([
+      { kind: 'help', userId: helper.userId, units: 6 },
+      { kind: 'fight', userId: declarer.userId, units: 0 },
+    ]);
+    expect(await logOf(watcher)).toEqual([{ kind: 'fight', userId: declarer.userId, units: 0 }]);
+    const stamped = (
+      await app.inject({ method: 'GET', url: '/api/factions', headers: auth(watcher.token) })
+    ).json<FactionResponse>().log[0]!.at;
+    expect(Date.parse(stamped)).toBeLessThan(Date.parse(scheduledFor));
   });
 });
 
@@ -323,5 +346,11 @@ describe('what the table fields', () => {
     const me = screen.json<FactionResponse>().members.find((one) => one.userId === leader.userId);
     expect(me?.displayName).toBe('Vex');
     expect(me?.username).toBe('vex_1987');
+    // ...and the armies window the same way (bug pass, 2026-10-06): it printed the login, so one
+    // person had two names on one screen.
+    const army = screen
+      .json<FactionResponse>()
+      .armies.find((one) => one.memberUserId === leader.userId);
+    expect(army?.memberName).toBe('Vex');
   });
 });

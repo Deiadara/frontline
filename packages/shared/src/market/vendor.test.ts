@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_CITY_ID } from '../city/cities.js';
-import { SALTMARCH_CITY_ID, TERMINUS_CITY_ID } from '../city/atlas.js';
+import { RELIQUARY_CITY_ID, TERMINUS_CITY_ID } from '../city/atlas.js';
 import { CONTRABAND_PARTS } from './contraband.js';
 import { VENDOR_GOODS, vendorStockFor } from './vendor.js';
 import { BLACK_MARKET_GOODS } from './blackmarket.js';
@@ -31,7 +31,7 @@ describe('whose barrow it is', () => {
 
   it('carries different stock in a different city on the same day', () => {
     const home = vendorStockFor(DAY);
-    const away = vendorStockFor(DAY, SALTMARCH_CITY_ID);
+    const away = vendorStockFor(DAY, RELIQUARY_CITY_ID);
     expect(away.map((line) => line.item)).not.toEqual(home.map((line) => line.item));
   });
 
@@ -40,10 +40,10 @@ describe('whose barrow it is', () => {
    *
    * This is the half that would be a real defect rather than a dull barrow: a bid is filed against
    * a line id, so two cities sharing one would have a crew bidding in Ashfall and collecting a
-   * crate in Saltmarch.
+   * crate in Reliquary.
    */
   it('never mints one line id in two cities', () => {
-    const ids = [DEFAULT_CITY_ID, SALTMARCH_CITY_ID, TERMINUS_CITY_ID].flatMap((city) =>
+    const ids = [DEFAULT_CITY_ID, RELIQUARY_CITY_ID, TERMINUS_CITY_ID].flatMap((city) =>
       vendorStockFor(DAY, city).map((line) => line.id),
     );
     expect(new Set(ids).size).toBe(ids.length);
@@ -58,8 +58,8 @@ describe('whose barrow it is', () => {
    * every bid on a line that vanished would be a bid on nothing.
    */
   it('draws the same barrow twice for the same day and city', () => {
-    const first = vendorStockFor(DAY, SALTMARCH_CITY_ID);
-    const again = vendorStockFor(DAY, SALTMARCH_CITY_ID);
+    const first = vendorStockFor(DAY, RELIQUARY_CITY_ID);
+    const again = vendorStockFor(DAY, RELIQUARY_CITY_ID);
     expect(again).toEqual(first);
   });
 });

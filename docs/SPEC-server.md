@@ -37,7 +37,9 @@ from `@frontline/shared`.
   most `REQUEST_AMOUNT_MAX`. Rate limits per account and per address are in
   `src/limits/rules.ts`; IPv6 callers are counted by their /64. Letters are capped at
   `MESSAGES_PER_DAY` in any rolling day (`409 MESSAGE_REFUSED`, `too_many_today`), faction
-  invitations included. A mailbox and a sent folder each keep their newest `MAILBOX_LIMIT` (100),
+  invitations included, and at `LETTERS_TO_ONE_PLAYER_PER_DAY` from one sender to one reader
+  (`too_many_to_them`). Both are counted off `letter_sends` (migration 0151), a day-long send log
+  that deleting or trimming letters cannot touch. A mailbox and a sent folder each keep their newest `MAILBOX_LIMIT` (100),
   read or not: every send trims them (`social/send.ts`), and a recipient's copy that goes is folded
   into the sender's count first (`pruned_recipients`, `pruned_read`). The live
   channel refuses past 40 streams per address or 2,000 in total with `503 SERVER_BUSY`.
@@ -81,10 +83,13 @@ Body: `RegisterRequestSchema` `{username, password}`.
 
 Body: `LoginRequestSchema` `{username, password}`.
 
-- Ten failed attempts against one username (case-insensitive) in fifteen minutes, from any
-  number of addresses, shut it for the rest of the window: `429 RATE_LIMITED` with `Retry-After`,
-  answered before the password is hashed (`LOGIN_FAILURE_LIMIT`, `src/limits/sign-in.ts`). A
-  correct password clears the count. This is on top of the per-address sign-in limit.
+- Ten failed attempts against one username (case-insensitive) from one address (an IPv6 /64 is
+  one address) in fifteen minutes shut that username to that address for the rest of the window:
+  `429 RATE_LIMITED` with `Retry-After`, answered before the password is hashed
+  (`LOGIN_FAILURE_LIMIT`, `src/limits/sign-in.ts`). Counted per account and per address
+  (maintainer, 2026-10-06), so a stranger's guesses never lock the owner out from their own
+  address. A correct password clears that address's count. This is on top of the per-address
+  sign-in limit.
 - Unknown username or bcrypt mismatch → `401 INVALID_CREDENTIALS` (same message for both, and
   the same time: an unknown name is compared against a decoy hash).
 - `200` → `AuthResponseSchema` `{token, user}`, and the session cookie.
@@ -406,9 +411,10 @@ it. Fights a faction mate called stay on the book. A bet
 the rung `STACKHOUSE_RESEARCH_ID` is not done, a bet is already riding, the fight is not the crew's
 or its faction's, the crew called it (`own_call`, on either side), betting has closed, or the caps
 are short; the write route also asks for the
-`market` and `black_market` doors. The stake leaves the caps at once (`adminCaps` in admin mode).
-Bets live in `stackhouse_bets` (migration 0145), with a partial unique index that holds one
-unsettled bet per crew.
+`market` and `black_market` doors. The stake leaves the caps at once, and the stake on record is
+what was charged (maintainer, 2026-10-06): nothing in admin mode (`adminCaps`), so an admin bet pays
+out on zero. Bets live in `stackhouse_bets` (migrations 0145, 0150), with a partial unique index
+that holds one unsettled bet per crew.
 
 `settleStackhouse` closes a bet whose fight has landed: `sieges.outcomeOf` reads the stored report's
 `winner`; a match pays `stackhousePayout` (twice the stake), a miss pays nothing, and a fight that
@@ -459,13 +465,16 @@ stock count is now how many more visits a line can go on.
   refreshed board; every refusal is `409 MARKET_REFUSED`, in this order: he is not in the district,
   the line is not on today's barrow, the city has cleared the line out, the crew is already the
   highest bid, the bid is under `nextLotBid` (the message carries both figures), the crew cannot
-  cover it.
+  cover it with its caps plus what its own earlier bid on the lot is holding.
 
 The reserve is the line's price with **no** crew discount on it: two crews bidding against each
 other have to be bidding against the same floor. §A4's `marketDiscountPercent` comes off what the
-winner is charged at the close instead, so the result row and both notifications carry the number the
-lot closed at and the discount is invisible to everybody who was outbid. Nothing is escrowed at the
-bid, so caps are checked at the table and again at the close.
+winner is charged instead, so the result row and both notifications carry the number the lot closed
+at and the discount is invisible to everybody who was outbid. A bid is held when it is placed
+(maintainer, 2026-10-06): the discounted figure comes off the caps at once and is kept on the row
+(`vendor_bids.held`, migration 0149; nothing in admin mode). Raising your own bid hands the old hold
+back and takes the new one. At the close the winner's hold is the price and every other bidder's
+comes back. The fence's shelf (`black_market_bids.held`) holds infamy the same way.
 
 ### Blueprints and the Reimagining bench (§D10, §G2)
 
@@ -944,7 +953,7 @@ the gate, the road between the districts; from outside to the district, the road
 door. `POST /api/actions/move/quote` answers `{minutes}` for the same body with nothing moved.
 `POST /api/actions/move/recall`: `{moveId}`, inside the first tenth; the column walks back to
 where it came from. Refusals: `400` for the same place, nobody named, a location somebody else
-holds ("call a fight instead"), or a location in a city that is not open (`city_closed`: Saltmarch's
+holds ("call a fight instead"), or a location in a city that is not open (`city_closed`: a shut city's
 empty plots have control rows, and a claim there opened a city no screen draws); `409 NO_FORCE` for units or machines not
 standing at the source, or scavengers bound for ground; `403` for a source the crew has nobody
 on. Columns settle on the world clock beside the ones bound for a fight, and `GET /api/actions`
@@ -1045,6 +1054,42 @@ perks add on `salvageRefundPercent`, and the sum reached 155% of what the dead c
 `salvageRefundCut` (`battle/salvage.ts`) pays it in full to `SALVAGE_REFUND_KNEE` (50) and closes
 on `SALVAGE_REFUND_CEILING` (100), so 155 points refund about 93.9% and a refund never returns
 what was spent. Every location card on these channels says "(tapers, no hard stop)" (`TAPERS`).
+
+### Reliquary's ground: authored payouts, the Mausoleums and the Death Cloaks (maintainer, 2026-10-06)
+
+The third city is in `city/atlas.ts` behind `open: false` while it is written a district at a time
+(`docs/DISTRICTS.md`, "Reliquary"). Four things in the code came with its first two districts:
+
+- **Saltmarch is gone.** Reliquary took its row in `CITIES` and its place on the world screen,
+  and its three-district sketch left the atlas with it; the shut-city tests that used it now use
+  Reliquary. No migration: a save holding Saltmarch rows drops them (pre-launch rule).
+- **A location can carry its own payouts.** `LocationSchema.bonuses` is an optional authored list
+  that replaces its kind's; `baseBonusesOf(location)` is the one reader and `bonusesAt` takes the
+  location (a bare kind still answers with the kind's own list, for tests). Every consumer of
+  held ground reads through it: `territoryEffectsFor` (`city/control.ts`), the district view's
+  card lines (`city/view.ts`), the unit bonus breakdown (`units/breakdown.ts`) and the test
+  fixture `holdEveryBoard`. So the Wax Stalls are a Market that pays 40 caps, the Pilgrim Hostels
+  a Fence Camp with beds and no caps, and the Cemetery a Graveyard worth 5% infamy and nothing
+  else.
+- **Two bonus shapes.** `officer_skill { attribute, flat }` puts flat points on one named skill
+  of every officer, through `TerritoryEffects.officerSkillFlat` and `LiftRoom.bySkill`
+  (`crew/standing.ts`), outside `MAX_OFFICER_LIFT` like the group lift; it is not the perk kind
+  `officer_attribute`, which skips the officer carrying it. `unit_morale` takes an optional
+  `tier`, folded into `TerritoryEffects.unitTierMoraleFlat` and read per unit in `effectiveStats`.
+- **The Mausoleum** (`mausoleum`, appended to `LOCATION_KINDS`) pays `{ kind: 'faith' }`, which
+  `applyHoldBonus` counts into `TerritoryEffects.mausoleums` rather than switching a flag, plus six
+  beds. `effectiveStats` adds `FAITH_PER_MAUSOLEUM` (30) times that count to the damage and
+  vitality of a unit whose sheet carries `faith: true`, before any percentage.
+- **A muster cap tied to held ground.** `UnitSpec.capPerHold { locationKind, each }`: the Death
+  Cloaks are fifty a Mausoleum. `heldCapRoom` (`units/muster.ts`) counts them everywhere the crew
+  has people and on the bench, like `legendaryRoom`; `queueMuster` refuses past it with
+  `at_the_cap` (409, `UNIT_LOCKED`, "That is as many as the ground you hold can raise"), and the
+  roster sends the remaining room as `UnitOption.room` so the client's Max never offers a batch
+  the route refuses. `death-cloaks.test.ts` holds the rule.
+
+The Steelbelt's Bone Market moved to Gravefields the same day and the Steelbelt got a Soup Kitchen
+(`steelbelt-canteen`) in its place; `salvage.ts` and the server tests that handed a crew "the Bone
+Market" now use Bonded Row's Rendering Shed.
 
 ### The stores are a hard ceiling (maintainer, 2026-09-28)
 

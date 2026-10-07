@@ -703,7 +703,7 @@ describe('a turncoat counts as dead', () => {
 
   it('pays the Bone Market refund on them', () => {
     // The refund needs somewhere to pay it from.
-    const bones = repos.city.control('steelbelt-bones')!;
+    const bones = repos.city.control('bonded-row-rendering')!;
     repos.city.put({ ...bones, holder: { kind: 'crew', baseId: ATTACKER }, garrison: {} });
 
     const lostFight = (turned: Record<string, number>) => {

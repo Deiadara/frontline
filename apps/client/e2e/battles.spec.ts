@@ -272,6 +272,8 @@ test('the tabs move between what is coming, what came back and what you hold', a
 
   await page.getByTestId('battles-tab-reports').click();
   await expect(page.getByTestId('battle-reports')).toBeVisible();
+  // A won attack reads as a win, as the report it opens does (bug pass, 2026-10-06).
+  await expect(page.getByTestId('read-fight-3')).toContainText('Won');
 
   await page.getByTestId('battles-tab-ground').click();
   await expect(page.getByTestId('structures')).toBeVisible();
@@ -772,4 +774,39 @@ test('the forecast counts the Combine legendary standing over the ground', async
       message: `the Syndic must cost a real share of the fight, against ${dead}% without her`,
     })
     .toBeLessThanOrEqual(dead - 25);
+});
+
+/**
+ * The Inventory tab on a short screen (bug pass, 2026-10-06).
+ *
+ * The sheet is `overflow-hidden` and every other tab sits in a scroller; the shelf did not, so on a
+ * short window the trap rack ran off the bottom of the sheet with no way to reach it. Measured
+ * against whatever clips it after everything that can scroll has been scrolled to its end.
+ */
+test('the inventory tab reaches the end of the shelf on a short screen', async ({ page }) => {
+  await page.setViewportSize({ width: 1024, height: 560 });
+  await installApi(page, lateGame);
+  await page.goto('/game/battles');
+  await page.getByTestId('battles-tab-inventory').click();
+  await expect(page.getByTestId('battle-stash')).toBeVisible();
+  await settleFonts(page);
+
+  const { last, clip } = await page.evaluate(() => {
+    const stash = document.querySelector('[data-testid="battle-stash"]')!;
+    // Only what a player can scroll: a script can move an `overflow-hidden` box too, and doing
+    // so here slid the tabs off the top and called the shelf reachable.
+    for (let at = stash.parentElement; at; at = at.parentElement) {
+      const { overflowY } = getComputedStyle(at);
+      if (overflowY === 'auto' || overflowY === 'scroll') at.scrollTop = at.scrollHeight;
+    }
+    const bottom = stash.lastElementChild!.getBoundingClientRect().bottom;
+    for (let at = stash.parentElement; at; at = at.parentElement) {
+      if (getComputedStyle(at).overflowY !== 'visible') {
+        return { last: bottom, clip: at.getBoundingClientRect().bottom };
+      }
+    }
+    return { last: bottom, clip: window.innerHeight };
+  });
+  await page.screenshot({ path: 'e2e-out/battles-inventory-short.png' });
+  expect(last, 'the end of the shelf is past what clips it').toBeLessThanOrEqual(clip + 1);
 });

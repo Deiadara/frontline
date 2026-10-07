@@ -224,10 +224,10 @@ the crew's effective market discount and the raw sum it came from when there is 
      a plain link whatever the map's read says. The map's read is asked for the city on screen
      (`useCity(city)`, keyed per city) for the holdings and the captured gates it draws.
    - **All cities**: the world one step back, as state on this screen rather than a route of its
-     own (`CitiesView`), reached by a control on the painting. Five cities as a staggered row of
-     tall portraits filling the frame, each carrying a name, a nickname and what the place is, and
-     nothing else. Ashfall is the only pressable one; the other four are drawn at full strength
-     and simply do not respond. The shell's corner sprites are suppressed here
+     own (`CitiesView`), reached by a control on the painting. Five cities (Reliquary took
+     Saltmarch's place on 2026-10-06) as a staggered row of tall portraits filling the frame, each
+     carrying a name, a nickname and what the place is, and nothing else. Ashfall and Terminus are
+     the pressable ones; the rest are drawn at full strength and simply do not respond. The shell's corner sprites are suppressed here
      (`useBareCorners`) and the blurred district backdrop is kept.
 
    Both bars measure themselves (`ResizeObserver` → `--hud-h` / `--nav-h` on the shell root) and
@@ -344,6 +344,10 @@ the crew's effective market discount and the raw sum it came from when there is 
      cannot disagree. Two inputs are not on `BattleView` and the card says so rather than guessing:
      the crew's territory effects (it passes `noTerritoryEffects()`) and the Scrapyard's unit
      modifications.
+
+   - **Max on a roster card** is the smaller of `maxMusterable` (what the crew can afford and
+     house) and `UnitOption.room`, the ground's own ceiling on a unit when it has one (the Death
+     Cloaks' fifty a Mausoleum, 2026-10-06), so it never offers a batch the route refuses.
 
 8. **The yard and the road** (§C3). A vehicle carries a **speed**, 0 to 100, on the same scale a
    unit's sheet uses, never a percentage off a clock: the machine's card reads `Speed 65` beside

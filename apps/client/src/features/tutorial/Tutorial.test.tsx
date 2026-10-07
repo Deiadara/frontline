@@ -90,6 +90,21 @@ describe('the opening tutorial on screen', () => {
     expect(screen.queryByRole('button', { name: 'Close' })).toBeNull();
   });
 
+  /*
+   * Bug pass, 2026-10-06: the window's own Escape and backdrop closes ran Skip, so a stray click
+   * beside the card wrote every step as seen and the tutorial never came back.
+   */
+  it('stays, and writes nothing, on Escape or a press on the dimmed backdrop', async () => {
+    draw('city', []);
+    fireEvent.keyDown(window, { key: 'Escape' });
+    const backdrop = screen.getByTestId('tutorial-card').parentElement!;
+    fireEvent.mouseDown(backdrop);
+    fireEvent.click(backdrop);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(screen.getByTestId('tutorial-card-welcome')).toBeVisible();
+  });
+
   it('marks only this card seen when the player goes on', async () => {
     draw('city', []);
     fireEvent.click(screen.getByTestId('tutorial-next'));
@@ -149,5 +164,45 @@ describe('the opening tutorial on screen', () => {
     expect(screen.getByTestId('tutorial-card').textContent).toContain(
       `of ${TUTORIAL_STEPS.length}`,
     );
+  });
+});
+
+/** Bug pass, 2026-10-06: what a press on the card shows before and after the server answers. */
+describe('a press on the card', () => {
+  const answer = (path: string, settled: Response) =>
+    fetchMock.mockImplementation((called: string) =>
+      String(called).endsWith(path)
+        ? Promise.resolve(settled)
+        : // The re-read of `/me` never lands: what is on screen is what the answer itself wrote.
+          new Promise(() => {}),
+    );
+
+  it('takes the card away on the answer, without waiting for the account to be read again', async () => {
+    answer(
+      '/settings/tutorial',
+      new Response(
+        JSON.stringify({
+          ...F.settings,
+          user: { ...F.me.user, tutorialSeen: [...TUTORIAL_STEPS] },
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      ),
+    );
+    draw('city', []);
+    fireEvent.click(screen.getByTestId('tutorial-skip'));
+    await waitFor(() => expect(screen.queryByTestId('tutorial-card')).toBeNull());
+  });
+
+  it('says why a press did not save', async () => {
+    answer(
+      '/settings/tutorial',
+      new Response(JSON.stringify({ error: { code: 'INTERNAL', message: 'Not saved' } }), {
+        status: 500,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    );
+    draw('city', []);
+    fireEvent.click(screen.getByTestId('tutorial-next'));
+    expect(await screen.findByTestId('tutorial-error')).toHaveTextContent('Not saved');
   });
 });

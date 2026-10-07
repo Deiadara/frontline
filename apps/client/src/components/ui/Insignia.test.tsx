@@ -1,7 +1,6 @@
 import type { LocationHolderKind } from '@frontline/shared';
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
-import { HOLDER_SIGN } from '../../features/city/holder';
 import { ICON_GLYPHS } from './Icon';
 import { INSIGNIA_INK, Insignia, hasInsignia } from './Insignia';
 
@@ -33,10 +32,7 @@ describe('the insignia', () => {
     expect(screen.getByRole('img', { name: 'The Combine' })).toBeInTheDocument();
   });
 
-  it("wears the party's own colour from the city's holder table, unless told to keep the line's", () => {
-    for (const holder of ['government', 'looters'] as const) {
-      expect(HOLDER_SIGN[holder]).toContain(INSIGNIA_INK[holder]);
-    }
+  it("wears the party's own colour, unless told to keep the line's", () => {
     const { rerender } = render(<Insignia holder="looters" />);
     expect(screen.getByTestId('insignia-looters')).toHaveClass(INSIGNIA_INK.looters);
     rerender(<Insignia holder="looters" tone={false} />);

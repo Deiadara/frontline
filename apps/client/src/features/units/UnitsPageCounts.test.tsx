@@ -40,6 +40,8 @@ function scavengers(owned: number): UnitOption {
     cost: spec.cost,
     musterSeconds: spec.musterSeconds,
     unitSlots: spec.unitSlots,
+    doorLevel: null,
+    doorSteps: [],
     unlocked: true,
     missing: [],
     owned,
@@ -70,6 +72,8 @@ function roster(
     musterCostReduction: 0,
     musterSpeedBonus: 0,
     built: [],
+    ignoredLabels: [],
+    antiCombineLevels: 0,
   };
 }
 

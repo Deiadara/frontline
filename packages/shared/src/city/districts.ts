@@ -124,71 +124,38 @@ export function isContested(district: District): district is ContestedDistrict {
  * (see {@link districtDisplayName}). The Docks were the last of them to carry an authored name and
  * that name went with them when they became ground worth fighting over.
  */
-export const UNCLAIMED_DISTRICT_NAME = 'Player District';
-
-/** Roman numerals for the plots, one per residential district the map can show besides your own. */
-const PLOT_NUMERALS = ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X'] as const;
-
-/**
- * What the other plots are called: `Player District I`, `II`, `III`, in catalogue order.
- *
- * **Numbered rather than named after whoever lives there**, and that is the design rather than a
- * shortcut. Only one crew on this map is *you*; the rest are other people's homes and the map's job
- * is to say "somebody plays there", not to publish their crew name to every player in the city. A
- * board of four different crew names also made the four plots look like four different kinds of
- * place, when the whole point of them is that they are the same kind of place.
- *
- * Viewer-relative, so the numbering always runs from one with no gap in it: your own plot is not in
- * the sequence, so a player whose home is the second of four sees I, II and III rather than I, III
- * and IV. `districtDisplayName` is the only caller and `city.test.ts` pins that the three are
- * distinct.
- */
-export function plotName(index: number): string {
-  return `${UNCLAIMED_DISTRICT_NAME} ${PLOT_NUMERALS[index] ?? String(index + 1)}`;
-}
-
-/**
- * Every residential district except `ownDistrictId`, in catalogue order: the plots to number.
- *
- * Exported because the numbering has to be the same on the map, on the district screen and in a
- * test, and re-deriving "which plots are not mine, in what order" at three call sites is how the
- * three come to disagree.
- */
-export function otherPlots(ownDistrictId: string): readonly District[] {
-  return CITY_DISTRICTS.filter(
-    (district) => district.kind === 'residential' && district.id !== ownDistrictId,
-  );
-}
+export const UNCLAIMED_DISTRICT_NAME = 'Unclaimed Player District';
 
 /**
  * What to call a district on a screen.
  *
  * One function because it is one rule, and every screen that names a district has to say the same
  * thing. Contested ground always answers with its authored name. Residential ground answers with
- * **your crew's name on your own plot** and with a number on everybody else's: see {@link plotName}
- * for why the other three are not named after their residents.
+ * **the name of the crew living there**, yours or anybody's, and with
+ * {@link UNCLAIMED_DISTRICT_NAME} while nobody does (maintainer, 2026-10-06). The other plots were
+ * numbered I, II, III until then, to keep a stranger's crew name off the map; the ruling is that a
+ * claimed plot is simply that crew's.
  *
  * Nothing is stored. Rename the crew and the map says so on the next read, which is what makes the
- * tag a fact about the world rather than a copy of one.
+ * tag a fact about the world rather than a copy of one. `ownDistrictId` and `ownName` name your
+ * own plot off the live base, so a caller that has no resident read for it still gets it right;
+ * `residentName` names everybody else's off the city read.
  */
 export function districtDisplayName(
   district: District,
-  viewer: { ownDistrictId?: string | null; ownName?: string | null } = {},
+  viewer: {
+    ownDistrictId?: string | null;
+    ownName?: string | null;
+    residentName?: string | null;
+  } = {},
 ): string {
   if (district.kind !== 'residential') return district.name;
-  if (
+  const own =
     viewer.ownDistrictId !== undefined &&
     viewer.ownDistrictId !== null &&
-    district.id === viewer.ownDistrictId
-  ) {
-    return viewer.ownName !== undefined && viewer.ownName !== null && viewer.ownName.length > 0
-      ? viewer.ownName
-      : district.name;
-  }
-  const index = otherPlots(viewer.ownDistrictId ?? '').findIndex(
-    (other) => other.id === district.id,
-  );
-  return index >= 0 ? plotName(index) : district.name;
+    district.id === viewer.ownDistrictId;
+  const name = own ? (viewer.ownName ?? viewer.residentName) : viewer.residentName;
+  return name !== undefined && name !== null && name.length > 0 ? name : district.name;
 }
 
 /**
@@ -261,16 +228,12 @@ export function sameDistrictName(a: string, b: string): boolean {
 /**
  * Whether a crew may call itself this, ignoring who else is in the city.
  *
- * The plot numbers are reserved. A crew called `Player District II` would be indistinguishable from
- * the plot the map draws under that name, which is the same confusion `sameDistrictName` exists to
- * prevent, arriving from the other direction.
+ * The empty plot's name is reserved. A crew called `Unclaimed Player District` would be
+ * indistinguishable from the plot the map draws under that name, which is the same confusion
+ * `sameDistrictName` exists to prevent, arriving from the other direction.
  */
 export function isReservedDistrictName(name: string): boolean {
-  const wanted = districtNameKey(name);
-  if (wanted === districtNameKey(UNCLAIMED_DISTRICT_NAME)) return true;
-  return PLOT_NUMERALS.some(
-    (numeral) => wanted === districtNameKey(`${UNCLAIMED_DISTRICT_NAME} ${numeral}`),
-  );
+  return districtNameKey(name) === districtNameKey(UNCLAIMED_DISTRICT_NAME);
 }
 
 /**
@@ -354,12 +317,11 @@ export const UNIFIED_BONUSES: Readonly<Record<string, UnifiedBonus>> = {
   },
   ccs: {
     title: 'The Spire Is Taken',
-    // The last district in the game, and the bonus is the Combine's own machinery rather than a
-    // pile of anything: every price in this city was set from these offices, and now your crew pays
-    // less at every market in every city.
-    // Not infamy, tempting as that is: the Martyrs' Ground inside these walls already pays in
-    // exactly that, and a unified bonus has to be worth *finishing* the district for.
-    bonus: { kind: 'market_discount', percent: 20 },
+    // The last district in Ashfall pays what every city's last district pays (maintainer,
+    // 2026-10-07): a level of ANTI-COMBINE, +10% damage and vitality against the Combine,
+    // stacking with the Blockhouse's and the Nave's to +30%. It replaced twenty points off every
+    // market in every city.
+    bonus: { kind: 'anti_combine' },
   },
 };
 
@@ -407,16 +369,24 @@ export function districtFrom(
  * is. The fourth element is what lets two rail yards read differently (`LocationSchema.blurb`); a
  * row without one prints its kind's line.
  */
-type LocationRow = readonly [slug: string, name: string, kind: LocationKind, blurb?: string];
+type LocationRow = readonly [
+  slug: string,
+  name: string,
+  kind: LocationKind,
+  blurb?: string,
+  /** What this place pays instead of its kind's list (`LocationSchema.bonuses`). */
+  bonuses?: readonly HoldBonus[],
+];
 
 /** Terser than repeating the district id in every location literal. */
 function locationsIn(districtId: string, rows: readonly LocationRow[]): Location[] {
-  return rows.map(([slug, name, kind, blurb]) => ({
+  return rows.map(([slug, name, kind, blurb, bonuses]) => ({
     id: `${districtId}-${slug}`,
     districtId,
     name,
     kind,
     ...(blurb === undefined ? {} : { blurb }),
+    ...(bonuses === undefined ? {} : { bonuses }),
   }));
 }
 
@@ -552,7 +522,9 @@ const ASHFALL: readonly WithoutCity<District>[] = [
       // Named, not renamed: the *kind* is the only `doghouse` in the city and it is what puts
       // Cyberhounds on the roster. See `units/catalog.ts`.
       ['kennels', 'The Doghouse', 'doghouse'],
-      ['bones', 'The Bone Market', 'bone_market'],
+      // The Bone Market went to Reliquary's Gravefields (maintainer, 2026-10-06), and the works
+      // got a canteen: the shift has to eat somewhere.
+      ['canteen', 'The Shift Canteen', 'soup_kitchen'],
     ]),
   },
   {

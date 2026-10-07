@@ -20,6 +20,7 @@ import {
 } from '../testing/fight-world.js';
 import { pinOverseer } from '../testing/overseer.js';
 import { armTheAttack } from '../testing/attack.js';
+import { attackingSlots } from './understrength.js';
 import { everybodyHome } from '../testing/walk.js';
 import { settleWorld } from '../world/settle.js';
 
@@ -599,6 +600,32 @@ describe('a call has to be meant', () => {
   it('lets an attack of twenty stand', async () => {
     const { world, battleId } = await calledWith(20);
     expect(world.app.repos.sieges.find(battleId)?.resolvedAt).toBeNull();
+  });
+
+  /** Bug pass, 2026-10-06: a column that lands after the mark never fights, so it never counts. */
+  it('counts a column on the road only if it gets there by the mark', async () => {
+    const world = await makeWorld('attacker');
+    const { caller } = await crews(world, { caller: { razors: 30 } });
+    expect((await call(world, caller, onBelt(PLOT))).statusCode).toBe(200);
+    const battle = world.app.repos.sieges.find(onlyPending(world))!;
+    expect(attackingSlots(world.app.repos, battle)).toBe(0);
+    const column = (arrivesAt: number, id: string) =>
+      world.app.repos.movements.put({
+        id,
+        baseId: caller.baseId,
+        battleId: battle.id,
+        side: 'attacker',
+        fromDistrictId: 'south-quay',
+        toDistrictId: battle.target.districtId,
+        army: { razors: 20 },
+        perimeter: {},
+        departedAt: new Date().toISOString(),
+        arrivesAt: new Date(Date.parse(battle.scheduledFor) + arrivesAt).toISOString(),
+      });
+    column(60_000, 'late-column');
+    expect(attackingSlots(world.app.repos, battle), 'a minute late').toBe(0);
+    column(0, 'on-the-mark');
+    expect(attackingSlots(world.app.repos, battle), 'exactly on the mark').toBe(20);
   });
 
   it('holds the crew that called and lost off the place for a day, and nobody else', async () => {

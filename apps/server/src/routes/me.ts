@@ -17,7 +17,10 @@ export function registerMeRoutes(app: FastifyInstance): void {
     // page is settled here. It is also the backstop for every level-up nothing else announced: the
     // world clock's, and any banked by a read route that answers with no `levelUp` of its own.
     // `takeLevelUp` drains the durable marker (migration 0083), so this is drawn exactly once.
-    const settled = owned ? settleBase(app.repos, owned, new Date()) : null;
+    // One instant for the whole read (bug pass, 2026-10-06): the settle, the quotes and the rates
+    // each read their own wall clock and could describe different moments at an injury's edge.
+    const now = new Date();
+    const settled = owned ? settleBase(app.repos, owned, now) : null;
     const base = settled?.base ?? null;
     const levelUp = base ? takeLevelUp(app.repos, base.id) : undefined;
     // The two badges, on the call the shell already polls. See `UnreadCountsSchema`.
@@ -33,14 +36,12 @@ export function registerMeRoutes(app: FastifyInstance): void {
     // What the next level of each structure will actually cost, discounts included. The dialog
     // cannot work it out: `buildingCostPercent` is a per-structure record and the effects on the
     // wire are flat numbers. See `BuildQuotesSchema`.
-    const buildQuotes = base ? buildQuotesFor(app.repos, base) : undefined;
+    const buildQuotes = base ? buildQuotesFor(app.repos, base, now) : undefined;
     // And the clock beside it, for the same reason: the speed fold never reaches the client.
-    const buildClocks = base
-      ? buildClocksFor(app.repos, base, new Date(), app.config.admin)
-      : undefined;
+    const buildClocks = base ? buildClocksFor(app.repos, base, now, app.config.admin) : undefined;
     // And what the district is making, for the same reason: the ground and the yields stay here.
-    const productionRates = base ? productionRatesFor(app.repos, base, new Date()) : undefined;
-    const productionYield = base ? productionYieldFor(app.repos, base, new Date()) : undefined;
+    const productionRates = base ? productionRatesFor(app.repos, base, now) : undefined;
+    const productionYield = base ? productionYieldFor(app.repos, base, now) : undefined;
     return {
       user,
       overseer,

@@ -117,7 +117,7 @@ export interface UnitModifierSpec {
    * gives the target gone against them (`effects.ts`, `matchup.ts`). Neither is a bonus on a
    * number, so neither is summed into `contextBonusPercent`.
    */
-  affects?: 'offense' | 'toughness' | 'evasion' | 'gate';
+  affects?: 'offense' | 'toughness' | 'both' | 'evasion' | 'gate';
   /**
    * The clause the card prints after "Counts", when the context's own is not the whole truth.
    *
@@ -238,19 +238,18 @@ export const UNIT_MODIFIERS = {
     context: 'outnumbered',
     percent: 25,
   },
-  dug_in: {
-    label: 'Dug In',
-    description: 'Hits harder when defending. Better behind cover than in front of it.',
+  /*
+   * GUARD (maintainer, 2026-10-07) replaces Dug In (+30% damage defending) and Bulwark (+70%
+   * toughness defending): one tag, both halves, on every sheet that held ground before and on the
+   * Cyberhounds. Any fight on the defending side counts, a garrison's and a reinforcement's alike.
+   */
+  guard: {
+    label: 'GUARD',
+    description:
+      'Hits harder and is harder to kill when defending: a quarter more damage and vitality on any ground it holds.',
     context: 'defending',
-    percent: 30,
-  },
-  bulwark: {
-    label: 'Bulwark',
-    description: 'Far harder to kill when defending. Getting through them takes time nobody has.',
-    context: 'defending',
-    percent: 70,
-    // Toughness rather than damage: this is on the sheet that has almost no damage to raise.
-    affects: 'toughness',
+    percent: 25,
+    affects: 'both',
   },
   /*
    * Two things off one tag, and the card has to say both (bug pass, 2026-09-19).

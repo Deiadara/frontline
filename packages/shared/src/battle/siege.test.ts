@@ -5,7 +5,12 @@ import {
   gateDefensePercent,
   type Building,
 } from '../building/index.js';
-import { capturedGateDefensePercent, noTerritoryEffects } from '../city/index.js';
+import {
+  CAPTURED_GATE_MAX_LEVEL,
+  capturedGateDefensePercent,
+  capturedGateStep,
+  noTerritoryEffects,
+} from '../city/index.js';
 import { analyseBattle, reportReaches } from './analysis.js';
 import { bareBattlefield } from './battlefield.js';
 import {
@@ -900,8 +905,10 @@ describe('what a breach does to a district (§A4)', () => {
    * ground varies and the choice is a real one.
    *
    * Pinned as an equality against the *captured* gate's formula rather than against a number
-   * typed here, because the rule is that the two are on the same footing: a wall you raised at
-   * home and a wall you took are worth the same per level.
+   * typed here, because the rule is that the two are on the same footing: a captured gate climbs
+   * five levels where the home Gate climbs twenty, each captured level priced, timed and worth
+   * two of the home ones (`capturedGateStep`, maintainer 2026-10-06), so a wall you took is worth
+   * what a wall at home at twice the level is.
    */
   it('is worth its level and nothing else, at home and on ground it took', () => {
     const gateAt = (level: number): Building => ({
@@ -910,9 +917,13 @@ describe('what a breach does to a district (§A4)', () => {
       level,
       modifications: [],
     });
-    for (const level of [1, 4, 12, BUILDING_MAX_LEVEL]) {
-      expect(gateDefensePercent([gateAt(level)])).toBe(capturedGateDefensePercent(level));
+    for (let level = 1; level <= CAPTURED_GATE_MAX_LEVEL; level += 1) {
+      expect(gateDefensePercent([gateAt(capturedGateStep(level))])).toBe(
+        capturedGateDefensePercent(level),
+      );
     }
+    // Half a maxed home Gate: the ladder stops at level 5, priced as the home Gate's tenth.
+    expect(capturedGateStep(CAPTURED_GATE_MAX_LEVEL)).toBe(BUILDING_MAX_LEVEL / 2);
     // The flat rating moves with the level too, and with nothing a player can buy separately.
     expect(districtDefense([gateAt(2)])).toBeGreaterThan(districtDefense([gateAt(1)]));
   });

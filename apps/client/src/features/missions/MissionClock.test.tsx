@@ -86,6 +86,8 @@ function areaOf(id: string, name: string): MissionArea {
       leanings: [...leaningsFor(template)],
       // Out of the opening band: this fixture is not about the ramp.
       ramp: null,
+      golden: false,
+      goldenPercent: 0,
     })),
     activeMissionId: null,
   };

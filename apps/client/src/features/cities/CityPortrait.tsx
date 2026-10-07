@@ -13,8 +13,8 @@ import { generateSkyline, type DepthBand } from '../../render/skyline';
  * ## Why generated rather than a grey box
  *
  * The art policy is that everything ships on code-generated art until real masters arrive, and a
- * placeholder rectangle with a city name on it tells a player nothing about whether Saltmarch and
- * Verge Station are different places. Three bands of towers at different depths do: one is low and
+ * placeholder rectangle with a city name on it tells a player nothing about whether Reliquary and
+ * Terminus are different places. Three bands of towers at different depths do: one is low and
  * broken and the other is tall and regular, because the seeds differ, and that reads as two cities
  * before a single word is read.
  *
@@ -22,7 +22,7 @@ import { generateSkyline, type DepthBand } from '../../render/skyline';
  *
  * The drop seam is live: `city-<id>.webp` in `assets/` replaces the skyline for that city and
  * nothing else changes. `cityPortraitUrl` is the lookup, and the five names it wants are
- * `city-ashfall`, `city-saltmarch`, `city-terminus`, `city-redline` and `city-deepcut`.
+ * `city-ashfall`, `city-terminus`, `city-reliquary`, `city-redline` and `city-deepcut`.
  * A painting is drawn `object-cover`, because the card it sits in is a column of the world screen
  * and its height comes off the window rather than off the picture.
  */

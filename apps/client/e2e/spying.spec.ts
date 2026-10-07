@@ -200,15 +200,15 @@ test('the Monitor lists the runners out, with the tier, the caps and a way to tu
 }) => {
   await installApi(page, lateGame);
   await page.goto('/game/actions');
-  await expect(page.getByTestId('spy-run')).toBeVisible();
+  await expect(page.getByTestId(/^spy-run-/)).toBeVisible();
   await settleFonts(page);
-  const row = page.getByTestId('spy-run');
+  const row = page.getByTestId(/^spy-run-/);
   await expect(row).toContainText('Paid Whisper');
   await expect(row).toContainText('500 caps');
   await expect(row).toContainText('No. 4 Press House');
   await expect(page.getByTestId('road-counts')).toContainText('runners on a job');
   // Fifteen minutes into a forty-minute walk out: the window shut eleven minutes ago.
-  await expect(page.getByTestId('recall-spy')).toHaveCount(0);
+  await expect(page.getByTestId(/^recall-spy-/)).toHaveCount(0);
 });
 
 test('the board files every report, and opens one on its own window', async ({ page }) => {

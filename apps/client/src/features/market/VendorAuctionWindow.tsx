@@ -102,7 +102,7 @@ export function VendorAuctionWindow({
           <LotStanding
             auction={auction}
             currency="caps"
-            opens={`Opens at ${auction.reserve.toLocaleString()}. He will not take less.`}
+            opens={`Opens at ${auction.reserve.toLocaleString('en-US')}. He will not take less.`}
           />
           <BarrowBidPanel
             auction={auction}
@@ -143,7 +143,9 @@ function LotDossier({ offer }: { offer: VendorOffer }) {
           </p>
           <dl className="grid grid-cols-2 gap-x-4 gap-y-1 font-display text-[11px] uppercase tracking-[0.14em] text-ink-300">
             <dt>Worth</dt>
-            <dd className="tabular-nums text-ink-100">{spec.capsValue.toLocaleString()} caps</dd>
+            <dd className="tabular-nums text-ink-100">
+              {spec.capsValue.toLocaleString('en-US')} caps
+            </dd>
             <dt>Left to sell</dt>
             <dd className="tabular-nums text-ink-100">
               {offer.line.stock} {offer.line.stock === 1 ? 'visit' : 'visits'}
@@ -152,8 +154,8 @@ function LotDossier({ offer }: { offer: VendorOffer }) {
         </div>
       </div>
       <p className="font-body text-[12px] leading-relaxed text-ink-300">
-        One goes to the highest bid when he packs up, at what they bid. Every crew's bid is in the
-        open; raising yours replaces it, and nothing comes off the table until he leaves.
+        One goes to the highest bid when he packs up. A bid takes its caps when you place it;
+        raising yours hands the old one back, and a bid that loses comes back when he leaves.
       </p>
     </div>
   );
@@ -190,8 +192,8 @@ function BarrowBidPanel({
       error={bid.error}
       shortMessage={(purse, most) =>
         most > purse
-          ? `You have ${purse.toLocaleString()} caps, which covers a bid of up to ${most.toLocaleString()} once your ground comes off.`
-          : `You have ${purse.toLocaleString()} caps. He will want the whole figure when he packs up.`
+          ? `You can put ${purse.toLocaleString('en-US')} caps on this lot, which covers a bid of up to ${most.toLocaleString('en-US')} once your ground comes off.`
+          : `You can put ${purse.toLocaleString('en-US')} caps on this lot, and a bid takes the whole figure when you place it.`
       }
       atLotCap={atLotCap}
       payFor={(amount) => discountedCaps(amount, discountPercent)}

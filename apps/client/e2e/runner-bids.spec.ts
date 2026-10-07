@@ -78,20 +78,21 @@ test.describe('the barrow is an auction', () => {
     await expect(page.getByTestId(`bid-${OUTBID}`)).toHaveText('Your table');
   });
 
-  test('an under-bid is warned about before it is sent and refused in words after', async ({
-    page,
-  }) => {
+  // Guarded before the press (maintainer, 2026-10-06): Place bid greys, and its hover says why.
+  test('an under-bid is greyed before it is sent, with the reason on hover', async ({ page }) => {
     await openLot(page, OUTBID);
     const lot = lotFor(OUTBID);
     const leader = lot.leading?.amount ?? 0;
     expect(leader, 'the fixture lot must already have a leader').toBeGreaterThan(0);
 
     await page.getByTestId('lot-amount').fill(String(lot.reserve));
-    await expect(page.getByTestId('lot-under')).toContainText(leader.toLocaleString());
-    await expect(page.getByTestId('lot-under')).toContainText(lot.nextBid.toLocaleString());
-
-    await page.getByTestId('lot-place').click();
-    await expect(page.getByRole('alert')).toContainText(`Somebody is at ${leader}`);
+    const place = page.getByTestId('lot-place');
+    await expect(place).toBeDisabled();
+    await expect(place).toHaveAttribute('data-tip', new RegExp(leader.toLocaleString('en-US')));
+    await expect(place).toHaveAttribute(
+      'data-tip',
+      new RegExp(lot.nextBid.toLocaleString('en-US')),
+    );
     await expect(page.getByTestId('lot-standing')).toContainText('You have been outbid');
   });
 

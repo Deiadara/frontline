@@ -17,7 +17,7 @@ import {
   type ResearchRefusal,
 } from '../research/start.js';
 import { officerFitReader } from '../crew/standing.js';
-import { labResearchItems, researchHead, trackStatuses } from '../research/tracks.js';
+import { itemBlocker, labResearchItems, researchHead, trackStatuses } from '../research/tracks.js';
 
 /**
  * Research (GDD §C): the thirteen role tracks and the Lab's one bench.
@@ -55,7 +55,10 @@ function settledBase(
 
 /**
  * Every refusal is a 409. The client can pre-empt all of them from `GET /research`, so these are
- * the honest last word on a stale tab, not the primary way a player learns the rules.
+ * the honest last word on a stale tab, not the primary way a player learns the rules. Both
+ * sentences a rung's hover can say are what the route says too: a shut rung sends its own
+ * blocker (see the start route) and a dear one the page's "Short of materials", since a rung costs
+ * planks, scrap, supplies and metal as well as caps.
  */
 const REFUSAL_ERRORS: Record<ResearchRefusal, { code: ErrorCode; message: string }> = {
   already_running: { code: 'RESEARCH_BUSY', message: 'Your people are already on something' },
@@ -65,7 +68,7 @@ const REFUSAL_ERRORS: Record<ResearchRefusal, { code: ErrorCode; message: string
     code: 'RESEARCH_OPTION_LOCKED',
     message: 'Your people are not ready for that yet',
   },
-  cannot_afford: { code: 'INSUFFICIENT_CAPS', message: 'You cannot cover the costs' },
+  cannot_afford: { code: 'INSUFFICIENT_RESOURCES', message: 'Short of materials' },
 };
 
 const CANCEL_ERRORS: Record<ResearchCancelRefusal, { code: ErrorCode; message: string }> = {
@@ -138,8 +141,9 @@ export function registerResearchRoutes(app: FastifyInstance): void {
     const user = request.currentUser;
 
     return app.db.transaction(() => {
+      const base = settledBase(app, user.id, user.overseerId, now);
       const result = startResearch(app.repos, {
-        base: settledBase(app, user.id, user.overseerId, now),
+        base,
         project: { kind: 'technology', techId },
         id: randomUUID(),
         now,
@@ -147,7 +151,12 @@ export function registerResearchRoutes(app: FastifyInstance): void {
       });
       if (result.kind === 'refused') {
         const { code, message } = REFUSAL_ERRORS[result.reason];
-        throw new AppError(code, message);
+        // The exact gate the page shows on the rung, rather than one sentence for all seven.
+        const exact =
+          result.reason === 'locked'
+            ? itemBlocker(base, techId, officerFitReader(app.repos, base, now))
+            : null;
+        throw new AppError(code, exact ?? message);
       }
       return researchScreen(app, result.base, now);
     })();

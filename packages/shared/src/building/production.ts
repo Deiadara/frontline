@@ -297,6 +297,11 @@ export function unitSlotCapacity(buildings: readonly Building[]): number {
 export interface CrewYield {
   /** §F2: the crew's production bonus, off its perks and the Lab. */
   productionPercent: number;
+  /**
+   * The Collection Plate (maintainer, 2026-10-07): this much more of a structure's output for
+   * every modification fitted on it, on the same sum as its cards and the crew's rate.
+   */
+  modificationOutputPercent?: number;
   /** §F2: the crew's storage bonus, off its perks and the Lab. */
   storageCapacityPercent: number;
   /**
@@ -403,7 +408,10 @@ export function structureProductionRates(
    * (maintainer, 2026-10-01: "make them add"). It used to be applied first and the crew's on the
    * result, so a +28% card beside a +16% crew paid x1.485 rather than +44%.
    */
-  const structure = structureProductionPercent(kind, buildings);
+  const structure =
+    structureProductionPercent(kind, buildings) +
+    (crew.modificationOutputPercent ?? 0) *
+      (findBuilding(buildings, kind)?.modifications.length ?? 0);
   const rates: PartialResources = {};
   for (const [key, rate = 0] of Object.entries(levelProduction(kind, buildings))) {
     if (rate === 0) continue;

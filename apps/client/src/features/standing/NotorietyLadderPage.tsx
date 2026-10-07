@@ -88,7 +88,7 @@ function Rung({
           ) : (
             <>
               <span className="shrink-0 font-stamp text-[14px] leading-none tabular-nums text-oxblood-300">
-                {price.toLocaleString()}
+                {price.toLocaleString('en-US')}
               </span>
               <span className="shrink-0 font-display text-[11px] uppercase tracking-[0.12em] text-ink-400">
                 infamy
@@ -100,7 +100,7 @@ function Rung({
                 className="shrink-0 font-display text-[11px] tabular-nums text-ink-400"
                 data-testid={`notoriety-total-${at}`}
               >
-                ({notorietySpentTo(at).toLocaleString()} in all)
+                ({notorietySpentTo(at).toLocaleString('en-US')} in all)
               </span>
             </>
           )}
@@ -165,12 +165,12 @@ export function NotorietyLadderPage() {
         <span className="flex min-w-[16rem] flex-1 flex-col gap-2">
           <span className="flex items-baseline gap-2">
             <span className="font-display text-2xl font-bold tabular-nums text-oxblood-300">
-              {Math.round(infamy).toLocaleString()}
+              {Math.round(infamy).toLocaleString('en-US')}
             </span>
             <span className="font-display text-base text-ink-300">
               {cost === null
                 ? 'infamy, and no rank above this one'
-                : `infamy, of ${cost.toLocaleString()} for the next rung`}
+                : `infamy, of ${cost.toLocaleString('en-US')} for the next rung`}
             </span>
           </span>
           <DrawnMeter

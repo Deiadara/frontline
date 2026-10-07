@@ -82,6 +82,10 @@ export function settleResearch(
     // Off the rung's own clock, on the same curve the mission board pays: "the longest single
     // commitment in the game" was paying a flat 150 whether it ran two minutes or twelve hours.
     xpForClock('researchCompleted', active.durationMinutes * 60),
+    // Read at the settle's instant, like the mission award (bug pass, 2026-10-06): a crew whose
+    // perk officer was laid up at the wall clock but fit when the world settles was paid without
+    // them.
+    now,
   );
 
   return { base: progressed.base, awards: [progressed.award] };

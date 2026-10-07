@@ -30,4 +30,6 @@ export const NOTIFICATION_LIVE_KINDS: Partial<Record<NotificationKind, LiveEvent
   // A page can land without the player doing anything: the Runner's close and somebody accepting
   // a listing both write into the inventory on their own clock.
   page_found: 'base',
+  // The Printworks' pages, the Dispensary's stim and the Foundry's parts arrive on the same clock.
+  daily_grant: 'base',
 };

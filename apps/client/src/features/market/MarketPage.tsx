@@ -21,7 +21,7 @@ import {
   type VendorAuctionResult,
   type VendorOffer,
 } from '@frontline/shared';
-import { useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { ResourceIcon } from '../../components/Resources';
 import { Icon } from '../../components/ui/Icon';
 import { NumberField } from '../../components/ui/NumberField';
@@ -45,7 +45,7 @@ import { useDayResetClock, usePlayerZone } from '../settings/usePlayerZone';
 import { ItemGlyph } from '../inventory/ItemGlyph';
 import { VendorAuctionWindow, lotSpec } from './VendorAuctionWindow';
 import { pastLotCap } from './LotParts';
-import { ErrorNote } from '../../components/ui/ErrorNote';
+import { PressError } from '../../components/ui/PressError';
 
 /**
  * The market (market extension, reworked by the maintainer 2026-09-08).
@@ -80,6 +80,18 @@ export function MarketPage() {
   const resetsAt = useDayResetClock(now);
   /** Which lot's bidding screen is open, if any. */
   const [lotOpen, setLotOpen] = useState<string | null>(null);
+  /*
+   * Closed for good when its lot leaves the stock (bug pass, 2026-10-06). The Runner's visit ends
+   * with an empty list, which unmounted the window but kept the id, and a line id is the same for
+   * both of a day's visits: the window opened by itself hours later when he came back.
+   * Before the early return below: a hook after it is how a page goes blank.
+   */
+  const stock = query.data?.vendor.stock;
+  const lotGone =
+    lotOpen !== null && stock !== undefined && !stock.some((offer) => offer.line.id === lotOpen);
+  useEffect(() => {
+    if (lotGone) setLotOpen(null);
+  }, [lotGone]);
 
   const data = query.data;
   if (!data) {
@@ -296,7 +308,7 @@ function LotCard({ offer, onBid }: { offer: VendorOffer; onBid: () => void }) {
       >
         <ResourceIcon kind="caps" className="h-3.5 w-3.5" />
         <span className="font-display text-[13px] font-bold leading-none tabular-nums text-hextech-100">
-          {(auction?.leading?.amount ?? offer.line.price).toLocaleString()}
+          {(auction?.leading?.amount ?? offer.line.price).toLocaleString('en-US')}
         </span>
       </span>
 
@@ -355,11 +367,11 @@ function LastVisit({ results }: { results: readonly VendorAuctionResult[] }) {
                 {result.price !== null && (
                   <>
                     {' '}
-                    at {result.price.toLocaleString()}
+                    at {result.price.toLocaleString('en-US')}
                     {result.outcome === 'lost' && result.winner !== null && ` to ${result.winner}`}
                   </>
                 )}
-                {result.outcome !== 'won' && ` (you bid ${result.yourBid.toLocaleString()})`}
+                {result.outcome !== 'won' && ` (you bid ${result.yourBid.toLocaleString('en-US')})`}
               </li>
             ))}
           </ul>
@@ -496,7 +508,7 @@ function BrokerPanel({ market }: { market: MarketResponse }) {
             : null;
   const warning =
     blocked === null && spill > 0
-      ? `Your store is short of room: ${spill.toLocaleString()} ${RESOURCE_LABELS[want]} would go to waste`
+      ? `Your store is short of room: ${spill.toLocaleString('en-US')} ${RESOURCE_LABELS[want]} would go to waste`
       : null;
 
   return (
@@ -555,7 +567,7 @@ function BrokerPanel({ market }: { market: MarketResponse }) {
                   data-sound="click"
                   disabled={value < BARTER_MINIMUM}
                   onClick={() => setAmount(value)}
-                  data-tip={`${value.toLocaleString()} ${RESOURCE_LABELS[give].toLowerCase()}`}
+                  data-tip={`${value.toLocaleString('en-US')} ${RESOURCE_LABELS[give].toLowerCase()}`}
                   className="h-[38px] min-w-[2.75rem] !text-[16px] !tracking-[0.04em]"
                 >
                   {label}
@@ -600,7 +612,7 @@ function BrokerPanel({ market }: { market: MarketResponse }) {
           {/* The answer, at a size worth reading: the figure and the thing, nothing else. */}
           <span className="flex items-baseline gap-2" data-testid="broker-answer">
             <span className="font-display text-[26px] font-bold leading-none tabular-nums text-verdigris-100">
-              {quote.toLocaleString()}
+              {quote.toLocaleString('en-US')}
             </span>
             <span className="font-display text-[11px] uppercase tracking-[0.16em] text-ink-300">
               {RESOURCE_LABELS[want]}
@@ -624,7 +636,7 @@ function BrokerPanel({ market }: { market: MarketResponse }) {
               {blocked ?? warning}
             </span>
           )}
-          {barter.error !== null && <ErrorNote>{barter.error.message}</ErrorNote>}
+          {barter.error && <PressError onDismiss={barter.reset}>{barter.error.message}</PressError>}
         </div>
       </div>
     </Panel>
@@ -768,7 +780,7 @@ function SupplyPanel({ market, resetsAt }: { market: MarketResponse; resetsAt: s
             )}
             data-testid="supply-left"
           >
-            {leftUnits.toLocaleString()} {noun} left
+            {leftUnits.toLocaleString('en-US')} {noun} left
           </span>
           <span className="shrink-0 font-display text-[10px] uppercase tracking-[0.14em] text-ink-300">
             {supply.percent}% of a store · resets at {resetsAt}
@@ -827,7 +839,7 @@ function SupplyPanel({ market, resetsAt }: { market: MarketResponse; resetsAt: s
           {/* Only when there is something to take. "All 0" on a full warehouse is a control
               that advertises its own uselessness. */}
           {most > 0 && (
-            <span data-tip={`All ${most.toLocaleString()}`}>
+            <span data-tip={`All ${most.toLocaleString('en-US')}`}>
               <DrawnButton data-sound="click" onClick={() => setWanted(most)}>
                 All
               </DrawnButton>
@@ -845,12 +857,12 @@ function SupplyPanel({ market, resetsAt }: { market: MarketResponse; resetsAt: s
                 row is the same row at 1 and at 100,000: the digits fill more of their slot. */}
             <ResourceIcon kind="caps" className="h-6 w-6" />
             <span className="inline-block min-w-[7ch] text-center text-oxblood-300">
-              {price.toLocaleString()}
+              {price.toLocaleString('en-US')}
             </span>
             <Icon name="chevron-down" aria-hidden className="h-4 w-4 -rotate-90 text-brass-300" />
             <ResourceIcon kind={key} className="h-6 w-6" />
             <span className="inline-block min-w-[7ch] text-center text-verdigris-100">
-              {units.toLocaleString()}
+              {units.toLocaleString('en-US')}
             </span>
           </span>
           {/* The reason the run is refused is the button's own word, with the sentence on its
@@ -865,7 +877,7 @@ function SupplyPanel({ market, resetsAt }: { market: MarketResponse; resetsAt: s
             </DrawnButton>
           </span>
         </div>
-        {buy.error !== null && <ErrorNote className="self-center">{buy.error.message}</ErrorNote>}
+        {buy.error && <PressError onDismiss={buy.reset}>{buy.error.message}</PressError>}
       </div>
     </Panel>
   );
@@ -882,7 +894,7 @@ export function ItemWindow({ id }: { id: ItemId }) {
       icon={<ItemGlyph id={id} className="h-full w-full" />}
       figure={
         <span className="font-display text-lg font-bold tabular-nums text-warning">
-          {spec.capsValue.toLocaleString()} caps
+          {spec.capsValue.toLocaleString('en-US')} caps
         </span>
       }
     >

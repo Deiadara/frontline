@@ -105,7 +105,7 @@ export function registerMarketRoutes(app: FastifyInstance): void {
     // Before the board is drawn: any lot whose visit is over. A player who opens the market five
     // minutes after he packed up is the one who closes it if the world clock has not got there
     // first, and they must see what they won on this very read rather than on the next one.
-    settleVendorAuctions(app.repos, now, app.config.admin);
+    settleVendorAuctions(app.repos, now);
     // Settled, as every write here is: priced off the stored row, the caps, the bid ceiling and
     // the supply run's `most` left out the unbanked production, and the screen greyed a bid or a
     // run the server would then have taken.
@@ -121,7 +121,7 @@ export function registerMarketRoutes(app: FastifyInstance): void {
     const now = new Date();
     // The close first, the way `/bar` does it: a bid landing just after a visit ended belongs to
     // the next one, and the lot it names has to be settled before anything is written against it.
-    settleVendorAuctions(app.repos, now, app.config.admin);
+    settleVendorAuctions(app.repos, now);
     return app.db.transaction(() => {
       const base = settledOwnBase(app, request.currentUser.id, now);
       /*
@@ -145,7 +145,9 @@ export function registerMarketRoutes(app: FastifyInstance): void {
       if (result.kind === 'refused') refuse(result.reason, result);
       // The barrow the bid landed at, not the crew's own: a bid in Terminus used to answer with
       // Ashfall's stock, so the lot the player had just bid on was not on the board they got back.
-      return { market: board(base, now, cityId) };
+      // Read again, because the bid took its caps (held bids, 2026-10-06): drawn off the row read
+      // before it, the board quoted the caps the crew had before it bid.
+      return { market: board(ownBase(app, request.currentUser.id), now, cityId) };
     })();
   });
 

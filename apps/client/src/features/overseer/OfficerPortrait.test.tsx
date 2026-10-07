@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { act, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { OfficerPortrait, formatRecovery } from './OfficerPortrait';
 
@@ -102,6 +102,39 @@ describe('formatRecovery', () => {
   it('never runs wider than seven characters, which is what the band is sized for', () => {
     for (const seconds of [0, 59, 60, 3599, 3600, 24 * 3600, 99 * 3600]) {
       expect(formatRecovery(seconds).length, String(seconds)).toBeLessThanOrEqual(7);
+    }
+  });
+});
+
+/** Bug pass, 2026-10-06: every officer ever hurt kept a one-second clock running for good. */
+describe('the recovery clock', () => {
+  it('runs only while the recovery is still ahead, and stops when it lands', () => {
+    vi.useFakeTimers();
+    try {
+      const healed = render(
+        <OfficerPortrait
+          portraitId={null}
+          name="Vasco Renn"
+          injuredUntil={new Date(Date.now() - 60_000).toISOString()}
+        />,
+      );
+      expect(vi.getTimerCount()).toBe(0);
+      healed.unmount();
+
+      render(
+        <OfficerPortrait
+          portraitId={null}
+          name="Vasco Renn"
+          injuredUntil={new Date(Date.now() + 3_000).toISOString()}
+        />,
+      );
+      expect(vi.getTimerCount()).toBe(1);
+      act(() => {
+        vi.advanceTimersByTime(5_000);
+      });
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
     }
   });
 });

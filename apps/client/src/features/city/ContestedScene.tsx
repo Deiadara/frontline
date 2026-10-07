@@ -1,11 +1,19 @@
-import { LOCATION_CATALOG, plateAspect, type District, type LocationView } from '@frontline/shared';
+import {
+  LOCATION_CATALOG,
+  plateAspect,
+  type District,
+  type FactionMark,
+  type LocationHolderKind,
+  type LocationView,
+} from '@frontline/shared';
 import type { ReactNode } from 'react';
 import { deliveredUrl } from '../../assets/delivered';
 import { HoverCard } from '../../components/ui/HoverCard';
 import { Icon } from '../../components/ui/Icon';
 import { Insignia } from '../../components/ui/Insignia';
 import { cn } from '../../lib/cn';
-import { HOLDER_SIGN, holderToneOf, type HolderTone } from './holder';
+import { holderToneOf, type HolderTone } from './holder';
+import { SIDE_SIGN, SideMark, type Side } from './SideMark';
 import { GATE_MARK, LOCATION_MARKS, type Mark } from './marks';
 
 /**
@@ -33,7 +41,12 @@ interface ContestedSceneProps {
   /** The crew reading the screen, so a sign can say "yours" rather than naming you back at you. */
   baseId: string | undefined;
   /** The way in, when the district draws one. `null` when the district has no gate standing. */
-  gate: { shut: boolean; brokenUntil: string | null } | null;
+  /**
+   * The district's door. `shut` means armed and standing; `callable` says whether a fight can be
+   * called on it from here, which it cannot when the reader holds the ground behind it, nor when
+   * it is standing open (bug pass, 2026-10-06: every gate sign opened a caller the server refused).
+   */
+  gate: { shut: boolean; brokenUntil: string | null; callable?: boolean } | null;
   /** Called with a location id when a sign is clicked. */
   onPick: (locationId: string) => void;
 }
@@ -85,6 +98,8 @@ export function ContestedScene({ district, locations, baseId, gate, onPick }: Co
           testId={`site-${view.location.id}`}
           name={view.location.name}
           tone={holderToneOf(view.holder, baseId ?? null)}
+          side={view.holderSide}
+          mark2={{ faction: view.holderFaction, holder: view.holder.kind }}
           onActivate={() => onPick(view.location.id)}
           card={
             <div className="flex flex-col gap-1.5">
@@ -157,17 +172,22 @@ export function ContestedScene({ district, locations, baseId, gate, onPick }: Co
           // The way in is nobody's ground: it is the door, not a plot, so it wears the neutral
           // plate rather than borrowing a holder's colour.
           tone="unoccupied"
+          side="unoccupied"
           shut={gate.shut}
-          onActivate={() => onPick('gate')}
+          onActivate={() => {
+            if (gate.callable === true) onPick('gate');
+          }}
           card={
             <div className="flex flex-col gap-1.5">
               <p className="font-display text-[11px] uppercase tracking-[0.12em] text-brass-300">
                 District Gate
               </p>
               <p className="font-body text-[12px] leading-relaxed text-ink-200">
-                {gate.shut
-                  ? 'One party holds every location in here, so there is no way in but the front.'
-                  : 'Standing open. Everything behind it can be reached without breaking anything.'}
+                {!gate.shut
+                  ? 'Standing open. Everything behind it can be reached without breaking anything.'
+                  : gate.callable === true
+                    ? 'One party holds every location in here, so there is no way in but the front.'
+                    : 'Your crew holds every location in here. There is nobody behind this door to call out.'}
               </p>
             </div>
           }
@@ -190,6 +210,8 @@ function Sign({
   testId,
   name,
   tone,
+  side,
+  mark2 = null,
   shut = false,
   card,
   onActivate,
@@ -197,8 +219,12 @@ function Sign({
   mark: Mark;
   testId: string;
   name: string;
-  /** Who holds it, which is what the plate is coloured by. See `city/holder.ts`. */
+  /** Who holds it, as the attribute the gates read. See `city/holder.ts`. */
   tone: HolderTone;
+  /** Whose side that is (maintainer, 2026-10-07), which is what the plate is coloured by. */
+  side: Side;
+  /** The emblem or glyph beside the name: the holder's faction, or their party's own mark. */
+  mark2?: { faction: FactionMark | null; holder: LocationHolderKind } | null;
   shut?: boolean;
   card: ReactNode;
   onActivate: () => void;
@@ -239,13 +265,24 @@ function Sign({
             // any sign near an edge inward.
             'flex items-center gap-1.5 whitespace-nowrap rounded-sm border px-2 py-0.5 text-left',
             'font-display text-[10px] font-semibold uppercase leading-tight tracking-[0.09em] shadow-lifted',
-            // Five holders, five colours (`city/holder.ts`). It was two, yours and everything
-            // else, so the looters' pawn shop, the Combine's armoury and a rival crew's yard were
-            // one colour on the one screen where telling them apart decides what to attack.
-            HOLDER_SIGN[tone],
+            // Three sides, three colours (`SideMark.tsx`): yours and your faction's green,
+            // anybody else's red, nobody's grey. It was five, one a party, until the faction
+            // ruling (2026-10-07) put the party on the mark beside the name instead.
+            SIDE_SIGN[side],
           )}
+          data-side={side}
         >
           {shut && <Icon name="lock" aria-hidden className="h-3 w-3 shrink-0 text-brass-300" />}
+          {mark2 !== null && (
+            // Out of the line's height, like the district tag's mark: 14px on a 10px line would
+            // grow every sign by a pixel, and the signs hang from marks on the painting.
+            <SideMark
+              side={side}
+              faction={mark2.faction}
+              holder={mark2.holder}
+              className="-my-1 h-3.5 w-3.5"
+            />
+          )}
           <span>{name}</span>
         </span>
       </HoverCard>

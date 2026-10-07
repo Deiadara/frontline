@@ -94,6 +94,10 @@ export function markIndex(mark: OfficerMark): number {
  * the ceiling belongs to `S+` rather than falling off the end of the array.
  */
 export function markFromPoints(points: number): OfficerMark {
+  // A score that is not a number reads as the floor (bug pass, 2026-10-06): NaN fell through every
+  // comparison to an index of NaN and answered `undefined`, which the type says cannot happen.
+  if (!Number.isFinite(points))
+    return OFFICER_MARKS[points === Infinity ? OFFICER_MARKS.length - 1 : 0]!;
   const above = Math.max(0, points - OFFICER_MARK_FLOOR);
   // A hair of tolerance (bug pass, 2026-10-05): the band is 90/21, so a score built as
   // `FLOOR + i * BAND` lands a float's width under its own floor and read one grade low.

@@ -832,26 +832,51 @@ describe('modification brackets (§E)', () => {
       ],
     });
 
-    const cleared = clearSlot(repos, base, 'lab', 0);
+    const cleared = clearSlot(repos, base, 'lab', 0, 'lab_quantum_modeling');
     expect(cleared.kind).toBe('cleared');
     const emptied = cleared.kind === 'cleared' ? cleared.base : base;
     expect(findBuilding(emptied.buildings, 'lab')?.modifications).toEqual([]);
     // Nowhere to be found: not on the structure, and not on a shelf either, because there is none.
     expect(addonsOf(emptied).built).toEqual([]);
 
-    expect(clearSlot(repos, emptied, 'lab', 0)).toEqual({
+    expect(clearSlot(repos, emptied, 'lab', 0, 'lab_quantum_modeling')).toEqual({
       kind: 'refused',
       reason: 'already_empty',
     });
+  });
+
+  /**
+   * The bracket is named by position and by card (bug pass, 2026-10-06). Removing a card closes
+   * the gap behind it, so a second dismantle sent on the pre-removal view named the card that had
+   * slid into its slot and destroyed it. The card the player saw now has to be the one there.
+   */
+  it('refuses when the bracket holds a different card than the one pressed', () => {
+    const repos = openStack();
+    const base = seedBase(repos, {
+      buildings: [
+        build('nexus', 20),
+        { id: 'lab-1', kind: 'lab', level: 20, modifications: ['lab_quantum_modeling'] },
+      ],
+    });
+    expect(clearSlot(repos, base, 'lab', 0, 'lab_process_cell')).toEqual({
+      kind: 'refused',
+      reason: 'moved',
+    });
+    expect(findBuilding(repos.bases.findById(base.id)!.buildings, 'lab')?.modifications).toEqual([
+      'lab_quantum_modeling',
+    ]);
   });
 
   it('refuses a bracket the structure does not have', () => {
     const repos = openStack();
     const base = seedBase(repos, { buildings: [build('nexus', 20), build('lab', 20)] });
     // A slot index past the three every structure has.
-    expect(clearSlot(repos, base, 'lab', 9)).toEqual({ kind: 'refused', reason: 'bad_slot' });
+    expect(clearSlot(repos, base, 'lab', 9, 'lab_quantum_modeling')).toEqual({
+      kind: 'refused',
+      reason: 'bad_slot',
+    });
     // ...and a structure that is not standing at all.
-    expect(clearSlot(repos, base, 'gate', 0)).toEqual({
+    expect(clearSlot(repos, base, 'gate', 0, 'lab_quantum_modeling')).toEqual({
       kind: 'refused',
       reason: 'no_structure',
     });

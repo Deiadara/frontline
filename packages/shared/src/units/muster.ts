@@ -57,6 +57,20 @@ export type Army = z.infer<typeof ArmySchema>;
 
 export const MAX_MUSTER_QUEUE = 5;
 
+/**
+ * Why a muster order is refused, in the player's words. One copy for the route's refusal and the
+ * card's greyed Muster button (maintainer, 2026-10-06: a press the server would refuse is guarded,
+ * with this sentence on hover, rather than reported after it).
+ */
+export const MUSTER_REFUSAL_TEXT = {
+  locked: 'You cannot field those yet',
+  queue_full: 'The bench is full',
+  already_have_one: 'There is only ever one of those',
+  at_the_cap: 'That is as many as the ground you hold can raise. Take another Mausoleum',
+  no_unit_slots: 'Your district has nowhere to put any more',
+  cannot_afford: 'You cannot cover the cost',
+} as const;
+
 export const MusterOrderSchema = z.object({
   id: IdSchema,
   /**
@@ -258,8 +272,10 @@ export function musterCost(
  * Deliberately narrow. A location that musters nothing changes no price at all, and a location
  * somebody else holds changes no price for you: this is the *held* level or it is nothing.
  */
-export const MUSTER_COST_PER_LOCATION_LEVEL = 1;
-export const MUSTER_SPEED_PER_LOCATION_LEVEL = 3;
+// Two and seven a level since the ladder went to five levels (2026-10-06): 8 and 28 at the top,
+// where 9 and 27 stood at the old level 10.
+export const MUSTER_COST_PER_LOCATION_LEVEL = 2;
+export const MUSTER_SPEED_PER_LOCATION_LEVEL = 7;
 
 /**
  * What the crew's own ground takes off this unit, in percentage points.
@@ -337,6 +353,46 @@ export function musterSecondsFor(unit: UnitSpec, count: number, speedPercent = 0
   const bonus = musterSpeedAfterTaper(speedPercent) / 100;
   const raw = unit.musterSeconds * (1 + (count - 1) * BATCH_TIME_FACTOR);
   return Math.max(1, Math.round(raw / (1 + bonus)));
+}
+
+/**
+ * A yard order of `count` machines, on the units' batch rule (maintainer, 2026-10-07: "make the
+ * vehicle Build it section be the same as the units").
+ *
+ * The price is linear, every line times the count, off the discounted price of one. The clock is
+ * `musterSecondsFor`'s shape with the Garage's own figure for one machine in place of the sheet's:
+ * the first at full price and every one after at {@link BATCH_TIME_FACTOR}. No speed bonus: the
+ * Gauntlet's cuts do not reach a machine, which is built rather than mustered.
+ */
+export function vehicleBatchCost(perOne: PartialResources, count: number): PartialResources {
+  const batch = Math.max(1, Math.trunc(count));
+  return Object.fromEntries(
+    RESOURCE_KEYS.flatMap((key) => {
+      const amount = perOne[key];
+      return amount === undefined ? [] : [[key, amount * batch] as const];
+    }),
+  );
+}
+
+export function vehicleBatchSeconds(perOne: number, count: number): number {
+  const batch = Math.max(1, Math.trunc(count));
+  return Math.max(1, Math.round(perOne * (1 + (batch - 1) * BATCH_TIME_FACTOR)));
+}
+
+/**
+ * How many of one machine the yard would take an order for today: the room under the per-kind
+ * cap and the beds, whichever is smaller, walked back until the stockpile covers the batch. What
+ * the card's **Max** offers and what the route checks, so the one can never offer what the other
+ * refuses.
+ */
+export function maxVehiclesBuildable(
+  perOne: PartialResources,
+  stock: PartialResources,
+  room: number,
+): number {
+  let count = Math.max(0, Math.trunc(room));
+  while (count > 0 && !affordable(vehicleBatchCost(perOne, count), stock)) count -= 1;
+  return count;
 }
 
 const SECOND_MS = 1000;
@@ -602,10 +658,17 @@ export function capLegendaries(army: Army): Army {
   return out;
 }
 
-/** How many of a unique unit a crew already holds, counting the queue. Legendary units cap at 1. */
+/**
+ * How many of a capped unit a crew already holds, counting the queue: a legendary's one, the Death
+ * Cloaks' fifty a Mausoleum.
+ *
+ * The queue's *outstanding* part only, as in `unitSlotsQueued` below: delivered units are already
+ * in `army`, and reading the whole `count` counted them twice (bug pass, 2026-10-06), so a crew
+ * ten into a batch of thirty was told it had ten Death Cloaks of room when it had twenty.
+ */
 export function alreadyHolds(unit: UnitSpec, army: Army, queue: MusterQueue): number {
   const queued = queue
     .filter((order) => order.unitId === unit.id)
-    .reduce((total, order) => total + order.count, 0);
+    .reduce((total, order) => total + Math.max(0, order.count - order.delivered), 0);
   return (army[unit.id] ?? 0) + queued;
 }

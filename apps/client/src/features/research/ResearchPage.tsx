@@ -33,7 +33,7 @@ import { MarkStamp } from '../../components/ui/MarkStamp';
 import { TrackSigil } from './TrackSigil';
 import { BlueprintsSection } from './BlueprintsSection';
 import { ReimaginingSection } from './ReimaginingSection';
-import { ErrorNote } from '../../components/ui/ErrorNote';
+import { PressError } from '../../components/ui/PressError';
 
 /**
  * The research page (GDD §C, §D, §G2, §I1): three tabs and one workspace.
@@ -81,7 +81,7 @@ function ActiveProject({ active, at }: { active: ActiveResearch; at: Date }) {
         onCancel={() => cancel.mutate({})}
         data-testid="cancel-research"
       />
-      {cancel.error && <ErrorNote>{cancel.error.message}</ErrorNote>}
+      {cancel.error && <PressError onDismiss={cancel.reset}>{cancel.error.message}</PressError>}
     </div>
   );
 }
@@ -336,7 +336,7 @@ function RungCard({
               {RESOURCE_ORDER.filter((key) => (item.cost[key] ?? 0) > 0)
                 .map(
                   (key) =>
-                    `${(item.cost[key] ?? 0).toLocaleString()} ${RESOURCE_LABELS[key].toLowerCase()}`,
+                    `${(item.cost[key] ?? 0).toLocaleString('en-US')} ${RESOURCE_LABELS[key].toLowerCase()}`,
                 )
                 .join(' · ')}
               {' · '}
@@ -478,7 +478,7 @@ function TracksSection({
             <li key={entry.role}>
               <TrackRow
                 status={entry}
-                selected={entry.role === track}
+                selected={entry.role === status.role}
                 onSelect={() => setParams({ track: entry.role }, { replace: true })}
               />
             </li>
@@ -507,7 +507,7 @@ function TracksSection({
             <li key={entry.role}>
               <TrackRow
                 status={entry}
-                selected={entry.role === track}
+                selected={entry.role === status.role}
                 onSelect={() => setParams({ track: entry.role }, { replace: true })}
               />
             </li>
@@ -710,8 +710,10 @@ export function ResearchPage() {
           </div>
         )}
 
-        {startTechMutation.error && (
-          <ErrorNote className="shrink-0">{startTechMutation.error.message}</ErrorNote>
+        {/* On the Programmes tab only, where the press was (bug pass, 2026-10-06): it sat over
+            Blueprints and Reimagining too, about a rung neither tab shows. */}
+        {startTechMutation.error && section === 'programmes' && (
+          <PressError>{startTechMutation.error.message}</PressError>
         )}
 
         {/*

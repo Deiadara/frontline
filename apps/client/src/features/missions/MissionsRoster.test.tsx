@@ -67,6 +67,8 @@ const HAUL: MissionOffer = {
   leanings: ['haul'],
   // Out of the opening band: this fixture is about a leader's fit, not about the clock.
   ramp: null,
+  golden: false,
+  goldenPercent: 0,
 };
 
 /** And a fight at F-, the lightest Skirmish: 1,600 of `fieldStrength` (`enemyStrength`). */

@@ -308,27 +308,35 @@ test('a sign says who holds it, in its own colour', async ({ page }) => {
           holder: { kind: 'government' },
           holderName: 'The Combine',
           holderPlayer: null,
+          // The row is copied off one the crew holds, so its side is restated (2026-10-07).
+          holderSide: 'enemy',
           level: 1,
         })),
       }),
     }),
   );
 
-  const readSigns = async (districtId: string): Promise<{ tone: string; colour: string }[]> => {
+  type Sign = { tone: string; side: string; colour: string; mark: string | null };
+  const readSigns = async (districtId: string): Promise<Sign[]> => {
     await page.goto(`/game/city/${districtId}`);
     await expect(page.getByTestId(`district-painting-${districtId}`)).toBeVisible();
     await settleFonts(page);
     return page.evaluate(() =>
       [...document.querySelectorAll('[data-testid^="site-"] span[data-holder]')].map((node) => ({
         tone: node.getAttribute('data-holder') ?? '',
+        side: node.getAttribute('data-side') ?? '',
         colour: getComputedStyle(node).color,
+        mark:
+          node
+            .querySelector('[data-testid^="insignia-"], [data-testid^="side-mark-"]')
+            ?.getAttribute('data-testid') ?? null,
       })),
     );
   };
 
-  const seen = new Map<string, string>();
+  const seen = new Map<string, Sign>();
   for (const districtId of ['annexes', 'ccs']) {
-    for (const sign of await readSigns(districtId)) seen.set(sign.tone, sign.colour);
+    for (const sign of await readSigns(districtId)) seen.set(sign.tone, sign);
   }
 
   // The Annexes carry a plot of yours, a rival crew's and the looters'; the Spire is the Combine's
@@ -339,6 +347,17 @@ test('a sign says who holds it, in its own colour', async ({ page }) => {
     'looters',
     'mine',
   ]);
-  // Four holders, four different colours. This is the whole of the request.
-  expect(new Set(seen.values()).size, 'two holders share a colour').toBe(seen.size);
+  /*
+   * The faction ruling (2026-10-07): the plate is coloured by side, yours green and everybody
+   * else red, and the party is told apart by the mark beside the name instead. So the three
+   * enemies share one colour that is not yours, and each wears its own mark.
+   */
+  const enemies = ['crew', 'government', 'looters'].map((tone) => seen.get(tone)!);
+  expect(new Set(enemies.map((sign) => sign.colour)).size, 'the enemies differ in colour').toBe(1);
+  expect(enemies[0]!.colour).not.toBe(seen.get('mine')!.colour);
+  expect(enemies.map((sign) => sign.side)).toEqual(['enemy', 'enemy', 'enemy']);
+  expect(seen.get('mine')!.side).toBe('mine');
+  expect(seen.get('looters')!.mark).toBe('insignia-looters');
+  expect(seen.get('government')!.mark).toBe('insignia-government');
+  expect(seen.get('crew')!.mark).toBe('side-mark-crew');
 });

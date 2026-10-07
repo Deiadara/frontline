@@ -74,12 +74,11 @@ test('names every building that is standing, exactly as your own district does',
 test('says whose plot it is, on the plate the standing bar uses for your own', async ({ page }) => {
   await visit(page);
 
-  // The crew's name, not the map's number for the plot. The map numbers them because there the
-  // reader is a stranger to nine of the ten; here they have walked in.
+  // The crew's name: a claimed plot is called after whoever lives there.
   const sign = page.getByTestId('visited-district-name');
   await expect(sign).toBeVisible();
   await expect(sign).toHaveText(NEIGHBOUR_NAME);
-  await expect(sign).not.toContainText('Player District');
+  await expect(sign).not.toContainText('Unclaimed');
 });
 
 test('a building opens what it is, and offers no fight of its own', async ({ page }) => {

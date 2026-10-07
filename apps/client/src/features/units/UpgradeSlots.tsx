@@ -12,7 +12,7 @@ import { cn } from '../../lib/cn';
 import { useBurnUpgrade } from '../../lib/queries';
 import { RARITY_BRACKET, RARITY_TEXT } from '../scrapyard/rarity';
 import { YardGlyph } from '../scrapyard/YardGlyph';
-import { ErrorNote } from '../../components/ui/ErrorNote';
+import { PressError } from '../../components/ui/PressError';
 
 /**
  * Three brackets on every unit, each one a door to the Scrapyard (GDD §A5, yard rework 2026-09-16).
@@ -106,16 +106,17 @@ export function UpgradeSlots({ unit }: { unit: UnitOption }) {
           confirm="Dismantle it"
           testId={`slot-burn-${unit.id}`}
           onCancel={() => setBurning(null)}
-          onConfirm={() =>
-            burn.mutate(
-              { unitId: unit.id, upgradeId: burningId },
-              { onSuccess: () => setBurning(null) },
-            )
-          }
+          // Closed on the press, as every other `Confirm` is (bug pass, 2026-10-06): held open
+          // until the answer, a double click sent the burn twice and the second came back refused.
+          // A refusal still shows, below the brackets.
+          onConfirm={() => {
+            burn.mutate({ unitId: unit.id, upgradeId: burningId });
+            setBurning(null);
+          }}
         />
       )}
 
-      {burn.isError && <ErrorNote className="mt-1">{burn.error.message}</ErrorNote>}
+      {burn.error && <PressError onDismiss={burn.reset}>{burn.error.message}</PressError>}
     </>
   );
 }

@@ -4,6 +4,7 @@ import {
   labelText,
   noTerritoryEffects,
   type CombinePower,
+  type EnvLabelId,
   type TerritoryEffects,
 } from '../city/index.js';
 import {
@@ -22,7 +23,13 @@ import {
 import { bareBattlefield, type Battlefield } from './battlefield.js';
 import { bareLineRules, fightingSlots, markedUnit, standsInLine, type LineRules } from './line.js';
 import { packBonusPercent } from '../units/collective.js';
-import { effectiveStats, outnumberedWeight, type Effective } from './effects.js';
+import {
+  effectiveStats,
+  outnumberedWeight,
+  type Effective,
+  type UnitFightContext,
+} from './effects.js';
+import { doorLevelOf, doorPerks, NO_DOOR_PERKS, type DoorPerks } from './doors.js';
 // Kept exported from here because every caller in the game imports the engine's own names for
 // these, and they are the engine's rules: the module split is about the import graph, not about
 // where they belong.
@@ -459,7 +466,23 @@ export interface Stack {
    * whatever is left of it at the end goes nowhere.
    */
   turncoat?: boolean;
+  /**
+   * The ladder of the door the crew holds for this unit (`battle/doors.ts`). Optional, like
+   * `officer`, so a stack written by hand in a test is a unit with no door, which pays nothing.
+   */
+  door?: DoorPerks;
+  /**
+   * What a legend's aura put on this stack's sheet at the start (`legendAuras`), so it can be taken
+   * off again once the legend is down. Vitality is not listed: it is already in the bodies, and
+   * a body does not lose health because somebody else fell. Offense and penetration do stop.
+   */
+  aura?: { offensePercent: number; penetration: number; from: string[] };
 }
+
+/** A stack's door perks, or none: see {@link Stack.door}. */
+export const doorOf = (stack: Stack): DoorPerks => stack.door ?? NO_DOOR_PERKS;
+const NO_AURA: NonNullable<Stack['aura']> = { offensePercent: 0, penetration: 0, from: [] };
+const auraOf = (stack: Stack): NonNullable<Stack['aura']> => stack.aura ?? NO_AURA;
 
 /**
  * Flat points added to every unit's ratings on one side, after the sheet and the ground are read.
@@ -480,7 +503,15 @@ export interface SideSetup {
   name: string;
   army: Army;
   defending: boolean;
-  territory?: TerritoryEffects;
+  /**
+   * The crew's effects, with the two crew-only lists the engine reads widened on the way the
+   * `effectiveStats` parameter is: no piece of ground grants them, and every fight passes a
+   * `CrewEffects`, which carries both.
+   */
+  territory?: TerritoryEffects & {
+    pamphletUnits?: readonly string[];
+    ignoredLabels?: readonly EnvLabelId[];
+  };
   flat?: RatingFlats;
   /**
    * What this side has bolted to each unit, three slots apiece (`units/loadout.ts`).
@@ -520,6 +551,14 @@ export interface SideSetup {
    * {@link SideState.slowed} for how the speed half is read and `simulate` for the morale half.
    */
   slowed?: TrapWire;
+  /** This side is the Combine's: the other side's ANTI-COMBINE levels pay against it. */
+  government?: boolean;
+  /**
+   * The parts of `army` that faction mates sent (Reliquary's Rose Window, `allyFightPercent`),
+   * each with the percent its sender's own ground pays. The engine weighs the percent per unit
+   * id by how many of that id each mate sent, so one stack per id still stands.
+   */
+  allies?: readonly { army: Army; fightPercent: number }[];
 }
 
 export interface SideState {
@@ -1434,8 +1473,34 @@ function buildStacks(
   /** §D1: the officer leading, appended as a one-unit stack after the roster. */
   officer?: BattleOfficer,
   flat: RatingFlats = {},
+  /** Who this side is fighting, for the rules that read the other side's sheet or ground. */
+  against: Pick<SideSetup, 'government' | 'territory'> = {},
+  allies: SideSetup['allies'] = [],
 ): Stack[] {
   const stacks: Stack[] = [];
+  const doorOf = (unitId: string): DoorPerks =>
+    doorPerks(unitId, doorLevelOf(territory.doorLevels, unitId));
+  // INSPIRATION is a fact about the whole force: read once off the roster before any sheet is built.
+  const inspired = Object.entries(army).some(
+    ([unitId, count]) => count > 0 && doorOf(unitId).inspiration,
+  );
+  const slotsInForce = fightingSlots(army, territory);
+  const pinned = new Set(against.territory?.pamphletUnits ?? []);
+  const allyPercentOf = (unitId: string, count: number): number => {
+    let weighted = 0;
+    for (const ally of allies ?? []) weighted += (ally.army[unitId] ?? 0) * ally.fightPercent;
+    return count > 0 ? weighted / count : 0;
+  };
+  const auraFor = (unitId: string): NonNullable<Stack['aura']> => {
+    const aura: NonNullable<Stack['aura']> = { offensePercent: 0, penetration: 0, from: [] };
+    for (const legend of territory.legendAuras ?? []) {
+      if (legend.unitId === unitId || (army[legend.unitId] ?? 0) <= 0) continue;
+      if (legend.stat === 'offense_vitality') aura.offensePercent += legend.amount;
+      else aura.penetration += legend.amount;
+      aura.from.push(legend.unitId);
+    }
+    return aura;
+  };
   for (const [unitId, count] of Object.entries(army)) {
     const found = findUnit(unitId);
     /*
@@ -1454,12 +1519,25 @@ function buildStacks(
      * fight, so the other side walks in.
      */
     if (!found || count <= 0 || !standsInLine(found, territory)) continue;
-    const unit = markedUnit(found, territory);
+    const door = doorOf(unitId);
+    const unit = doorUnit(markedUnit(found, territory), door);
     const fitted = fittedFor(upgrades, unitId);
     const fittedSheet = upgradedStats(unit.stats, fitted);
-    const bare = withFlats(
-      effectiveStats(unit, battlefield, { defending, outnumbered }, territory, fitted),
-      flat,
+    const aura = auraFor(unitId);
+    const fight: UnitFightContext = {
+      door,
+      againstCombine: against.government === true,
+      pamphleted: pinned.has(unitId),
+      inspired: inspired && !door.inspiration,
+      slotsBeside: slotsInForce - unit.unitSlots * count,
+      allyPercent: allyPercentOf(unitId, count),
+    };
+    const bare = withAura(
+      withFlats(
+        effectiveStats(unit, battlefield, { defending, outnumbered }, territory, fitted, fight),
+        flat,
+      ),
+      aura,
     );
     /*
      * `pack` is the one bonus that cannot be worked out from a sheet (`UnitSpec.pack`).
@@ -1484,9 +1562,15 @@ function buildStacks(
      * a change to one side only.
      */
     // The same unit on the same ground with nothing fitted, so what the cards add can be told apart.
-    const plain = withFlats(
-      effectiveStats(unit, battlefield, { defending, outnumbered }, territory, []),
-      flat,
+    const plain = withAura(
+      withFlats(
+        effectiveStats(unit, battlefield, { defending, outnumbered }, territory, [], {
+          ...fight,
+          fittedCount: 0,
+        }),
+        flat,
+      ),
+      aura,
     );
     const packed = unit.pack === true ? packBonusPercent(count) : 0;
     // A porter turned out under `carriers_fight` fights at its full sheet (maintainer, 2026-09-27):
@@ -1522,6 +1606,8 @@ function buildStacks(
       ),
       // §A5: how loud this particular stack is, refits included (`UnitSpec.loud`).
       loudTier: unit.loud === true ? loudTierFor(fitted) : 0,
+      door,
+      aura,
     });
   }
 
@@ -1560,6 +1646,50 @@ function buildStacks(
     });
   }
   return stacks;
+}
+
+/** The unit as its door makes it: Holds the Line at a level-2 Shrine, a taunt at a level-4 Lab. */
+function doorUnit(unit: UnitSpec, door: DoorPerks): UnitSpec {
+  if (!door.stalwart && !door.taunts) return unit;
+  return {
+    ...unit,
+    ...(door.stalwart ? { stalwart: true } : {}),
+    ...(door.taunts ? { taunts: true } : {}),
+  };
+}
+
+/** A legend's aura on a sheet, added like every other bonus (`legendAuras`). */
+function withAura(effective: Effective, aura: NonNullable<Stack['aura']>): Effective {
+  if (aura.offensePercent === 0 && aura.penetration === 0) return effective;
+  return {
+    ...effective,
+    offense: effective.offense * (1 + aura.offensePercent / 100),
+    vitality: effective.vitality * (1 + aura.offensePercent / 100),
+    penetration: capRating(effective.penetration + aura.penetration),
+    reasons: [...effective.reasons, 'A legend beside them'],
+  };
+}
+
+/** The same sheet with the aura's offense and penetration taken back off: the legend is down. */
+function withoutAura(effective: Effective, aura: NonNullable<Stack['aura']>): Effective {
+  if (aura.offensePercent === 0 && aura.penetration === 0) return effective;
+  return {
+    ...effective,
+    offense: effective.offense / (1 + aura.offensePercent / 100),
+    penetration: Math.max(0, effective.penetration - aura.penetration),
+  };
+}
+
+/** Whether every legend whose aura this stack carries is still fighting beside it. */
+function auraHolds(stack: Stack, side: SideState): boolean {
+  return auraOf(stack).from.every((id) =>
+    side.stacks.some((other) => other.unit.id === id && other.alive > 0 && other.brokeAt === null),
+  );
+}
+
+/** The sheet this stack fires with now: the aura kept while its legend stands, gone after. */
+export function auraSheet(stack: Stack, side: SideState, sheet: Effective): Effective {
+  return auraHolds(stack, side) ? sheet : withoutAura(sheet, auraOf(stack));
 }
 
 /** The officer's stack on this side, or undefined when nobody led. */
@@ -1879,6 +2009,8 @@ function fireRound(
    * a stack that is not in it, and pays nothing.
    */
   field: ReadonlyMap<Stack, FieldEffect> = new Map(),
+  /** Where the round's door effects are written: see {@link RoundDoors}. */
+  doors?: RoundDoors,
 ): Map<Stack, number> {
   const incoming = new Map<Stack, number>();
   const deployed = frontageShare(side, frontage);
@@ -1902,17 +2034,18 @@ function fireRound(
      */
     const firing = Math.max(0, stack.alive - stack.suppressed);
     if (firing <= 0) continue;
+    // A legend's aura stops when the legend is down (`legendAuras`): read per round, like the jam.
+    const shooter = auraSheet(
+      stack,
+      side,
+      jammedSheet(stack, jam.onShooter, jam.wondersOnShooter.get(stack) ?? 0),
+    );
+    if (doors && doorOf(stack).papercutArmor > 0) doors.papercut += doorOf(stack).papercutArmor;
     for (const { target, share } of allocate(stack, enemy.stacks)) {
       const { perBody } = exchange(
         // The jam first (what it leaves of the cards, and a covered Wonder's cut), then the field
         // effect off whatever damage is left.
-        withField(
-          inTheWire(
-            jammedSheet(stack, jam.onShooter, jam.wondersOnShooter.get(stack) ?? 0),
-            side.slowed,
-          ),
-          field.get(stack)?.percent ?? 0,
-        ),
+        withField(inTheWire(shooter, side.slowed), field.get(stack)?.percent ?? 0),
         stack.unit.modifiers,
         inTheWire(
           jammedSheet(target, jam.onTarget, jam.wondersOnTarget.get(target) ?? 0),
@@ -1936,9 +2069,43 @@ function fireRound(
         swing;
       incoming.set(target, (incoming.get(target) ?? 0) + damage);
       stack.dealt += damage;
+      if (doors && doorOf(stack).spectacle) {
+        doors.spectacle.set(target, (doors.spectacle.get(target) ?? 0) + damage);
+      }
     }
   }
   return incoming;
+}
+
+/**
+ * What one side's door rules did in one round of fire, for the side that takes it.
+ *
+ * `spectacle` is the damage a SPECTACLE shooter put on each enemy stack, so `applyDamage` can
+ * credit her share of the bodies that fall. `papercut` is the armour every enemy stack loses after
+ * this round for the rest of the fight: one PAPERCUT shooter firing is one strip.
+ */
+export interface RoundDoors {
+  spectacle: Map<Stack, number>;
+  papercut: number;
+}
+
+export const freshRoundDoors = (): RoundDoors => ({ spectacle: new Map(), papercut: 0 });
+
+/**
+ * The bodies a side lost that the ledgers care about, by unit id: those that were too intimidated
+ * to fire (the Fight Pit pays extra for them) and those a SPECTACLE shooter is credited with.
+ */
+export interface KillLedger {
+  intimidated: Army;
+  spectacle: Army;
+}
+
+/** PAPERCUT, applied: every stack on this side loses `armor` points of plate, to the floor. */
+export function stripArmor(side: SideState, armor: number): void {
+  if (armor <= 0) return;
+  for (const stack of side.stacks) {
+    stack.effective = { ...stack.effective, armor: Math.max(0, stack.effective.armor - armor) };
+  }
 }
 
 /**
@@ -1952,12 +2119,15 @@ export function applyDamage(
   side: SideState,
   incoming: Map<Stack, number>,
   execution?: Execution,
+  /** Where the fallen are filed for the infamy rules; the round's door effects name the shooters. */
+  ledger?: { kills: KillLedger; doors: RoundDoors },
 ): Map<Stack, number> {
   const lost = new Map<Stack, number>();
   for (const stack of side.stacks) {
     const damage = incoming.get(stack) ?? 0;
     if (damage <= 0 || stack.alive <= 0) continue;
     const before = stack.alive;
+    const suppressedBefore = stack.suppressed;
     // §D4: the worst that happens to an officer is an injury, so the line is not drawn for them.
     const floor = execution !== undefined && stack.officer === undefined ? execution.floor : 0;
     const { executed } = takeDamage(stack.bodies, damage, stack.effective.vitality, floor);
@@ -1974,8 +2144,97 @@ export function applyDamage(
       );
     }
     lost.set(stack, before === 0 ? 0 : (before - stack.alive) / before);
+    if (ledger && stack.officer === undefined && before > stack.alive) {
+      const fell = before - stack.alive;
+      // The same proportional rule that thins `suppressed` above: the dead come from the whole
+      // stack, so the intimidated among them are their share of it.
+      const intimidated = suppressedBefore - stack.suppressed;
+      if (intimidated > 0) {
+        ledger.kills.intimidated[stack.unit.id] =
+          (ledger.kills.intimidated[stack.unit.id] ?? 0) + intimidated;
+      }
+      const hers = ledger.doors.spectacle.get(stack) ?? 0;
+      const credited = hers > 0 ? Math.round((fell * hers) / damage) : 0;
+      if (credited > 0) {
+        ledger.kills.spectacle[stack.unit.id] =
+          (ledger.kills.spectacle[stack.unit.id] ?? 0) + credited;
+      }
+    }
   }
   return lost;
+}
+
+/**
+ * LAST CHANCE and BLOWOUT: what a side's dead did on the way down, this round.
+ *
+ * Both read the stacks before and after the round's damage, so they are called with a snapshot
+ * of `alive` taken before `applyDamage`. Each is one strike per body, drawn or dealt in stack
+ * order off the fight's own stream so a fight still replays from its seed. The damage lands on
+ * the enemy at once, through the same body walk as a volley, and is not mended: the medics were
+ * already counted for the round that killed these people.
+ */
+export function dyingStrikes(
+  side: SideState,
+  enemy: SideState,
+  aliveBefore: ReadonlyMap<Stack, number>,
+  next: () => number,
+): void {
+  for (const stack of side.stacks) {
+    const fell = (aliveBefore.get(stack) ?? stack.alive) - stack.alive;
+    if (fell <= 0) continue;
+    const door = doorOf(stack);
+    if (door.lastChancePercent > 0) {
+      let strikes = 0;
+      for (let body = 0; body < fell; body += 1) {
+        if (next() * 100 < door.lastChancePercent) strikes += 1;
+      }
+      if (strikes > 0) strikeOnce(stack, enemy, strikes);
+    }
+    if (door.blowout) for (let body = 0; body < fell; body += 1) blowOut(stack, enemy);
+  }
+}
+
+/** One body's worth of a round's fire, `strikes` times, on the first enemy stack still fighting. */
+function strikeOnce(stack: Stack, enemy: SideState, strikes: number): void {
+  const target = enemy.stacks.find((other) => other.alive > 0 && other.brokeAt === null);
+  if (!target) return;
+  const { perBody } = exchange(
+    stack.effective,
+    stack.unit.modifiers,
+    target.effective,
+    target.morale,
+    0,
+  );
+  const damage = perBody * strikes * ROUND_DAMAGE_SCALE;
+  takeDamage(target.bodies, damage, target.effective.vitality);
+  settle(target);
+  stack.dealt += damage;
+}
+
+/**
+ * BLOWOUT: a dying body deals its offense to the enemy units it can cover, smallest units first,
+ * up to its own unit slots and only units it covers whole. Ten slots burst over a line of
+ * three-slot Razors cover three of them; a six-slot legend beside them is covered only if the
+ * budget still has six left when the walk reaches it.
+ */
+function blowOut(stack: Stack, enemy: SideState): void {
+  let budget = stack.unit.unitSlots;
+  const targets = enemy.stacks
+    .filter((other) => other.alive > 0 && other.officer === undefined)
+    .sort((a, b) => a.unit.unitSlots - b.unit.unitSlots);
+  for (const target of targets) {
+    const covered = Math.min(target.alive, Math.floor(budget / target.unit.unitSlots));
+    if (covered <= 0) continue;
+    budget -= covered * target.unit.unitSlots;
+    // Each covered body takes the burst; the walk is capped at those bodies so the overkill of
+    // the front one does not reach somebody the budget did not cover.
+    const atMost = target.bodies.slice(0, covered).reduce((sum, hp) => sum + hp, 0);
+    const damage = Math.min(stack.effective.offense * covered, atMost);
+    takeDamage(target.bodies, damage, target.effective.vitality);
+    settle(target);
+    stack.dealt += damage;
+    if (budget <= 0) break;
+  }
 }
 
 /**
@@ -2230,6 +2489,12 @@ export interface Simulation {
    * it into a thing that happened.
    */
   intimidated: { attacker: number; defender: number };
+  /**
+   * The bodies each side lost that the infamy rules price differently (Reliquary): those that
+   * were too intimidated to fire when they fell (the Fight Pit pays them over) and those credited
+   * to a SPECTACLE shooter (paid twice). By the unit id of the dead, on the side that lost them.
+   */
+  kills: { attacker: KillLedger; defender: KillLedger };
   battlefield: Battlefield;
 }
 
@@ -2291,6 +2556,7 @@ export function simulate(input: SimulateInput): Simulation {
 
   const build = (
     setup: SideSetup,
+    against: SideSetup,
     otherCount: number,
     ownCount: number,
     ground: Battlefield,
@@ -2312,6 +2578,8 @@ export function simulate(input: SimulateInput): Simulation {
       setup.upgrades ?? {},
       setup.officer,
       setup.flat ?? {},
+      against,
+      setup.allies ?? [],
     ),
   });
 
@@ -2324,8 +2592,8 @@ export function simulate(input: SimulateInput): Simulation {
    * and being baked into `effective` at build time it could not vary as the fight moved. It is a
    * per-round effect on whoever is actually fighting them now: see `noiseOnEnemy`.
    */
-  const attacker = build(input.attacker, defenderCount, attackerCount, battlefield);
-  const defender = build(defenderSetup, attackerCount, defenderCount, battlefield);
+  const attacker = build(input.attacker, defenderSetup, defenderCount, attackerCount, battlefield);
+  const defender = build(defenderSetup, input.attacker, attackerCount, defenderCount, battlefield);
 
   // Both forces are on the field; now the day decides. Drawn here rather than inside `build` so
   // that neither side's luck can depend on how the other side's roster happened to be shaped.
@@ -2365,6 +2633,15 @@ export function simulate(input: SimulateInput): Simulation {
   // never attacks, so there is no other side for him to stand against.
   const execution: Execution | undefined =
     presence?.kind === 'executioner' ? { floor: presence.threshold, count: finish } : undefined;
+  // Reliquary's two ledgers of the dead, one per side, and the round's door effects on each.
+  const kills: { attacker: KillLedger; defender: KillLedger } = {
+    attacker: { intimidated: {}, spectacle: {} },
+    defender: { intimidated: {}, spectacle: {} },
+  };
+  let doorsOnDefender = freshRoundDoors();
+  let doorsOnAttacker = freshRoundDoors();
+  const aliveNow = (side: SideState): Map<Stack, number> =>
+    new Map(side.stacks.map((stack) => [stack, stack.alive]));
 
   /*
    * §D3: who is too intimidated to fight, settled before anything is fired.
@@ -2454,6 +2731,9 @@ export function simulate(input: SimulateInput): Simulation {
         FIRST_STRIKE_SHARE,
         battlefield.frontage,
         (stack) => stack.unit.strikes_first === true,
+        undefined,
+        undefined,
+        doorsOnDefender,
       )
     : new Map<Stack, number>();
   const openingOnAttacker = opensFire(defender)
@@ -2466,9 +2746,17 @@ export function simulate(input: SimulateInput): Simulation {
         (stack) => stack.unit.strikes_first === true,
       )
     : new Map<Stack, number>();
-  const openedDefender = applyDamage(defender, openingOnDefender);
+  const openedDefender = applyDamage(defender, openingOnDefender, undefined, {
+    kills: kills.defender,
+    doors: doorsOnDefender,
+  });
   // The Executioner's line runs through the opening volley like any other damage: see `takeDamage`.
-  const openedAttacker = applyDamage(attacker, openingOnAttacker, execution);
+  const openedAttacker = applyDamage(attacker, openingOnAttacker, execution, {
+    kills: kills.attacker,
+    doors: doorsOnAttacker,
+  });
+  // PAPERCUT off the opening volley, and the rounds below: her attacks strip for the rest of it.
+  stripArmor(defender, doorsOnDefender.papercut);
 
   let attackerCascade = 0;
   let defenderCascade = 0;
@@ -2511,6 +2799,10 @@ export function simulate(input: SimulateInput): Simulation {
      */
     const noiseOnDefender = noiseOnEnemy(attacker, defender);
     const noiseOnAttacker = noiseOnEnemy(defender, attacker);
+    doorsOnDefender = freshRoundDoors();
+    doorsOnAttacker = freshRoundDoors();
+    const attackerAlive = aliveNow(attacker);
+    const defenderAlive = aliveNow(defender);
 
     const ontoDefender = mend(
       defender,
@@ -2528,6 +2820,7 @@ export function simulate(input: SimulateInput): Simulation {
           wondersOnTarget: wondersOnDefender,
         },
         noiseOnAttacker,
+        doorsOnDefender,
       ),
     );
     const ontoAttacker = mend(
@@ -2546,18 +2839,39 @@ export function simulate(input: SimulateInput): Simulation {
           wondersOnTarget: wondersOnAttacker,
         },
         noiseOnDefender,
+        doorsOnAttacker,
       ),
     );
     // Round one carries whatever happened before it: the ambush and either side's opening volley.
     // `mergeLosses` composes fractions of different starting numbers, so chaining is exact.
     const defenderLost = mergeLosses(
-      mergeLosses(applyDamage(defender, ontoDefender), round === 1 ? ambushed : undefined),
+      mergeLosses(
+        applyDamage(defender, ontoDefender, undefined, {
+          kills: kills.defender,
+          doors: doorsOnDefender,
+        }),
+        round === 1 ? ambushed : undefined,
+      ),
       round === 1 ? openedDefender : undefined,
     );
     const attackerLost = mergeLosses(
-      applyDamage(attacker, ontoAttacker, execution),
+      applyDamage(attacker, ontoAttacker, execution, {
+        kills: kills.attacker,
+        doors: doorsOnAttacker,
+      }),
       round === 1 ? openedAttacker : undefined,
     );
+    /*
+     * The doors' rules on what just happened (`battle/doors.ts`): PAPERCUT strips the plate the
+     * next round reads, and the dead strike back. Both sides' dying strikes are taken off the
+     * round's snapshot, so a body killed by a Condemned's last swing is not itself a Condemned
+     * getting one, and the attacker's strikes landing first cannot change whether the defender's
+     * fell. Not fed back into the loss figures: morale was charged for the volley that killed them.
+     */
+    stripArmor(defender, doorsOnDefender.papercut);
+    stripArmor(attacker, doorsOnAttacker.papercut);
+    dyingStrikes(attacker, defender, attackerAlive, next);
+    dyingStrikes(defender, attacker, defenderAlive, next);
 
     // Both tests read the enemy as it stood before either broke: see `moraleOutlook`.
     const attackerOutlook = moraleOutlook(attacker, defender);
@@ -2626,6 +2940,7 @@ export function simulate(input: SimulateInput): Simulation {
     executedForce,
     luck: { attacker: attacker.luck, defender: defender.luck },
     intimidated: { attacker: attackerIntimidated, defender: defenderIntimidated },
+    kills,
   };
 }
 

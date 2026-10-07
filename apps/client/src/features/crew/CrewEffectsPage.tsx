@@ -5,6 +5,7 @@ import {
   type CrewStandingResponse,
   type OfficerMark,
 } from '@frontline/shared';
+import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { ChannelCard } from './ChannelCard';
 import { Icon } from '../../components/ui/Icon';
@@ -37,6 +38,7 @@ function ChairGift({
   mark,
   passive,
   chairFrom = null,
+  onSettled,
 }: {
   testId: string;
   chair: string;
@@ -45,8 +47,10 @@ function ChairGift({
   passive: string;
   /** When a chair taken a moment ago starts giving (`chairSettlesAt`), or null when it does. */
   chairFrom?: string | null;
+  /** Called once a settling chair starts giving, so the channels can be read again. */
+  onSettled?: () => void;
 }) {
-  const left = chairFrom === null ? 0 : Date.parse(chairFrom) - Date.now();
+  const left = useCountdown(chairFrom, onSettled);
   return (
     <li data-testid={testId} className="flex min-w-0 flex-col gap-1 py-2 first:pt-0 last:pb-0">
       <div className="flex min-w-0 items-start gap-2">
@@ -72,8 +76,31 @@ function ChairGift({
   );
 }
 
+/**
+ * Milliseconds left until `until`, ticking each second while it is ahead, and `onPassed` once it
+ * lands (bug pass, 2026-10-06). Read once per render, the settling line never moved and stayed up
+ * after the chair had started giving, until something else happened to refetch the page.
+ */
+function useCountdown(until: string | null, onPassed?: () => void): number {
+  const end = until === null ? null : Date.parse(until);
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (end === null || !(end > Date.now())) return;
+    const id = setInterval(() => {
+      const at = Date.now();
+      setNow(at);
+      if (at >= end) {
+        clearInterval(id);
+        onPassed?.();
+      }
+    }, 1000);
+    return () => clearInterval(id);
+  }, [end, onPassed]);
+  return end === null ? 0 : end - now;
+}
+
 /** The Overseer's grade, then every working chair in `OFFICER_ROLES` order. */
-function ChairGifts({ data }: { data: CrewStandingResponse }) {
+function ChairGifts({ data, onSettled }: { data: CrewStandingResponse; onSettled: () => void }) {
   return (
     <ul className="flex flex-col divide-y divide-surface-700/70" data-testid="chair-gifts">
       <ChairGift
@@ -92,6 +119,7 @@ function ChairGifts({ data }: { data: CrewStandingResponse }) {
           mark={line.mark}
           passive={line.passive}
           chairFrom={line.chairFrom ?? null}
+          onSettled={onSettled}
         />
       ))}
     </ul>
@@ -101,6 +129,9 @@ function ChairGifts({ data }: { data: CrewStandingResponse }) {
 export function CrewEffectsPage() {
   const query = useCrewStanding();
   const data = query.data;
+  // A chair that has settled changes what the crew is buying: read the books again.
+  const { refetch } = query;
+  const reread = useCallback(() => void refetch(), [refetch]);
 
   if (!data) {
     return (
@@ -153,7 +184,7 @@ export function CrewEffectsPage() {
               What the chairs give
             </h2>
             <span aria-hidden className="ink-rule h-1 w-full" />
-            <ChairGifts data={data} />
+            <ChairGifts data={data} onSettled={reread} />
           </section>
         </div>
       </div>

@@ -626,6 +626,19 @@ describe("the yard's level opens the catalogue and cuts the bill", () => {
     ),
   });
 
+  /** Bug pass, 2026-10-06: the bench waived the bill in testing mode and the page did not. */
+  it('says nothing about the bill in testing mode, as the bench charges nothing there', () => {
+    const repos = openStack();
+    const broke = seedBase(repos, { ...yardAt(20), resources: { ...RICH, scrap: 0, caps: 0 } });
+    const refusals = (admin: boolean) =>
+      projectScrapyard(repos, broke, undefined, admin).entries.flatMap((entry) => [
+        entry.blocker,
+        ...entry.targets.map((target) => target.blocker),
+      ]);
+    expect(refusals(false)).toContain('You cannot cover that');
+    expect(refusals(true)).not.toContain('You cannot cover that');
+  });
+
   it('quotes the level every entry opens at, and the cut the yard takes', () => {
     const repos = openStack();
     const view = projectScrapyard(repos, seedBase(repos, yardAt(6)));

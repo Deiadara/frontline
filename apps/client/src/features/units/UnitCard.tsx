@@ -1,6 +1,8 @@
 import {
   BUILDING_CATALOG,
   MUSTER_MAX_BATCH,
+  MUSTER_REFUSAL_TEXT,
+  canAfford,
   UNIT_HEADLINE_KEYS,
   UNIT_RATING_KEYS,
   UNIT_STAT_EXPLAINERS,
@@ -30,7 +32,7 @@ import type { DeltaMark } from '../../lib/deltas';
 import { RATING_FILL, RATING_TEXT, ratingBand, ratingPercent } from '../../lib/rating';
 import { formatDuration } from '../base/format';
 import { RULE_INK, ruleTone } from './rules';
-import { AffinityTag, ModifierTag, RuleTag } from './tags';
+import { AffinityTag, ModifierTag, RuleTag, antiCombineRule } from './tags';
 import { UnitBonuses } from './UnitBonuses';
 import { DamageLine } from './UnitDamage';
 import { UnitPortrait } from './UnitPortrait';
@@ -114,6 +116,13 @@ export interface UnitCardProps {
    * reason the Scrapyard's rail and the deploy dialog have none.
    */
   enemy?: boolean;
+  /**
+   * Environment labels the crew ignores everywhere (the Tolling Tower's Noisy, 2026-10-07): a
+   * weakness in this list is drawn blue and crossed out, with the tower named on hover.
+   */
+  ignoredLabels?: readonly string[];
+  /** Levels of ANTI-COMBINE the crew holds (the Nave and each city's last Combine district). */
+  antiCombineLevels?: number;
 }
 
 /** Everything the price box needs, and nothing anything above it does. */
@@ -143,6 +152,12 @@ export interface UnitCardMuster {
    * level-12 Gauntlet and a drillmaster read 45 seconds beside the button and got 28.
    */
   speedPercent: number;
+  /** Whether the bench already holds `MAX_MUSTER_QUEUE` orders. */
+  benchFull?: boolean;
+  /** How many of this unit the crew has, everywhere, queued included: a one-of-a-kind's guard. */
+  held?: number;
+  /** Testing mode, which waives every gate but the one-of-a-kind (`admin/mode.ts`). */
+  waived?: boolean;
   pending: boolean;
   onMuster: (count: number) => void;
 }
@@ -185,6 +200,8 @@ export function UnitCard({
   bonuses,
   carriersFight = false,
   enemy = false,
+  ignoredLabels = [],
+  antiCombineLevels = 0,
 }: UnitCardProps) {
   /*
    * §E: a carrier's fighting numbers are behind a programme (maintainer, 2026-09-19).
@@ -571,7 +588,11 @@ export function UnitCard({
            * picture, so height here is width there, and the portrait gate refuses past 45%.
            */}
           <div className="mt-1 flex flex-1 flex-col justify-center gap-1.5 border-t border-surface-700/70 pt-2">
-            <Marks unit={unit} />
+            <Marks
+              unit={unit}
+              ignoredLabels={ignoredLabels}
+              antiCombineLevels={antiCombineLevels}
+            />
             {/*
              * A rule between the keywords and the matchup (maintainer, 2026-09-18).
              *
@@ -708,14 +729,28 @@ function MusterBox({ unit, muster }: { unit: UnitOption; muster: UnitCardMuster 
     suppliesPercent,
     veteranPercent,
     speedPercent,
+    benchFull = false,
+    held = 0,
+    waived = false,
     pending,
     onMuster,
   } = muster;
-  const [count, setCount] = useState(1);
+  const [typed, setTyped] = useState(1);
+  /*
+   * Max means "as many as I can", and goes on meaning it (bug pass, 2026-10-06). It wrote the
+   * figure once, so after a muster the box still asked for the old maximum, the stockpile could no
+   * longer cover it, and the next press was refused. Typing a number takes the box back.
+   */
+  const [atMax, setAtMax] = useState(false);
   const spec = findUnit(unit.id);
   const most = spec
-    ? maxMusterable(spec, resources, spare, discountPercent, suppliesPercent, veteranPercent)
+    ? Math.min(
+        maxMusterable(spec, resources, spare, discountPercent, suppliesPercent, veteranPercent),
+        // The ground's own ceiling on this unit, when it has one (`UnitOption.room`).
+        unit.room ?? Number.POSITIVE_INFINITY,
+      )
     : 0;
+  const count = atMax ? Math.max(1, Math.min(most, MUSTER_MAX_BATCH)) : typed;
   /*
    * The price and the clock for *this order*, discounted, which is what the route will charge and
    * time it with (maintainer, 2026-09-17 consistency pass).
@@ -735,6 +770,20 @@ function MusterBox({ unit, muster }: { unit: UnitOption; muster: UnitCardMuster 
   const seconds = spec
     ? musterSecondsFor(spec, count, speedPercent)
     : unit.musterSeconds * Math.max(1, count);
+  /*
+   * Why the route would refuse this order, asked in the route's own order and words (maintainer,
+   * 2026-10-06): Muster is greyed with the reason on hover rather than pressed and refused. Only a
+   * race (another tab spending first) gets as far as the server's refusal now.
+   */
+  const refusal = ((): string | null => {
+    if (!waived && benchFull) return MUSTER_REFUSAL_TEXT.queue_full;
+    if (unit.unique && held + count > 1) return MUSTER_REFUSAL_TEXT.already_have_one;
+    if (unit.room !== undefined && count > unit.room) return MUSTER_REFUSAL_TEXT.at_the_cap;
+    if (waived) return null;
+    if (unit.unitSlots * count > spare) return MUSTER_REFUSAL_TEXT.no_unit_slots;
+    if (!canAfford(resources, price)) return MUSTER_REFUSAL_TEXT.cannot_afford;
+    return null;
+  })();
 
   return (
     <div className="flex w-full flex-col items-center justify-center gap-1.5 rounded-sm border border-brass-500/35 bg-surface-950/45 px-3 py-1.5">
@@ -745,7 +794,10 @@ function MusterBox({ unit, muster }: { unit: UnitOption; muster: UnitCardMuster 
           min={1}
           max={unit.unique ? 1 : MUSTER_MAX_BATCH}
           value={count}
-          onChange={setCount}
+          onChange={(next) => {
+            setAtMax(false);
+            setTyped(next);
+          }}
           data-testid={`count-${unit.id}`}
         />
         {/* What the crew can actually pay for and house, worked out by the same function the
@@ -756,14 +808,20 @@ function MusterBox({ unit, muster }: { unit: UnitOption; muster: UnitCardMuster 
             size="sm"
             variant="ghost"
             disabled={pending || most < 1}
-            onClick={() => setCount(most)}
+            onClick={() => setAtMax(true)}
             data-testid={`max-${unit.id}`}
             data-tip={`As many as you can afford and house: ${most}`}
           >
             Max
           </Button>
         )}
-        <Button size="sm" disabled={pending} onClick={() => onMuster(count)}>
+        <Button
+          size="sm"
+          disabled={pending}
+          refusal={refusal}
+          onClick={() => onMuster(count)}
+          data-testid={`muster-${unit.id}`}
+        >
           {pending ? 'Working…' : 'Muster'}
         </Button>
         <span className="font-display text-[11px] tabular-nums text-ink-300">
@@ -834,7 +892,15 @@ function StatLabel({ statKey }: { statKey: RatingKey }) {
  * The band in colour order (maintainer, 2026-09-26): brass rules first, then the verdigris
  * modifiers and good ground, then everything red, so what is against a unit always sits at the end.
  */
-function Marks({ unit }: { unit: UnitOption }) {
+function Marks({
+  unit,
+  ignoredLabels,
+  antiCombineLevels,
+}: {
+  unit: UnitOption;
+  ignoredLabels: readonly string[];
+  antiCombineLevels: number;
+}) {
   const { rules, modifiers, affinities } = unit;
   const ruleChip = (rule: UnitOption['rules'][number]) => (
     <li key={rule.id} className="min-w-0">
@@ -843,7 +909,11 @@ function Marks({ unit }: { unit: UnitOption }) {
   );
   const affinityChip = (affinity: UnitOption['affinities'][number]) => (
     <li key={affinity.id} className="min-w-0">
-      <AffinityTag affinity={affinity} unitName={unit.name} />
+      <AffinityTag
+        affinity={affinity}
+        unitName={unit.name}
+        ignored={!affinity.good && ignoredLabels.includes(affinity.id)}
+      />
     </li>
   );
   const against = (rule: UnitOption['rules'][number]) => ruleTone(rule) === 'negative';
@@ -851,6 +921,11 @@ function Marks({ unit }: { unit: UnitOption }) {
   return (
     <ul className="flex min-h-6 flex-wrap items-center gap-1" data-testid={`marks-${unit.id}`}>
       {rules.filter((rule) => !against(rule)).map(ruleChip)}
+      {antiCombineLevels > 0 && (
+        <li className="min-w-0">
+          <RuleTag rule={antiCombineRule(antiCombineLevels)} />
+        </li>
+      )}
       {modifiers.map((modifier) => (
         <li key={modifier.label} className="min-w-0">
           <ModifierTag modifier={modifier} />
@@ -889,6 +964,41 @@ function UnitDossier({ unit, enemy = false }: { unit: UnitOption; enemy?: boolea
       icon={<UnitPortrait unitId={unit.id} tier={unit.tier} fill />}
     >
       <p className="font-body text-[14px] leading-relaxed text-ink-100">{unit.blurb}</p>
+
+      {unit.doorSteps.length > 0 && (
+        // A unit raised on an authored door (Reliquary, 2026-10-07): what each level of the door
+        // gives them, the level the crew holds marked, and the rest greyed as what is still to
+        // win. A crew holding no door sees the ladder too: it is the reason to go and take one.
+        <WindowSection label="The door's ladder">
+          <ol className="flex flex-col gap-1" data-testid={`door-steps-${unit.id}`}>
+            {unit.doorSteps.map((step, index) => {
+              const level = index + 1;
+              const held = unit.doorLevel !== null && level <= unit.doorLevel;
+              return (
+                <li
+                  key={level}
+                  data-held={held ? 'yes' : undefined}
+                  className={cn(
+                    'flex items-baseline gap-2 font-body text-[13px] leading-snug',
+                    held ? 'text-ink-100' : 'text-ink-300',
+                  )}
+                >
+                  <span
+                    className={cn(
+                      'shrink-0 font-display text-[11px] font-bold uppercase tracking-[0.14em]',
+                      held ? 'text-brass-300' : 'text-ink-300',
+                    )}
+                  >
+                    L{level}
+                    {level === unit.doorLevel ? ' · held' : ''}
+                  </span>
+                  <span>{step}</span>
+                </li>
+              );
+            })}
+          </ol>
+        </WindowSection>
+      )}
 
       {unit.missing.length > 0 && (
         <WindowSection label="Still waiting on">

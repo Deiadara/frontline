@@ -41,6 +41,15 @@ export interface NewMessage {
   inviteFactionId?: string | null;
 }
 
+/** One row of the send log (0151), as the two letter limits count it (`social/limits.ts`). */
+export interface LetterSend {
+  letterId: string;
+  senderUserId: string;
+  /** Null on the row that stands for the letter itself; the reader on a row for a mailbox reached. */
+  recipientUserId: string | null;
+  sentAt: string;
+}
+
 /** One invitation letter, as the two invitation limits count it (`social/limits.ts`). */
 export interface InvitationLetter {
   id: string;
@@ -68,10 +77,6 @@ export interface SocialRepo {
   inbox(userId: string, limit: number): Message[];
   sent(userId: string, limit: number): SentMessage[];
   findMessage(id: string, userId: string): Message | undefined;
-  /** Letters this account has sent since `sinceIso`, deleted or not. */
-  sentSince(userId: string, sinceIso: string): number;
-  /** Letters from one sender put in one reader's mailbox since `sinceIso` (0139's day limit). */
-  lettersToSince(senderUserId: string, recipientUserId: string, sinceIso: string): number;
   /** The reader stops, or starts again, taking letters from `blockedUserId` (0139). */
   setBlocked(userId: string, blockedUserId: string, blocked: boolean, at: string): void;
   /** Everybody this reader has blocked, oldest first. */
@@ -89,6 +94,19 @@ export interface SocialRepo {
   trimMailbox(userId: string, keep: number): void;
   /** Keeps a player's sent folder to its newest `keep` sends. */
   trimSentFolder(userId: string, keep: number): void;
+
+  // --- the send log (0151) ---
+  /**
+   * One row in the send log: the letter itself when `recipientUserId` is null, a mailbox it reached
+   * otherwise. Deleting or trimming letters never touches it.
+   */
+  logLetterSend(send: LetterSend): void;
+  /** Drops every send logged before `beforeIso`: no limit looks back that far. */
+  forgetLetterSendsBefore(beforeIso: string): void;
+  /** Letters this account has written since `sinceIso`, whatever became of them. */
+  lettersSentSince(senderUserId: string, sinceIso: string): number;
+  /** Letters from one sender that reached one reader's mailbox since `sinceIso` (0139's day limit). */
+  lettersToSince(senderUserId: string, recipientUserId: string, sinceIso: string): number;
 
   // --- invitation letters ---
   recordInvitationLetter(letter: InvitationLetter): void;
@@ -228,10 +246,19 @@ export function createSocialRepo(db: AppDatabase): SocialRepo {
     let held: Statement | null = null;
     return () => (held ??= db.prepare(sql));
   };
-  // The sender's copy is addressed to the sender, so the inbox index answers this.
+  // Prepared on first use for the same reason: `letter_sends` arrived with 0151.
+  const logLetterSendStmt = lazy(
+    `INSERT INTO letter_sends (letter_id, sender_user_id, recipient_user_id, sent_at)
+     VALUES (?, ?, ?, ?)`,
+  );
+  const forgetLetterSendsStmt = lazy('DELETE FROM letter_sends WHERE sent_at < ?');
+  const lettersSentSinceStmt = lazy(
+    `SELECT COUNT(*) AS n FROM letter_sends
+      WHERE sender_user_id = ? AND recipient_user_id IS NULL AND sent_at >= ?`,
+  );
   const lettersToSinceStmt = lazy(
-    `SELECT COUNT(*) AS n FROM messages
-      WHERE sender_user_id = ? AND recipient_user_id = ? AND is_sent_copy = 0 AND sent_at >= ?`,
+    `SELECT COUNT(*) AS n FROM letter_sends
+      WHERE sender_user_id = ? AND recipient_user_id = ? AND sent_at >= ?`,
   );
   const blockStmt = lazy(
     'INSERT OR IGNORE INTO blocked_senders (user_id, blocked_user_id, created_at) VALUES (?, ?, ?)',
@@ -242,10 +269,6 @@ export function createSocialRepo(db: AppDatabase): SocialRepo {
   );
   const hasBlockedStmt = lazy(
     'SELECT 1 FROM blocked_senders WHERE user_id = ? AND blocked_user_id = ?',
-  );
-  const sentSinceStmt = db.prepare(
-    `SELECT COUNT(*) AS n FROM messages
-      WHERE recipient_user_id = ? AND is_sent_copy = 1 AND sent_at >= ?`,
   );
   const putMessageStmt = db.prepare(
     `INSERT INTO messages
@@ -264,6 +287,10 @@ export function createSocialRepo(db: AppDatabase): SocialRepo {
    * A correlated subquery rather than a join, because the sender's own copy must not count itself
    * as a recipient: `is_sent_copy = 0` inside the subquery is what makes "went to 4 people, 2 have
    * read it" true rather than off by one.
+   *
+   * Found by `recipient_user_id`, which on a sent copy is the sender (`social/send.ts`): that is
+   * the column `idx_messages_inbox` leads with, and `sender_user_id` has no index, so every mailbox
+   * poll scanned every letter in the game (bug pass, 2026-10-06).
    */
   const sentStmt = lazy(
     `SELECT m.*,
@@ -273,7 +300,7 @@ export function createSocialRepo(db: AppDatabase): SocialRepo {
               WHERE o.thread_id = m.thread_id AND o.is_sent_copy = 0 AND o.read_at IS NOT NULL)
               AS read_by
        FROM messages m
-      WHERE m.sender_user_id = ? AND m.is_sent_copy = 1 AND m.deleted = 0
+      WHERE m.recipient_user_id = ? AND m.is_sent_copy = 1 AND m.deleted = 0
       ORDER BY m.sent_at DESC LIMIT ?`,
   );
   const findMessageStmt = db.prepare(
@@ -427,16 +454,6 @@ export function createSocialRepo(db: AppDatabase): SocialRepo {
         readBy: row.read_by,
       }));
     },
-    sentSince(userId, sinceIso) {
-      const row = sentSinceStmt.get(userId, sinceIso) as { n: number };
-      return row.n;
-    },
-    lettersToSince(senderUserId, recipientUserId, sinceIso) {
-      const row = lettersToSinceStmt().get(senderUserId, recipientUserId, sinceIso) as {
-        n: number;
-      };
-      return row.n;
-    },
     setBlocked(userId, blockedUserId, blocked, at) {
       if (blocked) blockStmt().run(userId, blockedUserId, at);
       else unblockStmt().run(userId, blockedUserId);
@@ -470,6 +487,19 @@ export function createSocialRepo(db: AppDatabase): SocialRepo {
     },
     trimSentFolder(userId, keep) {
       trimSentFolderStmt.run(userId, userId, keep);
+    },
+
+    logLetterSend(send) {
+      logLetterSendStmt().run(send.letterId, send.senderUserId, send.recipientUserId, send.sentAt);
+    },
+    forgetLetterSendsBefore(beforeIso) {
+      forgetLetterSendsStmt().run(beforeIso);
+    },
+    lettersSentSince(senderUserId, sinceIso) {
+      return (lettersSentSinceStmt().get(senderUserId, sinceIso) as { n: number }).n;
+    },
+    lettersToSince(senderUserId, recipientUserId, sinceIso) {
+      return (lettersToSinceStmt().get(senderUserId, recipientUserId, sinceIso) as { n: number }).n;
     },
 
     recordInvitationLetter(letter) {

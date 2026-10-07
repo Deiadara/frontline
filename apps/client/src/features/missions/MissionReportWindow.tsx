@@ -5,7 +5,6 @@ import {
   findMissionTemplate,
   formatDuration,
   heldItems,
-  missionCarry,
   missionCompletesAt,
   missionTimings,
   missionXpEarned,
@@ -13,10 +12,8 @@ import {
   type ItemId,
   type Mission,
   type MissionLeader,
-  type LineRules,
   type PartialResources,
   type ResourceKey,
-  type UnitLoadouts,
 } from '@frontline/shared';
 import { ResourceIcon, RewardLine } from '../../components/Resources';
 import { Button } from '../../components/ui/Button';
@@ -50,23 +47,11 @@ export function MissionReportWindow({
   leaders,
   overseerName,
   onClose,
-  loadouts = {},
-  bagPercent = 0,
-  rules,
 }: {
   mission: Mission;
   leaders: readonly MissionLeader[];
   overseerName: string;
   onClose: () => void;
-  /** The crew's brackets, for the bag the crew could lift. Defaults to none for old rows. */
-  loadouts?: UnitLoadouts;
-  /**
-   * The crew's own bag on top of the sheets (`lootCapacityPercent`) and its line rules (granted
-   * `picker` marks), both of which the settle carries with. Without them a crew holding the Pawn
-   * Shop read "they carried all 300 of it, out of the 200 they could lift".
-   */
-  bagPercent?: number;
-  rules?: LineRules;
 }) {
   const template = findMissionTemplate(mission.templateId);
   const failed = mission.outcome === 'failure';
@@ -108,7 +93,7 @@ export function MissionReportWindow({
           {/* What the run paid, which is the frozen figure only on a clean run. */}
           <Field
             label="Experience"
-            value={`${(mission.xpPaid ?? missionXpEarned(mission)).toLocaleString()} XP`}
+            value={`${(mission.xpPaid ?? missionXpEarned(mission)).toLocaleString('en-US')} XP`}
           />
           {/* The time they were actually out: a recall turns them round, and the planned clock
               said "2h 0m" about a crew that was gone six minutes. */}
@@ -117,7 +102,7 @@ export function MissionReportWindow({
           {(mission.infamyPaid ?? 0) > 0 && (
             <Field
               label="Infamy"
-              value={`+${(mission.infamyPaid ?? 0).toLocaleString()}`}
+              value={`+${(mission.infamyPaid ?? 0).toLocaleString('en-US')}`}
               data-testid={`mission-infamy-${mission.id}`}
             />
           )}
@@ -130,7 +115,7 @@ export function MissionReportWindow({
           </dl>
         </FileSection>
 
-        <Haul mission={mission} loadouts={loadouts} bagPercent={bagPercent} rules={rules} />
+        <Haul mission={mission} />
         <Drops mission={mission} />
       </div>
 
@@ -222,17 +207,7 @@ function Losses({ mission }: { mission: Mission }) {
  * support, so with no `spoils` the section says what came home and says outright that the total is
  * not known.
  */
-function Haul({
-  mission,
-  loadouts,
-  bagPercent,
-  rules,
-}: {
-  mission: Mission;
-  loadouts: UnitLoadouts;
-  bagPercent: number;
-  rules: LineRules | undefined;
-}) {
+function Haul({ mission }: { mission: Mission }) {
   const knownSpoils = Object.keys(mission.spoils).length > 0;
   const earned: PartialResources = knownSpoils ? mission.spoils : mission.rewards;
   const kinds = RESOURCE_ORDER.filter(
@@ -276,20 +251,30 @@ function Haul({
             ) : short ? (
               <span className="text-brass-300">
                 The crew could not carry everything. They lifted{' '}
-                <span className="tabular-nums">{carriedKg.toLocaleString()}</span> loot of the{' '}
-                <span className="tabular-nums">{earnedKg.toLocaleString()}</span> loot the job paid,
-                and left the rest where it lay. Send more carriers.
+                <span className="tabular-nums">{carriedKg.toLocaleString('en-US')}</span> loot of
+                the <span className="tabular-nums">{earnedKg.toLocaleString('en-US')}</span> loot
+                the job paid, and left the rest where it lay. Send more carriers.
               </span>
             ) : (
               <>
                 They carried all{' '}
-                <span className="tabular-nums text-ink-200">{earnedKg.toLocaleString()}</span> loot
-                of it home, out of the{' '}
                 <span className="tabular-nums text-ink-200">
-                  {/* Whoever walked back, not whoever set out: the dead carry nothing. */}
-                  {missionCarry(cameHome(mission), loadouts, bagPercent, rules).toLocaleString()}
+                  {earnedKg.toLocaleString('en-US')}
                 </span>{' '}
-                loot they could lift between them.
+                loot of it home
+                {/* What the settle worked out at the mark, kept on the run. A run settled before
+                    it was kept drops the clause rather than guess from today's crew. */}
+                {mission.carryCapacity === undefined ? (
+                  '.'
+                ) : (
+                  <>
+                    , out of the{' '}
+                    <span className="tabular-nums text-ink-200">
+                      {Math.round(mission.carryCapacity).toLocaleString('en-US')}
+                    </span>{' '}
+                    loot they could lift between them.
+                  </>
+                )}
               </>
             )}
           </p>
@@ -340,9 +325,9 @@ function HaulRow({
         </span>
         <span className="font-display text-[14px] font-bold tabular-nums">
           <span className={short ? 'text-brass-300' : 'text-ink-100'}>
-            {carried.toLocaleString()}
+            {carried.toLocaleString('en-US')}
           </span>
-          {known && <span className="text-ink-400"> of {earned.toLocaleString()}</span>}
+          {known && <span className="text-ink-400"> of {earned.toLocaleString('en-US')}</span>}
         </span>
         <WastedOn mission={mission} kind={kind} />
       </span>
@@ -405,7 +390,7 @@ function Drops({ mission }: { mission: Mission }) {
               </span>
               {count > 1 && (
                 <span className="font-display text-[10px] uppercase tracking-[0.16em] tabular-nums text-brass-300">
-                  {count.toLocaleString()} of them
+                  {count.toLocaleString('en-US')} of them
                 </span>
               )}
             </span>

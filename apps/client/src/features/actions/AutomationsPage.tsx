@@ -1,5 +1,6 @@
 import {
   AUTOMATION_ORDERS,
+  AUTOMATION_FAST_COOLDOWN_MS,
   AUTOMATION_RUNGS,
   ORDER_SEQUENCES,
   PLAYER_UNITS,
@@ -14,7 +15,7 @@ import {
   type OfficerRole,
   type ResourceKey,
 } from '@frontline/shared';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { RESOURCE_META } from '../../components/Resources';
 import { DrawnButton } from '../../components/ui/DrawnButton';
@@ -25,9 +26,10 @@ import { NumberField } from '../../components/ui/NumberField';
 import { QuickAmount } from '../../components/ui/QuickAmount';
 import { cn } from '../../lib/cn';
 import { useAutomations, useMe, useSaveAutomation } from '../../lib/queries';
+import { useServerClock } from '../missions/useServerClock';
 import { formatRemaining } from '../base/format';
 import { OrdersMark } from './CensusMarks';
-import { ErrorNote } from '../../components/ui/ErrorNote';
+import { PressError } from '../../components/ui/PressError';
 
 /**
  * The Right Hand's standing orders, on the Monitor's third page (§C2b, maintainer 2026-09-22).
@@ -182,7 +184,7 @@ function Ladder({ powers }: { powers: AutomationsResponse['powers'] }) {
     },
     {
       label: 'Five minute gap',
-      open: powers.cooldownMs <= 5 * 60_000,
+      open: powers.cooldownMs <= AUTOMATION_FAST_COOLDOWN_MS,
       rung: AUTOMATION_RUNGS.fastCooldown,
       tip: 'The wait between a party walking in and the next going out drops from fifteen minutes to five.',
     },
@@ -433,8 +435,13 @@ function SlotSheet({
              * lands on a row boundary and never through a name.
              */}
             <ul className="flex max-h-[10rem] flex-col gap-1 overflow-y-auto pr-1">
-              {PLAYER_UNITS.filter((unit) => (army[unit.id] ?? 0) > 0).map((unit) => {
+              {/* The party's own units are listed while out on its run (maintainer, 2026-10-06):
+                  a running order whose party had left read as naming nobody. */}
+              {PLAYER_UNITS.filter(
+                (unit) => (army[unit.id] ?? 0) > 0 || (force[unit.id] ?? 0) > 0,
+              ).map((unit) => {
                 const count = army[unit.id] ?? 0;
+                const out = Math.max(0, (force[unit.id] ?? 0) - count);
                 return (
                   <li
                     key={unit.id}
@@ -442,8 +449,12 @@ function SlotSheet({
                   >
                     <span className="min-w-0 flex-1 truncate font-body text-[12px] text-ink-200">
                       {unit.name}
-                      <span className="ml-1.5 font-display text-[10px] uppercase tracking-[0.14em] text-ink-400">
+                      <span
+                        className="ml-1.5 font-display text-[10px] uppercase tracking-[0.14em] text-ink-400"
+                        data-testid={`automation-${slot}-home-${unit.id}`}
+                      >
                         {count} at home
+                        {out > 0 && `, ${out} out`}
                       </span>
                     </span>
                     <QuickAmount
@@ -479,7 +490,7 @@ function SlotSheet({
               onChange={(value) => setOfficerId(value || null)}
               options={officers.map((officer) => ({
                 value: officer.id,
-                label: officer.name,
+                label: officer.out ? `${officer.name} (out)` : officer.name,
                 // A chair is nullable on the wire: an officer on the books with no seat is still
                 // somebody who can lead a party out.
                 hint: roleLabel(officer.role),
@@ -521,7 +532,7 @@ function SlotSheet({
         </Field>
       )}
 
-      {save.error && <ErrorNote>{save.error.message}</ErrorNote>}
+      {save.error && <PressError onDismiss={save.reset}>{save.error.message}</PressError>}
 
       <footer className="flex flex-wrap items-center justify-between gap-3">
         <p className="font-body text-[11px] leading-snug text-ink-400">
@@ -579,6 +590,12 @@ function StateLine({
   powers: AutomationsResponse['powers'];
   serverNow: string;
 }) {
+  /*
+   * Ticking, off the last poll's server clock (bug pass, 2026-10-06): read once per 5-second poll,
+   * the seconds sat still and jumped by five. Called before the early returns below.
+   */
+  const receivedAt = useMemo(() => Date.now(), [serverNow]);
+  const now = useServerClock(serverNow, receivedAt);
   if (!held.enabled) {
     return (
       <span className="font-display text-[10px] uppercase tracking-[0.18em] text-ink-400">Off</span>
@@ -592,7 +609,7 @@ function StateLine({
     );
   }
   const ready = readyAt(held, powers.cooldownMs);
-  const left = ready === null ? 0 : ready - Date.parse(serverNow);
+  const left = ready === null ? 0 : ready - now.getTime();
   if (left > 0) {
     return (
       <span className="font-display text-[10px] uppercase tracking-[0.18em] text-brass-300">

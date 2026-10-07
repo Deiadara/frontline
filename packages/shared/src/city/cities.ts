@@ -36,11 +36,12 @@ export const CitySchema = z.object({
    * Whether a crew can actually play here yet.
    *
    * Ashfall and Terminus are the two with a painted map, a seeded world and a mission board. The
-   * other three are shut, and they are shut in two different ways: Saltmarch has authored ground
-   * in the atlas with no art and no server behind it, and Redline and Deepcut have no ground at
-   * all yet, only a name and what the place is. A card that pretended either was playable would be
-   * a door onto an empty room. The screen draws all five, because "there is a frontier and it is
-   * called Saltmarch" is the thing worth knowing.
+   * other three are shut, and they are shut in two different ways: Reliquary has authored ground
+   * in the atlas with no art and no server behind it (written a district at a time, 2026-10-06,
+   * in the place Saltmarch's sketch held until then), and Redline and Deepcut have no ground at
+   * all yet, only a name and what the place is. A card that pretended any was playable would be a
+   * door onto an empty room. The screen draws all five, because "there is a frontier and it is
+   * called Reliquary" is the thing worth knowing.
    */
   open: z.boolean(),
 });
@@ -64,11 +65,11 @@ export const CITIES: readonly City[] = [
     open: true,
   },
   {
-    id: 'saltmarch',
-    name: 'Saltmarch',
-    nickname: 'the Drowned Port',
+    id: 'reliquary',
+    name: 'Reliquary',
+    nickname: 'the Old Quarter',
     blurb:
-      'The water came up and the town went with it. What is left stands on stilts, walkways and forty ships welded side to side, and every road worth holding is a crossing.',
+      'The cathedral city the Combine never modernised, so it wired it instead: white stone and crimson banners, bells that are transmitters now, and a camera in every saint. The dead outnumber the living and are better housed.',
     open: false,
   },
   {

@@ -1,8 +1,14 @@
-import { MAX_LOCATION_LEVEL, type LocationControl } from '@frontline/shared';
+import {
+  MAX_LOCATION_LEVEL,
+  clearedGroundState,
+  findLocation,
+  type LocationControl,
+} from '@frontline/shared';
 import type { Repositories } from '../db/repos/index.js';
 import { settleBasesById } from '../district/settle.js';
 import { settleEach } from '../world/guard.js';
 import { tallyLocationLevelRaised } from '../feats/tally.js';
+import { dropGateRaise } from './gates.js';
 
 /**
  * Doing things to the city (GDD §A4): what is left of it here is the upgrade clock on held ground.
@@ -25,10 +31,30 @@ export function settleLocationUpgrades(
   now: Date,
 ): Map<string, LocationControl> {
   const controls = repos.city.controls();
-  const due = [...controls.values()].filter(
+  const finished = [...controls.values()].filter(
     (control) =>
       control.upgradingUntil !== null && Date.parse(control.upgradingUntil) <= now.getTime(),
   );
+  /*
+   * Not ahead of a fight on the same ground that came first (bug pass, 2026-10-06). Upgrades settle
+   * before battles in the world's settle, so after a restart over both, work due at 21:05 banked
+   * its level before the 21:00 capture that should have taken it, and the captor inherited it.
+   * Such an upgrade waits for that fight; if the ground is still the holder's after it, the next
+   * settle banks it. Read only when something is due, because this runs on every read path.
+   */
+  const firstFight = new Map<string, number>();
+  if (finished.length > 0) {
+    for (const battle of repos.sieges.pending()) {
+      if (battle.target.kind !== 'location') continue;
+      const mark = Date.parse(battle.scheduledFor);
+      const known = firstFight.get(battle.target.locationId);
+      if (known === undefined || mark < known) firstFight.set(battle.target.locationId, mark);
+    }
+  }
+  const due = finished.filter((control) => {
+    const fight = firstFight.get(control.locationId);
+    return fight === undefined || fight > Date.parse(control.upgradingUntil ?? '');
+  });
   settleEach(
     repos,
     'location upgrades',
@@ -40,7 +66,15 @@ export function settleLocationUpgrades(
         level: Math.min(MAX_LOCATION_LEVEL, control.level + 1),
         upgradingUntil: null,
       };
-      putControl(repos, settled, now);
+      /*
+       * Settled up to when the work landed, not to the tick (bug pass, 2026-10-06): after a restart
+       * the holder was paid the old level for the whole downtime past it. The settle never walks
+       * backwards, so a crew already read past this instant is not paid twice.
+       */
+      const landedAt = new Date(
+        Math.min(now.getTime(), Date.parse(control.upgradingUntil ?? now.toISOString())),
+      );
+      putControl(repos, settled, landedAt);
       controls.set(control.locationId, settled);
       // P8-C: counted for whoever holds the ground when the work lands.
       if (settled.holder.kind === 'crew' && settled.level > control.level) {
@@ -71,13 +105,45 @@ export function settleLocationUpgrades(
  * against the row as it stands, then the row is written.
  *
  * The settle writes the crews' rows, so a caller holding a copy of either must re-read it after.
+ *
+ * Ground that changes hands loses its work in progress (maintainer, 2026-10-06): the location's own
+ * upgrade, and any raise of its district's captured gate, are called off and nobody is refunded.
+ * A raise stores what was paid and not who paid it, so a crew that took the last plot of a district
+ * could cancel the loser's raise inside its first tenth and pocket ninety percent of it. Here
+ * because this is the one door every change of holder goes through: a fight, a claim on arrival,
+ * the console's grants.
  */
 export function putControl(repos: Repositories, next: LocationControl, now: Date): void {
   const before = repos.city.control(next.locationId);
-  if (before && (holderOf(before) !== holderOf(next) || before.level !== next.level)) {
+  const changesHands = before !== undefined && holderKey(before) !== holderKey(next);
+  if (before && (changesHands || before.level !== next.level)) {
     settleBasesById(repos, [holderOf(before), holderOf(next)], now);
   }
-  repos.city.put(next);
+  if (!changesHands) {
+    repos.city.put(next);
+    return;
+  }
+  /*
+   * Reliquary's ground state is the holder's and goes with them (2026-10-07): the tower's switch
+   * falls open, the wall's pins come down and unlock for the taker, and the trophy count starts
+   * again from this instant. A level change alone keeps all of it: the pins unlock on their own
+   * because `pamphletsPinnedAt` is now below the level (`pamphletsUnlocked`).
+   */
+  repos.city.put({
+    ...next,
+    upgradingUntil: null,
+    upgradePaid: null,
+    ...clearedGroundState(now),
+  });
+  // Only when the ground was a crew's: walking onto open ground takes nobody's work, and the
+  // regime raises no gates.
+  const districtId = findLocation(next.locationId)?.districtId;
+  if (districtId && before?.holder.kind === 'crew') dropGateRaise(repos, districtId);
+}
+
+/** Who holds it, told apart even when nobody's crew does: the regime, the looters, open ground. */
+function holderKey(control: LocationControl): string {
+  return control.holder.kind === 'crew' ? `crew:${control.holder.baseId}` : control.holder.kind;
 }
 
 function holderOf(control: LocationControl): string | null {

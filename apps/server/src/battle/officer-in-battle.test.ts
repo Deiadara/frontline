@@ -6,6 +6,7 @@ import {
   CITY_DISTRICTS,
   DECLARE_INFAMY_COST,
   DEFAULT_BADGE,
+  CAPTURED_GATE_MAX_LEVEL,
   CAPTURED_GATE_START_LEVEL,
   capturedGateDefensePercent,
   CASUALTY_RECOVERY_PER_INFIRMARY_LEVEL,
@@ -676,7 +677,10 @@ describe('coming home hurt (§D4)', () => {
     expect((await lead(stack, battleId, officer.id)).statusCode).toBe(200);
     await deploy(stack, battleId, { razors: 10 });
     const now = new Date();
-    bringForward(stack, battleId, new Date(now.getTime() - 1000));
+    // Settled three hours late: the clock runs from the fight's mark, not from the settle
+    // (maintainer, 2026-10-06).
+    const mark = new Date(now.getTime() - 3 * 3_600_000);
+    bringForward(stack, battleId, mark);
     settleBattles(stack.app.repos, engine, now);
 
     const after = stack.app.repos.bases.findById(stack.baseId)!.commanders[0]!;
@@ -684,7 +688,7 @@ describe('coming home hurt (§D4)', () => {
     // The board's number, to the minute, read off the constant rather than typed: it moved from
     // 24 to 12 on 2026-09-23 and a hand-written 24 here would have been the only thing left
     // claiming otherwise.
-    expect(Date.parse(after.injuredUntil!) - now.getTime()).toBe(OFFICER_INJURY_HOURS * 3_600_000);
+    expect(Date.parse(after.injuredUntil!) - mark.getTime()).toBe(OFFICER_INJURY_HOURS * 3_600_000);
   });
 
   /*
@@ -1075,6 +1079,45 @@ describe('taking machines to a fight (§C3)', () => {
     expect(fits.statusCode, fits.body.slice(0, 200)).toBe(200);
   });
 
+  /*
+   * A unit that has landed rides nothing and frees its seat (maintainer, 2026-10-06). The deploy
+   * door counted everybody landed or walking, so a crew whose first batch had arrived was refused
+   * a second the bike could carry, while the machines door counted only the road.
+   */
+  it('frees a seat when its rider lands', async () => {
+    const stack = await makeStack(undefined, 'landed');
+    park(stack, { motorcycle: 1 });
+    const battleId = await declare(stack);
+    expect((await takeVehicles(stack, battleId, { motorcycle: 1 })).statusCode).toBe(200);
+    const bike = findVehicle('motorcycle');
+    if (!bike) throw new Error('fixture: the bike left the catalogue');
+    const base = stack.app.repos.bases.findById(stack.baseId)!;
+    stack.app.repos.bases.updateArmy(base.id, { razors: 30 }, base.musterQueue);
+
+    const send = (razors: number) =>
+      stack.app.inject({
+        method: 'POST',
+        url: '/api/battles/deploy',
+        headers: auth(stack.token),
+        payload: { battleId, changes: { razors }, perimeterChanges: {} },
+      });
+    expect((await send(bike.capacity)).statusCode).toBe(200);
+    // On the road, the seats are full.
+    expect((await send(1)).statusCode).toBe(409);
+
+    stack.db
+      .prepare('UPDATE troop_movements SET departed_at = ?, arrives_at = ? WHERE battle_id = ?')
+      .run(
+        new Date(Date.now() - 120_000).toISOString(),
+        new Date(Date.now() - 60_000).toISOString(),
+        battleId,
+      );
+    settleMovements(stack.app.repos, new Date());
+    // Landed, they ride nothing: the bike seats a second batch.
+    const second = await send(bike.capacity);
+    expect(second.statusCode, second.body.slice(0, 200)).toBe(200);
+  });
+
   /**
    * Only what somebody was riding is at risk. Two Cheese Wagons under ten units is one bus with
    * ten in it and one with nobody: the settle used to wreck both on a wipe and hand the enemy
@@ -1146,22 +1189,29 @@ describe('taking machines to a fight (§C3)', () => {
    * cars, because six of seven heads walked home and the settle read that as a scratch. In the
    * currency the seats were actually spent in, half the column is gone and half the convoy with it.
    *
-   * One Juggernaut at six slots and six Razors at one: seven heads, twelve slots, and two Scars at
-   * eight seats apiece to carry them. Killing only the Juggernaut is 1/7 of the heads and 1/2 of
-   * the slots, and `wrecked` rounds down, so the two arithmetics give 0 machines and 1.
+   * One Juggernaut at ten slots and six Razors at one: seven heads, sixteen slots, a Dirt Runner
+   * at ten seats for the Juggernaut and a Scar at eight for the Razors (the Juggernaut went to six
+   * slots and two Scars until Reliquary made it ten, 2026-10-07, and ten does not fit in a Scar).
+   * Killing only the Juggernaut is 1/7 of the heads and 10/16 of the slots; `wrecked` rounds
+   * down over two machines, so the two arithmetics give floor(2/7) = 0 and floor(20/16) = 1. The
+   * machine written off is the one at the front of the column, the faster Runner (58 to 55).
    */
   it('wrecks on the share of the unit slots lost, not the share of the heads', async () => {
     const stack = await makeStack(undefined, 'slotshare');
     const jugg = findUnit('juggernauts')!;
     const razor = findUnit('razors')!;
+    const runner = findVehicle('dirt_runner')!;
     const scar = findVehicle('scrap_car')!;
-    // The preconditions, off the catalogues: a heavy sheet worth several light ones, and a yard
-    // whose two machines are both needed to seat twelve slots and neither to seat seven heads.
-    expect(jugg.unitSlots).toBeGreaterThan(1);
+    // The preconditions, off the catalogues: a heavy sheet that only the Runner can seat, a yard
+    // whose two machines are both needed to seat sixteen slots and neither to seat seven heads,
+    // and the Runner at the front of the column so it is the one machine the share writes off.
+    expect(jugg.unitSlots).toBeGreaterThan(scar.capacity);
+    expect(jugg.unitSlots).toBeLessThanOrEqual(runner.capacity);
     expect(razor.unitSlots).toBe(1);
-    expect(scar.capacity).toBeLessThan(jugg.unitSlots + 6 * razor.unitSlots);
+    expect(runner.capacity).toBeLessThan(jugg.unitSlots + 6 * razor.unitSlots);
+    expect(runner.speed).toBeGreaterThan(scar.speed);
 
-    park(stack, { scrap_car: 2 });
+    park(stack, { dirt_runner: 1, scrap_car: 1 });
     const base = stack.app.repos.bases.findById(stack.baseId)!;
     stack.app.repos.bases.updateArmy(base.id, { juggernauts: 1, razors: 6 }, base.musterQueue);
     // A heavy sheet needs a name behind it before anybody will field one (§D7).
@@ -1171,7 +1221,7 @@ describe('taking machines to a fight (§C3)', () => {
     });
 
     const battleId = await declare(stack);
-    await takeVehicles(stack, battleId, { scrap_car: 2 });
+    await takeVehicles(stack, battleId, { dirt_runner: 1, scrap_car: 1 });
     const sent = await stack.app.inject({
       method: 'POST',
       url: '/api/battles/deploy',
@@ -1181,7 +1231,7 @@ describe('taking machines to a fight (§C3)', () => {
     expect(sent.statusCode, sent.body.slice(0, 200)).toBe(200);
 
     // Won, so the survivors are the committed force less what it cost: the Juggernaut and nobody
-    // else. That is a seventh of the heads and half the unit slots.
+    // else. That is a seventh of the heads and ten sixteenths of the unit slots.
     const cost = spy('attacker', { winnerLosses: { juggernauts: 1 } });
     bringForward(stack, battleId, new Date(Date.now() - 1000));
     settleBattles(stack.app.repos, cost, new Date());
@@ -1560,7 +1610,7 @@ describe('a captured gate in the fight it stands over (§B7)', () => {
 
   it('puts the wall in front of the defenders', async () => {
     const fresh = await defenceReaching(null);
-    const walled = await defenceReaching(10);
+    const walled = await defenceReaching(CAPTURED_GATE_MAX_LEVEL);
 
     /*
      * The baseline is a level *1* gate, not no gate.
@@ -1569,17 +1619,18 @@ describe('a captured gate in the fight it stands over (§B7)', () => {
      * "they hold everything and there is no door" state. So the wall's worth is the difference
      * between the two levels, and asserting the full ten-level figure was wrong about the rule
      * rather than about the wiring. It read 22.5 where the test wanted 25, which is exactly
-     * `capturedGateDefensePercent(10) - capturedGateDefensePercent(1)`.
+     * `capturedGateDefensePercent(max) - capturedGateDefensePercent(1)`.
      */
     expect(walled).toBeGreaterThan(fresh);
     expect(walled - fresh).toBeCloseTo(
-      capturedGateDefensePercent(10) - capturedGateDefensePercent(CAPTURED_GATE_START_LEVEL),
+      capturedGateDefensePercent(CAPTURED_GATE_MAX_LEVEL) -
+        capturedGateDefensePercent(CAPTURED_GATE_START_LEVEL),
       5,
     );
   });
 
   it('is worth more the higher it is raised', async () => {
-    expect(await defenceReaching(12)).toBeGreaterThan(await defenceReaching(3));
+    expect(await defenceReaching(5)).toBeGreaterThan(await defenceReaching(3));
   });
 
   /**
@@ -1600,7 +1651,7 @@ describe('a captured gate in the fight it stands over (§B7)', () => {
     takeRustyard(stack, rivalId);
     stack.app.repos.capturedGates.put({
       districtId: 'steelbelt',
-      level: 12,
+      level: CAPTURED_GATE_MAX_LEVEL,
       upgradingTo: null,
       upgradingUntil: null,
       upgradingSince: null,
@@ -1618,7 +1669,7 @@ describe('a captured gate in the fight it stands over (§B7)', () => {
     settleBattles(stack.app.repos, engine, new Date());
 
     const defence = engine.seen[0]?.defenderTerritory?.gatePercent ?? 0;
-    // Whatever else the defenders have, none of it is the twelve-level wall.
-    expect(defence).toBeLessThan(capturedGateDefensePercent(12));
+    // Whatever else the defenders have, none of it is the maxed wall.
+    expect(defence).toBeLessThan(capturedGateDefensePercent(CAPTURED_GATE_MAX_LEVEL));
   });
 });

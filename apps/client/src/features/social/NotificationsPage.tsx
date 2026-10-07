@@ -1,6 +1,7 @@
 import { NOTIFICATION_KIND_SPECS, type Notification } from '@frontline/shared';
 import { useState } from 'react';
 import { Button } from '../../components/ui/Button';
+import { PressError } from '../../components/ui/PressError';
 import { Icon, type IconName } from '../../components/ui/Icon';
 import { cn } from '../../lib/cn';
 import { useNotifications, useReadAllNotifications, useReadNotification } from '../../lib/queries';
@@ -127,6 +128,7 @@ export function NotificationsPage() {
     );
   }
   const now = Date.parse(data.serverNow);
+  const readError = readAll.error ?? read.error;
 
   /** Opening a receipt marks it read and shows what is behind it. Both, in one gesture. */
   const openEntry = (entry: Notification) => {
@@ -171,6 +173,10 @@ export function NotificationsPage() {
   return (
     <PageShell title="Notifications" action={controls} fills wide>
       <div className="flex min-h-0 flex-1 flex-col">
+        {/* A read that did not save says so (bug pass, 2026-10-06): the dot just stayed lit. */}
+        {readError && (
+          <PressError data-testid="notification-read-error">{readError.message}</PressError>
+        )}
         <div
           className="ink-frame card-paper washed rivets edge-lit min-h-0 flex-1 overflow-y-auto"
           data-testid="notification-list"
@@ -187,7 +193,15 @@ export function NotificationsPage() {
         </div>
       </div>
 
-      {opened && <NotificationDetail entry={opened} onClose={() => setOpened(null)} />}
+      {opened && (
+        <NotificationDetail
+          entry={opened}
+          onClose={() => {
+            setOpened(null);
+            read.reset();
+          }}
+        />
+      )}
 
       {preferences && (
         <Modal onClose={() => setPreferences(false)} labelledBy="prefs-title" size="wide">

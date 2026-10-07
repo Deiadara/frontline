@@ -11,7 +11,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
-import { openDatabase, runMigrations, type AppDatabase } from './index.js';
+import { openDatabase, replayMigrations, runMigrations, type AppDatabase } from './index.js';
 import { createRepositories, type Repositories } from './repos/index.js';
 
 /**
@@ -183,7 +183,7 @@ describe('a save that already holds the nulls', () => {
     forget(db, REPAIR_MIGRATION);
     forget(db, PLANKS_MIGRATION);
     forget(db, SUPPLIES_MIGRATION);
-    runMigrations(db);
+    replayMigrations(db);
 
     /*
      * The five the repair knew about come back at their starting amounts; planks comes back at
@@ -202,7 +202,7 @@ describe('a save that already holds the nulls', () => {
     const id = seed(repos);
     repos.bases.updateResources(id, { ...STARTING_RESOURCES, scrap: 91_000 });
     forget(db, REPAIR_MIGRATION);
-    runMigrations(db);
+    replayMigrations(db);
     expect(repos.bases.findById(id)?.resources.scrap).toBe(91_000);
   });
 
@@ -215,7 +215,7 @@ describe('a save that already holds the nulls', () => {
       id,
     );
     forget(db, REPAIR_MIGRATION);
-    runMigrations(db);
+    replayMigrations(db);
     const repaired = repos.bases.findById(id);
     expect(repaired?.resources.scrap).toBe(77_000);
     expect(repaired?.resources.caps).toBe(STARTING_RESOURCES.caps);
@@ -270,7 +270,7 @@ describe('a fractional stockpile', () => {
 
     forget(db, WHOLE_MIGRATION);
     forget(db, SUPPLIES_MIGRATION);
-    runMigrations(db);
+    replayMigrations(db);
 
     // Down, never up: a repair must not hand a crew a resource it did not earn.
     expect(repos.bases.findById(id)?.resources).toEqual({
@@ -288,7 +288,7 @@ describe('a fractional stockpile', () => {
     const id = seed(repos);
     repos.bases.updateResources(id, { ...STARTING_RESOURCES, scrap: 91_000 });
     forget(db, WHOLE_MIGRATION);
-    runMigrations(db);
+    replayMigrations(db);
     expect(repos.bases.findById(id)?.resources.scrap).toBe(91_000);
   });
 
@@ -307,6 +307,30 @@ describe('a fractional stockpile', () => {
     // migration that rounds it, because a fee is a number two people said out loud and the schema
     // is what stops a hand-written row smuggling a fraction into the committed total.
     expect(() => repos.bases.findById(id), 'the forged row must be unreadable').toThrow();
+  });
+
+  /**
+   * Bug pass, 2026-10-06: an officer whose role was retired leaves the books on read, and its
+   * commitment used to stay, holding the payroll for ever with nobody left to release.
+   */
+  it('drops the pay of an officer whose role was retired, and nobody else`s', () => {
+    const { db, repos } = openStack();
+    const id = seed(repos);
+    const crewRow = repos.bases.findById(id)!;
+    const kept = createCommander('kept-officer', 'Vell', 'engineer');
+    db.prepare('UPDATE bases SET commanders_json = ? WHERE id = ?').run(
+      JSON.stringify([kept, { ...kept, id: 'gone-officer', role: 'retired_role' }]),
+      id,
+    );
+    const economy = crewRow.economy;
+    db.prepare('UPDATE bases SET economy_json = ? WHERE id = ?').run(
+      JSON.stringify({
+        ...economy,
+        payroll: { ...economy.payroll, commitments: { [kept.id]: 60, 'gone-officer': 400 } },
+      }),
+      id,
+    );
+    expect(repos.bases.findById(id)?.economy.payroll.commitments).toEqual({ [kept.id]: 60 });
   });
 });
 
@@ -357,7 +381,7 @@ describe('a save that still names a retired unit', () => {
     expect(repos.bases.findById(id)?.army).toEqual({ razors: 4 });
 
     forgetRetirements(db);
-    runMigrations(db);
+    replayMigrations(db);
 
     expect(repos.bases.findById(id)?.army).toEqual({ razors: 4 });
   });
@@ -393,7 +417,7 @@ describe('a save that still names a retired unit', () => {
     ]);
 
     forgetRetirements(db);
-    runMigrations(db);
+    replayMigrations(db);
 
     const queue = repos.bases.findById(id)?.musterQueue ?? [];
     expect(queue.map((order) => order.unitId)).toEqual(['razors']);
@@ -408,7 +432,7 @@ describe('a save that still names a retired unit', () => {
     ).run(JSON.stringify({ razors: 2, muckrakers: 9, bell_ringers: 4 }));
 
     forgetRetirements(db);
-    runMigrations(db);
+    replayMigrations(db);
 
     const raw = db
       .prepare(`SELECT garrison_json AS json FROM location_control WHERE location_id = ?`)
@@ -431,7 +455,7 @@ describe('a save that still calls it food', () => {
     expect(repos.bases.findById(id)?.resources.supplies).toBe(0);
 
     forget(db, SUPPLIES_MIGRATION);
-    runMigrations(db);
+    replayMigrations(db);
 
     expect(repos.bases.findById(id)?.resources.supplies).toBe(812);
     const raw = db.prepare('SELECT resources_json AS json FROM bases WHERE id = ?').get(id) as {
@@ -447,7 +471,7 @@ describe('a save that still calls it food', () => {
     db.prepare('UPDATE bases SET economy_json = ? WHERE id = ?').run(JSON.stringify(economy), id);
 
     forget(db, SUPPLIES_MIGRATION);
-    runMigrations(db);
+    replayMigrations(db);
 
     expect(repos.bases.findById(id)?.economy.productionCarry).toEqual({ supplies: 0.25 });
   });
@@ -643,7 +667,7 @@ describe('a save naming content the game no longer has', () => {
         id,
       );
 
-      const applied = runMigrations(db);
+      const applied = replayMigrations(db);
       // The first thing the ladder picks up, not the whole tail of it: every migration written
       // after this one also lands here, and none of them is what this test measures.
       expect(applied[0]).toBe('0094_unit_modifications.sql');

@@ -1,3 +1,4 @@
+import { findLocation } from '@frontline/shared';
 import type { FastifyInstance } from 'fastify';
 import { afterEach, describe, expect, it } from 'vitest';
 import { buildApp } from '../app.js';
@@ -84,6 +85,46 @@ describe('the console calls a fight on the reviewer', () => {
       .filter((entry) => entry.kind === 'district_attacked');
     expect(bells).toHaveLength(1);
     expect(bells[0]?.title).toContain('has called a fight on you');
+  });
+
+  // 2026-10-06: the plot handed over could be one a fight was already called on.
+  it('never hands over ground a fight is already called on', async () => {
+    const mock = async (app: FastifyInstance, token: string) => {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/api/admin/mock-battle',
+        headers: auth(token),
+        payload: {},
+      });
+      expect(res.statusCode, res.body.slice(0, 300)).toBe(200);
+      const target = app.repos.sieges.pending().find((one) => one.id !== 'already-called')!.target;
+      return target.kind === 'location' ? target.locationId : '';
+    };
+    const first = await city(true);
+    const usual = await mock(first.app, first.token);
+
+    const second = await city(true);
+    const rival = second.app.repos.bases
+      .listSummaries()
+      .find((summary) => summary.id !== second.baseId)!;
+    const district = usual.split('-')[0]!;
+    second.app.repos.sieges.insert({
+      id: 'already-called',
+      target: {
+        kind: 'location',
+        districtId: findLocation(usual)?.districtId ?? district,
+        locationId: usual,
+      },
+      attackerBaseId: rival.id,
+      defender: { kind: 'government' },
+      scheduledFor: new Date(Date.now() + 86_400_000).toISOString(),
+      declaredAt: new Date().toISOString(),
+      resolvedAt: null,
+      seed: 'already-called',
+      holdAfterCapture: true,
+      wokeSleepers: false,
+    });
+    expect(await mock(second.app, second.token)).not.toBe(usual);
   });
 
   it('is not a route at all on a build without the console', async () => {

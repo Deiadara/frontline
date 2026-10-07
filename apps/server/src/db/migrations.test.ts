@@ -542,6 +542,14 @@ describe('every migration from 0081 on, on a database with rows in every table',
     '0144_upgrade_paid.sql',
     '0145_stackhouse.sql',
     '0146_gate_paid.sql',
+    '0147_mission_carry.sql',
+    '0148_strength_judged.sql',
+    '0149_held_bids.sql',
+    '0150_stackhouse_charged_stake.sql',
+    '0151_letter_sends.sql',
+    '0152_faction_log.sql',
+    '0153_ground_state.sql',
+    '0154_daily_grants.sql',
   ];
   /**
    * Dropped along with the mechanics under them, so they are not there to be counted: the Bar's
