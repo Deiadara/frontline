@@ -405,7 +405,6 @@ describe('the road an officer has to take (§D1)', () => {
       travelMinutesBetween(home, target, {
         speed,
         reductionPercent: effects.travelSpeedPercent,
-        flatMinutesOff: effects.roadMinutesOff,
       });
     const onFoot = officerBattleStats(officer.attributes).speed;
 
@@ -1191,7 +1190,7 @@ describe('taking machines to a fight (§C3)', () => {
    *
    * One Juggernaut at ten slots and six Razors at one: seven heads, sixteen slots, a Dirt Runner
    * at ten seats for the Juggernaut and a Scar at eight for the Razors (the Juggernaut went to six
-   * slots and two Scars until Reliquary made it ten, 2026-10-07, and ten does not fit in a Scar).
+   * slots and two Scars until Arca made it ten, 2026-10-07, and ten does not fit in a Scar).
    * Killing only the Juggernaut is 1/7 of the heads and 10/16 of the slots; `wrecked` rounds
    * down over two machines, so the two arithmetics give floor(2/7) = 0 and floor(20/16) = 1. The
    * machine written off is the one at the front of the column, the faster Runner (58 to 55).

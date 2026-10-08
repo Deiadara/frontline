@@ -53,7 +53,7 @@ export interface MissionBattle {
   /** The enemy's dead, which is what the job pays a name for (§D7, `missionInfamyForKills`). */
   killed: Army;
   /**
-   * Reliquary's ledgers of the enemy's dead (`SkirmishOutcome.kills`): the bodies that fell too
+   * Arca's ledgers of the enemy's dead (`SkirmishOutcome.kills`): the bodies that fell too
    * intimidated to fire, which the Fight Pit pays over, and those credited to a SPECTACLE shooter,
    * paid twice (`missionInfamySurcharge`). The enemy's only, whoever held the field: the crew's
    * own dead are nobody's to be paid for. Both are already inside `killed`.

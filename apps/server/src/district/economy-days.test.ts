@@ -158,7 +158,7 @@ describe('two days of a district, settled once, every minute and at odd instants
 
   /*
    * 2,880 settles, each reading every control row in the world six times over (`standingEffectsFor`
-   * and `unit-slots.ts`, through `repos.city.controls()`), which is 1.7 ms a settle with Reliquary's
+   * and `unit-slots.ts`, through `repos.city.controls()`), which is 1.7 ms a settle with Arca's
    * 128 rows on the map (2026-10-07) and 5 s for the loop: the default timeout to the millisecond,
    * and over it under a full-suite load. The loop is the point of the case, so it gets the room.
    */

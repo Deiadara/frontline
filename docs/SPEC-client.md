@@ -224,7 +224,7 @@ the crew's effective market discount and the raw sum it came from when there is 
      a plain link whatever the map's read says. The map's read is asked for the city on screen
      (`useCity(city)`, keyed per city) for the holdings and the captured gates it draws.
    - **All cities**: the world one step back, as state on this screen rather than a route of its
-     own (`CitiesView`), reached by a control on the painting. Five cities (Reliquary took
+     own (`CitiesView`), reached by a control on the painting. Five cities (Arca took
      Saltmarch's place on 2026-10-06) as a staggered row of tall portraits filling the frame, each
      carrying a name, a nickname and what the place is, and nothing else. Ashfall and Terminus are
      the pressable ones; the rest are drawn at full strength and simply do not respond. The shell's corner sprites are suppressed here
@@ -407,8 +407,11 @@ the crew's effective market discount and the raw sum it came from when there is 
    with `held` naming what is holding them, and `heldUntil` the mark they are free at). Every run
    has a leader. **No arithmetic on this screen is the screen's own**:
    `missions.leading.ts` is what the launch is priced with, and the dial reads the same functions.
-   The boards are `misc` plus every district the crew holds at least one place in (maintainer,
-   2026-09-29); the misc board's blurb says so, and the tutorial's missions card says it again.
+   The boards are `misc` plus every district of the crew's **home city** that the crew or its
+   faction holds entirely (maintainer, 2026-10-07); the misc board's blurb says so, and the
+   tutorial's missions card says it again. There is no city picker on this sheet, and the read
+   sends no `?city=`: the Bar, the market and the back room keep theirs, and this page still learns
+   their shared door list off the `cities` the payload carries.
 
    - **The card** says what the job leans on, as chips off `MISSION_LEANING_LABELS`
      (`A haul`, `Salvage`, `A long road`); each chip's hover is the attributes it reads and how much

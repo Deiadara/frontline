@@ -644,7 +644,7 @@ describe('resolving it (§A4)', () => {
    * column went with it: not returned, not killed, not reported, deleted.
    *
    * Reachable without doing anything strange: deployment stays open until a second before the
-   * mark (`battle/schedule.ts`) and a march can take up to two hours (`city/geography.ts`), so any
+   * mark (`battle/schedule.ts`) and a march can take up to four hours (`city/geography.ts`), so any
    * late reinforcement to a distant fight is in exactly this state.
    */
   it('does not delete a column that was still marching when the fight was decided', async () => {

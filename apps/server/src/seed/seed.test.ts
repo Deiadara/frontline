@@ -92,17 +92,17 @@ function countBotBases(db: AppDatabase): number {
   return row.n;
 }
 
-const SEEDED_BOTS = 4;
+const SEEDED_BOTS = 5;
 
 /**
  * Of which this many stand in Ashfall.
  *
  * `GET /city` draws the districts of the city the reader lives in (`city/view.ts`), so the dev
- * operator's map carries the three neighbours in Ashfall and never the one in Terminus. A test
- * counting every seeded bot on that screen would fail the day a crew was seeded anywhere else,
- * which is exactly what happened.
+ * operator's map carries the three neighbours in Ashfall and never the one in Terminus or the one
+ * in Arca. A test counting every seeded bot on that screen would fail the day a crew was seeded
+ * anywhere else, which is exactly what happened.
  */
-const ASHFALL_BOTS = SEEDED_BOTS - 1;
+const ASHFALL_BOTS = SEEDED_BOTS - 2;
 
 async function login(app: FastifyInstance, password: string) {
   return app.inject({

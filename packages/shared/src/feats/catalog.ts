@@ -6,8 +6,8 @@ import { MAX_LOCATION_LEVEL } from '../city/locations.js';
 import {
   CHAPEL_LOCATIONS,
   COMBINE_DISTRICTS,
+  MAUSOLEUMS,
   PLAYABLE_CITY_COUNT,
-  PLAYABLE_CONTESTED,
   RAIL_STATIONS,
 } from './world.js';
 import { markIndex } from '../crew/marks.js';
@@ -62,8 +62,8 @@ import { shapeFeatRewards } from './shaping.js';
  * the top of every one of them and the screen has nothing left to say. So eight of the groups
  * above carry one ladder of **ten** each: `runs`, `kills`, `taken`, `addons`, `mustered`, `caps`,
  * `infamy` and `faction`. Whatever you spend your evenings doing, there is a rung above the one you
- * are on. The frontier has no ten-rung ladder, and should not have one yet: two open cities is not
- * enough map to ask anybody for ten sizes of the same thing.
+ * are on. The frontier has no ten-rung ladder, and should not have one yet: three open cities is
+ * not enough map to ask anybody for ten sizes of the same thing.
  *
  * The deep rungs are deliberately far off, in the same spirit as the top of the notoriety ladder
  * (`economy/notoriety.ts`: "there to be seen from a distance"). Tier X of the work is fourteen
@@ -906,81 +906,99 @@ const WORK: FeatSpec[] = [
 ];
 
 /**
- * Twenty five runs in each contested district, which is the maintainer's own example.
+ * Work on the board, counted in a way every crew can reach (maintainer, 2026-10-07).
  *
- * Generated off the map rather than typed out, so a district authored next year arrives with its
- * feat already on the screen. Contested ground only: the residential districts are where crews
- * live, they all share one authored name, and three feats reading "twenty five in Player District"
- * would be the wall of identical sentences these are grouped to avoid.
+ * This was four feats for each of the sixteen contested districts, named one by one: "Ten in
+ * Steelbelt", "Fifty in the Undergrid". That was reachable while every district in the world
+ * carried a board. It stopped being reachable the day a board became home-city only and opened
+ * only on a district the crew or its faction holds whole: a crew that spawned in Terminus could
+ * never run a job out of Steelbelt, so half of those sixty-four feats were work it could not do
+ * and the screen that tells a player what there is to do was lying to it.
  *
- * Off `PLAYABLE_CONTESTED` and not `CITY_DISTRICTS` (2026-09-24). It walked Ashfall, so the eight
- * contested districts of the second city arrived with no work on the board at all: the one screen
- * that tells a player what there is to do had nothing to say about half the map. `world.ts` says
- * why the filter is "open cities" rather than "every district in the atlas".
- *
- * The era comes off the district's own difficulty, so the deep ground is a late feat without
- * anybody having to remember to say so. Difficulty runs 1 to 10 across the whole world rather than
- * within a city, which is what makes one rule work for both.
+ * So the ground is counted rather than named. "A job in eight different districts" is every
+ * contested district in a city, whichever city a crew woke up in, and "jobs on ground the Combine
+ * held" is a kind of district every city has. Both read the `missions_in_area` tallies the board
+ * already writes (`feats/snapshot.ts`), so a crew's existing runs count the day this lands.
  */
-const DISTRICT_WORK: FeatSpec[] = PLAYABLE_CONTESTED.flatMap((district) => {
-  const era: FeatEra =
-    district.difficulty <= 2 ? 'early' : district.difficulty <= 5 ? 'mid' : 'late';
-  // The second rung sits one era deeper, because fifty jobs out of one district is a season's work
-  // wherever that district sits on the ladder. Clamped at `late`, which is the end of the road.
-  const deeper: FeatEra = era === 'early' ? 'mid' : 'late';
-  const key = `area_${district.id.replace(/-/g, '_')}`;
-  return chain(
-    key,
-    'missions_in_area',
-    [
-      {
-        id: key,
-        name: `Ten in ${district.name}`,
-        blurb: `Run ten jobs out of ${district.name}. Learn one piece of ground properly.`,
-        era,
-        size: 'small',
-        target: 10,
-        reward: purse(era, 'small'),
-      },
-      {
-        id: `${key}_2`,
-        name: `Fifty in ${district.name}`,
-        blurb: `Fifty jobs out of ${district.name}. You know which doors stick.`,
-        era: deeper,
-        size: 'medium',
-        target: 50,
-        reward: purse(deeper, 'medium'),
-      },
-      /*
-       * Two more rungs per district (maintainer, 2026-09-16), off the same row.
-       *
-       * Two hundred jobs out of one district is a crew that works there; six hundred is a crew the
-       * district belongs to. Both are `late` whatever the district's own difficulty is, because the
-       * work is the same everywhere by then and only the count separates them, and both take their
-       * pay off the ladder (`rise`) so a hard district and an easy one cannot drift apart.
-       */
-      {
-        id: `${key}_3`,
-        name: `Two Hundred in ${district.name}`,
-        blurb: `Two hundred jobs out of ${district.name}. The locals stopped asking who you are.`,
-        era: 'late',
-        size: riseSize(4),
-        target: 200,
-        reward: rise(4, 'coin'),
-      },
-      {
-        id: `${key}_4`,
-        name: `Six Hundred in ${district.name}`,
-        blurb: `Six hundred out of ${district.name}. The place runs on your schedule.`,
-        era: 'late',
-        size: riseSize(5),
-        target: 600,
-        reward: rise(5, 'coin'),
-      },
-    ],
-    district.id,
-  );
-});
+const DISTRICT_WORK: FeatSpec[] = [
+  ...chain('worked_districts', 'mission_districts', [
+    {
+      id: 'worked_districts_1',
+      name: 'Somebody Else’s Streets',
+      blurb: 'Run a job out of a district. Any district, once it is yours to work.',
+      era: 'early',
+      size: 'small',
+      target: 1,
+      reward: purse('early', 'small'),
+    },
+    {
+      id: 'worked_districts_2',
+      name: 'Three Addresses',
+      blurb: 'Jobs out of three different districts. The city starts to join up.',
+      era: 'mid',
+      size: 'small',
+      target: 3,
+      reward: purse('mid', 'small'),
+    },
+    {
+      id: 'worked_districts_3',
+      name: 'Five Doors',
+      blurb: 'Five different districts have had work out of you.',
+      era: 'mid',
+      size: 'medium',
+      target: 5,
+      reward: purse('mid', 'medium'),
+    },
+    {
+      id: 'worked_districts_4',
+      name: 'The Whole Map',
+      blurb:
+        'A job out of every contested district in your city. There is nowhere left you have not worked.',
+      era: 'late',
+      size: riseSize(4),
+      target: 8,
+      reward: rise(4, 'coin'),
+    },
+  ]),
+  ...chain('combine_work', 'missions_on_combine_ground', [
+    {
+      id: 'combine_work_1',
+      name: 'Working the Regime’s Ground',
+      blurb: 'Ten jobs out of a district the Combine held. You are running the place now.',
+      era: 'mid',
+      size: 'small',
+      target: 10,
+      reward: purse('mid', 'small'),
+    },
+    {
+      id: 'combine_work_2',
+      name: 'Fifty Off the Regime',
+      blurb: 'Fifty jobs out of ground that used to be theirs.',
+      era: 'mid',
+      size: 'medium',
+      target: 50,
+      reward: purse('mid', 'medium'),
+    },
+    {
+      id: 'combine_work_3',
+      name: 'Two Hundred in the Old Precincts',
+      blurb: "Two hundred jobs out of the regime's districts. Nobody files a report about it.",
+      era: 'late',
+      size: riseSize(4),
+      target: 200,
+      reward: rise(4, 'coin'),
+    },
+    {
+      id: 'combine_work_4',
+      name: 'Their Ground, Your Schedule',
+      blurb: 'Six hundred jobs out of ground the Combine used to hold.',
+      era: 'late',
+      size: riseSize(5),
+      target: 600,
+      reward: rise(5, 'coin'),
+    },
+  ]),
+];
 
 // --- fighting ---
 
@@ -2728,7 +2746,7 @@ const COMBINE: FeatSpec[] = [
       id: 'annexed_4',
       name: 'The Regime Holds Nothing',
       blurb:
-        'Every district the Combine owns, in both cities, held whole on the same evening. There is nowhere left it can call its own.',
+        'Every district the Combine owns, in every city, held whole on the same evening. There is nowhere left it can call its own.',
       era: 'late',
       size: 'large',
       /*
@@ -2737,7 +2755,8 @@ const COMBINE: FeatSpec[] = [
        * Six was Ashfall's share and the ladder ended there because Ashfall was the world. Terminus
        * put the Hill, the Viaduct, the Last Platform and the Blockhouse under the same flag, so
        * the rung that used to mean "the regime holds nothing" came to mean "the regime holds
-       * nothing here", which is a different and much smaller sentence.
+       * nothing here", which is a different and much smaller sentence. Arca added five more
+       * (2026-10-07), which is fifteen.
        */
       target: COMBINE_DISTRICTS.length,
       reward: rise(9, 'coin'),
@@ -2784,6 +2803,54 @@ const COMBINE: FeatSpec[] = [
     },
     'combine_leaders_slain',
     'directive_xero',
+  ),
+  /*
+   * Arca's three (maintainer, 2026-10-07), on the same terms as Ashfall's: one open feat a
+   * leader, a target of one, late and large, because killing one is the end of a district whatever
+   * city it is in. Rewards climb with the ladder the sheets sit on (the Curate is the weakest
+   * legendary in the game and the Hierarch stands with Directive Xero).
+   */
+  solo(
+    {
+      id: 'curate_slain',
+      name: 'The Presses Stop',
+      blurb:
+        'The Curate dies at the Great Press. Take the press hall and she is gone for good: the Printworks can be read by your runners again, and whatever the city believes about you after that is your own doing.',
+      era: 'late',
+      size: 'large',
+      target: 1,
+      reward: rise(5, 'bodies'),
+    },
+    'combine_leaders_slain',
+    'curate',
+  ),
+  solo(
+    {
+      id: 'blood_priest_slain',
+      name: 'The Basin Is Dry',
+      blurb:
+        'The Blood Priest dies in the Chapter House. Take it and he is gone for good: the Cloisters stop being Eerie, nobody comes up from the undercroft wet to the elbow again, and the regime there fights with the intimidation it had before him.',
+      era: 'late',
+      size: 'large',
+      target: 1,
+      reward: rise(7, 'bodies'),
+    },
+    'combine_leaders_slain',
+    'blood_priest',
+  ),
+  solo(
+    {
+      id: 'hierarch_slain',
+      name: 'Nobody Left to Teach',
+      blurb:
+        'The Hierarch dies under the Rose Window. Forty years of instruction carried out of the Nave: take it and he is gone for good, and the evasion he drilled into the regime there goes with him.',
+      era: 'late',
+      size: 'large',
+      target: 1,
+      reward: rise(8, 'bodies'),
+    },
+    'combine_leaders_slain',
+    'hierarch',
   ),
   /*
    * The chapels, which became a ladder the day there were two of them (2026-09-24).
@@ -3569,7 +3636,11 @@ const FRONTIER: FeatSpec[] = [
       target: 40,
     },
   ]),
-  solo(
+  /*
+   * A ladder since Arca opened (2026-10-07). It was a standalone at every open city, which was two,
+   * and the comment on it said a third city would make it want to be a chain: it does now.
+   */
+  ...chain('cities', 'cities_held', [
     {
       id: 'two_cities',
       name: 'Two Cities',
@@ -3578,17 +3649,20 @@ const FRONTIER: FeatSpec[] = [
       era: 'late',
       size: 'medium',
       reward: spoils('late', 'medium'),
-      /*
-       * Every open city at once, which is two.
-       *
-       * Standalone rather than a ladder, under the board's own rule: with two cities open there is
-       * exactly one interesting number here, and a chain of one rung is not a chain. The day a
-       * third opens this wants to become one, which is what `PLAYABLE_CITY_COUNT` moving will say.
-       */
+      target: 2,
+    },
+    {
+      id: 'every_city',
+      name: 'Every Open City',
+      blurb:
+        'Ground in every city on the frontier, held on the same evening. There is no road you cannot find a bed at the end of.',
+      era: 'late',
+      size: 'large',
+      reward: spoils('late', 'large'),
+      // Derived, so the next city to open moves the top of this ladder with it.
       target: PLAYABLE_CITY_COUNT,
     },
-    'cities_held',
-  ),
+  ]),
   ...chain('expat', 'districts_held_whole_abroad', [
     {
       id: 'expat_1',
@@ -3699,6 +3773,77 @@ const FRONTIER: FeatSpec[] = [
       target: RAIL_STATIONS.length,
     },
   ]),
+  /*
+   * Arca's tombs (2026-10-07), the third city's one trait as the railway is Terminus's. One
+   * Mausoleum opens the Death Cloaks, and every one after it makes each of them stronger and lets
+   * the crew keep fifty more, so the ladder runs on what a crew holds rather than on what it did.
+   */
+  ...chain('tombs', 'mausoleums_held', [
+    {
+      id: 'tombs_1',
+      name: 'Keys to a Tomb',
+      blurb: 'Hold a Mausoleum in Arca. The dead there answer to whoever holds the door.',
+      era: 'mid',
+      size: 'medium',
+      reward: wages('mid', 'medium'),
+      target: 1,
+    },
+    {
+      id: 'tombs_2',
+      name: 'Three Vaults',
+      blurb: 'Three Mausoleums held at once. Every Death Cloak you keep is harder for it.',
+      era: 'late',
+      size: 'medium',
+      reward: wages('late', 'medium'),
+      target: 3,
+    },
+    {
+      id: 'tombs_3',
+      name: 'Every Tomb in Arca',
+      blurb:
+        'Every Mausoleum in the city held on the same evening. The dead of Arca are housed by you.',
+      era: 'late',
+      size: 'large',
+      reward: rise(7, 'coin'),
+      // One in each contested district, derived so a tomb added to the map moves the top rung.
+      target: MAUSOLEUMS.length,
+    },
+  ]),
+  ...chain(
+    'cloaks',
+    'units_mustered_of',
+    [
+      {
+        id: 'cloaks_1',
+        name: 'Raised from the Tombs',
+        blurb: 'Muster a Death Cloak. It needs a Mausoleum to come out of.',
+        era: 'mid',
+        size: 'small',
+        reward: kit('mid', 'small'),
+        target: 1,
+      },
+      {
+        id: 'cloaks_2',
+        name: 'A Procession',
+        blurb: 'Fifty Death Cloaks mustered, which is one tomb’s worth of them.',
+        era: 'late',
+        size: 'medium',
+        reward: kit('late', 'medium'),
+        target: 50,
+      },
+      {
+        id: 'cloaks_3',
+        name: 'The Dead Outnumber You',
+        blurb:
+          'Three hundred Death Cloaks out of the tombs over the life of the crew. The city keeps count of who woke them.',
+        era: 'late',
+        size: 'large',
+        reward: kit('late', 'large'),
+        target: 300,
+      },
+    ],
+    'death_cloaks',
+  ),
   ...chain('rails', 'rail_journeys', [
     {
       id: 'rails_1',

@@ -1,4 +1,4 @@
-import { cityOfDistrict, findCity } from '@frontline/shared';
+import { CITIES, type LeaderboardResponse } from '@frontline/shared';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter, Route, Routes, useParams } from 'react-router-dom';
@@ -65,6 +65,18 @@ async function sortBy(label: RegExp) {
   fireEvent.click(screen.getByTestId('standings-sort'));
   fireEvent.click(await screen.findByRole('option', { name: label }));
 }
+
+/** The same, for the city the board is listed for. */
+async function pickCity(label: RegExp) {
+  fireEvent.click(screen.getByTestId('standings-city'));
+  fireEvent.click(await screen.findByRole('option', { name: label }));
+}
+
+/** Every leaderboard request the screen has made, in order. */
+const boardRequests = () =>
+  fetchMock.mock.calls
+    .map((call) => String(call[0]))
+    .filter((path) => path.includes('/leaderboard'));
 
 const type = (text: string) =>
   fireEvent.change(screen.getByTestId('standings-search'), { target: { value: text } });
@@ -463,13 +475,12 @@ describe('while the other board is still coming', () => {
  *
  * Not a benchmark. Each of these is a control whose state is derived rather than accumulated, and
  * the failure they are aimed at is the one a single press never shows: a row drawn twice, a menu
- * left standing, a scope that ends up disagreeing with its own checkbox, or a refetch per press
+ * left standing, a city that ends up disagreeing with its own picker, or a refetch per press
  * against a cache that should have answered.
  */
 describe('under a lot of pressing', () => {
   /** How many times `fetch` was asked for a board, so a cached answer stays a cached answer. */
-  const boardReads = () =>
-    fetchMock.mock.calls.filter((call) => String(call[0]).includes('/leaderboard')).length;
+  const boardReads = () => boardRequests().length;
 
   it('survives forty flips between the two boards', async () => {
     await renderBoard();
@@ -517,14 +528,22 @@ describe('under a lot of pressing', () => {
     await waitFor(() => expect(rows()).toEqual(served.map((entry) => entry.username)));
   });
 
-  it('survives the scope being toggled thirty times', async () => {
+  it('survives thirty presses through the city picker', async () => {
     await renderBoard();
-    for (let press = 0; press < 30; press++) fireEvent.click(screen.getByTestId('local-only'));
+    for (let press = 0; press < 30; press++) {
+      fireEvent.click(screen.getByTestId('standings-city'));
+      const options = screen.queryAllByRole('option');
+      const pick = options[press % Math.max(1, options.length)];
+      if (pick) fireEvent.click(pick);
+    }
+    // Back where it started, and the sheet agrees with the control rather than with a press of it.
+    await pickCity(/^All cities/);
     await waitFor(() => expect(screen.getByTestId('standing-Nikos')).toBeInTheDocument());
 
-    // An even number of presses, so the box is where it started and the sheet agrees with it.
-    expect(screen.getByTestId<HTMLInputElement>('local-only')).not.toBeChecked();
+    expect(screen.getByTestId('standings-city')).toHaveTextContent('All cities');
     expect(rows()).toHaveLength(5);
+    // Nothing left standing: every opened menu was closed by the press that chose from it.
+    expect(screen.queryAllByRole('listbox')).toHaveLength(0);
   });
 
   it('survives a name being typed and rubbed out letter by letter', async () => {
@@ -593,24 +612,126 @@ describe('the factions board', () => {
   });
 });
 
-/** Maintainer, 2026-10-06: the scope label lost its city name while a board loaded. */
-describe('the scope label', () => {
-  it('keeps the home city in its name while another board loads', async () => {
-    await renderBoard();
-    const label = () => screen.getByTestId('local-only').parentElement!;
-    const home = findCity(cityOfDistrict(F.me.base!.districtId))!.name;
-    expect(label()).toHaveTextContent(`(${home})`);
+/**
+ * The city picker, which replaced "My city only" (maintainer, 2026-10-07).
+ *
+ * "For leaderboard make it so you can choose a city, (remove my city only) or all cities, but it
+ * always shows everything you own its not a per city filter. But if you have only one city picked,
+ * it shows all players holding ground in that city, however their stats are global."
+ *
+ * So the picker is All cities plus every open city, it goes over the wire (who holds ground where
+ * is the server's to answer), and nothing it does changes a figure on a row.
+ */
+describe('the city picker', () => {
+  const OPEN = CITIES.filter((city) => city.open);
 
+  /** One row, as a city's board comes back: ranked from 1, with the same figures it had. */
+  const terminusBoard = (): LeaderboardResponse => {
+    const served = F.leaderboardPlayers.board === 'players' ? F.leaderboardPlayers.entries : [];
+    const one = served.find((entry) => entry.username === 'Marrow')!;
+    return { board: 'players', city: 'terminus', yourRank: 2, entries: [{ ...one, rank: 1 }] };
+  };
+
+  /** Answers each city with its own board, so the screen cannot pass by redrawing the world. */
+  const perCity = (boards: Record<string, LeaderboardResponse>) => {
     fetchMock.mockImplementation((path: string) => {
-      if (String(path).includes('/leaderboard?board=factions')) return new Promise(() => {});
+      const asked = /[?&]city=([a-z-]+)/.exec(String(path))?.[1];
+      if (asked !== undefined && boards[asked]) return reply(boards[asked]);
+      if (String(path).includes('/leaderboard?board=factions')) return reply(F.leaderboardFactions);
       if (String(path).includes('/leaderboard')) return reply(F.leaderboardPlayers);
       if (String(path).endsWith('/me')) return reply(F.me);
       throw new Error(`unstubbed request: ${String(path)}`);
     });
+  };
+
+  it('opens on every city, and asks for none', async () => {
+    await renderBoard();
+    expect(screen.getByTestId('standings-city')).toHaveTextContent('All cities');
+    expect(boardRequests().every((path) => !path.includes('city='))).toBe(true);
+    expect(screen.getByTestId('your-rank')).toHaveTextContent('across every city');
+  });
+
+  it('offers All cities and every open city, and nothing that is shut', async () => {
+    await renderBoard();
+    fireEvent.click(screen.getByTestId('standings-city'));
+    const offered = screen.getAllByRole('option').map((option) => option.textContent);
+    expect(offered).toEqual(['All cities', ...OPEN.map((city) => city.name)]);
+    for (const shut of CITIES.filter((city) => !city.open)) {
+      expect(offered).not.toContain(shut.name);
+    }
+  });
+
+  /*
+   * Each city by name, one at a time.
+   *
+   * The loop is the guard on the picker's "no city" value: it is a string beside the city ids
+   * (`EVERY_CITY`), and an id that collided with it would send no city at all for that city. Every
+   * city the world has is asked for by its own id here.
+   */
+  it('asks the server for the city that was picked', async () => {
+    perCity({});
+    await renderBoard();
+    for (const city of OPEN) {
+      await pickCity(new RegExp(`^${city.name}$`));
+      await waitFor(() =>
+        expect(boardRequests().some((path) => path.includes(`city=${city.id}`))).toBe(true),
+      );
+    }
+    // And back to the world, which asks for no city rather than for a city called everywhere.
+    const before = boardRequests().length;
+    await pickCity(/^All cities/);
+    await waitFor(() => expect(screen.getByTestId('standings-city')).toHaveTextContent('All cit'));
+    expect(
+      boardRequests()
+        .slice(before)
+        .every((path) => !path.includes('city=')),
+    ).toBe(true);
+  });
+
+  it('draws the rows that city came back with, and ranks them from one', async () => {
+    perCity({ terminus: terminusBoard() });
+    await renderBoard();
+    await pickCity(/^Terminus$/);
+
+    await waitFor(() => expect(rows()).toEqual(['Marrow']));
+    // The figures are the ones the server sent, which are that player's everywhere: Marrow's
+    // wallet is 4,000 in the fixture and the row prints it under a one-city board.
+    expect(screen.getByTestId('standing-Marrow')).toHaveTextContent('4,000');
+    expect(screen.getByTestId('standing-Marrow')).toHaveTextContent('1');
+    // The rank is the one thing that is about the board being read, so it says which board.
+    expect(screen.getByTestId('your-rank')).toHaveTextContent('#2');
+    expect(screen.getByTestId('your-rank')).toHaveTextContent(
+      'among those who hold ground in Terminus',
+    );
+  });
+
+  it('says which city has nobody on its ground, and why the reader is off it', async () => {
+    perCity({ ashfall: { board: 'players', city: 'ashfall', yourRank: null, entries: [] } });
+    await renderBoard();
+    await pickCity(/^Ashfall$/);
+
+    expect(await screen.findByTestId('standings-empty')).toHaveTextContent(
+      'Nobody holds ground in Ashfall yet.',
+    );
+    expect(screen.getByTestId('your-rank')).toHaveTextContent(
+      'You hold nothing in Ashfall, so you are not on this board.',
+    );
+  });
+
+  it('keeps the city when the other board is opened', async () => {
+    perCity({
+      terminus: terminusBoard(),
+    });
+    await renderBoard();
+    await pickCity(/^Terminus$/);
+    await waitFor(() => expect(rows()).toEqual(['Marrow']));
+
     fireEvent.click(screen.getByTestId('board-factions'));
     await waitFor(() =>
-      expect(screen.getByTestId('board-factions')).toHaveAttribute('aria-selected', 'true'),
+      expect(boardRequests().some((path) => path.includes('board=factions&city=terminus'))).toBe(
+        true,
+      ),
     );
-    expect(label()).toHaveTextContent(`(${home})`);
+    expect(screen.getByTestId('standings-city')).toHaveTextContent('Terminus');
   });
 });

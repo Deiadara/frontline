@@ -86,17 +86,17 @@ describe('whose boards a crew is shown', () => {
     expect(home.some((id) => cityOf(id) === TERMINUS_CITY_ID)).toBe(false);
   });
 
-  it('opens Terminus districts for a crew standing in Terminus', () => {
-    const open = openAreas(() => ({ heldByCrew: 1 }), TERMINUS_CITY_ID);
+  it('opens Terminus districts for a crew that holds them whole', () => {
+    const open = openAreas(() => ({ heldWhole: true }), TERMINUS_CITY_ID);
     expect(open.map((district) => district.id)).toEqual(CONTESTED.map((district) => district.id));
     // The four plots are somebody's home and post nothing, the same as Ashfall's.
     expect(open.every((district) => district.kind === 'contested')).toBe(true);
   });
 
   it('leaves the default city answering exactly what it always did', () => {
-    const open = openAreas(() => ({ heldByCrew: 1 }));
+    const open = openAreas(() => ({ heldWhole: true }));
     expect(open.map((district) => district.id)).toEqual(
-      CITY_DISTRICTS.filter((district) => areaIsOpen(district, { heldByCrew: 1 })).map(
+      CITY_DISTRICTS.filter((district) => areaIsOpen(district, { heldWhole: true })).map(
         (district) => district.id,
       ),
     );
@@ -104,7 +104,7 @@ describe('whose boards a crew is shown', () => {
 
   /** A city the world does not have is an empty board rather than a throw or a default. */
   it('answers nothing for a city that does not exist', () => {
-    expect(openAreas(() => ({ heldByCrew: 1 }), 'no-such-city')).toEqual([]);
+    expect(openAreas(() => ({ heldWhole: true }), 'no-such-city')).toEqual([]);
   });
 });
 

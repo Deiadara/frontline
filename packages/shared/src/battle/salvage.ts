@@ -3,7 +3,7 @@ import { softCap } from './soft-cap.js';
 /**
  * The salvage refund's one sum and its bend (maintainer, 2026-10-05: "curve to 100%").
  *
- * The Bone Market and the Rendering Shed (12% at level 1, 66% at 10; one in Reliquary and one in
+ * The Bone Market and the Rendering Shed (12% at level 1, 66% at 10; one in Arca and one in
  * Terminus since the Steelbelt's moved, 2026-10-06), the two salvage rungs and the salvage perks
  * all add on `salvageRefundPercent`, and the sum reached 155% of what the dead cost: losing units
  * paid. The sum now pays in full to the knee and closes on 100% without reaching it, so a refund

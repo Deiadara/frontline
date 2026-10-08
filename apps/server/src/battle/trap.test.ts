@@ -827,7 +827,7 @@ describe('§I1: what a trap is worth on the ledger', () => {
     expect((await setTrap(stack, stack.defender.token, battleId, TRAP.id)).statusCode).toBe(200);
 
     // §A4: a refund needs somewhere to pay it from, so the attacker is given a Bone Market (the
-    // Rendering Floor in Bonded Row since the Steelbelt's went to Reliquary, 2026-10-06): a real
+    // Rendering Floor in Bonded Row since the Steelbelt's went to Arca, 2026-10-06): a real
     // hold rather than a percentage nothing in the game grants.
     const bones = stack.app.repos.city.control('bonded-row-rendering')!;
     stack.app.repos.city.put({

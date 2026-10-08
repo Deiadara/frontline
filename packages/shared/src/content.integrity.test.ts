@@ -98,7 +98,7 @@ describe('every id points at something that exists', () => {
      * is the live example: one location in the whole city, and it is what unlocks the Cyberhounds.
      */
     it('gates every unit on ground the city actually has', () => {
-      // The world's ground, not Ashfall's: the Death Cloaks are raised in Reliquary's tombs and
+      // The world's ground, not Ashfall's: the Death Cloaks are raised in Arca's tombs and
       // nowhere else (2026-10-06).
       const kinds = new Set(EVERY_LOCATION.map((l) => l.kind));
       for (const unit of UNIT_CATALOG) {
@@ -112,7 +112,7 @@ describe('every id points at something that exists', () => {
           } else if (need.kind === 'vehicle') {
             expect(findVehicle(need.vehicleId), unit.id).toBeDefined();
           } else if (need.kind === 'door') {
-            // A door authored on the ground itself (Reliquary, 2026-10-07): some location on the
+            // A door authored on the ground itself (Arca, 2026-10-07): some location on the
             // map has to name this unit, or the unit can never be mustered anywhere.
             expect(
               EVERY_LOCATION.some((l) => doorsOn(baseBonusesOf(l)).includes(need.unitId)),

@@ -445,8 +445,16 @@ export const LOCATION_MARKS: Readonly<Record<string, Mark>> = {
   'blockhouse-panel': { x: 0.19, y: 0.42 },
   // The terrace below the glass vault, top centre.
   'blockhouse-chapel': { x: 0.465, y: 0.3 },
-  // The yard among the pipes and tanks, bottom centre.
-  'blockhouse-interlocking': { x: 0.6, y: 0.8 },
+  /*
+   * The yard among the pipes and tanks, bottom centre.
+   *
+   * Two hundredths lower than the Reactor Shed's row since 2026-10-07, when a sign started
+   * carrying its holder's mark: fourteen pixels and a gap on every plate, and these two sit a
+   * tenth of the painting apart, so at 1024 the Interlocking's plate ran 10px into the Shed's and
+   * the two overlapped by four pixels of height. Moved rather than narrowed, because the mark is
+   * the point and the other three paintings have the room.
+   */
+  'blockhouse-interlocking': { x: 0.6, y: 0.82 },
   // The road below the lit library's shelves, centre right.
   'blockhouse-records': { x: 0.6, y: 0.52 },
   // The parade ground itself, below the ranks.

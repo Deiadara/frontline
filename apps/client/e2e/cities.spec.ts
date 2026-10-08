@@ -198,12 +198,19 @@ test('a city you pick is the city you end up looking at', async ({ page }) => {
  * longest label the map can be asked to print. Each one has to be a single line and lie wholly
  * inside the painting's window on screen.
  */
-test('no district tag wraps or leaves the map, in either city', async ({ page }) => {
+test('no district tag wraps, leaves the map or touches another, in any city', async ({ page }) => {
   const longest = 'The Brotherhood of the Rails';
   expect(longest).toHaveLength(DISTRICT_NAME_MAX);
   const held = (map: CityResponse): CityResponse => ({
     ...map,
-    districts: map.districts.map((one) => ({ ...one, holder: { kind: 'government' } })),
+    // Whole as well as held (maintainer, 2026-10-07): a tag wears a party's mark only where that
+    // party holds every plot, and the mark is what makes the tag its widest. Without `wholeBy`
+    // this fixture measured the narrow tag and the guard below caught it.
+    districts: map.districts.map((one) => ({
+      ...one,
+      holder: { kind: 'government' as const },
+      wholeBy: 'enemy' as const,
+    })),
   });
 
   for (const [width, height] of [
@@ -238,6 +245,7 @@ test('no district tag wraps or leaves the map, in either city', async ({ page })
         const bottom = Math.min(window.innerHeight, room.bottom);
         const tall: string[] = [];
         const outside: string[] = [];
+        const boxes: { text: string; box: DOMRect }[] = [];
         let marked = 0;
         for (const tag of document.querySelectorAll('[data-testid^="district-tag-"]')) {
           // The plate is the one child with the name in it; the other is the hover glow.
@@ -253,12 +261,29 @@ test('no district tag wraps or leaves the map, in either city', async ({ page })
           if (box.left < left || box.right > right || box.top < top || box.bottom > bottom) {
             outside.push(`${text} at ${Math.round(box.left)}..${Math.round(box.right)}`);
           }
+          boxes.push({ text, box });
         }
-        return { tall, outside, marked };
+        /*
+         * No two tags touch (2026-10-07). Arca's Saint's Rest and Bloodstone sat a few pixels
+         * into each other at 1024x768 with every other check here green.
+         */
+        const touching: string[] = [];
+        for (const [index, one] of boxes.entries()) {
+          for (const other of boxes.slice(index + 1)) {
+            const apart =
+              one.box.right <= other.box.left ||
+              other.box.right <= one.box.left ||
+              one.box.bottom <= other.box.top ||
+              other.box.bottom <= one.box.top;
+            if (!apart) touching.push(`${one.text} / ${other.text}`);
+          }
+        }
+        return { tall, outside, touching, marked };
       });
       const where = `${city.name} at ${width}x${height}`;
       expect(found.tall, `${where}: tags on more than one line`).toEqual([]);
       expect(found.outside, `${where}: tags off the painting`).toEqual([]);
+      expect(found.touching, `${where}: tags on top of each other`).toEqual([]);
       // A guard on the sweep: the mark is what wrapped, so every tag has to be wearing it.
       expect(found.marked, `${where}: tags without the mark`).toBe(districtsOfCity(city.id).length);
     }

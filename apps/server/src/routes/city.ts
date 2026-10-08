@@ -18,6 +18,7 @@ import {
   RecallSleepersRequestSchema,
   SLEEPER_REFUSAL_TEXT,
   CELL_LOCKED_TEXT,
+  PROPAGANDA_REFUSAL_TEXT,
   PinPamphletsRequestSchema,
   SwapPamphletRequestSchema,
   ThrowSwitchRequestSchema,
@@ -78,6 +79,7 @@ const SPY_REFUSAL_ERRORS: Record<SpyRefusal, { code: ErrorCode; message: string 
     message: 'That district is shut. From outside, the gate is the only thing to read',
   },
   city_closed: { code: 'INVALID_TARGET', message: 'That city is not open yet. Nobody gets in' },
+  only_lies: { code: 'INVALID_TARGET', message: PROPAGANDA_REFUSAL_TEXT },
 };
 
 const WORK_CANCEL_ERRORS: Record<
@@ -102,10 +104,14 @@ const SPY_RECALL_ERRORS: Record<
   },
 };
 const GATE_CANCEL_ERRORS: Record<
-  'not_held' | 'nothing_running' | 'window_closed',
+  'not_held' | 'nothing_running' | 'window_closed' | 'not_yours',
   { code: ErrorCode; message: string }
 > = {
   not_held: { code: 'FORBIDDEN', message: 'You do not hold all of that district' },
+  not_yours: {
+    code: 'FORBIDDEN',
+    message: 'Somebody else at your table is paying for this one. Only they can stop it',
+  },
   nothing_running: { code: 'NOT_FOUND', message: 'Nothing is being raised there' },
   window_closed: {
     code: 'PLACE_UNAVAILABLE',
@@ -421,7 +427,7 @@ export function registerCityRoutes(app: FastifyInstance): void {
   });
 
   /*
-   * Reliquary's sheet controls (maintainer, 2026-10-06): the Tolling Tower's switch and the
+   * Arca's sheet controls (maintainer, 2026-10-06): the Tolling Tower's switch and the
    * Pamphlet Wall's pins, each answering with the district the way every other city write does.
    * The refusals are `city/ground.ts`'s, in the player's words; the client greys the control
    * off the view's fields first and shows what slips past beside it.

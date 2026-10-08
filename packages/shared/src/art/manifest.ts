@@ -750,6 +750,19 @@ const TERMINUS_CITY_PLATE_DELIVERY = {
 } as const satisfies Partial<AssetSpec>;
 
 /**
+ * Arca, the whole city from above, delivered at 3780x1800 (maintainer, 2026-10-07).
+ *
+ * The third city's answer to the two above, and load-bearing the same way: twelve district tags
+ * are fractions of this exact painting. Its own constant for the reason Terminus has one: three
+ * paintings, any of which can be redelivered without the others.
+ */
+const ARCA_CITY_PLATE_DELIVERY = {
+  width: 3780,
+  height: 1800,
+  aspect: '21:10',
+} as const satisfies Partial<AssetSpec>;
+
+/**
  * Ironmouth, the second painted district in Terminus, delivered at 3780x1800 (maintainer,
  * 2026-09-24) and measured rather than read off the file name. Its own entry for the reason the
  * ten above it give: seven signs and a gate are fractions of this exact image
@@ -816,6 +829,7 @@ const SIZE_EXCEPTIONS: Readonly<
   'plate-district-ccs': CCS_PLATE_DELIVERY,
   'plate-district-coldwater-halt': COLDWATER_PLATE_DELIVERY,
   'plate-city-terminus': TERMINUS_CITY_PLATE_DELIVERY,
+  'plate-city-arca': ARCA_CITY_PLATE_DELIVERY,
   'plate-district-ironmouth': IRONMOUTH_PLATE_DELIVERY,
   'plate-district-marshalling-yards': MARSHALLING_PLATE_DELIVERY,
   'plate-district-bonded-row': BONDED_PLATE_DELIVERY,
@@ -895,6 +909,9 @@ const plateDrafts = (
     ['plate-district-viaduct', 'plate'],
     ['plate-district-last-platform', 'plate'],
     ['plate-district-blockhouse', 'plate'],
+    // Arca whole (2026-10-07), the third city's map. Appended, for the seventh time: the seed is
+    // the index.
+    ['plate-city-arca', 'plate'],
   ] as const
 ).map(([key, assetClass], index) =>
   draft({
@@ -923,6 +940,7 @@ const plateDrafts = (
     ...(key === 'plate-district-ccs' ? CCS_PLATE_DELIVERY : {}),
     ...(key === 'plate-district-coldwater-halt' ? COLDWATER_PLATE_DELIVERY : {}),
     ...(key === 'plate-city-terminus' ? TERMINUS_CITY_PLATE_DELIVERY : {}),
+    ...(key === 'plate-city-arca' ? ARCA_CITY_PLATE_DELIVERY : {}),
     ...(key === 'plate-district-ironmouth' ? IRONMOUTH_PLATE_DELIVERY : {}),
     ...(key === 'plate-district-marshalling-yards' ? MARSHALLING_PLATE_DELIVERY : {}),
     ...(key === 'plate-district-bonded-row' ? BONDED_PLATE_DELIVERY : {}),

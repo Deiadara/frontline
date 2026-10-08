@@ -10,6 +10,7 @@ import {
   overseerRemaining,
   cityHomeOffer,
   cityHomeOffers,
+  cityOf,
   DEFAULT_CITY_ID,
   findCity,
   homePlots,
@@ -354,22 +355,29 @@ export function registerOverseerRoutes(app: FastifyInstance): void {
          * nothing needs writing to it. The ground is opened either way, because the reset released
          * every location this crew held.
          *
-         * A reset crew keeps its old address rather than moving to the city it just picked. The
-         * plot it is standing on is still its own and nothing else has been allowed to take it,
-         * so moving would mean vacating one city and racing for a plot in another to return to
-         * the same starting state. Clean slate is a bench tool and this is the cheap answer;
-         * the day it is wrong, the fix is a move, not a second insert.
+         * A reset crew keeps its old address when it picks the city it already lives in, and moves
+         * when it picks another (maintainer, 2026-10-08: "When I choose a city that is not Ashfall
+         * in a new game, I should be taken to that city"). It used to keep the address whatever
+         * was picked, so Start over and a choice of Arca put the crew back on its Ashfall plot.
+         * The move is a new plot through the same `newHome` a new account goes through, so a full
+         * city refuses it the same way; the reset already emptied the old plot of everything.
          */
         const standing = app.repos.bases.findByOwnerId(user.id);
+        const moving =
+          standing !== undefined && cityId !== undefined && cityOf(standing.districtId) !== cityId;
         const home =
-          standing ??
-          startingBase({
-            ownerId: user.id,
-            name: freeDistrictName(app, user.username),
-            now,
-            districtId: newHome(app.repos, cityId, randomUUID()),
-          });
+          standing === undefined
+            ? startingBase({
+                ownerId: user.id,
+                name: freeDistrictName(app, user.username),
+                now,
+                districtId: newHome(app.repos, cityId, randomUUID()),
+              })
+            : moving
+              ? { ...standing, districtId: newHome(app.repos, cityId, randomUUID()) }
+              : standing;
         if (standing === undefined) app.repos.bases.insert(home);
+        else if (moving) app.repos.bases.replace(home);
         /*
          * ...and the feats board's first rung is finished before the player has seen it.
          *

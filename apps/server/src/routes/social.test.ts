@@ -1,6 +1,6 @@
 import {
   DEFAULT_BADGE,
-  DEFAULT_CITY_ID,
+  TERMINUS_CITY_ID,
   FOUND_FACTION_NEXUS_LEVEL,
   FOUND_FACTION_PLAYER_LEVEL,
   INVITES_TO_ONE_PLAYER_PER_DAY,
@@ -1992,62 +1992,137 @@ describe('the leaderboard', () => {
   });
 
   /**
-   * The scope is the **city**, and there is one city.
+   * One city at a time (maintainer, 2026-10-07).
    *
-   * So both scopes list the same people today, which is the board's call and not an accident: the
-   * filter is written against a city id so that a second city makes it real without a screen
-   * change. What is asserted is that the request is honoured and scoped, rather than that it
-   * removes anybody, because right now there is nobody to remove.
+   * "For leaderboard make it so you can choose a city, (remove my city only) or all cities, but it
+   * always shows everything you own its not a per city filter. But if you have only one city
+   * picked, it shows all players holding ground in that city, however their stats are global."
+   *
+   * So the city picks the names and never the numbers, and the names come off the **control rows**.
+   * The scope this replaced filtered on home cities, which got both halves of that wrong: a crew
+   * holding half of Terminus from an Ashfall address was kept off Terminus's board, and a crew that
+   * lived there and held nothing was on it.
    */
-  it('scopes the board to your own city when asked', async () => {
-    const mine = await player(app, 'neighbour');
-    const other = await player(app, 'stranger');
-    setInfamy(other.id, 50_000);
+  const named = (rows: LeaderboardResponse['entries']) =>
+    (rows as { username: string }[]).map((row) => row.username);
 
-    const everywhere = await board(mine.token);
-    expect(everywhere.localOnly).toBe(false);
-    expect(everywhere.scope).toBeNull();
+  /** Hands a crew a location. The only thing that puts anybody on a city's board. */
+  const giveGround = (userId: string, locationId: string) => {
+    const base = app.repos.bases.findByOwnerId(userId)!;
+    const control = app.repos.city.control(locationId)!;
+    app.repos.city.put({ ...control, holder: { kind: 'crew', baseId: base.id } });
+  };
 
-    const local = await board(mine.token, '?localOnly=true');
-    expect(local.localOnly).toBe(true);
-    expect(local.scope).toBe(DEFAULT_CITY_ID);
-    // Everybody in Ashfall, which is currently everybody.
-    const named = (rows: LeaderboardResponse['entries']) =>
-      (rows as { username: string }[]).map((row) => row.username);
-    expect(named(local.entries)).toEqual(named(everywhere.entries));
-    expect(named(local.entries)).toContain('stranger');
+  /** A plot in Terminus, for moving a crew's address without giving it any ground. */
+  const moveHomeTo = (userId: string, districtId: string) => {
+    const base = app.repos.bases.findByOwnerId(userId)!;
+    app.db.prepare('UPDATE bases SET district_id = ? WHERE id = ?').run(districtId, base.id);
+  };
+
+  it('lists whoever holds ground in the city asked for, wherever they live', async () => {
+    const abroad = await player(app, 'holds_terminus');
+    const home = await player(app, 'holds_nothing_there');
+    const resident = await player(app, 'lives_there_no_ground');
+    // An Ashfall address with a place at the end of the line. The case the old scope got wrong.
+    giveGround(abroad.id, 'coldwater-halt-platform');
+    moveHomeTo(resident.id, 'carriage');
+
+    const everywhere = await board(home.token);
+    expect(everywhere.city).toBeNull();
+    expect(named(everywhere.entries)).toEqual(
+      expect.arrayContaining(['holds_terminus', 'holds_nothing_there']),
+    );
+
+    const terminus = await board(home.token, `?city=${TERMINUS_CITY_ID}`);
+    expect(terminus.city).toBe(TERMINUS_CITY_ID);
+    /*
+     * Ground held there, and living there (maintainer, 2026-10-07): a home plot is a district on
+     * the map, so the crew standing on it is in the city whether or not it has taken a location,
+     * which is how the city's rooms already decide who may walk in. A crew with neither is off the
+     * board, which is the half that keeps the filter meaningful.
+     */
+    expect(named(terminus.entries).sort()).toEqual(['holds_terminus', 'lives_there_no_ground']);
+    expect(named(terminus.entries)).not.toContain('holds_nothing_there');
+    // And the reader, who neither lives there nor holds anything there, is told they are off it.
+    expect(terminus.yourRank).toBeNull();
   });
 
-  /** A district nobody authored has no city, so the local board falls back to everybody. */
-  it('scopes by city rather than by district', async () => {
-    const mine = await player(app, 'local');
-    const neighbour = await player(app, 'two_streets_over');
-    setInfamy(neighbour.id, 4_000);
+  /** A city shortens the list. Every figure on a row it leaves is still that player's whole. */
+  it('keeps the figures global when one city is picked', async () => {
+    const abroad = await player(app, 'ranked_second');
+    const richer = await player(app, 'ranked_first');
+    giveGround(abroad.id, 'coldwater-halt-platform');
+    setInfamy(abroad.id, 7_000);
+    // Ahead of them everywhere, and holding nothing in Terminus, so the one-city board drops them.
+    setInfamy(richer.id, 9_000);
 
-    // Two players in different districts of the same city are on each other's local board.
-    const base = app.repos.bases.findByOwnerId(neighbour.id)!;
-    const home = app.repos.bases.findByOwnerId(mine.id)!.districtId;
-    app.db
-      .prepare('UPDATE bases SET district_id = ? WHERE id = ?')
-      .run(home === 'steelbelt' ? 'neon-docks' : 'steelbelt', base.id);
+    type Row = { username: string; rank: number; infamy: number; totalInfamy: number };
+    const rowIn = (response: LeaderboardResponse) =>
+      (response.entries as Row[]).find((row) => row.username === 'ranked_second')!;
+    const everywhere = rowIn(await board(richer.token));
+    const terminus = await board(richer.token, `?city=${TERMINUS_CITY_ID}`);
+    const scoped = rowIn(terminus);
 
-    const local = await board(mine.token, '?localOnly=true');
-    expect(
-      (local.entries as { username: string }[]).some((row) => row.username === 'two_streets_over'),
-    ).toBe(true);
+    expect(named(terminus.entries)).toEqual(['ranked_second']);
+    // The same crew, the same numbers: the infamy it holds everywhere and the lifetime total.
+    expect(scoped.infamy).toBe(7_000);
+    expect(scoped.infamy).toBe(everywhere.infamy);
+    expect(scoped.totalInfamy).toBe(everywhere.totalInfamy);
+    // The one thing a shorter board changes is the place on it, which is what a rank is.
+    expect(everywhere.rank).toBe(2);
+    expect(scoped.rank).toBe(1);
   });
 
-  /** A player with no district has no city, and gets everybody rather than an empty screen. */
-  it('answers a local request with everybody when the caller has no district', async () => {
-    const registered = await app.inject({
-      method: 'POST',
-      url: '/api/auth/register',
-      payload: { username: 'homeless', password: PASSWORD },
+  /**
+   * A faction has no address, so any member holding ground there puts it on that city's board. Its
+   * figures stay the faction's whole: what was earned under the badge, in every city.
+   */
+  it('lists a faction when any of its members holds ground in the city', async () => {
+    const chief = await player(app, 'chief');
+    const traveller = await player(app, 'traveller');
+    const outsider = await player(app, 'outsider');
+    await found(app, chief.token, 'The Long Way Round');
+    await found(app, outsider.token, 'The Stay At Homes');
+    app.repos.factions.addMember({
+      userId: traveller.id,
+      factionId: app.repos.factions.findByName('The Long Way Round')!.id,
+      rank: 'member',
+      joinedAt: new Date().toISOString(),
     });
-    const token = registered.json<{ token: string }>().token;
+    app.repos.factions.addInfamyEarned(chief.id, 500);
+    // Neither the chief nor the other faction holds anything at the end of the line.
+    giveGround(traveller.id, 'coldwater-halt-platform');
 
-    const local = await board(token, '?localOnly=true');
-    expect(local.localOnly).toBe(false);
-    expect(local.scope).toBeNull();
+    const rows = (await board(chief.token, `?board=factions&city=${TERMINUS_CITY_ID}`)).entries as {
+      name: string;
+      infamy: number;
+      members: number;
+    }[];
+    expect(rows.map((row) => row.name)).toEqual(['The Long Way Round']);
+    // Earned everywhere and counted whole, by a faction listed for one city.
+    expect(rows[0]?.infamy).toBe(500);
+    expect(rows[0]?.members).toBe(2);
+  });
+
+  /** A city nobody can play in yet, and a city the world does not have, are answered with both. */
+  it('answers a shut or unknown city with every city', async () => {
+    const reader = await player(app, 'asks_for_nowhere');
+    await player(app, 'somebody_else');
+
+    for (const asked of ['redline', 'atlantis']) {
+      const answered = await board(reader.token, `?city=${asked}`);
+      expect(answered.city).toBeNull();
+      expect(named(answered.entries)).toEqual(
+        expect.arrayContaining(['asks_for_nowhere', 'somebody_else']),
+      );
+    }
+  });
+
+  /** The join key the city filter reads is the server's: it is not a column on the board. */
+  it('keeps the crew id off the rows it sends', async () => {
+    const reader = await player(app, 'reads_the_board');
+    const rows = (await board(reader.token)).entries as Record<string, unknown>[];
+    expect(rows.length).toBeGreaterThan(0);
+    expect(rows.every((row) => !('baseId' in row))).toBe(true);
   });
 });

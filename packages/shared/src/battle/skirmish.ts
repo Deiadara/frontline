@@ -130,7 +130,7 @@ export const SkirmishOutcomeSchema = z.object({
   executedForce: z.record(z.string(), z.number().int().nonnegative()).default({}),
   /** How many rounds it took. One means it was over before it started. */
   /**
-   * Reliquary's ledgers of the dead, by the side that lost them and the unit id of the fallen:
+   * Arca's ledgers of the dead, by the side that lost them and the unit id of the fallen:
    * the bodies that were too intimidated to fire when they fell (the Fight Pit pays them over)
    * and those credited to a SPECTACLE shooter (paid twice). Defaulted, because a stub engine
    * runs no fight and an empty ledger is the truthful answer for one.

@@ -91,16 +91,6 @@ export function roadMinutes(
   speed = 0,
   reductionPercent = 0,
   /**
-   * Whole minutes cut off the answer, after everything else (the `road_shortcut` bonus).
-   *
-   * Last on purpose, and it is the whole reason the channel exists. A percentage is worth what the
-   * clock is worth, so on the nine-minute hop between two neighbouring districts every travel
-   * holding in the game together saves under four minutes; a flat cut is worth the same on that hop
-   * as on an hour's march, which is what makes it the bonus a crew fighting over one corner of the
-   * city can feel. The one-minute floor below is what keeps it from paying a road that is not there.
-   */
-  flatMinutesOff = 0,
-  /**
    * The Cartographer's passive (`passives.ts`, maintainer 2026-10-04): a share off the road's
    * **base**, before the column's pace and every speed bonus, so an hour's road is half an hour
    * under a perfect Cartographer and every other cut is then taken off the half hour. Outside the
@@ -112,7 +102,7 @@ export function roadMinutes(
   // Bent, not stopped (`travelSpeedCut`, maintainer 2026-10-05).
   const off = travelSpeedCut(reductionPercent);
   const road = baseMinutes * (1 - clamp(baseCutPercent, 0, CHAIR_PASSIVE_CAP.travel_time) / 100);
-  const minutes = (road / (1 + pace / 100)) * (1 - off / 100) - Math.max(0, flatMinutesOff);
+  const minutes = (road / (1 + pace / 100)) * (1 - off / 100);
   return Math.max(1, Math.round(minutes));
 }
 

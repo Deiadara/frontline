@@ -1,13 +1,13 @@
 import {
-  INTER_CITY_MINUTES,
   MISC_AREA_ID,
   TERMINUS_CITY_ID,
-  TRAVEL_BAND_MINUTES,
   cityOf,
   districtsOfCity,
-  findMissionTemplate,
+  findDistrict,
+  missionBoardKey,
+  missionDealer,
+  missionOffers,
   missionWalkMinutes,
-  type Mission,
   type MissionArea,
   type MissionsResponse,
 } from '@frontline/shared';
@@ -19,18 +19,18 @@ import { openDatabase, type AppDatabase } from '../db/index.js';
 import { runMigrations } from '../db/index.js';
 import { createRepositories, type Repositories } from '../db/repos/index.js';
 import { chooseOverseer } from '../testing/overseer.js';
+import { resolveDueMissions } from './resolve.js';
 
 /**
- * The board belongs to the city the crew is standing in (2026-09-24).
+ * The board belongs to the crew's **home** city and nowhere else (maintainer, 2026-10-07).
  *
- * `GET /missions` handed every crew Ashfall's twelve districts, whoever they were and wherever
- * they held ground, because `projectAreas` was called with `CITY_DISTRICTS`. Terminus is playable
- * and its eight contested districts were on nobody's board.
+ * "You can only do missions in your starting city and only in districts that you or your faction
+ * control entirely." It reversed 2026-09-24, under which the board followed the access model the
+ * Bar and the market run on, so a crew with one plot in Terminus read Terminus boards and could
+ * work them. Ground in a second city is ground to walk to and fight over now; nobody there hires.
  *
- * Which city a crew may work is the access model the Bar and the market already run on
- * (`city/access.ts`): their own, or any city they hold at least one location in. These tests walk
- * that rule from both sides, over HTTP, because the read and the launch check it separately and a
- * pair that disagrees is a screen that offers work the send button refuses.
+ * Both halves are walked here, over HTTP, because the read and the launch check them separately
+ * and a pair that disagrees is a screen that offers work the send button refuses.
  */
 
 const PASSWORD = 'correct horse battery staple';
@@ -78,19 +78,20 @@ async function makeStack(username = 'linewalker'): Promise<Stack> {
   const base = repos.bases.findByOwnerId(user.id);
   if (!base) throw new Error('overseer creation did not mint a base');
   repos.bases.updateArmy(base.id, { razors: 20 }, base.musterQueue);
-  // Holding ground in Terminus is the rule under test and it is granted one test at a time.
   return { app, repos, baseId: base.id, token, overseerId };
 }
 
-/** Hands this crew one plot in `districtId`, which is a stake in that city and opens its gate. */
-function takeOnePlotIn(repos: Repositories, baseId: string, districtId: string): string {
-  const district = TERMINUS.find((one) => one.id === districtId);
-  const location = district?.locations[0];
-  if (!location) throw new Error(`${districtId} has nothing in it to take`);
-  const control = repos.city.control(location.id);
-  if (!control) throw new Error(`no control row for ${location.id}`);
-  repos.city.put({ ...control, holder: { kind: 'crew', baseId }, garrison: {} });
-  return location.id;
+/** Hands this crew every plot in a district, which is what opens its board. */
+function takeDistrict(repos: Repositories, baseId: string, districtId: string): void {
+  const district = findDistrict(districtId);
+  if (!district || district.locations.length === 0) {
+    throw new Error(`${districtId} has nothing in it to take`);
+  }
+  for (const location of district.locations) {
+    const control = repos.city.control(location.id);
+    if (!control) throw new Error(`no control row for ${location.id}`);
+    repos.city.put({ ...control, holder: { kind: 'crew', baseId }, garrison: {} });
+  }
 }
 
 const boardOf = async (app: FastifyInstance, token: string, city?: string) =>
@@ -103,79 +104,70 @@ const boardOf = async (app: FastifyInstance, token: string, city?: string) =>
 const areaIds = (areas: MissionArea[]): string[] => areas.map((area) => area.id);
 
 describe('which city the board is drawn from', () => {
-  it("answers the crew's own city when the request names none", async () => {
+  it("answers the crew's own city, and says which it is", async () => {
     const { app, token } = await makeStack();
     const read = await boardOf(app, token);
     expect(read.statusCode).toBe(200);
 
-    const ids = areaIds(read.json<MissionsResponse>().areas);
-    expect(ids[0]).toBe(MISC_AREA_ID);
-    expect(ids.some((id) => cityOf(id) === TERMINUS_CITY_ID)).toBe(false);
-  });
-
-  /** The market's argument: the wrong boards are worse than a refusal, because they look right. */
-  it('refuses a city the crew holds no ground in', async () => {
-    const { app, token } = await makeStack();
-    const read = await boardOf(app, token, TERMINUS_CITY_ID);
-    expect(read.statusCode).toBe(403);
-    expect(read.json<{ error: { code: string } }>().error.code).toBe('CITY_SHUT');
-  });
-
-  it('draws Terminus for a crew holding one plot in Terminus', async () => {
-    const { app, repos, baseId, token } = await makeStack();
-    takeOnePlotIn(repos, baseId, 'coldwater-halt');
-
-    const read = await boardOf(app, token, TERMINUS_CITY_ID);
-    expect(read.statusCode, read.body).toBe(200);
-    const ids = areaIds(read.json<MissionsResponse>().areas);
-
-    expect(ids).toContain('coldwater-halt');
-    // Asked of the atlas rather than of the id's spelling: since 2026-09-25 an id is the name
-    // the tag shows, so nothing in the string says which city a district is in.
-    expect(ids.every((id) => id === MISC_AREA_ID || cityOf(id) === TERMINUS_CITY_ID)).toBe(true);
-    // And the home city is still there to go back to on the next read.
-    const home = await boardOf(app, token);
-    expect(
-      areaIds(home.json<MissionsResponse>().areas).some((id) => cityOf(id) === TERMINUS_CITY_ID),
-    ).toBe(false);
+    const board = read.json<MissionsResponse>();
+    expect(board.cityId).toBe('ashfall');
+    expect(areaIds(board.areas)[0]).toBe(MISC_AREA_ID);
+    expect(areaIds(board.areas).some((id) => cityOf(id) === TERMINUS_CITY_ID)).toBe(false);
   });
 
   /**
-   * The pay, which is the half nothing on the screen would have caught.
+   * A `?city=` is answered with the home board rather than refused (2026-10-07).
    *
-   * `areaDifficulty` looked its id up in Ashfall's array, missed, and fell through to the `misc`
-   * floor, so every Terminus board quoted the cheapest premium in the game. The Halt is authored
-   * at difficulty 1 and pays nothing extra; anything harder has to pay more than the misc board.
+   * There is one board set in the game for a given crew now, so a request naming another city is
+   * asking for something that does not exist. Answering with the board that does, and saying which
+   * it is, leaves a tab left open on an older build working rather than broken.
    */
-  it('prices a Terminus board off its own difficulty', async () => {
+  it('ignores a city on the request, however much ground is held there', async () => {
     const { app, repos, baseId, token } = await makeStack();
-    takeOnePlotIn(repos, baseId, 'bonded-row');
+    takeDistrict(repos, baseId, 'coldwater-halt');
 
     const read = await boardOf(app, token, TERMINUS_CITY_ID);
-    const areas = read.json<MissionsResponse>().areas;
-    const misc = areas.find((area) => area.id === MISC_AREA_ID);
-    const bonded = areas.find((area) => area.id === 'bonded-row');
-    if (!misc || !bonded) throw new Error(`no Bonded Row board: ${areaIds(areas).join()}`);
+    expect(read.statusCode, read.body.slice(0, 200)).toBe(200);
+    const board = read.json<MissionsResponse>();
+    expect(board.cityId).toBe('ashfall');
+    expect(areaIds(board.areas)).not.toContain('coldwater-halt');
+    expect(
+      areaIds(board.areas).every((id) => id === MISC_AREA_ID || cityOf(id) === 'ashfall'),
+    ).toBe(true);
+  });
 
-    // Bonded Row is difficulty 4 against the misc board's 1, and both carry the same level term.
-    expect(bonded.difficulty).toBe(4);
-    expect(bonded.payPercent).toBeGreaterThan(misc.payPercent);
+  it('opens a home district on the last plot taken in it, and only then', async () => {
+    const { app, repos, baseId, token } = await makeStack();
+    const district = findDistrict('chrome-row');
+    if (!district) throw new Error('fixture: no Chrome Row');
+
+    const control = repos.city.control(district.locations[0]!.id)!;
+    repos.city.put({ ...control, holder: { kind: 'crew', baseId }, garrison: {} });
+    expect(areaIds((await boardOf(app, token)).json<MissionsResponse>().areas)).toEqual([
+      MISC_AREA_ID,
+    ]);
+
+    takeDistrict(repos, baseId, district.id);
+    expect(areaIds((await boardOf(app, token)).json<MissionsResponse>().areas)).toContain(
+      district.id,
+    );
   });
 });
 
-describe('launching into a second city', () => {
+describe('launching', () => {
   /** The board and the send button read the same rule, or the screen offers what it cannot post. */
-  it('refuses a job in a district the crew no longer holds anything in', async () => {
+  it('refuses a job in a home district the crew does not hold whole', async () => {
     const { app, repos, baseId, token, overseerId } = await makeStack();
-    // Take a plot, read the board to find a real job on it, then give the plot back: the card the
-    // crew is holding was on the wall and the stake behind it is gone, which is the stale-tab case.
-    const locationId = takeOnePlotIn(repos, baseId, 'coldwater-halt');
-    const read = await boardOf(app, token, TERMINUS_CITY_ID);
-    const area = read.json<MissionsResponse>().areas.find((one) => one.id === 'coldwater-halt');
+    // Take it, read a real card off its board, then give one plot back: the card the crew is
+    // holding was on the wall and the ground behind it is gone, which is the stale-tab case.
+    takeDistrict(repos, baseId, 'chrome-row');
+    const read = await boardOf(app, token);
+    const area = read.json<MissionsResponse>().areas.find((one) => one.id === 'chrome-row');
     const offer = area?.offers[0];
-    if (!offer) throw new Error('the Halt posted nothing to launch');
+    if (!offer) throw new Error('Chrome Row posted nothing to launch');
 
-    const control = repos.city.control(locationId)!;
+    const plot = findDistrict('chrome-row')!.locations[0]!.id;
+    const control = repos.city.control(plot)!;
     repos.city.put({ ...control, holder: { kind: 'looters' }, garrison: {} });
 
     const refused = await app.inject({
@@ -184,7 +176,7 @@ describe('launching into a second city', () => {
       headers: auth(token),
       payload: {
         templateId: offer.templateId,
-        areaId: 'coldwater-halt',
+        areaId: 'chrome-row',
         boardKey: offer.boardKey,
         grade: offer.grade,
         force: { razors: 1 },
@@ -195,18 +187,59 @@ describe('launching into a second city', () => {
     expect(refused.json<{ error: { code: string; message: string } }>().error).toEqual({
       code: 'MISSION_REFUSED',
       message:
-        'Nobody there hires a crew that holds nothing in it. Take a place in that district first',
+        'Nobody there hires a crew that does not hold the district. Take the rest of it first',
     });
   });
 
-  it('sends a crew to a Terminus job when they hold ground there', async () => {
+  /**
+   * The city door, said separately from the whole-district one.
+   *
+   * A crew holding every plot of a Terminus district passes the whole-district test and must still
+   * be refused, which is exactly the request a tab open on yesterday's build would post.
+   */
+  it('refuses a job in another city, held whole or not', async () => {
     const { app, repos, baseId, token, overseerId } = await makeStack();
-    takeOnePlotIn(repos, baseId, 'coldwater-halt');
+    takeDistrict(repos, baseId, 'coldwater-halt');
+    expect(TERMINUS.some((one) => one.id === 'coldwater-halt')).toBe(true);
+    // The card the Halt's board would deal today, worked out rather than read: the board is not on
+    // the screen any more, and a made-up card is refused as a card before the city is looked at.
+    const now = new Date();
+    const boardKey = missionBoardKey('coldwater-halt', now);
+    const card = missionOffers(
+      'coldwater-halt',
+      boardKey,
+      1,
+      missionDealer(repos.bases.findById(baseId)!),
+    )[0];
+    if (!card) throw new Error('the Halt deals nothing today');
 
-    const read = await boardOf(app, token, TERMINUS_CITY_ID);
-    const area = read.json<MissionsResponse>().areas.find((one) => one.id === 'coldwater-halt');
+    const refused = await app.inject({
+      method: 'POST',
+      url: '/api/missions',
+      headers: auth(token),
+      payload: {
+        templateId: card.template.id,
+        areaId: 'coldwater-halt',
+        boardKey,
+        grade: card.grade,
+        force: { razors: 1 },
+        leaderId: overseerId,
+      },
+    });
+    expect(refused.statusCode).toBe(409);
+    expect(refused.json<{ error: { message: string } }>().error.message).toBe(
+      'Nobody out there is hiring. Work is offered in your own city',
+    );
+  });
+
+  it('sends a crew to a home district it holds whole', async () => {
+    const { app, repos, baseId, token, overseerId } = await makeStack();
+    takeDistrict(repos, baseId, 'chrome-row');
+
+    const read = await boardOf(app, token);
+    const area = read.json<MissionsResponse>().areas.find((one) => one.id === 'chrome-row');
     const offer = area?.offers.find((one) => one.kind === 'standard');
-    if (!offer) throw new Error('the Halt posted no plain work to launch');
+    if (!offer) throw new Error('Chrome Row posted no plain work to launch');
 
     const launched = await app.inject({
       method: 'POST',
@@ -214,7 +247,7 @@ describe('launching into a second city', () => {
       headers: auth(token),
       payload: {
         templateId: offer.templateId,
-        areaId: 'coldwater-halt',
+        areaId: 'chrome-row',
         boardKey: offer.boardKey,
         grade: offer.grade,
         force: { razors: 1 },
@@ -223,122 +256,80 @@ describe('launching into a second city', () => {
     });
     expect(launched.statusCode, launched.body).toBe(200);
     const mission = launched.json<{ mission: { areaId: string; status: string } }>().mission;
-    expect(mission.areaId).toBe('coldwater-halt');
+    expect(mission.areaId).toBe('chrome-row');
     expect(mission.status).toBe('active');
+  });
+
+  /**
+   * A run outlives the board it came off (maintainer's rule, read the obvious way).
+   *
+   * A district can fall while a crew is out in it, and the board closes on the next read. The run
+   * must still settle and still come home: it is already out there, and a party that vanished with
+   * its board would be the quietest bug on this screen.
+   */
+  it('brings a crew home from a board that closed while they were out', async () => {
+    const { app, repos, baseId, token, overseerId } = await makeStack('dispossessed');
+    takeDistrict(repos, baseId, 'chrome-row');
+    const read = await boardOf(app, token);
+    const offer = read
+      .json<MissionsResponse>()
+      .areas.find((one) => one.id === 'chrome-row')
+      ?.offers.find((one) => one.kind === 'standard');
+    if (!offer) throw new Error('Chrome Row posted no plain work to launch');
+
+    const launched = await app.inject({
+      method: 'POST',
+      url: '/api/missions',
+      headers: auth(token),
+      payload: {
+        templateId: offer.templateId,
+        areaId: 'chrome-row',
+        boardKey: offer.boardKey,
+        grade: offer.grade,
+        force: { razors: 3 },
+        leaderId: overseerId,
+      },
+    });
+    expect(launched.statusCode, launched.body).toBe(200);
+    const missionId = launched.json<{ mission: { id: string } }>().mission.id;
+
+    // The district falls while they are out there.
+    const plot = findDistrict('chrome-row')!.locations[0]!.id;
+    const control = repos.city.control(plot)!;
+    repos.city.put({ ...control, holder: { kind: 'looters' }, garrison: {} });
+
+    const after = await boardOf(app, token);
+    const board = after.json<MissionsResponse>();
+    // The board is gone from the screen and the run is still on it, with its crew still out.
+    expect(areaIds(board.areas)).not.toContain('chrome-row');
+    expect(board.missions.find((one) => one.id === missionId)?.status).toBe('active');
+
+    // ...and they walk back in when the clock runs out.
+    const stored = repos.missions.findById(missionId);
+    if (!stored) throw new Error('the run went missing');
+    const later = new Date(Date.parse(stored.mission.startedAt) + 30 * 24 * 60 * 60 * 1000);
+    const settled = resolveDueMissions(repos, repos.bases.findById(baseId)!, later);
+    expect(settled.resolved.map((one) => one.id)).toEqual([missionId]);
+    expect(repos.bases.findById(baseId)?.army).toEqual({ razors: 20 });
   });
 });
 
-/**
- * A job in another city is as far away as the city is (maintainer, 2026-09-29: "Add the walk").
- *
- * The road was the template's band wherever the job was, so an Ashfall crew with one plot in
- * Terminus took a Terminus job on a five-minute road while a move between the same two districts
- * crossed the frontier. The walk goes on each leg of the road, the card is priced on it, and the
- * run freezes the clock and the price the card quoted.
- */
-describe('the walk to a job in another city', () => {
-  it('adds the cross-city walk to the road, prices the card on it, and freezes what it quoted', async () => {
-    const { app, repos, baseId, token, overseerId } = await makeStack('longwalker');
-    takeOnePlotIn(repos, baseId, 'coldwater-halt');
-    // Past the opening band, which squeezes a new crew's first runs to a couple of minutes
-    // whatever the road (`missions.ramp.ts`).
-    const fresh = repos.bases.findById(baseId)!;
-    repos.bases.updateProgression(baseId, 7, fresh.progression);
-    const home = repos.bases.findById(baseId)!.districtId;
-    const walk = missionWalkMinutes(home, 'coldwater-halt');
-    expect(walk, 'Ashfall to Terminus crosses the frontier').toBeGreaterThanOrEqual(
-      INTER_CITY_MINUTES,
-    );
-
-    const read = (await boardOf(app, token, TERMINUS_CITY_ID)).json<MissionsResponse>();
-    const offer = read.areas
-      .find((one) => one.id === 'coldwater-halt')
-      ?.offers.find((one) => one.kind === 'standard');
-    if (!offer) throw new Error('the Halt posted no plain work to launch');
-    const band = TRAVEL_BAND_MINUTES[findMissionTemplate(offer.templateId)!.travelBand];
-    expect(offer.rawTravelMinutes).toBe(band + walk);
-    // The card's clock carries the walk both ways, so the job pays for the afternoon it costs.
-    expect(offer.totalMinutes).toBeGreaterThanOrEqual(2 * walk);
-
-    const launched = await app.inject({
-      method: 'POST',
-      url: '/api/missions',
-      headers: auth(token),
-      payload: {
-        templateId: offer.templateId,
-        areaId: 'coldwater-halt',
-        boardKey: offer.boardKey,
-        grade: offer.grade,
-        force: { razors: 1 },
-        leaderId: overseerId,
-      },
-    });
-    expect(launched.statusCode, launched.body.slice(0, 200)).toBe(200);
-    const mission = launched.json<{ mission: Mission }>().mission;
-    expect(mission.pricedMinutes).toBe(offer.totalMinutes);
-    expect(mission.xp).toBe(offer.xp);
-    // The road the crew walks is the long one too, at its own pace.
-    expect(mission.travelMinutes).toBeGreaterThan(walk / 2);
-  });
-
-  /*
-   * A mission cut on a Terminus job: quoted on the card and frozen at the launch, off the same
-   * channel, so the send does not run on a different clock from the one the player was shown.
-   * The Marshalling Yards held whole pay it (12, everywhere); the Blockhouse paid a city-scoped
-   * 25 until it went over to ANTI-COMBINE (maintainer, 2026-10-07).
+describe('the road to a job', () => {
+  /**
+   * Every board a crew can read is in its own city, so the cross-city leg is never charged.
+   *
+   * `missionWalkMinutes` is still the one function that answers it, and still answers the crossing
+   * for a pair of districts in different cities: what changed is that no board offers such a pair
+   * any more. Left in place rather than deleted, because the rule it encodes is a fact about the
+   * map and the next ruling that opens a second city's boards will want it.
    */
-  it('quotes and launches a Terminus job on the Yards’ cut', async () => {
-    const { app, repos, baseId, token, overseerId } = await makeStack('signalman');
-    takeOnePlotIn(repos, baseId, 'coldwater-halt');
-    const fresh = repos.bases.findById(baseId)!;
-    repos.bases.updateProgression(baseId, 7, fresh.progression);
-    const halt = async () => {
-      const read = (await boardOf(app, token, TERMINUS_CITY_ID)).json<MissionsResponse>();
-      const offer = read.areas
-        .find((one) => one.id === 'coldwater-halt')
-        ?.offers.find((one) => one.kind === 'standard');
-      if (!offer) throw new Error('the Halt posted no plain work to launch');
-      return offer;
-    };
-    const bare = await halt();
-
-    for (const location of TERMINUS.find((one) => one.id === 'marshalling-yards')!.locations) {
-      const control = repos.city.control(location.id)!;
-      repos.city.put({ ...control, holder: { kind: 'crew', baseId }, garrison: {} });
-    }
-    const offer = await halt();
-    expect(offer.templateId).toBe(bare.templateId);
-    expect(offer.durationMinutes).toBeLessThan(bare.durationMinutes);
-
-    const launched = await app.inject({
-      method: 'POST',
-      url: '/api/missions',
-      headers: auth(token),
-      payload: {
-        templateId: offer.templateId,
-        areaId: 'coldwater-halt',
-        boardKey: offer.boardKey,
-        grade: offer.grade,
-        force: { razors: 1 },
-        leaderId: overseerId,
-      },
-    });
-    expect(launched.statusCode, launched.body.slice(0, 200)).toBe(200);
-    expect(launched.json<{ mission: Mission }>().mission.durationMinutes).toBe(
-      offer.durationMinutes,
-    );
-  });
-
-  it('adds nothing at home or on the misc board', async () => {
+  it('adds nothing to a job on any board the crew can read', async () => {
     const { app, token, repos, baseId } = await makeStack('homebody');
+    takeDistrict(repos, baseId, 'chrome-row');
     const home = repos.bases.findById(baseId)!.districtId;
     expect(missionWalkMinutes(home, MISC_AREA_ID)).toBe(0);
     for (const area of (await boardOf(app, token)).json<MissionsResponse>().areas) {
       expect(missionWalkMinutes(home, area.id), area.id).toBe(0);
-      for (const offer of area.offers) {
-        const band = TRAVEL_BAND_MINUTES[findMissionTemplate(offer.templateId)!.travelBand];
-        expect(offer.rawTravelMinutes, `${area.id}/${offer.templateId}`).toBe(band);
-      }
     }
   });
 });

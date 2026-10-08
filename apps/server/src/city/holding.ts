@@ -37,11 +37,39 @@ export interface TableSeat {
 export function seatsByBase(repos: Partial<Repositories>): Map<string, TableSeat> {
   const seats = new Map<string, TableSeat>();
   const summaries = repos.bases?.listSummaries?.() ?? [];
+  /*
+   * One query for every seat in the world (2026-10-07), not one per crew.
+   *
+   * This read one `membershipOf` per base, and it is called from `alliesOf`, `tableOf` and
+   * `wholeHolderOf`, which the battle board then calls once for each of the 36 districts on every
+   * read, on a board that refetches on every world broadcast. `everySeat` is the same answer in a
+   * single statement. The per-crew path is kept for the stub repositories a hundred fixtures pass
+   * in, which carry `membershipOf` and not the newer reader.
+   */
+  const everySeat = repos.factions?.everySeat?.();
   for (const summary of summaries) {
-    const seat = repos.factions?.membershipOf?.(summary.ownerId);
+    const seat = everySeat
+      ? everySeat.get(summary.ownerId)
+      : repos.factions?.membershipOf?.(summary.ownerId);
     if (seat) seats.set(summary.id, { factionId: seat.factionId, joinedAt: seat.joinedAt });
   }
   return seats;
+}
+
+/**
+ * The two reads every question on this page starts from, taken once for a sweep over the map.
+ *
+ * `wholeHolderOf` and `districtsHeldWhole` each take their own copy when asked about one district,
+ * which is right for one question and wrong for thirty-six: a caller walking the world passes this
+ * instead and the queries stop multiplying by the district count.
+ */
+export interface MapRead {
+  seats: Map<string, TableSeat>;
+  controls: ReturnType<Repositories['city']['controls']>;
+}
+
+export function readTheMap(repos: Repositories): MapRead {
+  return { seats: seatsByBase(repos), controls: repos.city.controls() };
 }
 
 /** The crew's faction mates, by base id: the crew itself is not in the set. */
@@ -65,11 +93,16 @@ export function tableOf(repos: Repositories, baseId: string): Set<string> {
  * Who holds a district whole, a faction counted as one party and named by its defender
  * (`wholeHolderAmong`), or null when nobody does.
  */
-export function wholeHolderOf(repos: Repositories, district: District): LocationHolder | null {
-  const seats = seatsByBase(repos);
+export function wholeHolderOf(
+  repos: Repositories,
+  district: District,
+  /** A read already taken, for a caller sweeping the map. See {@link readTheMap}. */
+  read?: MapRead,
+): LocationHolder | null {
+  const { seats, controls } = read ?? readTheMap(repos);
   return wholeHolderAmong(
     district,
-    repos.city.controls(),
+    controls,
     (baseId) => seats.get(baseId)?.factionId ?? null,
     (baseId) => seats.get(baseId)?.joinedAt ?? '',
   );

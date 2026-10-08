@@ -9,7 +9,7 @@ import {
   type LocationControl,
   type LocationHolder,
 } from './control.js';
-import { NOISE_SWITCH_TIER } from './reliquary.js';
+import { NOISE_SWITCH_TIER } from './arca.js';
 
 /**
  * Holding a district as a faction (maintainer ruling, 2026-10-07): the members together must
@@ -90,16 +90,44 @@ describe('wholeHolderAmong', () => {
     // Nothing recorded: b joined later than a, so a answers.
     expect(wholeHolderAmong(saintsRest, controls, table, joined)).toEqual(crew('a'));
     // b took its first plot before a took any: b has held longer and answers.
-    for (const [id, control] of controls) {
-      controls.set(id, {
-        ...control,
-        trophiesSince:
-          control.holder.kind === 'crew' && control.holder.baseId === 'b'
-            ? '2026-05-01T00:00:00.000Z'
-            : '2026-06-01T00:00:00.000Z',
-      });
-    }
+    const heldAt = (baseId: string, when: string) => {
+      for (const [id, control] of controls) {
+        if (control.holder.kind !== 'crew' || control.holder.baseId !== baseId) continue;
+        controls.set(id, { ...control, heldSince: when });
+      }
+    };
+    heldAt('b', '2026-05-01T00:00:00.000Z');
+    heldAt('a', '2026-06-01T00:00:00.000Z');
     expect(wholeHolderAmong(saintsRest, controls, table, joined)).toEqual(crew('b'));
+  });
+
+  /*
+   * Bug pass, 2026-10-07. `trophiesSince` carried two meanings: the row's capture instant, which
+   * this tiebreak reads, and the moment a Trophy Hall started counting kills, which the hall
+   * writes on its first kill. So a crew whose plot here was a hall held since before the column
+   * existed answered for the district until it made a kill, and then stopped, because of a fight
+   * that had nothing to do with this ground. The two are separate fields now.
+   */
+  it('is not moved by a Trophy Hall starting its tally', () => {
+    const even = [
+      ...Array<LocationHolder>(4).fill(crew('a')),
+      ...Array<LocationHolder>(4).fill(crew('b')),
+    ];
+    const controls = controlsOf(saintsRest, even);
+    // b's rows carry a capture instant and a's do not, which is a row from before the column: a
+    // has held since the start, so a answers.
+    for (const [id, control] of controls) {
+      if (control.holder.kind !== 'crew' || control.holder.baseId !== 'b') continue;
+      controls.set(id, { ...control, heldSince: '2026-05-01T00:00:00.000Z' });
+    }
+    expect(wholeHolderAmong(saintsRest, controls, table, joined)).toEqual(crew('a'));
+
+    // A hall of a's starts counting: `trophiesSince` moves and the answer must not.
+    for (const [id, control] of controls) {
+      if (control.holder.kind !== 'crew' || control.holder.baseId !== 'a') continue;
+      controls.set(id, { ...control, trophiesSince: '2026-09-01T00:00:00.000Z' });
+    }
+    expect(wholeHolderAmong(saintsRest, controls, table, joined)).toEqual(crew('a'));
   });
 
   it('keeps the single holder, the looters and the Combine as they were', () => {
@@ -121,6 +149,21 @@ describe('territoryEffectsFor with allies', () => {
     const together = territoryEffectsFor('b', EVERY_LOCATION, split, new Set(['a']));
     expect(alone.payrollPercent).toBe(0);
     expect(together.payrollPercent).toBe(10);
+  });
+
+  /*
+   * Maintainer, 2026-10-07: "you only get the collective bonus all of you". The gate, the three
+   * `districts_held_whole` feats and the whole-district combat perk already counted a member with
+   * no plot in the district; the payout walked this crew's own holdings and paid them nothing.
+   */
+  it('pays a member who holds no plot in the district at all', () => {
+    const theirs = controlsOf(printworks, Array<LocationHolder>(7).fill(crew('a')));
+    const nothing = territoryEffectsFor('c', EVERY_LOCATION, theirs);
+    const seated = territoryEffectsFor('c', EVERY_LOCATION, theirs, new Set(['a']));
+    expect(nothing.payrollPercent).toBe(0);
+    expect(seated.payrollPercent).toBe(10);
+    // ...and still nothing of what the plots themselves pay, which stays with whoever holds them.
+    expect(seated.perHour.oil ?? 0).toBe(0);
   });
 
   it("does not pay a member for a mate's own ground", () => {

@@ -2,6 +2,7 @@ import {
   MISC_AREA_ID,
   createCommander,
   missionBoardKey,
+  missionDealer,
   missionOffers,
   type LaunchMissionResponse,
 } from '@frontline/shared';
@@ -62,12 +63,12 @@ async function aCrewOfPorters(username: string, research: readonly string[]) {
     ...base.research,
     technologies: [...base.research.technologies, ...research],
   });
-  return { app, token, level: base.level };
+  return { app, token, level: base.level, dealer: missionDealer(base) };
 }
 
 async function sendPortersToTheFight(username: string, research: readonly string[]) {
-  const { app, token, level } = await aCrewOfPorters(username, research);
-  const fight = missionOffers(MISC_AREA_ID, missionBoardKey(MISC_AREA_ID, AT), level).find(
+  const { app, token, level, dealer } = await aCrewOfPorters(username, research);
+  const fight = missionOffers(MISC_AREA_ID, missionBoardKey(MISC_AREA_ID, AT), level, dealer).find(
     (job) => job.template.kind === 'battle',
   );
   if (!fight) throw new Error('the misc board deals one fight on every key');

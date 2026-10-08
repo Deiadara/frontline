@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { fightMissionBattle, missionInfamySurcharge } from './battle.js';
 
 /**
- * Reliquary's two ledgers of the enemy's dead reach a battle job (maintainer, 2026-10-06: "all
+ * Arca's two ledgers of the enemy's dead reach a battle job (maintainer, 2026-10-06: "all
  * units that were intimidated").
  *
  * The declared-fight settle paid the Fight Pit's surcharge on the enemy's intimidated dead and

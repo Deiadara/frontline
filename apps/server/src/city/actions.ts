@@ -124,7 +124,7 @@ export function putControl(repos: Repositories, next: LocationControl, now: Date
     return;
   }
   /*
-   * Reliquary's ground state is the holder's and goes with them (2026-10-07): the tower's switch
+   * Arca's ground state is the holder's and goes with them (2026-10-07): the tower's switch
    * falls open, the wall's pins come down and unlock for the taker, and the trophy count starts
    * again from this instant. A level change alone keeps all of it: the pins unlock on their own
    * because `pamphletsPinnedAt` is now below the level (`pamphletsUnlocked`).

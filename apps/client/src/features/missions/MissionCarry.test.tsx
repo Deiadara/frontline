@@ -153,7 +153,7 @@ describe('what one unit carries, on its row', () => {
     expect(dialog).toHaveTextContent(`carries ${carried} loot slots`);
   });
 
-  // The Straw Sack (Reliquary, 2026-10-07): flat slots on every carrier, and on nobody else.
+  // The Straw Sack (Arca, 2026-10-07): flat slots on every carrier, and on nobody else.
   it('adds the Straw Sack\u2019s bags to a carrier\u2019s row and not to a fighter\u2019s', () => {
     const dialog = openWindow(0, { razors: 10, scavengers: 10 }, 5);
     const porter = missionCarry({ scavengers: 1 }, {}, 0, undefined, 5);

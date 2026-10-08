@@ -50,7 +50,10 @@ export const PlayerStandingSchema = z.object({
    */
   displayName: z.string().min(1).optional(),
   districtId: z.string().min(1),
-  /** Which city they are in: the scope the board filters on. */
+  /**
+   * The city they live in, which is where their district is and not what the board filters on: a
+   * crew holding half of Terminus from an Ashfall address is on Terminus's board (2026-10-07).
+   */
   cityId: z.string().min(1),
   /** The name the player gave their own district, which is what other screens show. */
   districtName: z.string().min(1),
@@ -103,26 +106,32 @@ export const FactionStandingSchema = z.object({
 export type FactionStanding = z.infer<typeof FactionStandingSchema>;
 
 /**
- * One board, at one scope.
+ * One board, listed for one city or for all of them.
  *
  * A discriminated union rather than an object with two arrays, one of which is always empty: the
  * client narrows on `board` and cannot render a faction row into the player table.
+ *
+ * ## A city picks the names, never the numbers
+ *
+ * `city` is who is on the board and nothing else (maintainer, 2026-10-07): "it always shows
+ * everything you own its not a per city filter. But if you have only one city picked, it shows all
+ * players holding ground in that city, however their stats are global". So every figure on a row
+ * is that player's across the whole world, in every city and in none, and naming a city only
+ * shortens the list to the crews with ground there. The rank is the exception a ranking cannot
+ * avoid: it is a place on the board being read, so a shorter board numbers from 1.
  */
 export const LeaderboardResponseSchema = z.discriminatedUnion('board', [
   z.object({
     board: z.literal('players'),
-    /** True when the list is limited to the caller's own city. */
-    localOnly: z.boolean(),
-    /** The city the list is limited to, when it is limited. */
-    scope: z.string().nullable(),
+    /** The city whose holders were listed, or null for every player in the world. */
+    city: z.string().nullable(),
     entries: z.array(PlayerStandingSchema),
     /** Where the caller sits on this board, or null if they are off the end of it. */
     yourRank: z.number().int().positive().nullable(),
   }),
   z.object({
     board: z.literal('factions'),
-    localOnly: z.boolean(),
-    scope: z.string().nullable(),
+    city: z.string().nullable(),
     entries: z.array(FactionStandingSchema),
     yourRank: z.number().int().positive().nullable(),
   }),

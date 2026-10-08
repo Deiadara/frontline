@@ -145,11 +145,10 @@ describe('what two Terminus districts are worth to a job', () => {
      *
      * `mission_speed` and `travel_speed` are different channels spent in different places, and a
      * unified bonus that leaked into the second would shorten a march and a spy job as well
-     * as a job. Neither district pays `travel_speed` or `road_shortcut`, and the Yards' own
+     * as a job. Neither district pays `travel_speed`, and the Yards' own
      * locations pay travel inside the district, so the second hold must add nothing on top.
      */
     expect(both.travelSpeedPercent).toBe(yardsOnly.travelSpeedPercent);
-    expect(both.roadMinutesOff).toBe(yardsOnly.roadMinutesOff);
   });
 
   it('spends 37 on the job as a divisor and on the road as a reduction', async () => {
@@ -215,7 +214,7 @@ describe('a district-scoped cut, on the boards', () => {
   it('quotes shorter jobs on the one board the cut is scoped to and the same jobs elsewhere', async () => {
     const { base } = await world('quoted');
     const yards = TERMINUS.find((one) => one.id === 'marshalling-yards')!;
-    const open = new Map([yards, ASHFALL_WORK].map((one) => [one.id, { heldByCrew: 1 }]));
+    const open = new Map([yards, ASHFALL_WORK].map((one) => [one.id, { heldWhole: true }]));
     const quote = (districtSpeedPercent: Record<string, number>) =>
       new Map(
         projectAreas([yards, ASHFALL_WORK], open, [], base, new Date(), {
@@ -249,7 +248,6 @@ describe('the railway and a mission', () => {
       ramp: null,
       missionSpeedPercent: before.missionSpeedPercent,
       travelSpeedPercent: before.travelSpeedPercent,
-      roadMinutesOff: before.roadMinutesOff,
       unitSpeedPercent: before.unitSpeedPercent,
       anyRide: before.anyRide,
     });
@@ -267,7 +265,6 @@ describe('the railway and a mission', () => {
      */
     expect(after.missionSpeedPercent).toBe(before.missionSpeedPercent);
     expect(after.travelSpeedPercent).toBe(before.travelSpeedPercent);
-    expect(after.roadMinutesOff).toBe(before.roadMinutesOff);
     expect(after.unitSpeedPercent).toBe(before.unitSpeedPercent);
     expect(after.unitSlotBonus).toBeGreaterThan(before.unitSlotBonus);
 
@@ -283,7 +280,6 @@ describe('the railway and a mission', () => {
       ramp: null,
       missionSpeedPercent: after.missionSpeedPercent,
       travelSpeedPercent: after.travelSpeedPercent,
-      roadMinutesOff: after.roadMinutesOff,
       unitSpeedPercent: after.unitSpeedPercent,
       anyRide: after.anyRide,
     });

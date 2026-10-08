@@ -249,7 +249,6 @@ function rawRailOffer(
     speed,
     reductionPercent: effects.travelSpeedPercent,
     baseCutPercent: chairPassiveOf(effects, 'cartographer', 'travel_time'),
-    flatMinutesOff: effects.roadMinutesOff,
   });
   return offer;
 }
@@ -361,7 +360,6 @@ function journeyLegs(
       speed,
       reductionPercent: effects.travelSpeedPercent,
       baseCutPercent: chairPassiveOf(effects, 'cartographer', 'travel_time'),
-      flatMinutesOff: effects.roadMinutesOff,
     }),
     throughTheDoor,
   };

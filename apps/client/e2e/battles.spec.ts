@@ -712,7 +712,16 @@ test('a quiet day draws no mark', async ({ page }) => {
 test('the forecast counts the Combine legendary standing over the ground', async ({ page }) => {
   const leaderDistrict = 'annexes';
   const fight = battles.coming[0]!;
-  // A fight against the regime, on his ground, with a force big enough for his power to decide it.
+  /*
+   * A fight against the regime, on his ground, with a force big enough for his power to decide it.
+   *
+   * Sixty-eight Razors rather than the fifty-four this carried until 2026-10-07, when the Combine
+   * sheets picked up GUARD (a quarter more damage and vitality on ground they hold). The press
+   * house is ten unit slots wide, so a fight there is attritional and its forecast is close to a
+   * step: fifty-four Razors lose every run and eighty win every one. The usable band is 66 to 72,
+   * where the Syndic's own points are what decides it; 68 sits in the middle of it. Both guards
+   * below are what catches the next time that band moves.
+   */
   const against = {
     ...battles,
     coming: [
@@ -725,7 +734,7 @@ test('the forecast counts the Combine legendary standing over the ground', async
         },
         role: 'attacker' as const,
         side: 'attacker' as const,
-        muster: { army: { razors: 54 }, perimeter: {}, size: 54 },
+        muster: { army: { razors: 68 }, perimeter: {}, size: 68 },
         enemySize: 12,
       },
       ...battles.coming.slice(1),

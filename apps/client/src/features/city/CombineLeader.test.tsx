@@ -1,4 +1,5 @@
 import {
+  PROPAGANDA_REFUSAL_TEXT,
   combineLeaderOf,
   COMBINE_LEADERS,
   findUnit,
@@ -88,6 +89,26 @@ describe('how a leader is named', () => {
 });
 
 describe('the leader on the district screen', () => {
+  /**
+   * The Curate's Propaganda (2026-10-07): no location under her can be read, so the Spy button is
+   * greyed with her sentence on hover rather than refused after the send. Dead, she reads again.
+   */
+  it('greys every Spy under a living Curate, and gives them back when she falls', async () => {
+    open(F.districtDetailFor('printworks'));
+    const greyed = await screen.findAllByTestId(/^spy-open-/);
+    expect(greyed.length).toBeGreaterThan(0);
+    for (const button of greyed) {
+      expect(button).toBeDisabled();
+      expect(button).toHaveAttribute('data-tip', PROPAGANDA_REFUSAL_TEXT);
+    }
+  });
+
+  it('offers Spy in the Printworks once the Curate is dead', async () => {
+    open(fallen('printworks'));
+    const live = await screen.findAllByTestId(/^spy-open-/);
+    for (const button of live) expect(button).toBeEnabled();
+  });
+
   it('is a precondition that the fixtures carry the three leaders and no fourth', () => {
     for (const id of ['annexes', 'blacksite', 'ccs']) {
       const leader = F.districtDetailFor(id).combineLeader;

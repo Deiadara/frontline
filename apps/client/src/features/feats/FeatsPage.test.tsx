@@ -536,12 +536,12 @@ describe('the CLAIM button', () => {
  * crew's storage bonus, and a screen that guessed would be naming a figure the till does not agree
  * with.
  *
- * The fixture quotes 25 scrap against `area_neon_docks`, which stands alone and so is its own row
+ * The fixture quotes 25 scrap against `infamy_held_1`, which stands alone and so is its own row
  * in the index. Everything else on the board is quoted nothing and goes straight through, which is
  * the control every case below leans on.
  */
 describe('a reward that will not fit', () => {
-  const WASTES = 'area_neon_docks';
+  const WASTES = 'infamy_held_1';
   const posts = () =>
     fetchMock.mock.calls.filter(([path]) => String(path).endsWith('/feats/claim'));
 

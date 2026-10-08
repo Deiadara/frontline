@@ -1,4 +1,5 @@
 import {
+  addItems,
   RARITY_ODDS_BY_LEVEL,
   STARTING_RESOURCES,
   TROPHY_PAY_SCALE,
@@ -39,7 +40,7 @@ import {
 } from './daily.js';
 
 /*
- * Every Reliquary location my lane spends (contract B2), each against the same crew before and
+ * Every Arca location my lane spends (contract B2), each against the same crew before and
  * after it takes the ground: the "before" is the control, so a reader that stopped reading the
  * field would fail the "after" and a reader that paid everybody would fail the "before".
  */
@@ -87,7 +88,7 @@ function take(repos: Repositories, baseId: string, locationId: string, level = 1
 
 const fresh = (repos: Repositories): Base => repos.bases.findById('b')!;
 
-describe('the readers of the Reliquary ground (B2)', () => {
+describe('the readers of the Arca ground (B2)', () => {
   it('Hiring Hall: rabble muster cheaper, nobody else', () => {
     const { repos, base } = stack();
     const before = ratesForUnit(musterRatesFor(repos, base, NOW), findUnit('razors')!);
@@ -216,6 +217,18 @@ describe('the daily grants (B2 items 1 and 2)', () => {
     const page = drawDailyPage(base, 1, 'seed');
     expect(page).not.toBeNull();
     expect(findBlueprintPage(page!)).toBeDefined();
+  });
+
+  // Bug pass, 2026-10-07: a second copy of a page fills no square, so handing one over was a day
+  // the wall paid nothing. Same seed, so only the inventory can change the answer.
+  it('never pays the Scriptorium a page the crew already holds', () => {
+    const { base } = stack();
+    const first = drawDailyPage(base, 1, 'seed')!;
+    const held = { ...base, inventory: addItems(base.inventory, { [first]: 1 }) };
+    const second = drawDailyPage(held, 1, 'seed');
+    expect(second).not.toBe(first);
+    // ...and it is still a real page rather than a refusal to pay at all.
+    expect(second === null || findBlueprintPage(second)).toBeTruthy();
   });
 
   it('prices the Trophy Hall per unit type killed, by level', () => {

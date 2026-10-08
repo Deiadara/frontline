@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { tableOf } from '../city/holding.js';
 import {
   declarationRefusal,
   declareInfamyCost,
@@ -168,6 +169,21 @@ export function declareBattle(repos: Repositories, input: DeclareInput): Declare
 
   const defender = defenderOf(repos, target, district);
   if (defender.kind === 'crew' && defender.baseId === base.id) {
+    return { kind: 'refused', reason: 'own_ground' };
+  }
+  /*
+   * A gate is the table's, not the named member's (maintainer, 2026-10-07).
+   *
+   * Only the member the map names was refused, so a mate could call a fight on their own faction's
+   * gate and, on a win, open the breach on a district their own table was holding. The gate alone:
+   * a fight between two members over a *location* is still allowed, which is the ruling the
+   * faction-fight tests pin, and this door is the one place the two differ.
+   */
+  if (
+    target.kind === 'gate' &&
+    defender.kind === 'crew' &&
+    tableOf(repos, base.id).has(defender.baseId)
+  ) {
     return { kind: 'refused', reason: 'own_ground' };
   }
   if (target.kind === 'location') {

@@ -262,6 +262,7 @@ const EXPECTED: readonly (readonly [key: string, file: string, seed: number])[] 
   ['plate-district-viaduct', 'plate-district-viaduct.webp', 130023],
   ['plate-district-last-platform', 'plate-district-last-platform.webp', 130024],
   ['plate-district-blockhouse', 'plate-district-blockhouse.webp', 130025],
+  ['plate-city-arca', 'plate-city-arca.webp', 130026],
   ['unit-razors', 'unit-razors.webp', 145001],
   ['unit-anodics', 'unit-anodics.webp', 145002],
   ['unit-sparks', 'unit-sparks.webp', 145003],
@@ -301,8 +302,11 @@ const EXPECTED: readonly (readonly [key: string, file: string, seed: number])[] 
   ['unit-syndic', 'unit-syndic.webp', 145036],
   ['unit-executioner', 'unit-executioner.webp', 145037],
   ['unit-directive-xero', 'unit-directive-xero.webp', 145038],
-  // Reliquary's rabble (2026-10-06), at the end of the catalogue so no seed above moves.
+  // Arca's rabble (2026-10-06), at the end of the catalogue so no seed above moves.
   ['unit-death-cloaks', 'unit-death-cloaks.webp', 145039],
+  ['unit-curate', 'unit-curate.webp', 145040],
+  ['unit-blood-priest', 'unit-blood-priest.webp', 145041],
+  ['unit-hierarch', 'unit-hierarch.webp', 145042],
   ['ui-frame-panel', 'ui-frame-panel.png', 150001],
   ['ui-frame-modal', 'ui-frame-modal.png', 150002],
   ['ui-frame-hud', 'ui-frame-hud.png', 150003],
@@ -462,9 +466,11 @@ describe('ART_MANIFEST', () => {
    * which was the seven Combine portraits, the Chosen Chapel's icon and the CCS plate on 337.
    */
   it('holds the 338 MVP assets', () => {
-    // 344: Reliquary's Mausoleum icon and the Death Cloaks' portrait (2026-10-06) on 342.
-    // 351: the seven location icons the rest of Reliquary needed (2026-10-07).
-    expect(ART_MANIFEST).toHaveLength(351);
+    // 344: Arca's Mausoleum icon and the Death Cloaks' portrait (2026-10-06) on 342.
+    // 351: the seven location icons the rest of Arca needed (2026-10-07).
+    // 354: the Curate, the Blood Priest and the Hierarch, Arca's Combine command (2026-10-07).
+    // 355: Arca's own map, the day the city opened (2026-10-07).
+    expect(ART_MANIFEST).toHaveLength(355);
   });
 
   it.each(ART_MANIFEST.map((spec) => [spec.key, spec] as const))(
@@ -584,6 +590,7 @@ describe('ART_MANIFEST', () => {
     'plate-district-viaduct': { width: 3780, height: 1800, aspect: '21:10' },
     'plate-district-last-platform': { width: 3780, height: 1800, aspect: '21:10' },
     'plate-district-blockhouse': { width: 3780, height: 1800, aspect: '21:10' },
+    'plate-city-arca': { width: 3780, height: 1800, aspect: '21:10' },
   };
 
   it('matches the ART-BIBLE §6 resolution and aspect table per class', () => {
@@ -762,7 +769,7 @@ describe('ART_MANIFEST', () => {
     // 60 since 2026-09-24: the eleven `building-<kind>` masters went with the ref nothing built,
     // and each of them was a downscale. 71 before that, when the Chosen Chapel's icon was added.
     // 62 since 2026-10-06: the Mausoleum's icon, downscaled like every other location marker.
-    // 69 since 2026-10-07: the seven icons the rest of Reliquary's kinds needed.
+    // 69 since 2026-10-07: the seven icons the rest of Arca's kinds needed.
     expect(ART_MANIFEST.filter((spec) => spec.postProcess.length > 0)).toHaveLength(69);
   });
 

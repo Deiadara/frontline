@@ -174,11 +174,11 @@ describe('where the passives land', () => {
   it("cuts the road's base before the speed bonuses: an hour is half an hour, then the rest", () => {
     // "If the base is 1h, the base will go down to 30 mins for a maxed out Cartographer, and then
     // any speed bonuses are applied to that 30 minute number."
-    expect(roadMinutes(60, 0, 0, 0, 50)).toBe(30);
-    expect(roadMinutes(60, 0, 20, 0, 50)).toBe(Math.round(30 * 0.8));
-    expect(roadMinutes(60, 100, 0, 0, 50)).toBe(Math.round(30 / 2));
+    expect(roadMinutes(60, 0, 0, 50)).toBe(30);
+    expect(roadMinutes(60, 0, 20, 50)).toBe(Math.round(30 * 0.8));
+    expect(roadMinutes(60, 100, 0, 50)).toBe(Math.round(30 / 2));
     // A perfect sheet is the most it takes, and an empty chair takes nothing.
-    expect(roadMinutes(60, 0, 0, 0, 80)).toBe(30);
+    expect(roadMinutes(60, 0, 0, 80)).toBe(30);
     expect(roadMinutes(60)).toBe(60);
   });
 

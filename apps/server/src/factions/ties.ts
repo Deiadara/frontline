@@ -1,5 +1,11 @@
-import { ALL_DISTRICTS, CAPTURED_GATE_START_LEVEL, districtWholeFor } from '@frontline/shared';
+import {
+  ALL_DISTRICTS,
+  CAPTURED_GATE_START_LEVEL,
+  districtWholeFor,
+  findDistrict,
+} from '@frontline/shared';
 import type { Repositories } from '../db/repos/index.js';
+import { notifyBase } from '../social/notify.js';
 import { bringPostedUnitsHome } from './unpost.js';
 
 /**
@@ -35,8 +41,39 @@ export function cutFactionTies(
         bases([...stayers].filter((id) => !leavers.has(id))),
         bases([...leavers].filter((id) => !stayers.has(id))),
       ];
-  dropGatesNoLongerWhole(repos, bases([...leavers, ...stayers]), after);
+  const everyone = bases([...leavers, ...stayers]);
+  const fallen = dropGatesNoLongerWhole(repos, everyone, after);
+  tellTheGateFell(repos, fallen, everyone, now);
   bringPostedUnitsHome(repos, leaving, staying, now);
+}
+
+/**
+ * Rings everyone who was at the table when a gate fell (maintainer, 2026-10-07).
+ *
+ * The return of `dropGatesNoLongerWhole` was read by nobody, so a faction could lose a level nine
+ * wall and the first anybody knew of it was the number on the city screen. The materials of a
+ * raise in flight are gone with it and the notice says so: the ruling is that leaving a table
+ * costs the table, and a cost nobody is told about is a bug report rather than a consequence.
+ */
+function tellTheGateFell(
+  repos: Repositories,
+  districtIds: readonly string[],
+  bases: ReadonlySet<string>,
+  now: Date,
+): void {
+  for (const districtId of districtIds) {
+    const name = findDistrict(districtId)?.name ?? districtId;
+    for (const baseId of bases) {
+      notifyBase(repos, baseId, {
+        kind: 'faction_left',
+        title: `The gate on ${name} has fallen`,
+        body: `Your table no longer holds every plot in ${name}, so its gate is back to level ${CAPTURED_GATE_START_LEVEL}. Any raise that was being paid for is lost with it.`,
+        link: '/game/city',
+        subjectId: `${districtId}:gate-fell:${now.toISOString()}`,
+        at: now,
+      });
+    }
+  }
 }
 
 /** Puts back to level 1 the gate of every district whole for `before` and for none of `after`. */

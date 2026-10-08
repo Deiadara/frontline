@@ -196,20 +196,21 @@ describe('the roster is a web, not a ladder', () => {
   };
 
   /*
-   * SUSPENDED 2026-10-07, pending the heavy tier's re-stat against Reliquary's rabble.
-   *
    * Heavier units are better at the same unit slots: they are gated behind campaigns, not price.
-   * That held until Reliquary's units landed (GUARD, the ten-slot Juggernaut, Death Cloaks).
-   * Measured over the units without a door, at 60 slots and 3 seeds: heavy 8.5 (Breakers 5,
-   * Wardens 12, Ironsides 4, Sluggers 13) against rabble 10.67 (Razors 4, Anodics 7, Sparks 13,
-   * Scrapers 5, Ash Walkers 13, Death Cloaks 22). The gap is not seed noise and not the harness
-   * size: swept over budgets of 30, 60, 90, 120 and 180 slots and seed windows of 3, 6 and 12,
-   * heavy sits 0.8 to 2.7 wins under rabble on every one of the forty cells, bare and with the
-   * doors at level five alike. Death Cloaks at 22 of 24 bare, with no Mausoleum behind them, are
-   * most of it; without them the two tiers tie at 8.4 to 8.5. Whether the heavy sheets climb or
-   * the Death Cloaks come down is the maintainer's call, so the pin waits for it.
+   *
+   * Suspended for a day on 2026-10-07, when Arca's units (GUARD, the ten-slot Juggernaut,
+   * Death Cloaks) put heavy at 9.00 wins of 24 against the rabble's 10.14, with Breakers at 5 and
+   * Ironsides at 4 carrying most of the deficit. The maintainer's call was to lift the heavy
+   * sheets rather than bring the Death Cloaks down, so the Breakers took 46 vitality, 8 armour and
+   * 6 penetration and the Ironsides, the worst sheet in the game at attacking by design, took
+   * their damage from 45 to 95 and their penetration from 5 to 14. Measured after: heavy 10.40
+   * (Breakers 10, Wardens 10, Ironsides 10, Sluggers 12) against rabble 9.71 (Razors 4, Anodics 6,
+   * Sparks 12, Scrapers 5, Ash Walkers 13, Death Cloaks 22).
+   *
+   * The Ironsides still lose two of every three fights they start, which is the brief: a wall is
+   * given fights, it does not take them.
    */
-  it.skip('rewards the tier ladder over the units without a door', () => {
+  it('rewards the tier ladder over the units without a door', () => {
     expect(tierWins(BEATS, 'heavy')).toBeGreaterThan(tierWins(BEATS, 'rabble'));
   });
 

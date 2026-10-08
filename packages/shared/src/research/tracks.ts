@@ -262,13 +262,12 @@ const KIND_FAMILY: Readonly<Record<ResearchBonus['kind'], PayoutFamily>> = {
 
   // The 2026-09-09 rules. Filed by what they change rather than by being new: a road is `travel`
   // whether it is bought in minutes or in percent, and a mark on a sheet is `battle`.
-  road_shortcut: 'travel',
   rail_link: 'travel',
   carriers_fight: 'battle',
   any_ride: 'travel',
   unit_mark: 'battle',
   steady_nerve: 'battle',
-  // Reliquary's (2026-10-06): a tomb is where the Death Cloaks are raised, and a skill is a skill.
+  // Arca's (2026-10-06): a tomb is where the Death Cloaks are raised, and a skill is a skill.
   faith: 'battle',
   officer_skill: 'people',
   // ...and the rest of the city's channels (2026-10-07), filed by what each changes. No rung pays
@@ -1055,10 +1054,15 @@ const CATALOGUE: readonly ResearchItemSpec[] = [
     {
       name: 'Curfew Tables',
       blurb: 'When the bridge is open, and when the patrol is on it.',
-      // Two minutes flat rather than a third percentage on a track that already had two of them.
-      // Half the Tram Depot's four: this is a timetable, not eight roads under one roof, and it is
-      // the rung at which a crew stops walking round a closed bridge.
-      bonus: { kind: 'road_shortcut', minutes: 2 },
+      /*
+       * Six points on the travel channel since 2026-10-07, where this was two flat minutes.
+       *
+       * Two would have been the right size for a timetable against the Tram Depot's four, and it
+       * is the wrong size for a rung: this is the third rung of a track whose first pays five, and
+       * a later rung that pays less than an earlier one is what `tracks.test.ts` refuses. Six is
+       * the smallest figure that keeps the climb, and it sits under the track's last rung at eight.
+       */
+      bonus: { kind: 'travel_speed', percent: 6 },
     },
     {
       name: 'Bearing Marks',

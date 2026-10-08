@@ -29,7 +29,7 @@ export interface CityChoosing {
  * fourth ride low. The stagger is the whole reason the screen reads as a wall of portraits rather
  * than as a filmstrip: five identical rectangles on one baseline is a table with the lines rubbed
  * out, and a row that rises and falls is something you look along. It is symmetric because the
- * count is odd, which is also why the count is odd: when Reliquary arrived it took Saltmarch's
+ * count is odd, which is also why the count is odd: when Arca arrived it took Saltmarch's
  * place rather than a sixth column (maintainer, 2026-10-06).
  *
  * Each card carries three things and nothing else: the name, what the street calls it, and what the

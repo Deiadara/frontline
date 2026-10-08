@@ -45,6 +45,7 @@ function AttributeRow({
   bar,
   roomy,
   paper,
+  fitShort,
   importance,
 }: {
   name: AttributeName;
@@ -61,6 +62,7 @@ function AttributeRow({
   bar: boolean;
   roomy: boolean;
   paper: boolean;
+  fitShort: boolean;
   /** How much the chair this person sits in cares. `null` where there is no chair. */
   importance: AttributeImportance | null;
 }) {
@@ -109,6 +111,7 @@ function AttributeRow({
         // On paper the rows open up where the screen is tall enough to hold them (the Overseer's
         // file at 1080): a little more air and a little more type, closer to the Bar's seat sheet.
         roomy && (paper ? 'py-0.5 [@media(min-height:1000px)]:py-[5px]' : 'py-1'),
+        roomy && !paper && fitShort && '[@media(max-height:999px)]:py-0.5',
         // The edge is drawn even for `insignificant` (transparent), so every row in the column is
         // inset by the same two pixels and the marked ones do not appear to jut out.
         importance !== null && cn('pl-1.5', IMPORTANCE_EDGE[importance]),
@@ -223,6 +226,7 @@ export function AttributeSheet({
   roomy = false,
   role = null,
   paper = false,
+  fitShort = false,
 }: {
   attributes: Attributes;
   /**
@@ -281,6 +285,12 @@ export function AttributeSheet({
    * Only meaningful with `roomy`, which is where a group has a frame at all.
    */
   paper?: boolean;
+  /**
+   * Tighter rows and frames on a screen under 1000px tall, for a sheet inside a window that must
+   * not scroll (the crew's officer and Overseer windows, maintainer 2026-10-08). Taller screens
+   * draw the sheet exactly as `roomy` always has. Only meaningful with `roomy` and without `paper`.
+   */
+  fitShort?: boolean;
 }) {
   return (
     <div
@@ -291,6 +301,7 @@ export function AttributeSheet({
         // columns is 24px more for the words than `gap-x-5`, and at ~120px a column that is the
         // difference between `Communication` and a cut label.
         bars ? 'gap-x-5 gap-y-3' : 'gap-x-3',
+        fitShort && '[@media(max-height:999px)]:gap-y-2',
         columns === 4
           ? 'sm:grid-cols-2 [@media(min-width:1100px)]:grid-cols-4'
           : columns === 3
@@ -310,6 +321,7 @@ export function AttributeSheet({
             roomy &&
               !paper &&
               'edge-lit flex flex-col rounded-sm border border-surface-600/70 bg-black/20 p-2',
+            roomy && !paper && fitShort && '[@media(max-height:999px)]:p-1.5',
             roomy &&
               paper &&
               'ink-frame card-paper washed grain relative flex flex-col rounded-sm p-3 shadow-panel [@media(min-height:1000px)]:p-4',
@@ -343,6 +355,7 @@ export function AttributeSheet({
                 bar={bars}
                 roomy={roomy}
                 paper={paper}
+                fitShort={fitShort}
                 importance={role === null ? null : importanceOf(role, name)}
               />
             ))}

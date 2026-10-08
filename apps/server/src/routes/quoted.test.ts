@@ -18,6 +18,7 @@ import {
 import type { FastifyInstance } from 'fastify';
 import { afterEach, describe, expect, it, onTestFinished, vi } from 'vitest';
 import { buildApp } from '../app.js';
+import { holdEveryBoard } from '../testing/footholds.js';
 import { loadConfig } from '../config.js';
 import { openDatabase, runMigrations, type AppDatabase } from '../db/index.js';
 import { chooseOverseer } from '../testing/overseer.js';
@@ -447,6 +448,9 @@ describe('the odds on the dial and the odds on the row', () => {
      * would hold whichever it read. The offer below is picked to be dealt above its floor.
      */
     app.repos.bases.updateProgression(base.id, 20, base.progression);
+    // Every board open: the board is this crew's own (2026-10-08), so which cards it deals is not
+    // pinned by the date any more, and nine boards make a card that fits the case a certainty.
+    holdEveryBoard(app.repos, base.id);
 
     // Units at home to send. The odds are the subject, so who goes only has to be somebody.
     app.repos.bases.updateArmy(base.id, { haulers: 20, razors: 10 }, []);
@@ -466,21 +470,26 @@ describe('the odds on the dial and the odds on the row', () => {
     ).json<MissionsResponse>();
     // A standard job, because a battle one refuses a column of porters and who goes is not the
     // subject here. Dealt above its job's lowest grade, for the reason on the level above.
-    const aboveFloor = (job: MissionOffer): boolean =>
-      job.kind === 'standard' && job.grade !== findMissionTemplate(job.templateId)?.grades[0];
-    const area = board.areas.find((one) => one.offers.some(aboveFloor));
-    const offer = area?.offers.find(aboveFloor);
     const leader = board.leaders.find((one) => one.kind === 'officer' && one.held === null);
-    expect(offer, 'the board must be offering a job dealt above its floor').toBeDefined();
     expect(leader, 'the bench must have a free officer').toBeDefined();
-
-    const quoted = missionOdds({
-      grade: offer!.grade,
-      leader: leader!.attributes,
-      profile: composeProfile(offer!.leanings),
-    });
+    const oddsOf = (job: MissionOffer) =>
+      missionOdds({
+        grade: job.grade,
+        leader: leader!.attributes,
+        profile: composeProfile(job.leanings),
+      });
     // A certain run reads 1 whatever grade it is priced at, and would hide a wrong one.
-    expect(quoted.chance).toBeLessThan(1);
+    const fits = (job: MissionOffer): boolean =>
+      job.kind === 'standard' &&
+      job.grade !== findMissionTemplate(job.templateId)?.grades[0] &&
+      oddsOf(job).chance < 1;
+    const area = board.areas.find((one) => one.offers.some(fits));
+    const offer = area?.offers.find(fits);
+    expect(
+      offer,
+      'the board must offer a job above its floor at odds short of certain',
+    ).toBeDefined();
+    const quoted = oddsOf(offer!);
 
     const sent = await app.inject({
       method: 'POST',

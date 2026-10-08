@@ -1,10 +1,15 @@
 import {
+  BLUEPRINTS,
   CITY_DISTRICTS,
+  REIMAGINING_RESEARCH_ID,
+  claimUntil,
+  createCommander,
+  type ItemId,
   type MarketMutationResponse,
   type MarketOffer,
   type MarketResponse,
 } from '@frontline/shared';
-import type { FastifyInstance } from 'fastify';
+import type { FastifyInstance, LightMyRequestResponse } from 'fastify';
 import { afterEach, describe, expect, it } from 'vitest';
 import { buildApp } from '../app.js';
 import { loadConfig } from '../config.js';
@@ -196,5 +201,171 @@ describe('a board belongs to a city', () => {
     expect(
       (await boardOf(w, w.ashfall)).json<MarketResponse>().offers.map((one) => one.id),
     ).toEqual([counter.id]);
+  });
+});
+
+/**
+ * Every market write answers with the whole board, and it has to be the board it was made at (bug
+ * pass, 2026-10-07).
+ *
+ * `/market/bid` reads the city off the lot it names and `/market/offer` off the listing it posts,
+ * which is what they were fixed to do. Five writes had no such reading and called `board(base,
+ * now)`, the crew's **home** city: a crew standing at another city's barrow got back a payload
+ * whose `cityId`, Runner's stock and listings were all somebody else's. The client keys its cache
+ * on that `cityId` (`setBoard` in `lib/queries.ts`), so the tab the trade was made on kept the
+ * pre-trade board until a refetch answered it.
+ *
+ * Four of them take the city the way the read does, off the query, and refuse nothing: a blueprint
+ * assembled out of the inventory, a trade at the Lab, the Broker and the day's ration all happen
+ * wherever the crew is standing. Claim reads it off the listing the goods came from, the way
+ * Accept does.
+ */
+describe('a market write answers with the barrow it was made at', () => {
+  const PAGES = BLUEPRINTS[0].pages.map((page) => page.id as ItemId);
+
+  /** Enough caps and scrap for any one trade below, plus whatever `holding` the test needs. */
+  function stockUp(w: World, holding: Partial<Record<ItemId, number>> = {}): void {
+    const base = baseOf(w.app, 'terminus_crew');
+    w.app.repos.bases.updateHoldings(
+      base.id,
+      { ...base.resources, caps: 50_000, scrap: 1_000 },
+      holding,
+    );
+  }
+
+  /** Seats a Researcher and banks the rung: the two halves of the §G4 gate on the Lab. */
+  function openTheLab(w: World): void {
+    const base = baseOf(w.app, 'terminus_crew');
+    w.app.repos.bases.updateCommanders(base.id, [
+      createCommander('off-lab', 'Vell Ashgrove', 'researcher'),
+    ]);
+    w.app.repos.bases.updateResearch(base.id, {
+      ...base.research,
+      technologies: [REIMAGINING_RESEARCH_ID],
+    });
+  }
+
+  /** A write by the Terminus crew, at the city tab named, the way the read names one. */
+  async function writeAt(
+    w: World,
+    path: string,
+    payload: Record<string, unknown>,
+    city?: string,
+  ): Promise<LightMyRequestResponse> {
+    return w.app.inject({
+      method: 'POST',
+      url: city === undefined ? `/api/${path}` : `/api/${path}?city=${city}`,
+      headers: auth(w.terminus),
+      payload,
+    });
+  }
+
+  /**
+   * The board a write answered with, checked against the one thing only Ashfall's board carries:
+   * the Ashfall crew's standing listing. `cityId` alone would pass on a payload that merely
+   * relabelled the home barrow.
+   */
+  function ashfallBoard(res: LightMyRequestResponse, listing: MarketOffer): MarketResponse {
+    expect(res.statusCode, res.body).toBe(200);
+    const market = res.json<MarketMutationResponse>().market;
+    expect(market.cityId).toBe('ashfall');
+    expect(market.offers.map((offer) => offer.id)).toEqual([listing.id]);
+    return market;
+  }
+
+  it('barters at the barrow the request was made at', async () => {
+    const w = await world();
+    const listing = await postedListing(w);
+    footholdInAshfall(w);
+    stockUp(w);
+
+    const traded = await writeAt(
+      w,
+      'market/barter',
+      { give: 'scrap', want: 'supplies', amount: 100, acceptWaste: true },
+      'ashfall',
+    );
+
+    ashfallBoard(traded, listing);
+  });
+
+  it('runs the day’s ration at the barrow the request was made at', async () => {
+    const w = await world();
+    const listing = await postedListing(w);
+    footholdInAshfall(w);
+    stockUp(w);
+
+    const bought = await writeAt(
+      w,
+      'market/supply',
+      { key: 'scrap', units: 1, acceptWaste: true },
+      'ashfall',
+    );
+
+    ashfallBoard(bought, listing);
+  });
+
+  it('assembles a blueprint and answers with the barrow the request was made at', async () => {
+    const w = await world();
+    const listing = await postedListing(w);
+    footholdInAshfall(w);
+    stockUp(w, Object.fromEntries(PAGES.map((page) => [page, 1])));
+
+    const unlocked = await writeAt(
+      w,
+      'blueprints/unlock',
+      { blueprintId: BLUEPRINTS[0].id },
+      'ashfall',
+    );
+
+    ashfallBoard(unlocked, listing);
+  });
+
+  it('trades at the Lab and answers with the barrow the request was made at', async () => {
+    const w = await world();
+    const listing = await postedListing(w);
+    footholdInAshfall(w);
+    // Four copies, because the bench only takes spares: one has to stay for the document.
+    stockUp(w, { [PAGES[0]!]: 4 });
+    openTheLab(w);
+
+    const reimagined = await writeAt(
+      w,
+      'blueprints/reimagine',
+      { pages: [PAGES[0], PAGES[0], PAGES[0]] },
+      'ashfall',
+    );
+
+    ashfallBoard(reimagined, listing);
+  });
+
+  /**
+   * Claim takes no city at all: a claim is pinned to the listing its goods came off, and that is
+   * the board the player pressing Claim is looking at, wherever they are standing.
+   */
+  it('claims goods on the board the listing they came off stood on', async () => {
+    const w = await world();
+    const listing = await postedListing(w);
+    footholdInAshfall(w);
+    const mine = baseOf(w.app, 'terminus_crew');
+    const createdAt = new Date();
+    w.app.repos.market.insertClaim({
+      id: 'held-in-ashfall',
+      baseId: mine.id,
+      offer: listing,
+      reason: 'taken',
+      goods: { resources: { scrap: 10 }, items: {} },
+      takenBy: 'somebody',
+      createdAt: createdAt.toISOString(),
+      claimUntil: claimUntil(createdAt).toISOString(),
+    });
+
+    const claimed = await writeAt(w, 'market/claim', {
+      claimId: 'held-in-ashfall',
+      acceptWaste: true,
+    });
+
+    const market = ashfallBoard(claimed, listing);
+    expect(market.claims, 'the goods are still being held').toEqual([]);
   });
 });

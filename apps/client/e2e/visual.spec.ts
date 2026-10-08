@@ -2030,7 +2030,15 @@ for (const size of VIEWPORTS) {
         return chip.contains(at) ? 'the chip' : (at?.tagName ?? 'nothing');
       });
       expect(onTop, 'the count chip is buried under the machine').toBe('the chip');
-      await expect(page.getByTestId('vehicle-rotorcraft')).toContainText('Needs the');
+      /*
+       * A machine behind a document says so on its greyed button rather than in a line on the
+       * card (maintainer, 2026-10-06: a refusable control is greyed with the reason on hover), so
+       * the sentence is on `data-refusal` and no longer in the card's text. Both halves asserted:
+       * an attribute nobody can press is not a refusal a player ever meets.
+       */
+      const locked = page.getByTestId('vehicle-build-rotorcraft');
+      await expect(locked).toBeDisabled();
+      await expect(locked).toHaveAttribute('data-refusal', /Needs the/);
 
       await expectNothingOverflowsTheScreen(page);
       await expectNothingClippedHorizontally(page);
@@ -2216,7 +2224,7 @@ for (const size of VIEWPORTS) {
       await settleFonts(page);
 
       await expect(page.getByTestId('board-players')).toBeVisible();
-      await expect(page.getByTestId('local-only')).toBeVisible();
+      await expect(page.getByTestId('standings-city')).toBeVisible();
       await expect(page.getByTestId('your-rank')).toBeInViewport({ ratio: 1 });
 
       /*

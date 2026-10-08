@@ -100,7 +100,6 @@ export const PERK_BREADTH_BY_KIND: Readonly<Record<string, PerkBreadth>> = {
   intel: 'wide',
   intel_resistance: 'wide',
   battle_stims: 'wide',
-  road_shortcut: 'wide',
   building_credit: 'wide',
 
   // One of six tiers, or one of thirty-one units.

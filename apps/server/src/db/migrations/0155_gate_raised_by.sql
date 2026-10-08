@@ -1,0 +1,11 @@
+-- Who ordered a captured gate's raise (faction gates, maintainer 2026-10-07).
+--
+-- A district can now be whole for a faction rather than for one crew, so every member of the table
+-- passes the door that guards the raise and the cancel. The refund is read off `upgrade_paid_json`
+-- and credited to whoever calls the raise off, so without a record of who paid, a mate could stop a
+-- raise they had not ordered and bank ninety per cent of somebody else's materials: a transfer
+-- between crews that goes round the market and the Runner both.
+--
+-- Null on every existing row, which reads as "anybody holding it may stop it": the raises in flight
+-- when this lands were ordered before the rule and there is nothing to attribute them to.
+ALTER TABLE captured_gates ADD COLUMN upgrading_by TEXT;

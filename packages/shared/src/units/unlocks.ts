@@ -215,7 +215,7 @@ export function heldPlaceKindsOf(
 
 /**
  * The doors by name, for the clause a locked card prints. Authored on the map rather than on a
- * kind (`unit_door`, Reliquary 2026-10-07), so the sentence names the place and the district.
+ * kind (`unit_door`, Arca 2026-10-07), so the sentence names the place and the district.
  */
 export const DOOR_NAMES: Readonly<Record<string, string>> = {
   the_saint: "the Saint's Shrine in Saint's Rest",

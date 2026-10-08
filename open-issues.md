@@ -3,6 +3,134 @@
 Found by the recurring bug pass. Each one needs a decision or more than a few lines, so nothing here
 has been changed. Fixed findings are not listed. Newest pass first.
 
+## Pass 1, 2026-10-07 (the Arca build: faction gates, ground state, cross-city)
+
+Fourteen findings that need a call from you. Everything else found in this pass was fixed in it: the
+twelve end-to-end failures the build left behind, a faction mate being able to call off somebody
+else's gate raise and bank ninety per cent of their materials, a golden run already out being quoted
+its pre-gold haul, the Scriptorium handing over a page the crew already held, the muster breakdown
+and the "Held by" plate still reading one crew where the rule now reads a table, and the Straw Sack's
+bags missing from the three screens that quote a haul.
+
+### 1. The unified bonus does not reach a member who holds no plot in the district
+
+The gate, the three `districts_held_whole` feats and the whole-district combat perk all count every
+member of the table. The payout does not: `territoryEffectsFor` walks the districts this crew holds
+ground in, so a member holding nothing in the Printworks is paid nothing for it while their mates
+hold the other seven plots.
+
+Your words were "You only get the collective bonus all of you", which reads as every member. If that
+is right, the payout is the half that is wrong. If a member should need skin in the district, then
+the gate and the feats are the half that is wrong and they should ask for a plot too.
+
+### 2. The heavy tier does not beat the rabble tier in any band
+
+Measured over 40 sweep cells (budgets 30 to 180 slots, seed windows 3 to 12): heavy sheets without a
+door average 8.5 wins of 24, rabble without a door 10.67. At level 5 doors it is 7.5 against 9.83.
+Heavy sits 0.8 to 2.7 wins under rabble everywhere. Death Cloaks at 22 of 24 are most of it; with
+them out the tiers tie at 8.4 against 8.5.
+
+The assertion that heavy beats rabble is parked under `it.skip` in `battle/balance.test.ts` with the
+numbers in its comment. Either the heavy sheets climb or Death Cloaks come down; both are a tuning
+call, and the test goes green again on its own once one of them lands.
+
+### 3. The four-hour crossing is fully compressible
+
+`INTER_CITY_MINUTES` is 240 since the maintainer's ruling of 2026-10-07 and it is now the whole
+crossing: every district abroad is four hours from every district at home, with the two city legs
+gone. The figure still runs through the same cuts a street does: the Cartographer's chair, the
+column's speed, the travel channel and `road_shortcut`. Measured on Kettle Row to Coldwater Halt at
+the ceilings (speed 100, travel channel 60, 30 flat minutes off) a crossing is **28 minutes** against
+a raw 240, and a perfect Cartographer on top of that takes it to `MIN_TRAVEL_MINUTES`, the two
+minutes every road in the game floors at. Before the ruling the same crew paid 18 minutes on that
+pair, so the ceiling moved by ten minutes and the shape of the complaint did not: a late crew holding
+ground in three cities can reinforce across the world inside one declaration window.
+
+This is a tuning question rather than a defect now. The ruling is explicit that the bonuses are spent
+on the crossing ("adding then the bonuses"), so the fix, if the commitment is wanted back, is a floor
+under a cross-city road rather than a smaller base.
+
+### 4. `trophiesSince` means two different things
+
+It is read as the row's capture instant by the gate-defender tiebreak (the member who has held their
+ground longest defends a shared district's gate) and written as the trophy tally's start by the
+Trophy Hall. A crew whose only plot in a district is a Trophy Hall held since before the column
+existed makes one kill anywhere in the world, and that district's named defender flips to somebody
+else. Two fields fix it; I did not split them because the field is on the saved row.
+
+### 5. An under-pinned Pamphlet Wall at level 5 is a dead end
+
+Pinning fewer units than the wall's capacity is allowed and still stamps the wall at its level. The
+free re-pin then needs a level above the current one, which at 5 does not exist, and the paid swap
+needs a full set. A holder who pins one unit on a level-5 wall can never change it again, and the
+sheet offers no way out. Refuse a short set, or treat a wall under capacity as still unlocked.
+
+### 6. A faction member can spy on, and call a fight on, their own faction's gate
+
+Both doors refuse only the _named_ member (the one holding the most plots). Any other member of the
+table can run a spy job on the gate and read their own faction's counter-intel, or declare on it and,
+on a win, open a breach on their own faction's district. The district screen offers both buttons,
+because it decides "yours" from a single crew.
+
+My reading of the ruling is that everybody at the table should be refused. Say if you want a mate to
+be able to test a gate.
+
+### 7. Two Combine seats in Arca have no legendary standing on them
+
+The Cloisters and the Nave are seats of Combine power with no named leader. Terminus has the same
+hole at the Last Platform and the Blockhouse. Ashfall has three (the Syndic, the Executioner and
+Directive Xero), and taking one of its seats means killing a named character. Taking the Nave at
+difficulty 10 is mechanically the same as taking any other Combine plot.
+
+Either name four more, or accept that the seat-of-power tag means a character in Ashfall only.
+
+### 8. What Arca still needs before it opens
+
+None of this is reachable while the city is shut, so none of it is broken today: no rival bot and no
+seeding of any kind (the day it opens there is nobody to raid and nothing to weigh difficulty
+against), no city plate or district marks on the client, and no entries at all in the art manifest,
+the prompt sheet or the order sheet. The feats test that pins 120 playable plots becomes 176 the
+moment `open: true` lands, which is the tripwire that will tell you.
+
+### 9. The gate falls silently, and a raise in flight is destroyed with it
+
+When a member leaves and the district stops being whole for anybody, the gate drops to level 1 and
+nobody is told: not the leaver, not the crew that paid for the last five levels. If a raise was in
+flight its materials are destroyed outright, with no refund. As it stands, joining a table, waiting
+for a mate to start an expensive raise and then leaving is a way to burn their stores.
+
+### 10. A gate level's feat credit goes to the named defender, not the crew that paid
+
+`gate_levels_raised` is tallied for whoever holds the most plots in the district. A member who paid
+for five levels of a gate their mate is named on advances nothing.
+
+### 11. The leaderboard's local board is the reader's home city only
+
+Every other room takes a city and offers a picker. The local board filters on the reader's home city
+and on each entry's home city, so a crew holding half of Terminus from an Ashfall address can neither
+read Terminus's board nor appear on it.
+
+### 12. Five market routes answer with the home city's board
+
+`/blueprints/unlock`, `/blueprints/reimagine`, `/market/barter`, `/market/supply` and `/market/claim`
+answer with the home city's market after a write made at another city's barrow. The bid and offer
+routes beside them were fixed for exactly this and these five were left. The client is saved by a
+cache guard that drops the mismatched payload, so the cost today is a wasted round trip rather than
+wrong numbers on screen.
+
+### 13. The Console's Clean slate leaves ground state behind
+
+`POST /admin/reset` hands every plot back without going through the one writer that clears the
+switch, the pins and the trophies, so a reset plot keeps the old holder's state, and a crew that
+resets while holding a whole district leaves a half-paid gate raise standing. Console only, so no
+player can reach it.
+
+### 14. The faction reads cost a full table scan each
+
+`seatsByBase` reads every base and then runs one membership query per base, and the battle board
+calls the whole-district reader once for each of the 36 districts in the world on every read, with
+the board refetching on every world broadcast. The one-read primitive it should use already exists.
+
 ## Decided, 2026-10-06 (built the same day)
 
 Every ruling below is built and tested, each test checked against a revert of its fix. The
@@ -672,3 +800,28 @@ fight up to three times, on every read and every bet. Fine at today's scale; wor
 before launch.
 
 `apps/server/src/blackmarket/stackhouse.ts`.
+
+## Pass 2, 2026-10-07 (Arca opened)
+
+Everything below was found and fixed in the same pass; nothing here is waiting on a decision.
+
+### 1. Spy was offered under a living Curate
+
+Her Propaganda refuses every location spy job in the Printworks while she lives, and the server
+did refuse (`only_lies`), but the location card still offered an active Spy button: the player
+opened the window, paid attention to a quote and was refused on the send. The button is now greyed
+with her sentence on hover (`SpyingProps.locationsRefused`, off the district read's
+`combineLeader.alive`), and the server's refusal and the hover share one string
+(`PROPAGANDA_REFUSAL_TEXT` in `city/combine.ts`).
+
+### 2. Map tags could overlap, and nothing measured it
+
+The tag sweep in `e2e/cities.spec.ts` checked one line and inside the painting, never overlap.
+Adding the check found two: Arca's Saint's Rest and Bloodstone at 1024x768 (both nudged apart,
+still on their landmarks), and Terminus's two lower plots, Watertower and Embankment, whenever both
+read "Unclaimed Player District" at 1024x768, which is their ordinary state. Watertower cannot
+move left without going under the captured-gate panel, so Embankment moved right, 0.635 to 0.67.
+
+### 3. Admin "End game" said "both cities"
+
+The grant already covered every open city; the copy now says so.

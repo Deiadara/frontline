@@ -94,8 +94,10 @@ import {
   vehicleNoun,
   describeWaste,
   mergeLabels,
+  combineLeaderLabels,
   tollingTowerNoise,
   type EnvLabel,
+  type LocationControl,
 } from '@frontline/shared';
 import { creditBase } from '../district/stores.js';
 import { musterRatesFor, ratesForUnit, type MusterRates } from '../units/muster.js';
@@ -415,6 +417,22 @@ export function withoutTheLeader(locationId: string, garrison: Army): Army {
   if (!leader || (garrison[leader.unitId] ?? 0) <= 0) return garrison;
   const { [leader.unitId]: _standing, ...rest } = garrison;
   return rest;
+}
+
+/**
+ * Every label a district lays over a fight on it, from both sources that can lay one.
+ *
+ * The Tolling Tower's Noisy while its holder has the switch on (2026-10-06), and the Blood
+ * Priest's Eerie while he is alive in the Cloisters (2026-10-07). One function because the two
+ * call sites that build a battlefield, the settle and the deployment screen's forecast, have to
+ * read the same ground: a forecast run on a different battlefield from the fight is the exact
+ * failure `battle/forecast.ts` exists to avoid.
+ */
+export function groundLabelsOver(
+  district: District,
+  controls: ReadonlyMap<string, LocationControl>,
+): EnvLabel[] {
+  return [...tollingTowerNoise(district, controls), ...combineLeaderLabels(district, controls)];
 }
 
 /**
@@ -1528,7 +1546,7 @@ function resolveOne(
       ownDistrictId: district.id,
       ownName: resident?.name ?? null,
     }),
-    tollingTowerNoise(district, repos.city.controls()),
+    groundLabelsOver(district, repos.city.controls()),
   );
   const outcome: SkirmishOutcome = engine.resolve({
     seed: battle.seed,
@@ -1553,7 +1571,7 @@ function resolveOne(
         }
       : {}),
     ...(presence ? { defenderPresence: presence.power } : {}),
-    // Reliquary: ANTI-COMBINE pays against the regime's ground, and the Rose Window pays the
+    // Arca: ANTI-COMBINE pays against the regime's ground, and the Rose Window pays the
     // faction mates' columns on either side (`SideSetup.allies`).
     ...(battle.defender.kind === 'government' ? { defenderGovernment: true } : {}),
     attackerAllies: alliesFor(repos, battle.id, 'attacker', attacker.id, now),
@@ -1605,7 +1623,7 @@ function resolveOne(
    * **After the settlement, not before it.** `returnHome` re-reads the base and merges the column
    * into whatever the roster is; run first, that merge was then overwritten by `applyOutcome`
    * writing the roster from a snapshot taken before the recall, and the column was silently
-   * deleted. Deployment stays open until a second before the mark and a march can take two hours,
+   * deleted. Deployment stays open until a second before the mark and a march can take four hours,
    * so every late reinforcement to a distant fight hit this. Settling first means the units come
    * home to the roster the fight actually left behind.
    */
@@ -2315,7 +2333,7 @@ function applyOutcome(repos: Repositories, input: SettleInput): Settlement {
    * exists to prevent. Every mixed case lost a flat half the same way.
    */
   /*
-   * Reliquary's two surcharges on the dead (`SkirmishOutcome.kills`): the Fight Pit pays the
+   * Arca's two surcharges on the dead (`SkirmishOutcome.kills`): the Fight Pit pays the
    * enemy's intimidated dead over again by its percent, and SPECTACLE pays the Dancer's kills
    * twice. On top of the ordinary figure, which already counts those bodies once.
    */
@@ -2441,12 +2459,24 @@ function applyOutcome(repos: Repositories, input: SettleInput): Settlement {
       const loserHeldWhole =
         loserBaseId !== null && holdsDistrictWhole(repos, loserBaseId, battle.target.districtId);
 
-      // A captured position is not a captured position *plus* the enemy's diggings. The garrison is
-      // whoever the attacker left standing there on purpose, and nobody otherwise. Through
-      // `putControl`, which settles both crews' production up to the moment the ground changes hands.
+      /*
+       * A captured position is not a captured position *plus* the enemy's diggings. The garrison is
+       * whoever the attacker left standing there on purpose, and nobody otherwise. Through
+       * `putControl`, which settles both crews' production up to the moment the ground changes
+       * hands.
+       *
+       * Built on the row that was just read rather than from nothing (bug pass, 2026-10-07).
+       * `putControl` clears the holder's own state on the ground only when the ground actually
+       * changes hands; on its other branch it writes the row as it is handed, so a bare literal
+       * took the switch, the pins and the trophies off a plot whose holder had not changed. That
+       * happens when the attacker is already standing on its own target, which the Console can
+       * arrange (`grantFootholds` hands out a plot without looking at the fights called on it).
+       * The spread means the shape cannot bite whichever way the branch goes.
+       */
       putControl(
         repos,
         {
+          ...losing,
           locationId: battle.target.locationId,
           holder: { kind: 'crew', baseId: attacker.id },
           // §A4: **a capture keeps the location's level.** You take the ground as it stands. Nine
@@ -2457,12 +2487,14 @@ function applyOutcome(repos: Repositories, input: SettleInput): Settlement {
           //
           // The *unfinished* level does not carry: `upgradingUntil` is cleared, so an upgrade the
           // loser had paid for and not yet banked is lost with the location. Banked work transfers,
-          // work in progress does not.
+          // work in progress does not. What it cost goes with it, since `upgradePaid` is only ever
+          // read to refund a cancellation and the spread above would otherwise carry it over.
           //
           // What still resets is the district gate, and that is a different rule in a different
           // place: `resetGateOnDistrictLost` in `city/gates.ts`, below.
           level: previousLevel,
           upgradingUntil: null,
+          upgradePaid: null,
           garrison: holding,
         },
         now,

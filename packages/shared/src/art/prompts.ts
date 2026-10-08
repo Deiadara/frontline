@@ -1159,6 +1159,18 @@ export const PLATE_SUBJECTS = {
     smoke off every stack, emissives small and at head height. Painted signage is part of the
     street; nothing that reads as a label for a game object.
   `),
+  'plate-city-arca': block(`
+    Arca whole, from above and at an angle, the third city's answer to the Ashfall aerial and the
+    screen a player opens the city on: a night cathedral city of white stone and crimson banners,
+    seen across the whole frame with no horizon and only a band of smog sky at the very top. A
+    great lit cathedral with twin spires crowns the upper left of centre, with cloistered white
+    terraces and a bannered convent stepping down to its left; a long arcaded wall and a viaduct
+    carrying lit trains run across the right half, with a foundry's chimneys and steam at the far
+    top right; a lit market square with awnings and an obelisk fills the centre below the
+    cathedral, and a dark spired town, canals, bridges and crowded quays fill the lower half, with
+    boats on black water. Roughly twelve distinguishable quarters across the frame, separated by
+    the walls, the canals and the viaduct, with quiet clearings for tags to stand in.
+  `),
   'plate-city-terminus': block(`
     Terminus whole, from above and at an angle, the second city's answer to the Ashfall aerial and
     the screen a player opens the city on: a night rail city stacked along one line, seen across
@@ -1899,5 +1911,23 @@ export const UNIT_SUBJECTS: Readonly<Record<string, string>> = {
     An old man in a plain grey high-collared uniform seated at the head of a long steel table
     under a vaulted glass roof, hands folded, a single #22d3ee light from above. No weapon visible.
     Everything in the room is arranged around him, and he is looking straight at the viewer.
+  `),
+  curate: block(`
+    A severe woman in a grey cassock with a crimson stole standing at the end of a working press
+    line, one hand flat on a wet sheet of newsprint, a small sidearm holstered and untouched at
+    her hip. Racked type and hanging proofs behind her, warm lamplight from the machines, cold
+    grey daylight from a high window. She is reading the sheet, not the viewer.
+  `),
+  blood_priest: block(`
+    A heavy-shouldered priest in a black cassock stiff to the elbow with dried blood, standing in
+    a vaulted undercroft before a stone basin, a censer of something that is not incense smoking
+    in one hand. Hooded figures kneel in the dark behind him, their forearms dark to the wrist.
+    Deep #dc2626 light from the basin, cold blue fill from a grate above.
+  `),
+  hierarch: block(`
+    An old bald man in a plain white robe barefoot on the stone floor of a vast nave, caught
+    mid-step in a martial stance with open hands, no weapon anywhere. Ranks of Combine soldiers
+    stand at the edges copying him. Cold white light down the columns, warm candle glow at the
+    floor, dust in the air.
   `),
 };

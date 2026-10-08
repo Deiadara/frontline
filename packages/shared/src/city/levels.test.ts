@@ -98,13 +98,11 @@ describe('a location at a level', () => {
           ? bonus.percent
           : 'flat' in bonus
             ? bonus.flat
-            : 'minutes' in bonus
-              ? bonus.minutes
-              : 'perHour' in bonus
-                ? bonus.perHour
-                : // The rules carry no quantity at all: see `scaledBonus`. Nothing here ladders
-                  // one, so anything that reaches this arm has nothing to compare.
-                  0;
+            : 'perHour' in bonus
+              ? bonus.perHour
+              : // The rules carry no quantity at all: see `scaledBonus`. Nothing here ladders
+                // one, so anything that reaches this arm has nothing to compare.
+                0;
       });
 
     // A share of a fight runs the gentler combat ladder (`COMBAT_LEVEL_SCALE`): four times at
@@ -208,15 +206,13 @@ describe('a location at a level', () => {
                 ? bonus.perHour
                 : 'flat' in bonus
                   ? bonus.flat
-                  : 'minutes' in bonus
-                    ? bonus.minutes
-                    : 'percent' in bonus
-                      ? bonus.percent
-                      : 'chancePercent' in bonus
-                        ? bonus.chancePercent
-                        : 'pins' in bonus
-                          ? bonus.pins
-                          : (bonus.level ?? 0);
+                  : 'percent' in bonus
+                    ? bonus.percent
+                    : 'chancePercent' in bonus
+                      ? bonus.chancePercent
+                      : 'pins' in bonus
+                        ? bonus.pins
+                        : (bonus.level ?? 0);
             return sum + value;
           }, 0);
         expect(total(next), `${kind} level ${level + 1}`).toBeGreaterThan(total(now));

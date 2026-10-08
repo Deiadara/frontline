@@ -132,7 +132,7 @@ const PRESETS: readonly Preset[] = [
   {
     label: 'End game',
     blurb:
-      'The ceiling on everything: seven rungs into every programme, every drawing held, the yard full, the shelf stocked and ground held in both cities.',
+      'The ceiling on everything: seven rungs into every programme, every drawing held, the yard full, the shelf stocked and ground held in every open city.',
     /*
      * The one that hands over everything, because everything is what "end game" means.
      *
@@ -161,7 +161,7 @@ const PRESETS: readonly Preset[] = [
       parts: 250,
       consumables: 10,
       boosts: 5,
-      // Ground in both open cities, so the multi-city screens have something to show.
+      // Ground in every open city, so the multi-city screens have something to show.
       footholds: 'every-city' as const,
     },
     knobs: {
@@ -601,6 +601,13 @@ function GrantsPanel() {
           {button('A foothold in every city', { footholds: 'every-city' }, 'admin-grant-footholds')}
           <span className="font-body text-[12px] text-ink-300">
             One location in each open city, so the city pickers have somewhere to read.
+          </span>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-3">
+          {button('A district held whole', { districtWhole: 'quietest' }, 'admin-grant-district')}
+          <span className="font-body text-[12px] text-ink-300">
+            Every plot of the quietest district in your city, so a district board opens beside misc.
           </span>
         </div>
 

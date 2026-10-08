@@ -32,6 +32,7 @@ import {
   RESOURCE_CAP_VALUE,
   RESOURCE_KEYS,
   rewardScale,
+  scaledSpoils,
   templateTimings,
   type Mission,
   type MissionTemplate,
@@ -508,6 +509,27 @@ describe('the card a running job was taken off', () => {
     const card = offerOfMission({ ...missionAt(5, 30), templateId: template.id, grade }, template);
     expect(card.rawDurationMinutes).toBe(templateTimings(template, grade).durationMinutes);
     expect(card.rawDurationMinutes).toBeGreaterThan(template.durationMinutes);
+  });
+
+  /*
+   * Bug pass, 2026-10-07: the Bounty Wall's gold is frozen on the row at launch and paid by the
+   * settle, and the rebuilt card carried the gold border and the plain haul, so the Missions page
+   * quoted a run already out less than it was going to bring home.
+   */
+  it('quotes the Bounty Wall`s premium the settle will pay, on top of the area`s', () => {
+    const template = MISSION_TEMPLATES[0]!;
+    const row = { ...missionAt(5, 30), templateId: template.id, payPercent: 20 };
+    const plain = offerOfMission(row, template);
+    const golden = offerOfMission({ ...row, goldenPercent: 40 }, template);
+    expect(golden.golden).toBe(true);
+    expect(golden.goldenPercent).toBe(40);
+    const keys = RESOURCE_KEYS.filter((key) => (plain.rewards[key] ?? 0) > 0);
+    expect(keys.length, 'the fixture has to pay something').toBeGreaterThan(0);
+    for (const key of keys) {
+      expect(golden.rewards[key], key).toBe(scaledSpoils(plain.rewards, 40)[key]);
+    }
+    // ...and the slots the haul takes up move with it, since that is what the carry is measured on.
+    expect(golden.payoutSlots).toBeGreaterThan(plain.payoutSlots);
   });
 
   // Bug pass, 2026-10-02: the return adds the crew's XP bonus, and the card quoted the row's figure.

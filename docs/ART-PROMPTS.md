@@ -1551,6 +1551,7 @@ and the readable action sits on top of it.
 | `plate-district-viaduct`           | `130023` | opaque                  |
 | `plate-district-last-platform`     | `130024` | opaque                  |
 | `plate-district-blockhouse`        | `130025` | opaque                  |
+| `plate-city-arca`                  | `130026` | opaque                  |
 
 ### 3.1 `plate-city`: the map base plate (plane 2)
 
@@ -1921,6 +1922,21 @@ lamps against cold grey stone, emissives small and at head height. Painted signa
 street; nothing that reads as a label for a game object.
 ```
 
+### 3.26 `plate-city-arca`: the Arca map (§A4)
+
+```
+SUBJECT: Arca whole, from above and at an angle, the third city's answer to the Ashfall aerial and
+the screen a player opens the city on: a night cathedral city of white stone and crimson banners,
+seen across the whole frame with no horizon and only a band of smog sky at the very top. A great
+lit cathedral with twin spires crowns the upper left of centre, with cloistered white terraces and
+a bannered convent stepping down to its left; a long arcaded wall and a viaduct carrying lit
+trains run across the right half, with a foundry's chimneys and steam at the far top right; a lit
+market square with awnings and an obelisk fills the centre below the cathedral, and a dark spired
+town, canals, bridges and crowded quays fill the lower half, with boats on black water. Roughly
+twelve distinguishable quarters across the frame, separated by the walls, the canals and the
+viaduct, with quiet clearings for tags to stand in.
+```
+
 ---
 
 ## 4. District building sprites: 12 assets
@@ -2202,6 +2218,9 @@ Ids are the kebab-cased `UnitSpec.id` in `@frontline/shared` (`road_reavers` →
 | `unit-executioner`        | Executioner        | Legendary              | `145037` |
 | `unit-directive-xero`     | Directive Xero     | Legendary              | `145038` |
 | `unit-death-cloaks`       | Death Cloaks       | Rabble                 | `145039` |
+| `unit-curate`             | The Curate         | Legendary              | `145040` |
+| `unit-blood-priest`       | The Blood Priest   | Legendary              | `145041` |
+| `unit-hierarch`           | The Hierarch       | Legendary              | `145042` |
 
 ### 7.1 `unit-razors`
 
@@ -2435,6 +2454,24 @@ SUBJECT: An old man in a plain grey high-collared uniform seated at the head of 
 
 ```
 SUBJECT: Three mourners in grey burial cloth shoulder to shoulder in a tomb doorway, faces hooded and unlit, one holding a red lamp low, the others carrying stone-mason's hammers. White stone behind them, deep #dc2626 lamplight from below, cold grey fill from the open door.
+```
+
+### 7.40 `unit-curate`
+
+```
+SUBJECT: A severe woman in a grey cassock with a crimson stole standing at the end of a working press line, one hand flat on a wet sheet of newsprint, a small sidearm holstered and untouched at her hip. Racked type and hanging proofs behind her, warm lamplight from the machines, cold grey daylight from a high window. She is reading the sheet, not the viewer.
+```
+
+### 7.41 `unit-blood-priest`
+
+```
+SUBJECT: A heavy-shouldered priest in a black cassock stiff to the elbow with dried blood, standing in a vaulted undercroft before a stone basin, a censer of something that is not incense smoking in one hand. Hooded figures kneel in the dark behind him, their forearms dark to the wrist. Deep #dc2626 light from the basin, cold blue fill from a grate above.
+```
+
+### 7.42 `unit-hierarch`
+
+```
+SUBJECT: An old bald man in a plain white robe barefoot on the stone floor of a vast nave, caught mid-step in a martial stance with open hands, no weapon anywhere. Ranks of Combine soldiers stand at the edges copying him. Cold white light down the columns, warm candle glow at the floor, dust in the air.
 ```
 
 ## 8. Consistency protocol

@@ -54,7 +54,8 @@ interface HeldGround {
  * to remember to flip a flag when the plot falls, and nothing can resurrect him by accident.
  */
 
-export type CombineLeaderId = 'syndic' | 'executioner' | 'directive_xero';
+export type CombineLeaderId =
+  'syndic' | 'executioner' | 'directive_xero' | 'curate' | 'blood_priest' | 'hierarch';
 
 /**
  * What a leader does for the defence, in the engine's terms.
@@ -87,7 +88,32 @@ export type CombinePower =
    * cross the line and fight for him (`changeOfHeart`). For that fight only: afterwards they are
    * dead, on a plot as at a gate, and join nothing (maintainer, 2026-09-29).
    */
-  | { kind: 'directive_xero'; morale: number; changeOfHeart: true };
+  | { kind: 'directive_xero'; morale: number; changeOfHeart: true }
+  /**
+   * The Curate: nothing leaves the Printworks that she has not written first.
+   *
+   * The one power that never reaches the engine. A fight under her is an ordinary fight; what she
+   * takes away is the *read* before it, so `spying/spying.ts` refuses every job aimed at a
+   * location in her district while she lives. Written as a flag rather than a number because
+   * there is nothing to tune: a district is legible or it is not.
+   */
+  | { kind: 'curate'; blindsSpies: true }
+  /**
+   * The Blood Priest: the ground goes wrong, and the congregation is worse.
+   *
+   * Two halves, like Directive Xero's. `eerie` is laid over every location in the district the way
+   * the Tolling Tower lays its Noisy (`combineLeaderLabels`), so it bites both sides and the
+   * affinity tables decide who minds; `intimidation` is flat points on the regime's own sheets.
+   */
+  | { kind: 'blood_priest'; intimidation: number; eerie: number }
+  /**
+   * The Hierarch: forty years of teaching, on every sheet in the Nave.
+   *
+   * Evasion and a share of damage on the Combine's units, and the one thing he drills hardest:
+   * taking a blunt hit. `bluntResistance` is added to whatever the sheet already resists, so a
+   * unit with none gains it and one with some is better at it.
+   */
+  | { kind: 'hierarch'; evasion: number; damagePercent: number; bluntResistance: number };
 
 export interface CombineLeader {
   /** The unit, from `units/catalog.ts`. */
@@ -161,6 +187,22 @@ export const EXECUTIONER_THRESHOLD = 0.3;
 /** Directive Xero's line starts at the morale ceiling, which is what "immune to intimidation" is. */
 export const DIRECTIVE_XERO_MORALE = 100;
 
+/**
+ * Arca's three, as the maintainer wrote them (2026-10-07).
+ *
+ * The Blood Priest's Eerie at tier 2, which is what the atlas already gives a mausoleum and a
+ * trophy hall: the tier a place has because of what is in it, rather than the tier a storm has.
+ * His congregation's ten points of intimidation are flat, the Syndic's shape.
+ *
+ * The Hierarch's three are the figures from the ruling: +15 evasion, five per cent more damage,
+ * five points of blunt resistance, all of it on the regime's units in the Nave.
+ */
+export const BLOOD_PRIEST_INTIMIDATION = 10;
+export const BLOOD_PRIEST_EERIE_TIER = 2;
+export const HIERARCH_EVASION = 15;
+export const HIERARCH_DAMAGE_PERCENT = 5;
+export const HIERARCH_BLUNT_RESISTANCE = 5;
+
 export const COMBINE_LEADERS: readonly CombineLeader[] = [
   {
     unitId: 'syndic',
@@ -196,12 +238,56 @@ export const COMBINE_LEADERS: readonly CombineLeader[] = [
     powerLine:
       'Every Combine unit in the CCS fights at 100 morale and cannot be intimidated. Any unit of yours that would have been intimidated changes sides instead and fights for him, for that fight only. None of them comes back.',
   },
+  {
+    unitId: 'curate',
+    districtId: 'printworks',
+    locationId: 'printworks-greatpress',
+    power: { kind: 'curate', blindsSpies: true },
+    powerName: 'Propaganda',
+    pronoun: { subject: 'she', object: 'her', possessive: 'her' },
+    powerLine:
+      'No location in the Printworks can be spied while she runs the presses. Only lies would come out anyway.',
+  },
+  {
+    unitId: 'blood_priest',
+    districtId: 'cloisters',
+    locationId: 'cloisters-chapter',
+    power: {
+      kind: 'blood_priest',
+      intimidation: BLOOD_PRIEST_INTIMIDATION,
+      eerie: BLOOD_PRIEST_EERIE_TIER,
+    },
+    powerName: 'Blood Baptism',
+    pronoun: { subject: 'he', object: 'him', possessive: 'his' },
+    powerLine: `Every location in the Cloisters is Eerie while he keeps the rituals, and every Combine unit fighting there has +${BLOOD_PRIEST_INTIMIDATION} intimidation.`,
+  },
+  {
+    unitId: 'hierarch',
+    districtId: 'nave',
+    locationId: 'nave-rosewindow',
+    power: {
+      kind: 'hierarch',
+      evasion: HIERARCH_EVASION,
+      damagePercent: HIERARCH_DAMAGE_PERCENT,
+      bluntResistance: HIERARCH_BLUNT_RESISTANCE,
+    },
+    powerName: 'Martial Arts Instructor',
+    pronoun: { subject: 'he', object: 'him', possessive: 'his' },
+    powerLine: `Every Combine unit in the Nave fights with +${HIERARCH_EVASION} evasion, ${HIERARCH_DAMAGE_PERCENT}% more damage and ${HIERARCH_BLUNT_RESISTANCE} more resistance to blunt.`,
+  },
 ];
 
 /** The leader over a district, or `undefined` for ground no legendary commands. */
 export function combineLeaderOf(districtId: string): CombineLeader | undefined {
   return COMBINE_LEADERS.find((leader) => leader.districtId === districtId);
 }
+
+/**
+ * Why a location under the Curate cannot be spied: the server's refusal (`only_lies`) and the
+ * greyed Spy button say the same sentence (2026-10-07).
+ */
+export const PROPAGANDA_REFUSAL_TEXT =
+  'The Curate decides what leaves the Printworks. Only lies would come out';
 
 /** The leader standing on a location, or `undefined`. */
 export function combineLeaderAt(locationId: string): CombineLeader | undefined {

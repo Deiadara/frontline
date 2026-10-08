@@ -19,7 +19,9 @@ import type { AppDatabase } from '../db/index.js';
 import type { Repositories } from '../db/repos/index.js';
 import {
   ALLY_DISTRICT_ID,
+  ARCA_RIVAL_DISTRICT_ID,
   type BotBlueprint,
+  MVP_ARCA_RIVAL,
   MVP_ALLY,
   MVP_BOT,
   MVP_FACTION,
@@ -64,6 +66,10 @@ export interface MvpSeedSummary {
   terminusRivalUsername: string;
   terminusRivalDistrictId: string;
   createdTerminusRival: boolean;
+  /** And the one in the third (2026-10-07), for the same reason. */
+  arcaRivalUsername: string;
+  arcaRivalDistrictId: string;
+  createdArcaRival: boolean;
 }
 
 /**
@@ -111,6 +117,8 @@ export async function seedMvpWorld({
   const createdRivalFaction = await seedRivalFaction(db, repos);
   // And somebody at the far end of the line, so the second city is a city (2026-09-24).
   const createdTerminusRival = await seedTerminusRival(db, repos);
+  // And in the cathedral city, the day it opened (2026-10-07).
+  const createdArcaRival = await seedArcaRival(db, repos);
 
   return {
     playerUsername: MVP_PLAYER.username,
@@ -128,6 +136,9 @@ export async function seedMvpWorld({
     terminusRivalUsername: MVP_TERMINUS_RIVAL.username,
     terminusRivalDistrictId: TERMINUS_RIVAL_DISTRICT_ID,
     createdTerminusRival,
+    arcaRivalUsername: MVP_ARCA_RIVAL.username,
+    arcaRivalDistrictId: ARCA_RIVAL_DISTRICT_ID,
+    createdArcaRival,
   };
 }
 
@@ -335,6 +346,10 @@ async function seedBot(db: AppDatabase, repos: Repositories): Promise<boolean> {
  */
 async function seedTerminusRival(db: AppDatabase, repos: Repositories): Promise<boolean> {
   return seedCrewIn(db, repos, MVP_TERMINUS_RIVAL, TERMINUS_RIVAL_DISTRICT_ID);
+}
+
+async function seedArcaRival(db: AppDatabase, repos: Repositories): Promise<boolean> {
+  return seedCrewIn(db, repos, MVP_ARCA_RIVAL, ARCA_RIVAL_DISTRICT_ID);
 }
 
 /**

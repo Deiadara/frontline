@@ -129,13 +129,21 @@ describe('a morale point, priced against the engine', () => {
     expect(rate(old) / names).toBeGreaterThan(1.6);
   });
 
+  /*
+   * Re-measured 2026-10-07, after the heavy tier was lifted (`battle/balance.test.ts`): the line
+   * every boost is priced against has ten Breakers in it, and a tougher line makes a morale point
+   * worth more, so the stims went from about parity to 2.11 times the Infusers' value per point of
+   * infamy. The crate was repriced from 140 to 290 rather than the band widened, and the control
+   * moved with it: at the new price a +16 version reads 1.515, inside the band, so the control
+   * that proves the band can tell a bad price apart is +24 (2.27).
+   */
   it('sells Combat Stims at about the rate of the Infusers, the crate with no morale in it', () => {
     const infusers = rate(crateBundle('biochemical_infusers'));
     const stims = crateBundle('combat_stims');
 
     expect(rate(stims) / infusers).toBeGreaterThan(0.6);
     expect(rate(stims) / infusers).toBeLessThan(1.6);
-    const old = { ...stims, boost: { ...stims.boost, moralePercent: 16 } };
-    expect(rate(old) / infusers).toBeGreaterThan(1.6);
+    const overpaying = { ...stims, boost: { ...stims.boost, moralePercent: 24 } };
+    expect(rate(overpaying) / infusers).toBeGreaterThan(1.6);
   });
 });

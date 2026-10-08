@@ -8,7 +8,7 @@ import {
   type TerritoryEffects,
   type UnitStatFlat,
 } from '../city/index.js';
-import { ANTI_COMBINE_PERCENT, PAMPHLET_PENALTY_PERCENT } from '../city/reliquary.js';
+import { ANTI_COMBINE_PERCENT, PAMPHLET_PENALTY_PERCENT } from '../city/arca.js';
 import { NO_DOOR_PERKS, type DoorPerks } from './doors.js';
 import {
   UNIT_MODIFIERS,
@@ -53,7 +53,7 @@ export interface SideContext {
 
 /**
  * What is true of *this* unit in *this* fight and of no other: the door its crew holds for it,
- * who it is fighting and who it came with (Reliquary, 2026-10-07). Every field defaults to
+ * who it is fighting and who it came with (Arca, 2026-10-07). Every field defaults to
  * nothing, so the callers that build a sheet on bare ground pass nothing.
  */
 export interface UnitFightContext {
@@ -451,7 +451,7 @@ export function statFlatsFor(unit: UnitSpec, flats: readonly UnitStatFlat[]): St
 /**
  * The ground as this unit reads it, after what it is allowed to ignore.
  *
- * Three ways a label stops counting against a unit, all of them Reliquary's. `ignored` drops the
+ * Three ways a label stops counting against a unit, all of them Arca's. `ignored` drops the
  * label outright (the Tolling Tower's Noisy, the Dancer's Crammed and Wet). `home` flips a bad
  * reading to a good one of the same size, which is what "home ground" has to mean for a unit the
  * catalogue says hates the wet. `inspired` drops every label whose reading is negative, which is

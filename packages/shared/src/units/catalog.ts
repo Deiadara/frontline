@@ -73,7 +73,7 @@ export type UnitRequirement =
   | { kind: 'location'; locationKind: LocationKind }
   | { kind: 'vehicle'; vehicleId: string }
   /**
-   * A door authored on one location rather than on a kind (Reliquary, 2026-10-07): the Saint's
+   * A door authored on one location rather than on a kind (Arca, 2026-10-07): the Saint's
    * Shrine, the Watch Cell, the Crimson Stage, the Reliquary Lab. Met by holding any location
    * whose `unit_door` names this unit, or, where `orKind` is set, any location of that kind: the
    * Juggernauts come out of a gene clinic or the Lab.
@@ -118,7 +118,7 @@ export interface UnitSpec {
   taunts?: boolean;
   /**
    * What each level of this unit's door buys it, levels 2 to 5, in the player's words
-   * (Reliquary, 2026-10-07). Printed on the roster and on the door's own sheet; the engine spends
+   * (Arca, 2026-10-07). Printed on the roster and on the door's own sheet; the engine spends
    * the same ladder by number (`battle/doors.ts`), keyed by the door level the crew holds.
    */
   doorSteps?: readonly [string, string, string, string];
@@ -564,12 +564,17 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     unitSlots: 2,
     stats: sheet({
       speed: 40,
-      vitality: 122,
+      /*
+       * 168 and 32 since 2026-10-07, up from 122 and 24. A gate specialist that dies on the way to
+       * the gate sells nothing, and this sheet beat 5 of the 24 on the roster: the worst in its
+       * tier after the Ironsides. The damage is untouched, so what it buys is the time to use it.
+       */
+      vitality: 168,
       morale: 60,
-      armor: 24,
+      armor: 32,
       resistances: { explosive: 35, energy: -25 },
       damageType: 'blade',
-      penetration: 12,
+      penetration: 18,
       range: 15,
       offense: 225,
       evasion: 8,
@@ -706,9 +711,16 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
       damageType: 'blunt',
       // A shield wall is the answer to being hit with things.
       resistances: { ballistic: 35, blade: 35, explosive: -30, blunt: 35 },
-      penetration: 5,
+      /*
+       * Lifted from 5 and 45 on 2026-10-07, when the maintainer called the tier ladder: heavy was
+       * averaging 9 wins of 24 against the rabble's 10, and this sheet at 4 was half of why. It is
+       * still the lowest damage in the game and still loses the fights it starts, which is the
+       * brief (see the intimidation note below); what it stopped being is a unit that cannot hurt
+       * anything at all while it holds.
+       */
+      penetration: 14,
       range: 10,
-      offense: 45,
+      offense: 95,
       evasion: 3,
       stealth: 5,
       lootCapacity: 25,
@@ -2005,7 +2017,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     affinities: { elevated: 8, crammed: 5, snowy: -6, wet: -5, windy: -4 },
   },
 
-  // ---------------------------------------------------------------- Reliquary (2026-10-06)
+  // ---------------------------------------------------------------- Arca (2026-10-06)
   /*
    * Rabble by tier and at the end of the file by position: `art/manifest.ts` seeds every unit's
    * portrait off its index here, so a sheet filed under "rabble" would re-roll the art of every
@@ -2046,6 +2058,113 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     modifiers: ['close_quarters'],
     // At home among graves and in the dark; useless in rain and heat, where the cloth is a weight.
     affinities: { eerie: 8, dark: 8, wet: -7, hot: -7 },
+  },
+
+  // ------------------------------------------- Arca's Combine command (maintainer, 2026-10-07)
+  /*
+   * Three leaders for the three districts the regime holds in Arca, placed on the strength
+   * ladder the maintainer calibrated against Ashfall's: ten of a sheet, defending on open ground,
+   * against the largest Razor force it still beats. Ashfall reads Syndic 40, Executioner 80,
+   * Directive Xero 260, and the ruling was "Curate about 20 since it has a global spying bonus,
+   * Executioner and Blood Priest around the same, and the bosses around the same".
+   *
+   * At the end of the file because `art/manifest.ts` seeds a portrait off the catalogue index: a
+   * sheet filed next to its tier would re-roll the art of every unit after it.
+   */
+  {
+    id: 'curate',
+    name: 'The Curate',
+    tier: 'legendary',
+    blurb:
+      'She decides what the presses print and what leaves the district as news. Not a fighter, and she has never needed to be: by the time anybody reaches the Printworks they have been reading her account of themselves for a year.',
+    musteredAt: 'gauntlet',
+    unique: true,
+    faction: 'combine',
+    requires: [],
+    cost: {},
+    musterSeconds: 0,
+    unitSlots: 4,
+    stats: sheet({
+      speed: 34,
+      vitality: 145,
+      morale: 88,
+      armor: 18,
+      damageType: 'ballistic',
+      resistances: { chemical: 15, blade: -15 },
+      penetration: 20,
+      range: 45,
+      offense: 125,
+      evasion: 12,
+      stealth: 35,
+      intimidation: 45,
+    }),
+    modifiers: ['guard'],
+    // A press hall: indoors, lit, and loud with its own machines. Nothing about her works outside.
+    affinities: { crammed: 7, noisy: 6, open: -8, wet: -4 },
+  },
+  {
+    id: 'blood_priest',
+    name: 'The Blood Priest',
+    tier: 'legendary',
+    blurb:
+      'He keeps the rituals under the Cloisters, and the congregation comes up from them wet to the elbow. The regime found it easier to bless him than to stop him.',
+    musteredAt: 'gauntlet',
+    unique: true,
+    faction: 'combine',
+    requires: [],
+    cost: {},
+    musterSeconds: 0,
+    unitSlots: 6,
+    stats: sheet({
+      speed: 36,
+      vitality: 288,
+      morale: 94,
+      armor: 34,
+      damageType: 'chemical',
+      resistances: { chemical: 30, ballistic: 10, energy: -20 },
+      penetration: 40,
+      range: 15,
+      offense: 318,
+      evasion: 18,
+      stealth: 30,
+      intimidation: 80,
+    }),
+    modifiers: ['close_quarters', 'terror'],
+    // Cellars and candle smoke. Daylight and open ground are the two things the work cannot stand.
+    affinities: { eerie: 9, dark: 8, crammed: 6, open: -8, hot: -4 },
+  },
+  {
+    id: 'hierarch',
+    name: 'The Hierarch',
+    tier: 'legendary',
+    blurb:
+      'Forty years a monk before the Combine made him its voice, and he still takes the floor of the Nave every morning to teach. Everything his people do with their hands, they learned from him.',
+    musteredAt: 'gauntlet',
+    unique: true,
+    faction: 'combine',
+    // Nobody leaves the Nave while he is standing in it.
+    stalwart: true,
+    requires: [],
+    cost: {},
+    musterSeconds: 0,
+    unitSlots: 10,
+    stats: sheet({
+      speed: 48,
+      vitality: 500,
+      morale: 100,
+      armor: 55,
+      damageType: 'blunt',
+      resistances: { blunt: 40, blade: 30, ballistic: 25, energy: -15 },
+      penetration: 52,
+      range: 5,
+      offense: 420,
+      evasion: 38,
+      stealth: 20,
+      intimidation: 85,
+    }),
+    modifiers: ['close_quarters', 'guard'],
+    // A stone hall he has not left in a decade: indoors, cold, and never crowded enough to hamper him.
+    affinities: { cold: 7, eerie: 6, elevated: 5, wet: -5, noisy: -4 },
   },
 ];
 
@@ -2262,7 +2381,7 @@ export const GAUNTLET_UNLOCKED_UNITS: readonly string[] = [
   'the_saint',
   'the_crimson_dancer',
   'the_loose_end',
-  // Reliquary's rabble (2026-10-06), gated low: the tomb is the real door.
+  // Arca's rabble (2026-10-06), gated low: the tomb is the real door.
   'death_cloaks',
 ];
 

@@ -284,6 +284,7 @@ describe('backend selection', () => {
     'plate-district-viaduct',
     'plate-district-last-platform',
     'plate-district-blockhouse',
+    'plate-city-arca',
   ];
 
   /**

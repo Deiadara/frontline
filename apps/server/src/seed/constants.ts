@@ -250,6 +250,12 @@ export const MVP_RIVAL_SECOND: BotBlueprint = {
 export const TERMINUS_RIVAL_DISTRICT_ID = 'signalrow';
 
 /**
+ * Where the Arca rival lives: the Waxworks, the plot on the east side of the map against the
+ * industrial wall (2026-10-07; the tag moved there on 2026-10-08).
+ */
+export const ARCA_RIVAL_DISTRICT_ID = 'waxworks';
+
+/**
  * The crew that makes Terminus a city rather than an empty map (2026-09-24).
  *
  * Without somebody living there the second city has two problems, and the quieter one is worse.
@@ -304,6 +310,54 @@ export const MVP_TERMINUS_RIVAL: BotBlueprint = {
       organization: 35,
       logistics: 31,
       strategy: 26,
+    }),
+  ],
+};
+
+/**
+ * The crew who lives in Arca, so the third city is somebody's from the first boot (2026-10-07).
+ *
+ * The same shape and the same reasons as the Signalmen above: a resident gives `calibreOf` a
+ * standing of the city's own to stock its rooms against, and gives anybody who marches in
+ * something to raid.
+ */
+export const MVP_ARCA_RIVAL: BotBlueprint = {
+  username: 'Ambrose_Sexton',
+  baseName: 'The Sextons',
+  overseerPresetId: 'terror',
+  level: 8,
+  resources: {
+    caps: 6100,
+    supplies: 4200,
+    oil: 2400,
+    scrap: 4800,
+    planks: 3300,
+    highQualityMetal: 1200,
+  },
+  buildings: [
+    { id: 'sexton-nexus', kind: 'nexus', level: 6, modifications: [] },
+    { id: 'sexton-gate', kind: 'gate', level: 5, modifications: [] },
+    { id: 'sexton-gauntlet', kind: 'gauntlet', level: 4, modifications: [] },
+    { id: 'sexton-generator', kind: 'generator', level: 4, modifications: [] },
+    { id: 'sexton-quarters', kind: 'quarters', level: 4, modifications: [] },
+  ],
+  // A gravediggers' crew: heavy on the people who hold a wall and on the ones who see over it,
+  // because what this city is fought over is tombs and gates rather than platforms. No Death
+  // Cloaks: those are kept per Mausoleum held, and a seeded crew holds no ground.
+  army: { wardens: 14, razors: 16, ironsides: 8, snipers: 6, stitchers: 4 },
+  commanders: [
+    createCommander(
+      'sexton-commander-boss',
+      'Ambrose Sexton',
+      'raid_boss',
+      { leadership: 36, intimidation: 35, resolve: 31 },
+      ['line_officer'],
+      130,
+    ),
+    createCommander('sexton-commander-yard', 'Clemency Hale', 'field_commander', {
+      organization: 33,
+      logistics: 30,
+      strategy: 28,
     }),
   ],
 };

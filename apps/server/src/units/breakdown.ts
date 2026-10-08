@@ -15,7 +15,6 @@ import {
   cardBonusPercent,
   clampLevel,
   completedSet,
-  districtHolder,
   fittedIn,
   fittedMagnitude,
   findDistrict,
@@ -36,6 +35,7 @@ import {
 import type { Repositories } from '../db/repos/index.js';
 import { crewRoomFor } from '../crew/standing.js';
 import { cardsAtTable } from '../factions/cards.js';
+import { holdsDistrictWhole } from '../city/holding.js';
 
 /**
  * Where the roster's three muster figures come from, line by line (maintainer, 2026-09-17).
@@ -293,14 +293,17 @@ function groundLines(repos: Repositories, base: Base, channel: 'cost' | 'speed')
   }
   /*
    * And the whole-district bonus, which is paid for holding every block in one district rather than
-   * for any one of them. Same condition as `territoryEffectsFor`: a district counts only while this
-   * crew is the holder of all of it.
+   * for any one of them. Same condition as `territoryEffectsFor`, which since 2026-10-07 means the
+   * crew's **table**: the members between them hold every plot and every one of them is paid. Read
+   * through `holdsDistrictWhole` rather than re-implemented here, because this panel's job is to
+   * explain a number the fold produced, and a second copy of the rule is a second answer. It was
+   * `districtHolder` (one crew, all of it) until the ruling, so a member holding four plots of
+   * seven was paid its faction's bonus and shown no line for it.
    */
   for (const districtId of held) {
     const district = findDistrict(districtId);
     if (!district) continue;
-    const holder = districtHolder(district, controls);
-    if (holder?.kind !== 'crew' || holder.baseId !== base.id) continue;
+    if (!holdsDistrictWhole(repos, base.id, districtId)) continue;
     const unified = unifiedBonusFor(districtId);
     if (unified?.bonus.kind !== HOLD_KIND[channel]) continue;
     lines.push({ source: unified.title, note: district.name, percent: unified.bonus.percent });

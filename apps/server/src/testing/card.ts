@@ -19,9 +19,13 @@ export function cardFor(
   templateId: string,
   level: number,
   now: Date = new Date(),
+  /** The crew the board is dealt to (`missionDealer`); boards are a crew's own since 2026-10-08. */
+  dealer = '',
 ): { boardKey: string; grade: Grade } {
   const boardKey = missionBoardKey(areaId, now);
-  const job = missionOffers(areaId, boardKey, level).find((one) => one.template.id === templateId);
+  const job = missionOffers(areaId, boardKey, level, dealer).find(
+    (one) => one.template.id === templateId,
+  );
   if (!job) throw new Error(`fixture: ${templateId} is not on ${areaId}'s board at ${level}`);
   return { boardKey, grade: job.grade };
 }

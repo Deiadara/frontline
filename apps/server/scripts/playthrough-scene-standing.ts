@@ -312,16 +312,26 @@ export async function standings(h: Harness, cast: Cast): Promise<void> {
     );
     h.check(players.yourRank !== null, 'A is not ranked on the players board');
   }
-  const local = await h.ok<LeaderboardResponse>({
+  // One city at a time (maintainer, 2026-10-07): the board lists whoever holds ground there, with
+  // every figure on a row still that player's across the world.
+  const inTerminus = await h.ok<LeaderboardResponse>({
     as: c,
     method: 'GET',
     route: '/api/leaderboard',
-    query: { localOnly: 'true' },
+    query: { city: 'terminus' },
   });
   h.check(
-    local?.scope === 'terminus' && local.localOnly,
-    `C's local board is scoped to ${local?.scope}`,
+    inTerminus?.city === 'terminus',
+    `C asked for Terminus and the board came back listed for ${String(inTerminus?.city)}`,
   );
+  // A city nobody can play in yet is answered with the world rather than with an empty sheet.
+  const shut = await h.ok<LeaderboardResponse>({
+    as: c,
+    method: 'GET',
+    route: '/api/leaderboard',
+    query: { city: 'reliquary' },
+  });
+  h.check(shut?.city === null, `a shut city was taken as a board scope: ${String(shut?.city)}`);
   const factionsBoard = await h.ok<LeaderboardResponse>({
     as: a,
     method: 'GET',

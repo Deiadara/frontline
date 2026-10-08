@@ -102,8 +102,7 @@ export function launchMission(args: {
    */
   missionSpeedPercent?: number;
   /**
-   * §C3: what the crew's people and ground take off **any** road (`travelSpeedPercent`), and the
-   * whole minutes the `road_shortcut` holding cuts off the end of it (`roadMinutesOff`).
+   * §C3: what the crew's people and ground take off **any** road (`travelSpeedPercent`).
    *
    * Every other walk in the game has read these since they existed: a march (`battle/movement.ts`),
    * a move between districts, a spy job, and the city's own travel estimate. A mission's road
@@ -117,7 +116,6 @@ export function launchMission(args: {
    * was written against.
    */
   travelSpeedPercent?: number;
-  roadMinutesOff?: number;
   /** The Cartographer's cut off the road's base (`roadMinutes`, 2026-10-04). */
   roadBaseCutPercent?: number;
   /**
@@ -197,7 +195,6 @@ export function launchMission(args: {
     admin = false,
     missionSpeedPercent = 0,
     travelSpeedPercent = 0,
-    roadMinutesOff = 0,
     roadBaseCutPercent = 0,
     ramp = null,
     leadSpeedPercent = 0,
@@ -245,10 +242,9 @@ export function launchMission(args: {
           TRAVEL_BAND_MINUTES[template.travelBand] + walk,
           pace,
           // The road's own cuts, summed the way every other road in the game sums them: the
-          // ground's shortcut, the leader's Short Way and the crew's own pace off `travelSpeedPercent`.
-          // `roadMinutes` bends the total under `TRAVEL_SPEED_CEILING`, so this cannot run away.
+          // leader's Short Way and the crew's own pace off `travelSpeedPercent`. `roadMinutes`
+          // bends the total under `TRAVEL_SPEED_CEILING`, so this cannot run away.
           missionSpeedPercent + Math.max(0, leadSpeedPercent) + Math.max(0, travelSpeedPercent),
-          Math.max(0, roadMinutesOff),
           roadBaseCutPercent,
         ),
     durationMinutes,

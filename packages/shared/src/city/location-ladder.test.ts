@@ -37,7 +37,6 @@ function figure(kind: LocationKind, bonusKind: HoldBonus['kind'], level: number)
   if (!bonus) throw new Error(`${kind} pays no ${bonusKind}`);
   if ('perHour' in bonus) return bonus.perHour;
   if ('flat' in bonus) return bonus.flat;
-  if ('minutes' in bonus) return bonus.minutes;
   if ('percent' in bonus) return bonus.percent;
   throw new Error(`${bonusKind} carries no figure`);
 }
@@ -92,9 +91,11 @@ describe('the level ladder', () => {
     }
   });
 
-  it('scales the flat minutes off the road like any other quantity', () => {
-    expect([1, 2, 5].map((level) => figure('tram_depot', 'road_shortcut', level))).toEqual([
-      4, 8, 20,
+  // The Tram Depot's flat minutes became travel points on 2026-10-07, so its one bonus ladders
+  // like every other percentage.
+  it('scales the Tram Depot`s travel points like any other quantity', () => {
+    expect([1, 2, 5].map((level) => figure('tram_depot', 'travel_speed', level))).toEqual([
+      22, 44, 110,
     ]);
   });
 });

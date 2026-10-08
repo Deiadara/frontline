@@ -7,6 +7,7 @@ import {
   makeAttributes,
   missionBoardKey,
   missionOdds,
+  missionDealer,
   missionOffers,
   templateTimings,
   type Attributes,
@@ -25,7 +26,7 @@ import { loadConfig } from '../config.js';
 import { liftedOfficerSheet, officerLiftRoom, standingEffectsFor } from '../crew/standing.js';
 import { openDatabase, runMigrations, type AppDatabase } from '../db/index.js';
 import { createRepositories, type Repositories } from '../db/repos/index.js';
-import { holdEveryBoard } from '../testing/footholds.js';
+import { QUIET_BOARD, holdDistrictWhole } from '../testing/footholds.js';
 import { chooseOverseer, pinOverseer } from '../testing/overseer.js';
 import { rankFightLeaders } from './fight-leaders.js';
 import { launchMission } from './launch.js';
@@ -107,7 +108,9 @@ async function makeStack(username: string, taught: boolean): Promise<Stack> {
   const repos = createRepositories(db);
   const base = repos.bases.findByOwnerId(user.id)!;
   repos.bases.updateArmy(base.id, { razors: 80, wardens: 20, haulers: 20 }, base.musterQueue);
-  holdEveryBoard(repos, base.id);
+  // One district held end to end, which is what opens a board (maintainer, 2026-10-07). The
+  // quietest one in Ashfall: nothing on it moves the clock, the pay or the infamy measured here.
+  holdDistrictWhole(repos, base.id, QUIET_BOARD);
   repos.bases.updateCommanders(base.id, [leaderOnCard(), ...(taught ? teachers() : [])]);
   return { app, repos, baseId: base.id, token };
 }
@@ -121,10 +124,13 @@ function liftedLeader(stack: Stack, now: Date): Attributes {
 }
 
 /** A standard job on a board the crew can launch from right now. */
-function aJobToday(level: number): { template: MissionTemplate; grade: Grade; areaId: string } {
+function aJobToday(
+  level: number,
+  dealer: string,
+): { template: MissionTemplate; grade: Grade; areaId: string } {
   const now = new Date();
   for (const areaId of [MISC_AREA_ID, 'chrome-row', 'glasshouse-fields']) {
-    const job = missionOffers(areaId, missionBoardKey(areaId, now), level).find(
+    const job = missionOffers(areaId, missionBoardKey(areaId, now), level, dealer).find(
       (entry) => entry.template.kind === 'standard',
     );
     if (job) return { template: job.template, grade: job.grade, areaId };
@@ -150,7 +156,10 @@ describe('the sheet a leader leads on', () => {
 
   it('freezes the odds the board quoted, and the lift moves them', async () => {
     const stack = await makeStack('lifted_odds', true);
-    const { template, grade, areaId } = aJobToday(baseOf(stack).level);
+    const { template, grade, areaId } = aJobToday(
+      baseOf(stack).level,
+      missionDealer(baseOf(stack)),
+    );
     const board = await stack.app.inject({
       method: 'GET',
       url: '/api/missions',

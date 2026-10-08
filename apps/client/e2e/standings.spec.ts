@@ -13,7 +13,7 @@ import {
  * The standings' two controls, and the faction file they lead to (maintainer request, 2026-09-12).
  *
  * `social.spec.ts` already covers what the board *is*: two boards, a tie sharing its place, the
- * scope control. This is the reading of it: sorting a hundred rows two ways, finding one crew by
+ * city picker. This is the reading of it: sorting a hundred rows two ways, finding one crew by
  * name, and walking through the faction column onto a table's own page.
  *
  * The sizes are the two the board reads the game at. Both are swept for clipping and for a screen

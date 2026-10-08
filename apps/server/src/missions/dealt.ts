@@ -25,10 +25,12 @@ export function namedCard(args: {
   /** The crew's level as the player read the board: before this request's own settle. */
   level: number;
   now: Date;
+  /** The crew the board was dealt to (`missionDealer`). Empty is the shared deal. */
+  dealer?: string;
 }): DealtJob | null {
   if (!launchableBoardKeys(args.areaId, args.now).includes(args.boardKey)) return null;
   for (const level of [args.level, args.level - 1].filter((one) => one >= 1)) {
-    const job = missionOffers(args.areaId, args.boardKey, level).find(
+    const job = missionOffers(args.areaId, args.boardKey, level, args.dealer ?? '').find(
       (one) => one.template.id === args.templateId && one.grade === args.grade,
     );
     if (job) return job;

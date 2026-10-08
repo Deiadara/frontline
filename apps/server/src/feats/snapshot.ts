@@ -1,6 +1,7 @@
 import {
   ALL_DISTRICTS,
   BLUEPRINTS,
+  MISC_AREA_ID,
   BUILDING_KINDS,
   EVERY_LOCATION,
   cityOf,
@@ -64,11 +65,35 @@ import type { Repositories } from '../db/repos/index.js';
  * server change at all. The two exceptions are the ones whose family is unbounded: mission areas
  * and Overseer thresholds are tallied and read on demand rather than enumerated.
  */
+/** The key every per-district mission tally is filed under. See `tallyMissionHome`. */
+const AREA_PREFIX = 'missions_in_area:';
+
 export function featSnapshot(repos: Repositories, base: Base): FeatSnapshot {
   const snapshot: Record<string, number> = { ...repos.feats.tallies(base.id) };
   const put = (measure: Parameters<typeof featMeasureKey>[0], value: number, scope?: string) => {
     snapshot[featMeasureKey(measure, scope)] = value;
   };
+
+  /*
+   * Two readings of the board that name no district (maintainer, 2026-10-07).
+   *
+   * A board belongs to the crew's own city and opens only on a district it holds whole, so a feat
+   * naming one district was work half the players could never reach. Both come off the
+   * `missions_in_area` family already in `snapshot`, so they count runs made before they existed.
+   * The misc board is not a district and is left out of the first; the second asks only what the
+   * atlas says about the ground, so a district the crew has since taken off the regime still counts.
+   */
+  const workedAreas = Object.entries(snapshot).flatMap(([key, runs]) =>
+    key.startsWith(AREA_PREFIX) && runs > 0 ? [key.slice(AREA_PREFIX.length)] : [],
+  );
+  put('mission_districts', workedAreas.filter((areaId) => areaId !== MISC_AREA_ID).length);
+  put(
+    'missions_on_combine_ground',
+    [...COMBINE_GROUND].reduce(
+      (total, areaId) => total + (snapshot[`${AREA_PREFIX}${areaId}`] ?? 0),
+      0,
+    ),
+  );
 
   // --- the crew itself ---
   put('level', base.level);
@@ -216,6 +241,8 @@ export function featSnapshot(repos: Repositories, base: Base): FeatSnapshot {
   // The railway, which is one location kind and therefore one filter (`city/rails.ts`). A rival
   // does not have to break your city to break your line, only to take one platform.
   put('rail_stations_held', heldPlaces.filter((one) => one.kind === 'rail_station').length);
+  // Arca's tombs, the same way: one location kind, one filter (`DISTRICTS.md`, "The Mausoleums").
+  put('mausoleums_held', heldPlaces.filter((one) => one.kind === 'mausoleum').length);
   // P8-C: the best-worked holding. Held ground starts at level 1, so nothing held reads 0.
   put(
     'location_level_held',

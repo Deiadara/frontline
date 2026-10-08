@@ -54,7 +54,6 @@ import {
   armySize,
   battleBoostSlots,
   gateDefensePercent,
-  tollingTowerNoise,
 } from '@frontline/shared';
 import {
   crewEffectsFor,
@@ -63,7 +62,7 @@ import {
   standingEffectsFor,
 } from '../crew/standing.js';
 import type { Repositories } from '../db/repos/index.js';
-import { wholeHolderOf } from '../city/holding.js';
+import { readTheMap, wholeHolderOf } from '../city/holding.js';
 import { sideForce } from './side.js';
 import { spyRunViews } from '../spying/spying.js';
 import { moveViews } from '../moves/moves.js';
@@ -76,7 +75,7 @@ import {
   residentOf,
   targetName,
 } from './ground.js';
-import { assemble, battlefieldOf } from './resolve.js';
+import { assemble, battlefieldOf, groundLabelsOver } from './resolve.js';
 import { presenceAt, unrowedFor, type Presence } from './alignment.js';
 import { mergeArmies, removeForce } from './forces.js';
 import { insideLock, placeLocked } from './lock.js';
@@ -359,7 +358,7 @@ function viewOf(repos: Repositories, base: Base, battle: ScheduledBattle, now: D
     battlefield: battlefieldOf(
       battle,
       district?.name ?? 'somewhere',
-      district ? tollingTowerNoise(district, repos.city.controls()) : [],
+      district ? groundLabelsOver(district, repos.city.controls()) : [],
     ),
     // A bystander is not buying anything for a fight they are not in, and sending them the shelf
     // would be sending them the caller's own research and officer list.
@@ -687,6 +686,9 @@ function gatesFor(repos: Repositories, now: Date): DistrictGateView[] {
   // Read once for the whole city rather than per district: this runs for every district a crew can
   // see on every read of the board, and the lookup behind it is a scan.
   const lived = districtsLivedIn(repos);
+  // The seats and the control rows, once for all 36 rather than once each (2026-10-07): this map
+  // is the whole world and the board behind it refetches on every world broadcast.
+  const read = readTheMap(repos);
   return ALL_DISTRICTS.map((district) => {
     const gate = repos.sieges.gate(district.id);
     return {
@@ -695,7 +697,7 @@ function gatesFor(repos: Repositories, now: Date): DistrictGateView[] {
       // The same two facts `districtStandingFor` reads, through the same functions: a home is shut
       // by its resident and contested ground by its holder, and the screen has to be told so or it
       // would offer a fight the declaration rules refuse.
-      shut: districtIsShut(wholeHolderOf(repos, district), isInhabited(district, lived)),
+      shut: districtIsShut(wholeHolderOf(repos, district, read), isInhabited(district, lived)),
       brokenUntil: gate && gateIsBroken(gate, now) ? gate.brokenUntil : null,
     };
   });

@@ -13,6 +13,7 @@ import {
   areaPayPercent,
   areasOffering,
   missionBoardKey,
+  missionDealer,
   missionOffers,
   missionXp,
   scaledSpoils,
@@ -78,7 +79,7 @@ import { standingEffectsFor } from '../crew/standing.js';
 import { infirmaryRecoveryPercent } from '@frontline/shared';
 import { cardFor, cardOn } from '../testing/card.js';
 import { chooseOverseer, pinOverseer } from '../testing/overseer.js';
-import { holdEveryBoard } from '../testing/footholds.js';
+import { QUIET_BOARD, holdDistrictWhole, holdEveryBoard } from '../testing/footholds.js';
 import { sureLeader } from '../testing/leader.js';
 
 /**
@@ -89,6 +90,14 @@ import { sureLeader } from '../testing/leader.js';
  * described on `launchBody`.
  */
 /**
+ * The crew the last `makeStack` made, as its boards are dealt (`missionDealer`).
+ *
+ * Boards are a crew's own since 2026-10-08, so the helpers below have to read the board of the
+ * crew that will launch from it. Tests in a file run in order and each makes its stack first.
+ */
+let dealtTo = '';
+
+/**
  * A job on a board today, with the area that offers it.
  *
  * Standard work rather than simply the first offer. A battle job fights a real force at the settle
@@ -96,7 +105,10 @@ import { sureLeader } from '../testing/leader.js';
  * engine on the days a raid happens to sort first, and a crew of one Razor would come home in a
  * bag. `aBattleJobToday` is what asks for the other property.
  */
-function aJobToday(level = 1): { template: MissionTemplate; grade: Grade; areaId: string } {
+function aJobToday(
+  level = 1,
+  dealer = dealtTo,
+): { template: MissionTemplate; grade: Grade; areaId: string } {
   /*
    * Each area asked for its own key, not one day for the lot.
    *
@@ -107,8 +119,8 @@ function aJobToday(level = 1): { template: MissionTemplate; grade: Grade; areaId
   const now = new Date();
   // At the crew's level, because the board is dealt by it and the route checks the card against
   // the same deal.
-  for (const areaId of [MISC_AREA_ID, ...CITY_DISTRICTS.map((district) => district.id)]) {
-    const job = missionOffers(areaId, missionBoardKey(areaId, now), level).find(
+  for (const areaId of BOARDS_OPEN_TO_EVERYBODY) {
+    const job = missionOffers(areaId, missionBoardKey(areaId, now), level, dealer).find(
       (entry) => entry.template.kind === 'standard',
     );
     if (job) return { template: job.template, grade: job.grade, areaId };
@@ -128,7 +140,10 @@ function aJobToday(level = 1): { template: MissionTemplate; grade: Grade; areaId
  * offers at least a `further` job (twenty minutes) somewhere. Difficulty is not filtered: what a
  * job asks of a crew has nothing to do with how long the road to it is.
  */
-function theLongestRoadToday(level: number): {
+function theLongestRoadToday(
+  level: number,
+  boards: readonly string[] = BOARDS_OPEN_TO_EVERYBODY,
+): {
   template: MissionTemplate;
   grade: Grade;
   areaId: string;
@@ -136,13 +151,9 @@ function theLongestRoadToday(level: number): {
   const now = new Date();
   // Contested districts only: a plot posts no work (maintainer, 2026-09-21), and which board
   // carries the day's longest road moves with the date.
-  const areas = [
-    MISC_AREA_ID,
-    ...CITY_DISTRICTS.filter((district) => district.kind === 'contested').map((d) => d.id),
-  ];
-  const offered = areas
+  const offered = boards
     .flatMap((areaId) =>
-      missionOffers(areaId, missionBoardKey(areaId, now), level).map((job) => ({
+      missionOffers(areaId, missionBoardKey(areaId, now), level, dealtTo).map((job) => ({
         template: job.template,
         grade: job.grade,
         areaId,
@@ -160,8 +171,8 @@ function theLongestRoadToday(level: number): {
 }
 
 /** `aJobToday` as a launch payload. */
-function launchAnyJobToday(extra: Record<string, unknown> = {}, level = 1) {
-  const { template, grade, areaId } = aJobToday(level);
+function launchAnyJobToday(extra: Record<string, unknown> = {}, level = 1, dealer = dealtTo) {
+  const { template, grade, areaId } = aJobToday(level, dealer);
   return {
     templateId: template.id,
     areaId,
@@ -178,18 +189,19 @@ function launchAnyJobToday(extra: Record<string, unknown> = {}, level = 1) {
  * launches. Walking the boards rather than naming them keeps this stable if the offer walk is
  * retuned.
  */
-function launchInArea(nth: number, extra: Record<string, unknown> = {}, level = 1) {
-  // Contested districts only: a residential district is somebody's plot and posts no work at all
-  // (maintainer, 2026-09-21), so a helper that counted them handed out ids no board offers.
-  const boards = [
-    MISC_AREA_ID,
-    ...CITY_DISTRICTS.filter((district) => district.kind === 'contested').map(
-      (district) => district.id,
-    ),
-  ];
+function launchInArea(
+  nth: number,
+  extra: Record<string, unknown> = {},
+  level = 1,
+  /**
+   * The boards this stack has open, in order. The default is what `makeStack` holds; a test that
+   * needs a third board takes the rest of the city first (`holdEveryBoard`) and says so here.
+   */
+  boards: readonly string[] = BOARDS_OPEN_TO_EVERYBODY,
+) {
   const areaId = boards[nth];
   if (areaId === undefined) throw new Error(`no board number ${nth}`);
-  const offer = missionOffers(areaId, missionBoardKey(areaId, new Date()), level)[0];
+  const offer = missionOffers(areaId, missionBoardKey(areaId, new Date()), level, dealtTo)[0];
   if (!offer) throw new Error(`board ${areaId} offers nothing`);
   return {
     templateId: offer.template.id,
@@ -217,18 +229,13 @@ function theLongestPlainJobToday(level: number): {
   areaId: string;
 } {
   const now = new Date();
-  const areas = [
-    MISC_AREA_ID,
-    ...CITY_DISTRICTS.filter((district) => district.kind === 'contested').map((d) => d.id),
-  ];
-  const offered = areas
-    .flatMap((areaId) =>
-      missionOffers(areaId, missionBoardKey(areaId, now), level).map((job) => ({
-        template: job.template,
-        grade: job.grade,
-        areaId,
-      })),
-    )
+  const offered = BOARDS_OPEN_TO_EVERYBODY.flatMap((areaId) =>
+    missionOffers(areaId, missionBoardKey(areaId, now), level, dealtTo).map((job) => ({
+      template: job.template,
+      grade: job.grade,
+      areaId,
+    })),
+  )
     .filter((entry) => entry.template.kind === 'standard')
     .sort(
       (a, b) =>
@@ -311,14 +318,43 @@ async function makeStack(username = 'runner'): Promise<Stack> {
   // Somebody to send. A mission takes actual units now, so a stack with an empty roster refuses
   // every launch below for the right reason and tells us nothing about the thing under test.
   repos.bases.updateArmy(minted.id, { razors: 20, haulers: 20 }, minted.musterQueue);
-  // A place in every district. Work is offered per district only to a crew that holds a place in
-  // it, so a stack that holds nothing refuses most launches for a reason none of these tests are
-  // about. The rule itself is `board.test.ts`.
-  holdEveryBoard(repos, minted.id);
+  /*
+   * No ground, and the job pickers below work the `misc` board (maintainer, 2026-10-07).
+   *
+   * A district's board opens only to a crew that holds the district end to end, and every
+   * contested district in Ashfall has locations paying on the channels these tests measure: a
+   * clock, a haul, infamy, a fight. So "hold a board open" and "measure the catalogue rather than
+   * the ground" cannot both be had any more, and `misc` is the board that is open to everybody and
+   * belongs to no ground, plus the one district this stack takes end to end: two boards, which is
+   * what the tests about a second crew and a busy area need. `QUIET_BOARD` is the district in
+   * Ashfall whose ground moves none of what is measured here. `board.test.ts` is where the rule
+   * itself is held.
+   */
+  holdDistrictWhole(repos, minted.id, QUIET_BOARD);
   const base = repos.bases.findByOwnerId(user.id);
   if (!base) throw new Error('base vanished after arming it');
+  dealtTo = missionDealer(base);
   return { app, repos, base, token, db, overseerId };
 }
+
+/** Every board in Ashfall, for the one test that takes the whole city to get a third of them. */
+const EVERY_BOARD: readonly string[] = [
+  MISC_AREA_ID,
+  // Contested districts only: a residential district is somebody's plot and posts no work at all
+  // (maintainer, 2026-09-21), so a helper that counted them handed out ids no board offers.
+  ...CITY_DISTRICTS.filter((district) => district.kind === 'contested').map(
+    (district) => district.id,
+  ),
+];
+
+/**
+ * The boards this file's stack works: `misc`, which belongs to no ground, and the one quiet
+ * district it holds end to end.
+ *
+ * A district hires only the crew that holds it entirely (maintainer, 2026-10-07), and the stack
+ * above takes exactly one, so the ground under these tests moves none of what they measure.
+ */
+const BOARDS_OPEN_TO_EVERYBODY: readonly string[] = [MISC_AREA_ID, QUIET_BOARD];
 
 const scrapRun = findMissionTemplate('scrap-run') as MissionTemplate;
 
@@ -326,20 +362,19 @@ const scrapRun = findMissionTemplate('scrap-run') as MissionTemplate;
  * A mission's road, as the launch computes it (maintainer, 2026-09-23).
  *
  * Every walk in the game reads the crew's own `travelSpeedPercent` and the whole minutes
- * `road_shortcut` cuts, and a mission's road was the one that did not. It does now, so a test
+ * the travel channel's cuts, and a mission's road was the one that did not. It does now, so a test
  * pinning the arithmetic has to sum the same three things the launch sums: the column's pace,
  * which divides, the ground's and the crew's percentages, which multiply, and the flat cut last.
  */
 function roadFor(
   bandMinutes: number,
   speed: number,
-  effects: { missionSpeedPercent: number; travelSpeedPercent: number; roadMinutesOff: number },
+  effects: { missionSpeedPercent: number; travelSpeedPercent: number },
 ): number {
   return hastenedRoadMinutes(
     bandMinutes,
     speed,
     effects.missionSpeedPercent + Math.max(0, effects.travelSpeedPercent),
-    Math.max(0, effects.roadMinutesOff),
   );
 }
 
@@ -428,6 +463,8 @@ function planted(
     id: `mission-${seed}-${template.id}`,
     base: stack.base,
     template,
+    // The shared deal, not this crew's: a planted run never passes the board, and two crews
+    // planting one job have to stand in the same area for their runs to be compared.
     areaId: areasOffering(template.id, new Date(), stack.base.level)[0] ?? MISC_AREA_ID,
     force,
     now: startedAt,
@@ -448,6 +485,7 @@ function planted(
  * pricing that can drift from it.
  */
 function paidFor(template: MissionTemplate, stack: Stack) {
+  // The shared deal, which is what `planted` stands its runs on.
   const areaId = areasOffering(template.id, new Date(), stack.base.level)[0] ?? MISC_AREA_ID;
   // At the job's lowest grade, which is what `planted` freezes. The crew's level plays no part
   // in the price any more (maintainer, 2026-09-28): it only decides which grades are dealt.
@@ -1182,13 +1220,16 @@ describe('the mission routes', () => {
     const { app, token } = stack;
 
     const bench = withOfficers(stack, BASE_CONCURRENT_MISSIONS + 1);
+    // Three boards are needed to tell the cap apart from the one-job-per-area rule, and a board is
+    // a whole district now, so this is the one test that takes the whole city.
+    holdEveryBoard(stack.repos, stack.base.id);
     // One per area: two crews out means two boards, which is half of what the limit is *for*.
     for (let i = 0; i < BASE_CONCURRENT_MISSIONS; i += 1) {
       const res = await app.inject({
         method: 'POST',
         url: '/api/missions',
         headers: auth(token),
-        payload: launchInArea(i, { leaderId: bench[i] }),
+        payload: launchInArea(i, { leaderId: bench[i] }, 1, EVERY_BOARD),
       });
       expect(res.statusCode, res.body).toBe(200);
     }
@@ -1197,9 +1238,12 @@ describe('the mission routes', () => {
       method: 'POST',
       url: '/api/missions',
       headers: auth(token),
-      payload: launchInArea(BASE_CONCURRENT_MISSIONS, {
-        leaderId: bench[BASE_CONCURRENT_MISSIONS],
-      }),
+      payload: launchInArea(
+        BASE_CONCURRENT_MISSIONS,
+        { leaderId: bench[BASE_CONCURRENT_MISSIONS] },
+        1,
+        EVERY_BOARD,
+      ),
     });
     expect(overflow.statusCode).toBe(409);
     expect(overflow.json<{ error: { code: string } }>().error.code).toBe('MISSIONS_AT_CAPACITY');
@@ -1217,9 +1261,12 @@ describe('the mission routes', () => {
       method: 'POST',
       url: '/api/missions',
       headers: auth(token),
-      payload: launchInArea(BASE_CONCURRENT_MISSIONS, {
-        leaderId: bench[BASE_CONCURRENT_MISSIONS],
-      }),
+      payload: launchInArea(
+        BASE_CONCURRENT_MISSIONS,
+        { leaderId: bench[BASE_CONCURRENT_MISSIONS] },
+        1,
+        EVERY_BOARD,
+      ),
     });
     expect(afterReturn.statusCode, afterReturn.body).toBe(200);
   });
@@ -1872,7 +1919,7 @@ describe('vehicles on a mission (§C3)', () => {
       url: '/api/missions',
       headers: { authorization: `Bearer ${stack.token}` },
       payload: {
-        ...launchAnyJobToday({ leaderId: stack.overseerId }),
+        ...launchAnyJobToday({ leaderId: stack.overseerId }, 1, missionDealer(stack.base)),
         force: { razors: 4 },
         vehicles,
       },
@@ -1938,14 +1985,21 @@ describe('vehicles on a mission (§C3)', () => {
   it('does not make the job itself go faster', async () => {
     const walking = await makeStack('slow');
     const riding = await makeStack('fast');
-    yardWith(riding, { motorcycle: 2 });
 
-    const onFoot = await launchWith(walking, {});
-    const onWheels = await launchWith(riding, { motorcycle: 2 });
-
-    expect(onWheels.json<{ mission: Mission }>().mission.durationMinutes).toBe(
-      onFoot.json<{ mission: Mission }>().mission.durationMinutes,
+    // Planted rather than sent through the route: boards are each crew's own (2026-10-08), so two
+    // crews are not offered the same card, and the comparison needs one job.
+    const onFoot = planted(walking, longestRoad, ALWAYS_SUCCEEDS, T0, {}, { razors: 4 });
+    const onWheels = planted(
+      riding,
+      longestRoad,
+      ALWAYS_SUCCEEDS,
+      T0,
+      { motorcycle: 2 },
+      { razors: 4 },
     );
+
+    expect(onWheels.travelMinutes).toBeLessThan(onFoot.travelMinutes);
+    expect(onWheels.durationMinutes).toBe(onFoot.durationMinutes);
   });
 
   /**
@@ -1990,7 +2044,7 @@ describe('vehicles on a mission (§C3)', () => {
       url: '/api/missions',
       headers: { authorization: `Bearer ${few.token}` },
       payload: {
-        ...launchAnyJobToday({ leaderId: few.overseerId }),
+        ...launchAnyJobToday({ leaderId: few.overseerId }, 1, missionDealer(few.base)),
         force: { razors: 1 },
         vehicles: { armoured_car: 1 },
       },
@@ -2000,7 +2054,7 @@ describe('vehicles on a mission (§C3)', () => {
       url: '/api/missions',
       headers: { authorization: `Bearer ${many.token}` },
       payload: {
-        ...launchAnyJobToday({ leaderId: many.overseerId }),
+        ...launchAnyJobToday({ leaderId: many.overseerId }, 1, missionDealer(many.base)),
         force: { razors: 20 },
         vehicles: { armoured_car: 1 },
       },
@@ -2110,6 +2164,8 @@ describe('vehicles on a mission (§C3)', () => {
    */
   it('reads a mission road at the pace the crew actually moves at', async () => {
     const stack = await makeStack('skater');
+    // Every board, so this crew's own deal (2026-10-08) carries a long road somewhere.
+    holdEveryBoard(stack.repos, stack.base.id);
     pastTheOpening(stack);
     const skate = CITY_LOCATIONS.find((location) => location.kind === 'skate_ground');
     if (!skate) throw new Error('no Skate Ground on the map');
@@ -2130,7 +2186,7 @@ describe('vehicles on a mission (§C3)', () => {
     );
     expect(effects.unitSpeedPercent).toBeGreaterThan(0);
 
-    const { template, grade, areaId } = theLongestRoadToday(7);
+    const { template, grade, areaId } = theLongestRoadToday(7, EVERY_BOARD);
     const res = await stack.app.inject({
       method: 'POST',
       url: '/api/missions',
@@ -2168,6 +2224,7 @@ describe('vehicles on a mission (§C3)', () => {
    */
   it('reads the road at the sheet the workshop actually fitted', async () => {
     const stack = await makeStack('laced');
+    holdEveryBoard(stack.repos, stack.base.id);
     pastTheOpening(stack);
     // The largest of them, so the two sheets are more than a rounding step apart on this road.
     const quickening = [...UNIT_MODIFICATIONS]
@@ -2181,7 +2238,7 @@ describe('vehicles on a mission (§C3)', () => {
       standingEffectsFor(stack.repos, stack.repos.bases.findById(stack.base.id)!),
     );
 
-    const { template, grade, areaId } = theLongestRoadToday(7);
+    const { template, grade, areaId } = theLongestRoadToday(7, EVERY_BOARD);
     const res = await stack.app.inject({
       method: 'POST',
       url: '/api/missions',
@@ -2434,13 +2491,17 @@ describe('§D5: a leader shortens the road and not the cheque', () => {
    * this test is about pricing. Difficulty is not filtered at all: a hard standard job launches
    * on the same four Razors, and what it costs is not what is under test.
    */
-  function aLongRoadToday(): { template: MissionTemplate; areaId: string } {
+  function aLongRoadToday(stack: Stack): { template: MissionTemplate; areaId: string } {
     const now = new Date();
+    const dealer = missionDealer(stack.base);
     const offered = MISSION_TEMPLATES.filter(
       (template) => template.kind === 'standard' && template.travelBand !== 'close',
     )
       // At level seven, where `crewWithAShortWay` puts both crews: the board is dealt by level.
-      .map((template) => ({ template, areaId: areasOffering(template.id, now, 7)[0] }))
+      .map((template) => ({
+        template,
+        areaId: areasOffering(template.id, now, 7, undefined, undefined, dealer)[0],
+      }))
       .filter(
         (entry): entry is { template: MissionTemplate; areaId: string } =>
           entry.areaId !== undefined,
@@ -2459,6 +2520,8 @@ describe('§D5: a leader shortens the road and not the cheque', () => {
     const stack = await makeStack(username);
     // The Short Way is a fact about the full board's road: see `pastTheOpening`.
     pastTheOpening(stack);
+    // Every board open, so this crew's own deal (2026-10-08) has a long road on it somewhere.
+    holdEveryBoard(stack.repos, stack.base.id);
     const officer = createCommander('off-short', 'Ilva Rask', 'field_commander', {}, ['short_way']);
     stack.repos.bases.updateCommanders(stack.base.id, [officer]);
     return { stack, leaderId: officer.id };
@@ -2477,7 +2540,7 @@ describe('§D5: a leader shortens the road and not the cheque', () => {
       payload: {
         templateId: template.id,
         areaId,
-        ...cardFor(areaId, template.id, 7),
+        ...cardFor(areaId, template.id, 7, undefined, missionDealer(stack.base)),
         force: { razors: 4 },
         vehicles: {},
         ...(leaderId === undefined ? {} : { leaderId }),
@@ -2488,14 +2551,21 @@ describe('§D5: a leader shortens the road and not the cheque', () => {
   }
 
   it('pays and teaches the same whether or not the fastest officer leads it', async () => {
-    const { template, areaId } = aLongRoadToday();
-    const led = await crewWithAShortWay('short_way_led');
-    const unled = await crewWithAShortWay('short_way_unled');
+    // One crew sending one card twice: boards are a crew's own (2026-10-08), so two crews are not
+    // offered the same job. The first run is marked home so the board opens for the second.
+    const { stack, leaderId } = await crewWithAShortWay('short_way_led');
+    const { template, areaId } = aLongRoadToday(stack);
 
-    const withLeader = await launch(led.stack, template, areaId, led.leaderId);
+    const withLeader = await launch(stack, template, areaId, leaderId);
+    stack.repos.missions.markResolved(withLeader.id, {
+      outcome: 'success',
+      rewards: {},
+      spoils: {},
+      resolvedAt: new Date().toISOString(),
+    });
     // Led by the Overseer, who is nobody's officer and carries no book of perks: the §D5 channels
     // are an officer's, so this is the same run without the Short Way on it.
-    const without = await launch(unled.stack, template, areaId, unled.stack.overseerId);
+    const without = await launch(stack, template, areaId, stack.overseerId);
 
     // The control: the perk is worth something on this leg, so the equalities below are a claim
     // about the pricing rather than a comparison of two identical runs.
@@ -2532,8 +2602,8 @@ describe('§D5: a leader shortens the road and not the cheque', () => {
   });
 
   it('freezes the clock the board quoted, not the one the crew runs on', async () => {
-    const { template, areaId } = aLongRoadToday();
     const { stack, leaderId } = await crewWithAShortWay('short_way_quoted');
+    const { template, areaId } = aLongRoadToday(stack);
 
     const board = await stack.app.inject({
       method: 'GET',
@@ -2556,8 +2626,9 @@ describe('§D5: a leader shortens the road and not the cheque', () => {
   });
 
   it('quotes the take an officer with a loot perk brings home, and pays it', async () => {
-    const { template, areaId } = aLongRoadToday();
     const stack = await makeStack('picks_the_crate');
+    holdEveryBoard(stack.repos, stack.base.id);
+    const { template, areaId } = aLongRoadToday(stack);
     pastTheOpening(stack);
     const officer = createCommander('off-crate', 'Dace Orrin', 'field_commander', {}, [
       'picks_the_crate',
@@ -2617,7 +2688,6 @@ describe('§C3: the road the send dialog is handed', () => {
     const effects = standingEffectsFor(stack.repos, base, new Date());
     expect(board.json<MissionsResponse>().road).toEqual({
       travelSpeedPercent: Math.max(0, effects.travelSpeedPercent),
-      roadMinutesOff: Math.max(0, effects.roadMinutesOff),
       unitSpeedPercent: effects.unitSpeedPercent,
       // The Cartographer's cut off the road's base (2026-10-04).
       baseCutPercent: chairPassiveOf(effects, 'cartographer', 'travel_time'),

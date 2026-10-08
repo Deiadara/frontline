@@ -18,7 +18,7 @@ import type { Repositories } from '../db/repos/index.js';
 import { AppError } from '../errors.js';
 
 /**
- * Reliquary's switches and pins (maintainer, 2026-10-06): what a holder does on a location's own
+ * Arca's switches and pins (maintainer, 2026-10-06): what a holder does on a location's own
  * sheet. The Tolling Tower's switch and the Pamphlet Wall's pins live on the control row, so a
  * change of hands takes them with the ground (`putControl`).
  *
@@ -128,10 +128,19 @@ export function throwSwitch(
 
 /** A pin names a unit the game has, and no unit twice. */
 function checkPins(pins: readonly string[], capacity: number): void {
-  if (pins.length > capacity) {
+  /*
+   * The full set or nothing (maintainer, 2026-10-07).
+   *
+   * A short set used to be allowed and still stamped the wall at its level, which at level 5 was a
+   * door that locked behind the holder: the free re-pin wants a level above the current one and
+   * there is none, and the paid swap wants a full set. A wall pinned with one unit of three could
+   * never be changed again, and nothing on the sheet said why. Refused at the door instead, which
+   * is the only place the player can still do something about it.
+   */
+  if (pins.length !== capacity) {
     throw new AppError(
       'PLACE_UNAVAILABLE',
-      `The wall takes ${capacity} pin${capacity === 1 ? '' : 's'}`,
+      `The wall takes ${capacity} pin${capacity === 1 ? '' : 's'}, all of them at once`,
     );
   }
   if (new Set(pins).size !== pins.length) {

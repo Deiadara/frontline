@@ -79,6 +79,8 @@ export const FEAT_MEASURES = [
   'districts_held_whole_abroad',
   'cities_held',
   'rail_stations_held',
+  // Arca (opened 2026-10-07): the tombs, which are the city's one trait as the line is Terminus's.
+  'mausoleums_held',
   // P8-C (2026-10-02): the best-worked holding this crew stands on.
   'location_level_held',
   'faction_infamy',
@@ -91,6 +93,8 @@ export const FEAT_MEASURES = [
   'missions_done',
   'missions_won',
   'missions_in_area',
+  'mission_districts',
+  'missions_on_combine_ground',
   'missions_of_kind',
   'battles_fought',
   'battles_won',
@@ -132,6 +136,7 @@ export const FEAT_MEASURES = [
   'districts_emptied',
   'plots_held_through_regrowth',
   'units_mustered',
+  'units_mustered_of',
   'drills_third_in_line',
   'overseer_taken',
   'buildings_raised',
@@ -260,6 +265,14 @@ export const FEAT_MEASURE_SPECS: Readonly<Record<FeatMeasure, FeatMeasureSpec>> 
    * both ends, and one Station is a building rather than a railway.
    */
   rail_stations_held: { source: 'crew', scoped: false, unit: 'platforms' },
+  /**
+   * Mausoleums held, which is the whole of Arca's one trait (`DISTRICTS.md`, "The Mausoleums").
+   *
+   * One in each of the city's eight contested districts, so the ceiling is eight. One is the
+   * number that matters: it opens the Death Cloaks, and every one after it puts thirty damage and
+   * thirty vitality on each of them and lets the crew keep fifty more.
+   */
+  mausoleums_held: { source: 'crew', scoped: false, unit: 'tombs' },
   /** The highest level among the locations this crew holds right now. */
   location_level_held: { source: 'crew', scoped: false, unit: 'levels' },
   faction_infamy: { source: 'crew', scoped: false, unit: 'infamy' },
@@ -271,6 +284,16 @@ export const FEAT_MEASURE_SPECS: Readonly<Record<FeatMeasure, FeatMeasureSpec>> 
   missions_done: { source: 'tally', scoped: false, unit: 'missions' },
   missions_won: { source: 'tally', scoped: false, unit: 'missions' },
   missions_in_area: { source: 'tally', scoped: true, unit: 'missions' },
+  /*
+   * Two readings of the same tallies, so a feat about the board does not have to name a district
+   * (maintainer, 2026-10-07: "make sure generally the feats can be done by people spawned in any
+   * city"). A board belongs to the crew's own city and opens only on a district it holds whole, so
+   * a feat naming Steelbelt was work half the players could never reach. Derived in the snapshot
+   * off the `missions_in_area` family rather than tallied again, which means they count the runs
+   * already in the table.
+   */
+  mission_districts: { source: 'crew', scoped: false, unit: 'districts' },
+  missions_on_combine_ground: { source: 'crew', scoped: false, unit: 'missions' },
   missions_of_kind: { source: 'tally', scoped: true, unit: 'missions' },
   battles_fought: { source: 'tally', scoped: false, unit: 'fights' },
   battles_won: { source: 'tally', scoped: false, unit: 'wins' },
@@ -386,6 +409,8 @@ export const FEAT_MEASURE_SPECS: Readonly<Record<FeatMeasure, FeatMeasureSpec>> 
   districts_emptied: { source: 'tally', scoped: false, unit: 'districts' },
   plots_held_through_regrowth: { source: 'tally', scoped: false, unit: 'holdings' },
   units_mustered: { source: 'tally', scoped: false, unit: 'units' },
+  /** The same count, by the unit's id: `units_mustered_of:death_cloaks` is the Cloaks raised. */
+  units_mustered_of: { source: 'tally', scoped: true, unit: 'units' },
   /** Drills queued with two already on the list: the Professor's third place, used. */
   drills_third_in_line: { source: 'tally', scoped: false, unit: 'drills' },
   /**

@@ -9,7 +9,7 @@ import {
   type Building,
 } from '../building/index.js';
 import { BLUEPRINTS, blueprintForUnit } from '../blueprints/index.js';
-import { CITY_LOCATIONS, LOCATION_KINDS } from '../city/index.js';
+import { CITY_LOCATIONS, COMBINE_LEADERS, LOCATION_KINDS } from '../city/index.js';
 import type { Inventory } from '../items/inventory.js';
 import { RESOURCE_KEYS } from '../resources.js';
 import {
@@ -532,7 +532,7 @@ describe('unlocking them (§A5)', () => {
 
   it('gates something on each of the five kinds of clause', () => {
     const kinds = new Set(UNIT_CATALOG.flatMap((unit) => unit.requires.map((need) => need.kind)));
-    // `door` since Reliquary (2026-10-07): the Saint, the Condemned, the Dancer and the Juggernauts
+    // `door` since Arca (2026-10-07): the Saint, the Condemned, the Dancer and the Juggernauts
     // answer to ground authored by name rather than by kind of place.
     expect(kinds).toEqual(new Set(['building', 'modification', 'location', 'vehicle', 'door']));
   });
@@ -1286,7 +1286,9 @@ describe('what a unit-producing location does to its own unit', () => {
  * door a player could reach one through shut.
  */
 describe('the Combine roster (§A3)', () => {
-  it('has the seven units the maintainer named, and no others', () => {
+  // Ten since 2026-10-07: Arca's command joined Ashfall's seven, and the new three are at the
+  // end of the catalogue because a portrait's seed is its index (`art/manifest.ts`).
+  it('has the ten units the maintainer named, and no others', () => {
     expect(COMBINE_UNITS.map((unit) => unit.id)).toEqual([
       'civic_levy',
       'greycoat',
@@ -1295,6 +1297,9 @@ describe('the Combine roster (§A3)', () => {
       'syndic',
       'executioner',
       'directive_xero',
+      'curate',
+      'blood_priest',
+      'hierarch',
     ]);
   });
 
@@ -1327,10 +1332,20 @@ describe('the Combine roster (§A3)', () => {
     expect(PLAYER_UNITS.length + COMBINE_UNITS.length).toBe(UNIT_CATALOG.length);
   });
 
-  it('makes the three leaders one of a kind, and nobody else', () => {
+  it('makes every leader one of a kind, and nobody else', () => {
     const uniques = COMBINE_UNITS.filter((unit) => unit.unique).map((unit) => unit.id);
-    expect(uniques).toEqual(['syndic', 'executioner', 'directive_xero']);
+    expect(uniques).toEqual([
+      'syndic',
+      'executioner',
+      'directive_xero',
+      'curate',
+      'blood_priest',
+      'hierarch',
+    ]);
     for (const id of uniques) expect(findUnit(id)?.tier).toBe('legendary');
+    // ...and the table of leaders is exactly that list, so a sheet cannot be unique and command
+    // nothing, and a leader cannot command a district without a one-of-a-kind body to kill.
+    expect([...COMBINE_LEADERS].map((leader) => leader.unitId).sort()).toEqual([...uniques].sort());
   });
 
   it('deals the damage the maintainer named for each', () => {
@@ -1343,6 +1358,9 @@ describe('the Combine roster (§A3)', () => {
       syndic: 'ballistic',
       executioner: 'blade',
       directive_xero: 'energy',
+      curate: 'ballistic',
+      blood_priest: 'chemical',
+      hierarch: 'blunt',
     });
   });
 });

@@ -55,7 +55,7 @@ export type CrewOnlyBonus =
   | { kind: 'wage_discount'; percent: number }
   | { kind: 'payroll_step_discount'; percent: number }
   | { kind: 'intel_resistance'; percent: number }
-  // `casualty_recovery` and `mission_caps` are `HoldBonus` kinds since Reliquary's Infirmary
+  // `casualty_recovery` and `mission_caps` are `HoldBonus` kinds since Arca's Infirmary
   // Cloister and Candlemarket pay them off the ground (2026-10-07); a perk reaches them through
   // the shared fold. Cap Counter's `mission_caps` was a `resource_yield` on caps before that.
   | { kind: 'cohesion'; percent: number }
@@ -700,9 +700,9 @@ const CATALOG: Perk[] = [
     'Shortcut Runner',
     'logistics',
     'Cuts through the rail yards where the fences are only for show.',
-    // Three minutes flat, against the Tram Depot's four. A percentage is worth what the clock is
-    // worth and this is worth the same on the short hop as on the long march: see `roadMinutes`.
-    { kind: 'road_shortcut', minutes: 3 },
+    // Two points on the travel channel since 2026-10-07, where this was three flat minutes. See
+    // the Tram Depot in `city/locations.ts` for why the flat channel went.
+    { kind: 'travel_speed', percent: 2 },
   ),
   perk(
     'permit_forger',

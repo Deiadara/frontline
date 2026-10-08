@@ -27,17 +27,28 @@ import { lootCapacityOf } from './raid.js';
  * not a map: nothing about it said where you were working, nothing changed as the city changed,
  * and taking a job cost nothing but the clock.
  *
- * Work is now **per area**. Every contested district a crew holds at least one location in offers
- * three jobs; there is one more board, `misc`, for the work that belongs to nobody's ground. Take
- * one and the other two are off the table until that crew is home, so a district is a commitment
- * rather than a queue. Across the whole city a crew can only have {@link BASE_CONCURRENT_MISSIONS}
- * running at once, in different areas, and the only thing that lifts that is a milestone.
+ * Work is now **per area**. Every contested district a crew holds **whole** offers three jobs;
+ * there is one more board, `misc`, for the work that belongs to nobody's ground. Take one and the
+ * other two are off the table until that crew is home, so a district is a commitment rather than a
+ * queue. Across the whole city a crew can only have {@link BASE_CONCURRENT_MISSIONS} running at
+ * once, in different areas, and the only thing that lifts that is a milestone.
  *
- * The foothold rule is the maintainer's (2026-09-29): "in order to do missions in a district you
- * still need to hold at least one location in that district, or you can do the misc ones". So the
- * board is a map of where the crew has a stake, and taking the first place in a district is what
- * puts its board on the screen. {@link areaIsOpen} is the rule and `missions/board.test.ts` on the
- * server is what holds it.
+ * The whole-district rule is the maintainer's (2026-10-07): "you can only do missions in your
+ * starting city and only in districts that you or your faction control entirely". It replaced the
+ * foothold rule of 2026-09-29, where one location in a district opened its board. So the board is
+ * a map of the ground a crew has finished taking, and the last plot in a district is what puts its
+ * board on the screen. {@link areaIsOpen} is the rule and `missions/board.test.ts` on the server is
+ * what holds it; `misc` is outside it and is always there, so a crew that holds nothing has work
+ * from its first evening.
+ *
+ * **Whole counts for a faction**, like every other whole-district question since 2026-10-07: the
+ * crew and its table together holding every plot opens the board for all of them
+ * (`districtWholeFor`, and `city/holding.ts` on the server is what asks it).
+ *
+ * The boards are the **home city's** and nobody else's: the ground a crew holds in a second city
+ * is ground it can walk to and fight over, not a place anybody there hires it. The enumeration is
+ * the caller's (the route hands {@link openAreas} one city's districts), because a district does
+ * not know whose home it is near.
  *
  * The three on offer are a pure function of the area, its key and the crew's level, so a crew
  * sees the same three on every read and can plan around them; two crews at different levels see
@@ -101,15 +112,23 @@ export interface DealtJob {
  *
  * `misc` gets the same treatment rather than a hand-picked list; what makes it different is that
  * it is always open, before a crew holds anything.
+ *
+ * **And the crew is in the roll** (maintainer, 2026-10-08: "Missions should be randomized and
+ * varied even in the beginning"). The seed was the area, the key and the slot alone, so every
+ * crew in the world, and every new game started on the same day, was dealt the same three cards.
+ * `dealer` is {@link missionDealer} of the crew reading the board; empty leaves the old shared
+ * deal, which is what a caller with no crew in hand (and the found-case tests) still get.
  */
-export function missionOffers(areaId: string, day = '', level = 1): DealtJob[] {
+export function missionOffers(areaId: string, day = '', level = 1, dealer = ''): DealtJob[] {
   const kinds: MissionKind[] = [
     ...Array<MissionKind>(FIGHTS_PER_AREA).fill('battle'),
     ...Array<MissionKind>(MISSIONS_PER_AREA - FIGHTS_PER_AREA).fill('standard'),
   ];
   const dealt: DealtJob[] = [];
   kinds.forEach((kind, slot) => {
-    const seed = seedFrom(`deal:${areaId}:${day}:${slot}`);
+    const seed = seedFrom(
+      dealer === '' ? `deal:${areaId}:${day}:${slot}` : `deal:${areaId}:${day}:${dealer}:${slot}`,
+    );
     const { covering, grades } = jobsOfKind(kind);
     const grade = dealGrade((seed % 100_000) / 100_000, level, grades);
     const fits = (covering.get(grade) ?? []).filter(
@@ -125,6 +144,17 @@ export function missionOffers(areaId: string, day = '', level = 1): DealtJob[] {
       templateTimings(a.template, a.grade).durationMinutes -
       templateTimings(b.template, b.grade).durationMinutes,
   );
+}
+
+/**
+ * Who a board is dealt to: the crew, and the game it is on.
+ *
+ * The id alone would not do. The Console's Start over keeps the crew's id and renews `createdAt`,
+ * and the maintainer's report was the same three cards on two new games, so the founding moment
+ * is in the name as well: a new game is a new deal.
+ */
+export function missionDealer(crew: { id: string; createdAt: string }): string {
+  return `${crew.id}@${crew.createdAt}`;
 }
 
 /**
@@ -190,10 +220,12 @@ export function areasOffering(
   level: number,
   zone: string = GAME_TIMEZONE,
   cityId: string = DEFAULT_CITY_ID,
+  /** The crew whose boards these are, as {@link missionDealer} names it. */
+  dealer = '',
 ): string[] {
   const boards = districtsOfCity(cityId).filter((district) => district.kind === 'contested');
   return [MISC_AREA_ID, ...boards.map((district) => district.id)].filter((areaId) =>
-    missionOffers(areaId, missionBoardKey(areaId, now, zone), level).some(
+    missionOffers(areaId, missionBoardKey(areaId, now, zone), level, dealer).some(
       (job) => job.template.id === templateId,
     ),
   );
@@ -310,10 +342,10 @@ export function areaPayPercent(areaId: string): number {
  * The maintainer's ruling, 2026-09-29: "Add the walk". A crew may take work in any city it holds a
  * place in, and the road was the template's band (5, 20 or 60 minutes) wherever the job was, so an
  * Ashfall crew took a Terminus job on a five-minute road while the same people walking there for
- * a move took two hours across the frontier. It is the road a move between those two districts
- * walks (`rawMinutesBetween`, the frontier leg and all), added to the band, so every cut the band
- * takes (the ground's, the column's pace, the crew's travel bonuses) is spent on it too, and the
- * card is priced on the longer road the way it is priced on the band.
+ * a move crossed the frontier. It is the road a move between those two districts walks
+ * (`rawMinutesBetween`, so a flat four hours since 2026-10-07), added to the band, so every cut the
+ * band takes (the ground's, the column's pace, the crew's travel bonuses) is spent on it too, and
+ * the card is priced on the longer road the way it is priced on the band.
  *
  * The misc board has no address, so it adds nothing. Inside one city the band already stands for
  * the road, which is the rule the board has always had.
@@ -402,30 +434,40 @@ export function missionXpEarned(
 
 /** Whether this district is one a crew may take work in. */
 export interface AreaAvailability {
-  /** How many locations in it this crew holds. */
-  heldByCrew: number;
+  /**
+   * Whether this crew, with its faction mates, holds every location in it (maintainer, 2026-10-07).
+   *
+   * A boolean rather than the count it replaced, because the rule no longer has degrees: a crew
+   * holding eleven of a district's twelve plots is in exactly the position of a crew holding none,
+   * and a count invited a reader to think otherwise. `city/holding.ts` on the server works it out
+   * through `districtWholeFor`, the same function the unified bonus and the gate ask.
+   */
+  heldWhole: boolean;
 }
 
 /**
- * Whether a crew may be offered work in this district (maintainer, 2026-09-29).
+ * Whether a crew may be offered work in this district (maintainer, 2026-10-07).
  *
  * Two conditions:
  *
  *   * **Contested.** A residential district is somebody's plot, and the four of them hold no
  *     capturable locations at all (`districts.ts` guards it at module load). A job board over a
  *     rival's hideout was offering work in a place with nothing in it to work on.
- *   * **A foothold.** The crew holds at least one location in it. Holding all of them keeps the
- *     board open: the district is the crew's own ground and its people still hire. Another party
- *     holding it whole cannot happen alongside a foothold, since whole means every location.
+ *   * **Held whole.** The crew, with its faction mates, holds every location in it: "only in
+ *     districts that you or your faction control entirely". A foothold used to be enough
+ *     (2026-09-29) and is not: a district is work a crew has earned the run of, and half a
+ *     district is somebody else's ground as much as it is theirs.
  *
- * It used to need the district scouted and **not** held end to end by anybody, the crew included.
- * Scouting left the game and the whole map is visible, so the stake is what opens a board now.
+ * The third condition is the caller's, because a district cannot answer it: the boards are the
+ * crew's **home city's**. The route and the standing orders both enumerate one city's districts
+ * and the launch refuses an area outside it.
  *
  * The misc board is not a district and is never subject to any of this: see {@link MISC_AREA_ID}.
+ * It is the reason a crew that holds nothing still has work.
  */
-export function areaIsOpen(district: District, { heldByCrew }: AreaAvailability): boolean {
+export function areaIsOpen(district: District, { heldWhole }: AreaAvailability): boolean {
   // A city that is not open has no work in it for anybody, whatever is held there (2026-09-29).
-  return district.kind === 'contested' && heldByCrew > 0 && cityIsOpen(district.cityId);
+  return district.kind === 'contested' && heldWhole && cityIsOpen(district.cityId);
 }
 
 /**

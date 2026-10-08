@@ -27,8 +27,8 @@ describe('which city the map paints', () => {
   });
 
   it('falls back to the crew’s own for a city it has no painting for', () => {
-    // Reliquary is authored ground with no art behind it, and Redline and Deepcut are names with
-    // no ground at all. All three are `open: false`, so none of them has a plate here.
-    expect(paintedCity('reliquary', DEFAULT_CITY_ID)).toBe(DEFAULT_CITY_ID);
+    // Redline and Deepcut are names with no ground at all, both `open: false`, so neither has a
+    // plate here. (Arca was the example until it opened on 2026-10-07.)
+    expect(paintedCity('redline', DEFAULT_CITY_ID)).toBe(DEFAULT_CITY_ID);
   });
 });

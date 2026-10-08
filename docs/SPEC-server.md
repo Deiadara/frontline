@@ -605,22 +605,45 @@ stands, and refuses with `409 FACTION_REFUSED` whose message is a `FactionRefusa
   side the caller's faction is on (`battle/alignment.ts`).
 - `GET /api/factions/:id/profile`: any faction's public page (`FactionProfileResponse`).
 
-### Where there is work (maintainer, 2026-09-29)
+### Where there is work (maintainer, 2026-10-07)
 
-`GET /api/missions` posts a board per area: `misc`, which is always there, plus every district
-that passes `areaIsOpen` (`missions.areas.ts`): "in order to do missions in a district you still
-need to hold at least one location in that district, or you can do the misc ones".
+"Jobs can only be done by the home district and take as long as it would take to get to where the
+mission is. You can only do missions in your starting city and only in districts that you or your
+faction control entirely."
+
+`GET /api/missions` posts a board per area: `misc`, which is always there, plus every district of
+the **crew's home city** that passes `areaIsOpen` (`missions.areas.ts`).
 
 - **Contested.** The four residential districts are plots and hold no capturable locations, so
   they post nothing. `POST /api/missions` into one answers `409 MISSION_REFUSED`.
-- **A foothold.** The crew holds at least one location in the district. Holding every location
-  keeps the board open; another party holding it whole cannot happen alongside a foothold. A
-  launch into a district the crew holds nothing in answers `409 MISSION_REFUSED` ("Nobody there
-  hires a crew that holds nothing in it"), which also covers a stale card for ground just lost.
+- **Held whole.** The crew, with its faction mates, holds every location in the district
+  (`districtWholeFor`, through `city/holding.ts`, which is the same reader the unified bonus and
+  the armed gate use). A foothold was enough until 2026-10-07 and is not: a launch into a district
+  the crew does not hold entirely answers `409 MISSION_REFUSED` ("Nobody there hires a crew that
+  does not hold the district"), which also covers a stale card for a plot just lost.
+- **The home city.** The city the crew's home district is in, and no other. A launch into another
+  city's district answers `409 MISSION_REFUSED` ("Nobody out there is hiring"), said before the
+  whole-district refusal so a crew holding every plot of a Terminus district is not told to take
+  the rest of it. `?city=` on the read is **ignored** rather than refused: there is one board set
+  per crew now, so a request naming another city asks for something that does not exist, and the
+  response says which board it is (`cityId`). The `cities` field stays on the payload as the door
+  list the Bar, the market and the back room share.
+- **Who goes.** The home district's army, as it always was: `base.army` less whatever is already
+  out. A garrison on a location, the gate roster and a posting on an ally's ground are all drawn on
+  the Monitor and none of them can be sent on a job until it walks home.
 
-A new crew holds nothing, so its first board is `misc` alone; taking a place is what puts a
-district's board on the screen. The Right Hand's standing orders read the same rule and stall with
-the same advice when no board has work for them. `missions/board.test.ts` holds the rule.
+A new crew holds nothing, so its first board is `misc` alone, and `misc` is outside the rule: it is
+what gives a crew work on its first evening. The Right Hand's standing orders read the same rule,
+in the same city, and stall with the same advice when no board has work for them.
+`missions/board.test.ts` holds the rule and `missions/cities.test.ts` holds the city.
+
+A board can close under a crew that is out on it: the district falls, the board leaves the screen,
+and the run already launched still settles and still comes home. Nothing in the settle consults
+`areaIsOpen`.
+
+The road is unchanged: the template's travel band, walked from home at the column's pace
+(`missionWalkMinutes` adds the crossing between two cities, which no board a crew can read offers
+any more, so it is zero on every job today).
 
 Every board deals **one fight and two plain jobs** (`FIGHTS_PER_AREA`, maintainer 2026-09-23); the
 coin that used to deal two fights on half the boards is gone.
@@ -1055,14 +1078,14 @@ perks add on `salvageRefundPercent`, and the sum reached 155% of what the dead c
 on `SALVAGE_REFUND_CEILING` (100), so 155 points refund about 93.9% and a refund never returns
 what was spent. Every location card on these channels says "(tapers, no hard stop)" (`TAPERS`).
 
-### Reliquary's ground: authored payouts, the Mausoleums and the Death Cloaks (maintainer, 2026-10-06)
+### Arca's ground: authored payouts, the Mausoleums and the Death Cloaks (maintainer, 2026-10-06)
 
 The third city is in `city/atlas.ts` behind `open: false` while it is written a district at a time
-(`docs/DISTRICTS.md`, "Reliquary"). Four things in the code came with its first two districts:
+(`docs/DISTRICTS.md`, "Arca"). Four things in the code came with its first two districts:
 
-- **Saltmarch is gone.** Reliquary took its row in `CITIES` and its place on the world screen,
+- **Saltmarch is gone.** Arca took its row in `CITIES` and its place on the world screen,
   and its three-district sketch left the atlas with it; the shut-city tests that used it now use
-  Reliquary. No migration: a save holding Saltmarch rows drops them (pre-launch rule).
+  Arca. No migration: a save holding Saltmarch rows drops them (pre-launch rule).
 - **A location can carry its own payouts.** `LocationSchema.bonuses` is an optional authored list
   that replaces its kind's; `baseBonusesOf(location)` is the one reader and `bonusesAt` takes the
   location (a bare kind still answers with the kind's own list, for tests). Every consumer of

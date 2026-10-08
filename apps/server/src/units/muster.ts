@@ -109,7 +109,7 @@ export function unlockContextFor(repos: Repositories, base: Base): UnlockContext
   return {
     buildings: base.buildings,
     heldPlaceKinds: heldPlaceKindsOf(EVERY_LOCATION, held),
-    // The doors authored on the ground itself (Reliquary, 2026-10-07): the Shrine the Saint
+    // The doors authored on the ground itself (Arca, 2026-10-07): the Shrine the Saint
     // answers to is one location, not a kind of place.
     heldDoors: new Set(
       EVERY_LOCATION.filter((location) => held(location.id)).flatMap((location) =>
@@ -292,11 +292,7 @@ export function settleMuster(repos: Repositories, base: Base, now: Date): Muster
 
   // Feats: per unit, for the same reason the XP below is per unit. A read that happens to catch
   // the last unit of a batch must not be worth more than the read before it.
-  tallyUnitsMustered(
-    repos,
-    settled.id,
-    recruits.reduce((total, batch) => total + batch.count, 0),
-  );
+  tallyUnitsMustered(repos, settled.id, recruits);
 
   /*
    * §I1 pays per *unit*, not per order.

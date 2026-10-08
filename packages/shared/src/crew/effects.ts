@@ -157,7 +157,7 @@ export interface CrewOnlyEffects {
   /** Taken off what the next `Increase Payroll` step costs. */
   payrollStepDiscountPercent: number;
   // `missionCapsPercent`, `intelResistancePercent` and `casualtyRecoveryPercent` used to live
-  // here. They are `TerritoryEffects` channels now (2026-10-07), because Reliquary's ground pays
+  // here. They are `TerritoryEffects` channels now (2026-10-07), because Arca's ground pays
   // each of them and a perk and a location buying the same thing should land in one place, the
   // way `intelYieldPercent` moved before them.
   /**
@@ -296,7 +296,7 @@ export interface ConditionalCrewEffects {
    */
   chairPoints: Partial<Record<OfficerRole, number>>;
   /**
-   * Reliquary's two crew-wide lists off the control rows (2026-10-07), filled by the server's
+   * Arca's two crew-wide lists off the control rows (2026-10-07), filled by the server's
    * standing fold and spent by the engine. `pamphletUnits` are the unit ids pinned on every
    * Pamphlet Wall the crew holds: those units fight the crew at `PAMPHLET_PENALTY_PERCENT` less.
    * `ignoredLabels` are the ground labels the crew's units shrug off: `noisy` while a Tolling
@@ -977,7 +977,7 @@ export function combineEffects(territory: TerritoryEffects, crew: CrewEffects): 
     unitTierPercent: mergeTierCounts(crew.unitTierPercent, territory.unitTierPercent),
     unitMarks: mergeMarks(crew.unitMarks, territory.unitMarks),
     musterCostByTier: mergeCounts(crew.musterCostByTier, territory.musterCostByTier),
-    // Reliquary's list and keyed channels (2026-10-07): lists end to end, doors at their highest
+    // Arca's list and keyed channels (2026-10-07): lists end to end, doors at their highest
     // level, the Bounty Wall's odds added per district.
     unitStatFlats: [...crew.unitStatFlats, ...territory.unitStatFlats],
     noiseSwitches: [...crew.noiseSwitches, ...territory.noiseSwitches],

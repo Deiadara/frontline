@@ -27,6 +27,8 @@ interface GateRow {
   upgrading_since: string | null;
   /** Migration 0146. Absent on a database stopped short of it, which reads as nothing stored. */
   upgrade_paid_json?: string | null;
+  /** Migration 0155: the crew that ordered the raise, so only they can call it off. */
+  upgrading_by?: string | null;
 }
 
 /*
@@ -45,6 +47,7 @@ const rowToGate = (row: GateRow): CapturedGate =>
     upgradingSince: row.upgrading_since,
     // Omitted rather than null when nothing is stored, so a gate read back equals the one written.
     ...(row.upgrade_paid_json == null ? {} : { upgradePaid: readJson(row.upgrade_paid_json) }),
+    ...(row.upgrading_by == null ? {} : { upgradingBy: row.upgrading_by }),
   });
 
 const readableGates = (rows: readonly GateRow[]): CapturedGate[] =>
@@ -64,14 +67,16 @@ export function createCapturedGatesRepo(db: AppDatabase): CapturedGatesRepo {
   // database stopped short of it.
   let putStmt: Statement | null = null;
   const putSql = `INSERT INTO captured_gates
-       (district_id, level, upgrading_to, upgrading_until, upgrading_since, upgrade_paid_json)
-     VALUES (?, ?, ?, ?, ?, ?)
+       (district_id, level, upgrading_to, upgrading_until, upgrading_since, upgrade_paid_json,
+        upgrading_by)
+     VALUES (?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT (district_id) DO UPDATE SET
        level = excluded.level,
        upgrading_to = excluded.upgrading_to,
        upgrading_until = excluded.upgrading_until,
        upgrading_since = excluded.upgrading_since,
-       upgrade_paid_json = excluded.upgrade_paid_json`;
+       upgrade_paid_json = excluded.upgrade_paid_json,
+       upgrading_by = excluded.upgrading_by`;
 
   return {
     find(districtId) {
@@ -98,6 +103,8 @@ export function createCapturedGatesRepo(db: AppDatabase): CapturedGatesRepo {
         gate.upgradingTo === null || gate.upgradePaid == null
           ? null
           : JSON.stringify(gate.upgradePaid),
+        // Cleared with the rest when the work lands or is called off: see `upgradePaid` above.
+        gate.upgradingTo === null ? null : (gate.upgradingBy ?? null),
       );
     },
   };

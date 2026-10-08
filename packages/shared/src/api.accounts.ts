@@ -392,6 +392,15 @@ export const AdminGrantRequestSchema = z
      * bench. Skipped in a city where the crew already holds something.
      */
     footholds: z.literal('every-city').optional(),
+    /**
+     * The quietest contested district of the crew's home city, held end to end (2026-10-07).
+     *
+     * A district's board opens only on the whole district now, so a foothold no longer opens
+     * one. The bench still needs a second board beside misc to show two standing orders out at
+     * once, and a Console that could hand over a plot but not a district would leave that screen
+     * with nothing to read.
+     */
+    districtWhole: z.literal('quietest').optional(),
   })
   .refine((body) => Object.keys(body).length > 0, 'Nothing to grant');
 export type AdminGrantRequest = z.infer<typeof AdminGrantRequestSchema>;

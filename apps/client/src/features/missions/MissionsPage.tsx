@@ -48,8 +48,6 @@ import { landedOf } from './WastedAtTheGate';
 import { crewLineRules, ledBy } from './missionLines';
 import { useServerClock } from './useServerClock';
 import { PageShell } from '../game/PageShell';
-import { CityPicker } from '../city/CityPicker';
-import { useCityRoom } from '../city/useCityRoom';
 import { Tutorial } from '../tutorial/Tutorial';
 import { PressError } from '../../components/ui/PressError';
 
@@ -383,16 +381,16 @@ function EmptyRow({ text }: { text: string }) {
  */
 export function MissionsPage() {
   /*
-   * Which city's board this is (2026-09-24).
+   * No city to pick (maintainer, 2026-10-07): "you can only do missions in your starting city".
    *
-   * The same door the Bar, the market and the back room carry: a crew may work its own city's
-   * board, or the board of any city it holds a location in. `undefined` asks for home, which is
-   * what the server answers when nothing is named, so a player who never leaves never sees a
-   * picker do anything.
+   * This screen carried the same picker the Bar, the market and the back room carry, and the
+   * server answered a second city's boards for a crew with ground in it. There is one board set
+   * now, the crew's own city's, so the control is gone rather than left on the heading doing
+   * nothing. The other rooms keep theirs; `useMissions` still teaches their shared door list off
+   * the `cities` this payload carries.
    */
-  const { city, choose } = useCityRoom();
   // This page prints the board's level-up itself, so it is not passed on to the shell toast.
-  const missionsQuery = useMissions(city, { drawsLevelUp: true });
+  const missionsQuery = useMissions(undefined, { drawsLevelUp: true });
   const automations = useAutomations();
   // §C3: the yard lives on the session snapshot, not on the missions payload: a machine is a fact
   // about the district rather than about the board.
@@ -506,10 +504,6 @@ export function MissionsPage() {
       quote="The first death is in the heart. Get out there and show you are still alive."
       wide
       fills
-      // The city door on the heading's own line, top right, where the market and the Bar put it.
-      {...(data
-        ? { action: <CityPicker cityId={data.cityId} cities={data.cities} onChoose={choose} /> }
-        : {})}
     >
       {/* First visit to this screen raises its card, once. */}
       <Tutorial screen="missions" />

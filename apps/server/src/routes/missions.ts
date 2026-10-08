@@ -7,6 +7,7 @@ import {
   LEADER_HOLD_MESSAGES,
   LaunchMissionRequestSchema,
   MISC_AREA_ID,
+  missionDealer,
   RecallMissionRequestSchema,
   areaIsOpen,
   canRecall,
@@ -31,14 +32,14 @@ import {
 } from '@frontline/shared';
 import type { FastifyInstance } from 'fastify';
 import { removeForce } from '../battle/forces.js';
-import { AppError, cityQuery, parseBody, type ErrorCode } from '../errors.js';
+import { AppError, parseBody, type ErrorCode } from '../errors.js';
 import { areaStatesFor, projectAreas } from '../missions/board.js';
 import { leadersFor, liftedBenchFor, runLedBy } from '../missions/leaders.js';
 import { launchMission } from '../missions/launch.js';
 import { namedCard } from '../missions/dealt.js';
 import { chairOf, fightChanceFor, rankFightLeaders } from '../missions/fight-leaders.js';
 import { standingEffectsFor } from '../crew/standing.js';
-import { cityAsked, citiesFor } from '../city/stakes.js';
+import { citiesFor, homeCityOf } from '../city/stakes.js';
 import { officerDuty } from '../crew/duty.js';
 import { settleAndResolveMissions } from '../missions/resolve.js';
 import { missionXpBonusPercent, takeLevelUp } from '../progression/award.js';
@@ -76,35 +77,22 @@ function missionSlotsFor(app: FastifyInstance, base: Base, now: Date): number {
 }
 
 /**
- * Whose boards this request is reading (2026-09-24).
+ * Whose boards this request is reading (maintainer, 2026-10-07).
  *
- * The board is the districts of one city, and it used to be Ashfall's twelve whoever asked. A crew
- * living in Terminus read a board of twelve districts it cannot walk to, and the areas it can
- * actually work were on nobody's screen.
+ * "You can only do missions in your starting city", so there is one answer and no parameter:
+ * whichever city the crew's home district is in. It was the access model the Bar and the market
+ * run on, a crew's own city or any city it holds ground in, and a crew with a plot in Terminus
+ * read Terminus boards. Ground in a second city is ground to walk to and fight over now, not a
+ * place anybody there hires.
  *
- * Which city is decided by the access model the Bar and the market already run on
- * (`city/access.ts`): **a crew's own city, or any city they hold at least one location in**. Work
- * is somebody in a city paying a crew to do a job, and the same sentence that says a crew with a
- * stake may drink there and bid there says they may be hired there. It reads the same `?city=`
- * parameter and refuses the same way, so the three doors of a city cannot disagree about who is
- * inside it: a crew thrown out of their last Terminus plot loses the board on the next read,
- * because the stake is read off the control map every time rather than granted and stored.
- *
- * A name they hold nothing in is refused rather than quietly answered with their own boards, which
- * is the market's argument: the jobs are different jobs, and a player looking at Terminus cards
- * they cannot launch would find out at the send button.
+ * A `?city=` on the request is ignored rather than refused. It is not a wrong answer to give, the
+ * way it would be for the Bar: there is only one board set in the game for a given crew, so a
+ * request naming another city is asking for something that no longer exists, and answering with
+ * the board that does, saying which it is (`MissionsResponse.cityId`), leaves a tab left open on
+ * an older build working instead of broken.
  */
-function boardCity(app: FastifyInstance, base: Base, asked: string | undefined): string {
-  const cityId = cityAsked(app.repos, base, asked);
-  if (cityId === null) {
-    throw new AppError('CITY_SHUT', 'You hold no ground in that city. Take a place in it first.');
-  }
-  return cityId;
-}
-
-/** The city a request named, if it named one. Absent means the crew's own. */
-function askedCity(request: { query: unknown }): string | undefined {
-  return cityQuery(request.query);
+function boardCity(base: Base): string {
+  return homeCityOf(base);
 }
 
 /**
@@ -145,7 +133,6 @@ function missionRoad(app: FastifyInstance, base: Base, now: Date): MissionRoad {
   const effects = standingEffectsFor(app.repos, base, now);
   return {
     travelSpeedPercent: Math.max(0, effects.travelSpeedPercent),
-    roadMinutesOff: Math.max(0, effects.roadMinutesOff),
     unitSpeedPercent: effects.unitSpeedPercent,
     baseCutPercent: chairPassiveOf(effects, 'cartographer', 'travel_time'),
   };
@@ -162,9 +149,7 @@ export function registerMissionRoutes(app: FastifyInstance): void {
     // looking: `takeLevelUp` reads the durable marker and clears it (migration 0083). Read off the
     // marker rather than off `settlement.levelUp`, so a threshold the clock crossed at 03:00 is
     // announced here rather than lost.
-    // The board is chosen first: `boardCity` refuses a city this crew has lost its ground in, and a
-    // refusal after `takeLevelUp` had cleared the marker lost the announcement for good.
-    const cityId = boardCity(app, settlement.base, askedCity(request));
+    const cityId = boardCity(settlement.base);
     const levelUp = takeLevelUp(app.repos, settlement.base.id);
 
     const stored = app.repos.missions.listByBaseId(settlement.base.id);
@@ -175,8 +160,10 @@ export function registerMissionRoutes(app: FastifyInstance): void {
     const active = app.repos.missions.listActiveByBaseId(settlement.base.id);
 
     return {
-      // Which board this is, and every board this crew may read. The same pair the Bar, the
-      // market and the back room carry, so the picker on this screen works the way those do.
+      // Which city this board belongs to, which since 2026-10-07 is always the crew's own. `cities`
+      // is the door list the Bar, the market and the back room share (`useCityDoor` on the client
+      // learns it from whichever room answered first), kept on this payload because the board is
+      // the most frequently polled read in the game and the list is free to carry.
       cityId,
       cities: citiesFor(app.repos, settlement.base),
       leaders: leadersFor({
@@ -199,7 +186,7 @@ export function registerMissionRoutes(app: FastifyInstance): void {
       // reads: a Smuggler's Tunnel shortens the clock and the crew's own fixer widens the cut, and
       // both used to be invisible to the board and frozen onto the run.
       areas: projectAreas(
-        districtsOfCity(boardCity(app, settlement.base, askedCity(request))),
+        districtsOfCity(cityId),
         areaStatesFor(app.repos, settlement.base),
         active,
         settlement.base,
@@ -262,6 +249,7 @@ export function registerMissionRoutes(app: FastifyInstance): void {
       grade,
       level: own.level,
       now,
+      dealer: missionDealer(own),
     });
     if (dealt === null) {
       throw new AppError('NOT_FOUND', 'That job is not on offer there');
@@ -344,13 +332,13 @@ export function registerMissionRoutes(app: FastifyInstance): void {
       throw new AppError('MISSION_REFUSED', 'You already have a crew working that area', levelUp);
     }
     /*
-     * §A4: a district's work is for crews with a foothold in it (maintainer, 2026-09-29), the same
-     * rule the board draws with (`areaIsOpen`). Checked here as well as there because the screen is
-     * not the only way to post: a crew that lost its last place in a district still has yesterday's
-     * card in an open tab. A foothold is also a stake in that city, so it answers the city's own
-     * door (`mayEnter` in `city/stakes.ts`) too.
+     * §A4: a district's work is for the crew that holds it end to end (maintainer, 2026-10-07),
+     * in its own city, which is the same rule the board draws with (`areaIsOpen`, and the city is
+     * the enumeration's). Checked here as well as there because the screen is not the only way to
+     * post: a crew that lost a plot while its tab was open still has yesterday's card on it.
      */
     if (areaId !== MISC_AREA_ID) {
+      const cityId = boardCity(base);
       const district = findDistrict(areaId);
       // Worded without a possessive: the plot may be the reader's own, and "somebody's plot" read
       // oddly against a player's own hideout.
@@ -361,11 +349,21 @@ export function registerMissionRoutes(app: FastifyInstance): void {
           levelUp,
         );
       }
+      // The home city and nowhere else. Said before the whole-district refusal below, because a
+      // crew holding every plot of a Terminus district would otherwise read "take the rest of it"
+      // about ground it has already taken.
+      if (district.cityId !== cityId) {
+        throw new AppError(
+          'MISSION_REFUSED',
+          'Nobody out there is hiring. Work is offered in your own city',
+          levelUp,
+        );
+      }
       const state = areaStatesFor(app.repos, base).get(areaId);
       if (!state || !areaIsOpen(district, state)) {
         throw new AppError(
           'MISSION_REFUSED',
-          'Nobody there hires a crew that holds nothing in it. Take a place in that district first',
+          'Nobody there hires a crew that does not hold the district. Take the rest of it first',
           levelUp,
         );
       }
@@ -463,7 +461,6 @@ export function registerMissionRoutes(app: FastifyInstance): void {
         leadArrivalPercent,
         unitSpeedPercent,
         travelSpeedPercent,
-        roadMinutesOff,
         anyRide,
         chairPoints,
       }) => ({
@@ -477,7 +474,6 @@ export function registerMissionRoutes(app: FastifyInstance): void {
         // `leading()` folds `leadArrivalPercent` into this channel, and it is spent separately
         // below as `leadSpeedPercent`.
         travelSpeedPercent,
-        roadMinutesOff,
         // The Cartographer's cut off the road's base (maintainer, 2026-10-04).
         roadBaseCutPercent: chairPassiveOf({ chairPoints }, 'cartographer', 'travel_time'),
         leadSpeedPercent: officer ? leadArrivalPercent : 0,
@@ -579,9 +575,7 @@ export function registerMissionRoutes(app: FastifyInstance): void {
     const { missionId } = parseBody(RecallMissionRequestSchema, request.body);
     const now = new Date();
     const base = requireOwnBase(app, request.currentUser.id);
-    // The board the answer draws, resolved before anything is written (bug pass, 2026-10-06): a
-    // city the crew holds nothing in used to throw after the recall and roll the recall back.
-    const cityId = boardCity(app, base, askedCity(request));
+    const cityId = boardCity(base);
 
     return app.db.transaction(() => {
       const stored = app.repos.missions.findById(missionId);
@@ -625,9 +619,7 @@ export function registerMissionRoutes(app: FastifyInstance): void {
         homeLocked: placeLocked(app.repos, settled, { kind: 'district' }, now),
         // The same fold the read prices from. Without it every card was repainted at bare timings
         // and bare pay until the next poll put the crew's tunnel and fixer back on it.
-        // The same city the read draws, off the same `?city=`: a recall repaints the board the
-        // player is looking at, and answering with their home city would swap the screen under
-        // somebody working a second city.
+        // The same city the read draws, which since 2026-10-07 is the crew's own and nothing else.
         areas: projectAreas(
           districtsOfCity(cityId),
           areaStatesFor(app.repos, settled),

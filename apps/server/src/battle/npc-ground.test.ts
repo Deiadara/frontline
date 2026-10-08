@@ -1,15 +1,18 @@
 /**
  * The Combine's and the squatters' ground at the edges (bug pass, 2026-09-29).
  *
- * Reliquary is authored in the atlas and shut (`CITIES`, `open: false`): no art, no board, no way
- * onto its map in the client. The declaration only asked whether the district existed, so a crafted
- * call took the squatters' ferry there with a column that marched two hours to reach it, and the
+ * Arca was authored in the atlas and shut (`CITIES`, `open: false`): no art, no board, no way
+ * onto its map in the client. It opened on 2026-10-07, and this file shuts it again for itself so
+ * the door stays tested for the next city authored before it opens. The declaration only asked whether the district existed, so a crafted
+ * call took the squatters' ferry there with a column that marched four hours to reach it, and the
  * crew held ground in a city nobody else could see.
  */
-import { declarationWindow } from '@frontline/shared';
+import { ARCA_CITY_ID, declarationWindow } from '@frontline/shared';
 import { afterEach, describe, expect, it } from 'vitest';
 import { auth, closeWorlds, makeWorld, register } from '../testing/fight-world.js';
+import { shutCityForThisFile } from '../testing/shut-city.js';
 
+shutCityForThisFile(ARCA_CITY_ID);
 afterEach(closeWorlds);
 
 async function call(target: object) {

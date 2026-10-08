@@ -66,6 +66,8 @@ import { createRng } from '../characters/rng.js';
 import { legendaryRoom } from '../units/muster.js';
 import { officerDuty } from '../crew/duty.js';
 import { putControl } from '../city/actions.js';
+import { homeCityOf } from '../city/stakes.js';
+import { QUIET_BOARD } from '../testing/footholds.js';
 import type { Repositories } from '../db/repos/index.js';
 
 /**
@@ -511,6 +513,7 @@ export function registerAdminRoutes(app: FastifyInstance): void {
       }
 
       if (body.footholds === 'every-city') grantFootholds(app, next.id, new Date());
+      if (body.districtWhole === 'quietest') grantWholeDistrict(app, next.id, new Date());
 
       if (body.technologies !== undefined || body.researchDepth !== undefined) {
         const technologies = [...new Set([...next.research.technologies, ...grantedRungs(body)])];
@@ -586,19 +589,33 @@ export function registerAdminRoutes(app: FastifyInstance): void {
       leaveTheOldAlliedFights(app.repos, base, now);
       leaveTheOldFaction(app.repos, request.currentUser, now, successorId);
 
-      // Then the ground, while the id still means something.
+      /*
+       * Then the ground, while the id still means something.
+       *
+       * Through `putControl`, which is the one writer that lets a plot go (bug pass, 2026-10-07).
+       * A direct `put` here kept everything that belongs to the holder rather than to the ground:
+       * the Tolling Tower's switch stayed thrown, the Pamphlet Wall's pins stayed up with
+       * `pamphletsPinnedAt` above the level the row was being written back at, which no legal path
+       * produces, and the Trophy Hall still counted the wiped crew's kills. It also skipped the
+       * settle and `dropGateRaise`, so a crew that reset while holding a district whole left a
+       * half-paid raise standing on a gate nobody holds.
+       */
       for (const control of app.repos.city.controls().values()) {
         if (control.holder.kind !== 'crew' || control.holder.baseId !== base.id) continue;
-        app.repos.city.put({
-          ...control,
-          holder: { kind: 'unoccupied' },
-          garrison: {},
-          // Level 1, not 0: `LocationControlSchema.level` has a floor of 1, and a row written
-          // under it made every read of the control table throw, so the world clock failed on
-          // every tick after a Clean slate and the game never came back (maintainer, 2026-09-22).
-          level: 1,
-          upgradingUntil: null,
-        });
+        putControl(
+          app.repos,
+          {
+            ...control,
+            holder: { kind: 'unoccupied' },
+            garrison: {},
+            // Level 1, not 0: `LocationControlSchema.level` has a floor of 1, and a row written
+            // under it made every read of the control table throw, so the world clock failed on
+            // every tick after a Clean slate and the game never came back (maintainer, 2026-09-22).
+            level: 1,
+            upgradingUntil: null,
+          },
+          now,
+        );
       }
 
       const fresh = startingBase({
@@ -824,6 +841,33 @@ function findLocationDistrict(locationId: string) {
  * a Combine leader's own plot, and never the last open plot of a district, which would shut it.
  * Held with a small garrison so it reads as ground somebody is standing on.
  */
+/**
+ * The quietest contested district of the crew's home city, every plot of it (2026-10-07).
+ *
+ * A board opens on the whole district now, so the foothold above opens none; the bench still
+ * needs a district board beside misc to show two standing orders out at once. `QUIET_BOARD` is
+ * the Annexes, chosen by the test fixtures for paying nothing that moves a mission's clock or pay;
+ * a crew living in another city gets that city's first contested district, which is the cheapest
+ * ground there. Through `putControl` like the foothold, so the old holder settles up to the
+ * hand-over and the ground state clears.
+ */
+function grantWholeDistrict(app: FastifyInstance, baseId: string, now: Date): void {
+  const home = homeCityOf(app.repos.bases.findById(baseId)!);
+  const districts = districtsOfCity(home).filter((district) => district.kind === 'contested');
+  const district = districts.find((one) => one.id === QUIET_BOARD) ?? districts[0];
+  if (!district) return;
+  for (const location of district.locations) {
+    const control = app.repos.city.control(location.id);
+    if (!control) continue;
+    if (control.holder.kind === 'crew' && control.holder.baseId === baseId) continue;
+    putControl(
+      app.repos,
+      { ...control, holder: { kind: 'crew', baseId }, upgradingUntil: null, garrison: {} },
+      now,
+    );
+  }
+}
+
 function grantFootholds(app: FastifyInstance, baseId: string, now: Date): void {
   const controls = app.repos.city.controls();
   for (const city of CITIES.filter((one) => one.open)) {

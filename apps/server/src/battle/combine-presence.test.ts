@@ -302,16 +302,20 @@ describe('he is alive only while he is standing on his own plot', () => {
   });
 
   /**
-   * Each of the three, killed on his own plot and checked on somebody else's.
+   * Each leader in the table, killed on his own plot and checked on somebody else's.
    *
-   * One leader proves the wiring; three prove the table, and the table is where a fourth leader
-   * added tomorrow would be missed.
+   * One leader proves the wiring; the whole table proves the table, and the table is where a
+   * leader added tomorrow would be missed. It caught Arca's three on the day they landed
+   * (2026-10-07), which is the entire reason it walks `COMBINE_LEADERS` rather than three names.
    */
-  it('holds for all three of them, each over his own district', () => {
+  it('holds for every one of them, each over his own district', () => {
     const elsewhere: Record<string, string> = {
       syndic: ANNEXES_ELSEWHERE,
       executioner: 'blacksite-outer',
       directive_xero: 'ccs-broadcast',
+      curate: 'printworks-boilerhouse',
+      blood_priest: 'cloisters-novitiate',
+      hierarch: 'nave-choir',
     };
     for (const leader of COMBINE_LEADERS) {
       const plot = elsewhere[leader.unitId];

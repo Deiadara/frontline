@@ -99,6 +99,24 @@ export function registerMarketRoutes(app: FastifyInstance): void {
     return cityId;
   };
 
+  /**
+   * The barrow a write answers with: the one it was made at, or the crew's own (2026-10-07).
+   *
+   * Five of the writes below are the crew's own business rather than a city's, so each of them
+   * answered with `board(base, now)`, which is the **home** city's: a crew standing at another
+   * city's barrow got back a payload whose `cityId`, Runner's stock and listings were all the
+   * wrong city's. The client keys its cache on that `cityId` (`setBoard` in `lib/queries.ts`), so
+   * the screen it was traded from kept the pre-trade board until a refetch answered.
+   *
+   * No refusal, which is the one way these differ from `cityOrRefuse`: a bid belongs to the lot's
+   * city and has to be turned away at a barrow the crew cannot stand at, while a blueprint
+   * assembled out of the inventory, a trade at the Lab, the Broker, the day's ration and goods the
+   * board is holding all happen wherever the crew is. A city it may not stand in gets its own
+   * board back, the way Withdraw already hands back the listing's board or the crew's own.
+   */
+  const askedBoard = (base: Base, asked: string | undefined): string | undefined =>
+    cityAsked(app.repos, base, asked) ?? undefined;
+
   app.get('/market', { preHandler: app.authenticate }, (request): MarketResponse => {
     const now = new Date();
     app.db.transaction(() => sweepExpiredOffers(app.repos, now))();
@@ -179,7 +197,8 @@ export function registerMarketRoutes(app: FastifyInstance): void {
         if (inventory === null) throw new AppError('BLUEPRINT_REFUSED', 'missing_pages');
 
         app.repos.bases.updateHoldings(base.id, base.resources, inventory);
-        return { market: board({ ...base, inventory }, now) };
+        const atBarrow = askedBoard(base, cityQuery(request.query));
+        return { market: board({ ...base, inventory }, now, atBarrow) };
       })();
     },
   );
@@ -205,6 +224,9 @@ export function registerMarketRoutes(app: FastifyInstance): void {
       const now = new Date();
       return app.db.transaction(() => {
         const base = ownBase(app, request.currentUser.id);
+        // Read off the row before the trade, since neither half of the answer moves with the
+        // inventory: which city the request was made at, and whether the crew may stand there.
+        const atBarrow = askedBoard(base, cityQuery(request.query));
         const context: ReimaginingContext = {
           hasResearcher: workingRoles(base.commanders).includes('researcher'),
           hasReimaginingResearch: isReimaginingResearched(base.research.technologies),
@@ -238,7 +260,7 @@ export function registerMarketRoutes(app: FastifyInstance): void {
           const paid = awardPlayerXp(app.repos, base, 'pagesReimagined');
           tallyBenchTrade(app.repos, base.id, true);
           return {
-            market: board({ ...paid.base, inventory: traded.inventory }, now),
+            market: board({ ...paid.base, inventory: traded.inventory }, now, atBarrow),
             spent: traded.spent,
             gained: null,
             xp: paid.award.xpGained,
@@ -279,7 +301,7 @@ export function registerMarketRoutes(app: FastifyInstance): void {
           at: now,
         });
         return {
-          market: board({ ...base, inventory: traded.inventory }, now),
+          market: board({ ...base, inventory: traded.inventory }, now, atBarrow),
           spent: traded.spent,
           gained: traded.gained,
           xp: 0,
@@ -297,16 +319,11 @@ export function registerMarketRoutes(app: FastifyInstance): void {
       const trade = parseBody(BarterRequestSchema, request.body);
       const now = new Date();
       return app.db.transaction(() => {
-        const result = barter(
-          app.repos,
-          settledOwnBase(app, request.currentUser.id, now),
-          trade,
-          BARTER_MINIMUM,
-          now,
-          app.config.admin,
-        );
+        const base = settledOwnBase(app, request.currentUser.id, now);
+        const atBarrow = askedBoard(base, cityQuery(request.query));
+        const result = barter(app.repos, base, trade, BARTER_MINIMUM, now, app.config.admin);
         if (result.kind === 'refused') refuse(result.reason);
-        return { market: board(result.base, now) };
+        return { market: board(result.base, now, atBarrow) };
       })();
     },
   );
@@ -320,17 +337,11 @@ export function registerMarketRoutes(app: FastifyInstance): void {
       const { key, units, acceptWaste } = parseBody(BuySupplyRequestSchema, request.body);
       const now = new Date();
       return app.db.transaction(() => {
-        const result = buySupply(
-          app.repos,
-          settledOwnBase(app, request.currentUser.id, now),
-          key,
-          units,
-          now,
-          acceptWaste,
-          app.config.admin,
-        );
+        const base = settledOwnBase(app, request.currentUser.id, now);
+        const atBarrow = askedBoard(base, cityQuery(request.query));
+        const result = buySupply(app.repos, base, key, units, now, acceptWaste, app.config.admin);
         if (result.kind === 'refused') refuse(result.reason);
-        return { market: board(result.base, now) };
+        return { market: board(result.base, now, atBarrow) };
       })();
     },
   );
@@ -413,6 +424,10 @@ export function registerMarketRoutes(app: FastifyInstance): void {
     const { claimId, acceptWaste } = parseBody(ClaimMarketRequestSchema, request.body);
     const now = new Date();
     return app.db.transaction(() => {
+      // The board the goods were held on, read before the claim takes the row away. Its own city
+      // rather than the query's, the way Accept answers with the listing's: a claim is pinned to
+      // the listing it came off, and that is the board a player pressing Claim is looking at.
+      const pinned = app.repos.market.findClaim(claimId)?.offer.cityId;
       const result = claimMarketGoods(
         app.repos,
         settledOwnBase(app, request.currentUser.id, now),
@@ -421,7 +436,7 @@ export function registerMarketRoutes(app: FastifyInstance): void {
         acceptWaste,
       );
       if (result.kind === 'refused') refuse(result.reason);
-      return { market: board(result.base, now) };
+      return { market: board(result.base, now, askedBoard(result.base, pinned)) };
     })();
   });
 }

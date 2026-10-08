@@ -1,5 +1,5 @@
 /**
- * Reliquary's own numbers (maintainer, 2026-10-06 and 2026-10-07): the figures the city's
+ * Arca's own numbers (maintainer, 2026-10-06 and 2026-10-07): the figures the city's
  * mechanics read by level or by rule, kept together so the server, the engine and the client
  * quote one copy.
  */

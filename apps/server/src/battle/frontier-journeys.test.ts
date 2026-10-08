@@ -118,16 +118,33 @@ describe('a column marching over the frontier', () => {
     const abroad = travelMsTo(repos, base, ABROAD, { vehicles: {}, force: { razors: 10 } });
     expect(abroad).not.toBeNull();
     /*
-     * Two independent bounds rather than one exact figure.
-     *
-     * Below: the crossing has to beat the longest road at home, which is the sentence the
-     * frontier term exists to make true and the one a bare `mapDistance` answered with two
-     * minutes. Above: the party is walking at a Razor's pace with no holdings, so the whole
-     * journey cannot come to less than the frontier term halved, whatever the two ends are.
+     * Two things, and the second is the one a bare `mapDistance` answered with two minutes: the
+     * crossing has to beat the longest road at home. The party is walking at a Razor's own pace
+     * with no holdings, so it cannot come to less than the frontier term halved either, whichever
+     * two ends it is between now that the figure is flat (maintainer, 2026-10-07).
      */
     const minutes = abroad! / MINUTE_MS;
     expect(minutes).toBeGreaterThan(longestRoadHome(base));
     expect(minutes).toBeGreaterThan(INTER_CITY_MINUTES / 2);
+  });
+
+  /**
+   * "City to city, it's always the same" (maintainer, 2026-10-07).
+   *
+   * Measured through the server's own clock rather than through `geography.ts`, because the thing
+   * a player can feel is the column: Terminus has twelve districts, and the crossing to the one
+   * that looks nearest on the map now costs what the crossing to the one that looks furthest
+   * costs. The old model spread those twelve over 42 minutes (156 to 198 raw from Kettle Row),
+   * which was a geography neither map could show you.
+   */
+  it('charges the same clock to every district in the city abroad', async () => {
+    const { repos, base } = await world('evenhanded');
+    const party = { vehicles: {}, force: { razors: 10 } };
+    const abroad = districtsOfCity(findDistrict(ABROAD)!.cityId);
+    expect(abroad.length).toBeGreaterThan(4);
+    const clocks = new Set(abroad.map((district) => travelMsTo(repos, base, district.id, party)));
+    expect(clocks.size, [...clocks].join(', ')).toBe(1);
+    expect([...clocks][0]).not.toBeNull();
   });
 
   it('prices a cell going to ground abroad on that same road', async () => {

@@ -1,5 +1,6 @@
 import {
   COMBINE_LEADERS,
+  FEATS,
   ITEM_CATALOG,
   RESOURCE_KEYS,
   battleFeatsEarned,
@@ -457,10 +458,36 @@ export function tallyGateBreached(repos: Repositories, baseId: string): void {
   record(repos, baseId, [one('gates_breached')]);
 }
 
-/** Units out of the drill yard, counted per unit rather than per order. */
-export function tallyUnitsMustered(repos: Repositories, baseId: string, units: number): void {
+/**
+ * The sheets a feat counts by name, so the per-unit counter is written for those and no others: a
+ * row per unit kind per crew would be counters no rung reads (`scopes.test.ts`).
+ */
+const MUSTER_COUNTED: ReadonlySet<string> = new Set(
+  FEATS.flatMap((feat) =>
+    feat.measure === 'units_mustered_of' && feat.scope !== undefined ? [feat.scope] : [],
+  ),
+);
+
+/**
+ * Units out of the drill yard, counted per unit rather than per order.
+ *
+ * Twice: the total, and the same count under the unit's id for a sheet a feat names (the Death
+ * Cloaks, 2026-10-07).
+ */
+export function tallyUnitsMustered(
+  repos: Repositories,
+  baseId: string,
+  batches: readonly { unitId: string; count: number }[],
+): void {
+  const raised = batches.filter((batch) => batch.count > 0);
+  const units = raised.reduce((total, batch) => total + batch.count, 0);
   if (units <= 0) return;
-  record(repos, baseId, [by('units_mustered', units)]);
+  record(repos, baseId, [
+    by('units_mustered', units),
+    ...raised
+      .filter((batch) => MUSTER_COUNTED.has(batch.unitId))
+      .map((batch) => by('units_mustered_of', batch.count, batch.unitId)),
+  ]);
 }
 
 /**

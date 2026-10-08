@@ -179,7 +179,6 @@ export function railColumnOffer(
       speed,
       reductionPercent: effects.travelSpeedPercent,
       baseCutPercent: chairPassiveOf(effects, 'cartographer', 'travel_time'),
-      flatMinutesOff: effects.roadMinutesOff,
     },
     road,
   );
@@ -239,7 +238,6 @@ function roadMs(
       speed,
       reductionPercent: effects.travelSpeedPercent,
       baseCutPercent: chairPassiveOf(effects, 'cartographer', 'travel_time'),
-      flatMinutesOff: effects.roadMinutesOff,
     }) * MINUTE_MS
   );
 }

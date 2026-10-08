@@ -314,10 +314,12 @@ describe('what the ground does to the roads', () => {
     expect(quoted(repos, base)).toBe(roadMinutes(rawMinutesBetween(home, far), 0, 10));
   });
 
-  it('Tram Depot: a percentage, then four whole minutes', () => {
+  // One channel since 2026-10-07: the depot's four flat minutes became four more travel points,
+  // so it pays 22 and the road is a percentage all the way down.
+  it('Tram Depot: twenty-two points off the road and nothing flat', () => {
     const { repos, base } = holding('tram_depot');
     const raw = rawMinutesBetween(home, far);
-    expect(quoted(repos, base)).toBe(Math.round(raw * 0.82 - 4));
+    expect(quoted(repos, base)).toBe(roadMinutes(raw, 0, 22));
   });
 
   it('Station: the district goes on the line', () => {
@@ -403,11 +405,10 @@ describe('what the ground does for the crew', () => {
 });
 
 /**
- * Reliquary's ground (maintainer, 2026-10-06). The city is shut, so `somewhere` cannot find it;
- * these take the authored plots by id, which is also the point: a Market here pays what the atlas
- * says and not what a Market pays.
+ * Arca's ground (maintainer, 2026-10-06). These take the authored plots by id, which is the point:
+ * a Market here pays what the atlas says and not what a Market pays.
  */
-describe('what Reliquary`s ground does', () => {
+describe('what Arca`s ground does', () => {
   const DEATH_CLOAKS = findUnit('death_cloaks')!;
   const at = (id: string): Location => {
     const found = findLocation(id);
@@ -519,7 +520,6 @@ describe('the sweep covers the catalogue', () => {
         'research_speed',
         'resource',
         'resource_yield',
-        'road_shortcut',
         'salvage_refund',
         'steady_nerve',
         'storage',

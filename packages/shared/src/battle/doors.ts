@@ -4,10 +4,10 @@ import {
   LAST_CHANCE_PERCENT,
   PAPERCUT_ARMOR,
   SAINT_CONGREGATION_CAP,
-} from '../city/reliquary.js';
+} from '../city/arca.js';
 
 /**
- * What a unit's door buys it at each level the crew holds (Reliquary, maintainer 2026-10-06 and
+ * What a unit's door buys it at each level the crew holds (Arca, maintainer 2026-10-06 and
  * 2026-10-07). The player-facing words are `doorSteps` on the unit spec; this is the same ladder
  * by number, and the engine reads it off `doorLevels[unitId]` from the crew's effects.
  *

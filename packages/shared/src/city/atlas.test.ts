@@ -3,7 +3,7 @@ import { CITIES, DEFAULT_CITY_ID, findCity } from './cities.js';
 import {
   ALL_DISTRICTS,
   ATLAS_UNIFIED_BONUSES,
-  RELIQUARY_CITY_ID,
+  ARCA_CITY_ID,
   TERMINUS_CITY_ID,
   cityOf,
   districtsOfCity,
@@ -76,14 +76,14 @@ describe('the atlas', () => {
      * Terminus was grown to Ashfall's size when it opened (maintainer, 2026-09-24): eight contested
      * districts and four plots, the same as the city a player starts in, because a second playable
      * city that was a third of the size would read as a side area rather than as somewhere to
-     * live. Reliquary is being authored to the same shape, and is shut until it is finished.
+     * live. Arca was authored to the same shape and opened on 2026-10-07.
      */
     expect(countsOf(DEFAULT_CITY_ID)).toEqual({ contested: 8, plots: 4 });
     expect(countsOf(TERMINUS_CITY_ID)).toEqual({ contested: 8, plots: 4 });
-    // Reliquary was authored a district at a time and finished on 2026-10-07: eight contested
+    // Arca was authored a district at a time and finished on 2026-10-07: eight contested
     // and the four plots, the same shape. Saltmarch's three-district sketch went on 2026-10-06, to
     // keep the world screen at five.
-    expect(countsOf(RELIQUARY_CITY_ID)).toEqual({ contested: 8, plots: 4 });
+    expect(countsOf(ARCA_CITY_ID)).toEqual({ contested: 8, plots: 4 });
 
     // Four plots everywhere, which is the half of the shape that matters most: a city is somewhere
     // to live before it is somewhere to fight, and a crew has to be able to get an address.
@@ -169,11 +169,12 @@ describe('the atlas', () => {
       expect(city.blurb.length, city.id).toBeGreaterThan(40);
       expect(typeof city.open, city.id).toBe('boolean');
     }
-    // Two are playable, and Terminus is second in the list because that is the order the world
-    // screen draws them in. The other three are drawn shut rather than hidden.
+    // Three are playable (Arca since 2026-10-07), in the order the world screen draws them in.
+    // The other two are drawn shut rather than hidden.
     expect(CITIES.filter((city) => city.open).map((city) => city.id)).toEqual([
       DEFAULT_CITY_ID,
       TERMINUS_CITY_ID,
+      ARCA_CITY_ID,
     ]);
     expect(CITIES.map((city) => city.id)[1]).toBe(TERMINUS_CITY_ID);
   });
@@ -207,7 +208,7 @@ describe('the atlas', () => {
     const contested = ALL_DISTRICTS.filter(
       (one) => one.kind === 'contested' && one.cityId !== DEFAULT_CITY_ID,
     );
-    // Eight Terminus and eight Reliquary (finished 2026-10-07); Saltmarch's three went on
+    // Eight Terminus and eight Arca (finished 2026-10-07); Saltmarch's three went on
     // 2026-10-06.
     expect(contested.length).toBe(16);
 

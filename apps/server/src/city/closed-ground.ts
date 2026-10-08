@@ -12,7 +12,7 @@ import { settleEach } from '../world/guard.js';
 /**
  * Ground a crew holds in a city that is not open yet goes back to the atlas (maintainer, 2026-09-29).
  *
- * A shut city's ground (Saltmarch's then, Reliquary's now) is real rows on the control map, and until the doors into a closed city were
+ * A shut city's ground (Saltmarch's, then Arca's until it opened on 2026-10-07) is real rows on the control map, and until the doors into a closed city were
  * shut, a column could walk onto an empty plot there and claim it. The door is shut now
  * (`city_closed` on the move, the plant and the spy), and the rooms refuse a closed city whatever
  * is held in it (`canEnterCity`). What is left is the rows already claimed: this hands each one

@@ -1,7 +1,7 @@
 import {
+  CITIES,
   LEADERBOARD_BOARDS,
   LEADERBOARD_BOARD_LABELS,
-  cityOfDistrict,
   findCity,
   type LeaderboardBoard,
   type LeaderboardResponse,
@@ -30,7 +30,7 @@ import {
  * The standings (maintainer request, §J9).
  *
  * The shape every game's ranking screen has, because players arrive already knowing it: a row of
- * board tabs, a scope control, a numbered table, and your own place called out whether or not you
+ * board tabs, a city picker, a numbered table, and your own place called out whether or not you
  * are on the page. Drawn in this game's register rather than in a spreadsheet's: the sheet is ruled
  * paper whose lines run past the last entry, the tabs are drawn tabs, the top three are struck in
  * metal inside a laurel, and the reader's own row has a pen mark in the margin. The drawings all
@@ -42,17 +42,44 @@ import {
  * so the tables differ, and the discriminated union on the wire means the faction table cannot be
  * handed a player row.
  *
- * ## What "local" means here
+ * ## What the city picker does, and what it does not
  *
- * The player's **city**. There is one today, so the two scopes list the same people; the board is
- * adding more, and writing the filter against a city id now means that day needs no screen change.
+ * It picks the names and never the numbers (maintainer, 2026-10-07): a city lists everybody holding
+ * ground there, wherever they live, and every figure beside them is still that player's across the
+ * whole world. There is no "my city" any more, and no number on this screen is per city.
  */
+
+/**
+ * What the picker holds while no city is picked.
+ *
+ * The scope is a city id or nothing at all, and a painted {@link Dropdown} carries strings, so the
+ * "nothing" needs a value of its own. It is not a city id, and an id that collided with it would
+ * send no city at all for that city: `LeaderboardPage.test.tsx` picks every city the world has and
+ * reads the request each one put on the wire, which is the shape that collision takes.
+ */
+const EVERY_CITY = 'every-city';
+
+/**
+ * Every city a player may be listed for, the world first.
+ *
+ * The open ones only. A city that is shut has no crews on its ground and no rooms to walk into, so
+ * naming it would offer a board that is empty by construction, and the server answers a shut city
+ * with the world anyway. Built once: the list is the world's and does not change while the screen
+ * is open.
+ */
+const CITY_OPTIONS = [
+  { value: EVERY_CITY, label: 'All cities' },
+  ...CITIES.filter((one) => one.open).map((one) => ({ value: one.id, label: one.name })),
+];
+
+/** The screen itself: the tabs, the picker, the sheet and the plaque at its foot. */
 export function LeaderboardPage() {
   const [board, setBoard] = useState<LeaderboardBoard>('players');
-  const [localOnly, setLocalOnly] = useState(false);
+  /** The city whose holders are listed. Null is every city, which is where the screen opens. */
+  const [city, setCity] = useState<string | null>(null);
   const [sort, setSort] = useState<PlayerSort>('standing');
   const [search, setSearch] = useState('');
-  const query = useLeaderboard(board, localOnly);
+  const query = useLeaderboard(board, city);
   const me = useMe();
   const data = query.data;
   const youRow = useRef<HTMLLIElement | null>(null);
@@ -102,12 +129,6 @@ export function LeaderboardPage() {
     focusRow.current.scrollIntoView?.({ block: 'center' });
   }, [sought, data, scrollAsked]);
 
-  // The home city, read off the crew rather than the board (maintainer, 2026-10-06): the board is
-  // cleared on every switch between Players and Factions, so the label lost and regained its name
-  // and the strip re-wrapped. The board's own scope is the fallback for a crew not yet read.
-  const homeDistrict = me.data?.base?.districtId;
-  const scope = homeDistrict === undefined ? data?.scope : cityOfDistrict(homeDistrict);
-  const cityName = scope ? (findCity(scope)?.name ?? scope) : null;
   /*
    * Sorted and filtered here, over the rows the server already sent.
    *
@@ -130,6 +151,27 @@ export function LeaderboardPage() {
       : data
         ? factionLeaders(data.entries)
         : [];
+
+  /*
+   * The city, which applies to whichever board is open. No label beside it: the button reads
+   * "All cities" or the city's name, which says what it is the way the Bar's own door does, and
+   * the strip has no room for a word it does not need. Defined once and placed *inside* the
+   * players' controls row rather than beside it: as a sibling of a `flex-1` row it wrapped onto a
+   * line of its own at 1280x720 and cost the sheet its fifth ranking (e2e, 2026-10-07).
+   */
+  const cityPicker = (
+    // The width on a wrapper, not on the picker: a `Dropdown` fills whatever holds it, so a
+    // width class on it reaches nothing, and a bare one in a wrapping row took the whole row.
+    <div className="w-[10rem] shrink-0">
+      <Dropdown<string>
+        label="Which city’s players to list"
+        value={city ?? EVERY_CITY}
+        onChange={(next) => setCity(next === EVERY_CITY ? null : next)}
+        options={CITY_OPTIONS}
+        data-testid="standings-city"
+      />
+    </div>
+  );
 
   return (
     <PageShell title="Standings" fills wide>
@@ -186,22 +228,10 @@ export function LeaderboardPage() {
                   data-testid="standings-sort"
                 />
               </div>
+              {cityPicker}
             </div>
           )}
-
-          {/* The scope. A real checkbox rather than a second pair of tabs: it is one question with
-              a yes and a no, and it applies to whichever board is open. */}
-          <label className="flex cursor-pointer items-center gap-2.5 font-body text-[13px] text-ink-200">
-            <input
-              type="checkbox"
-              checked={localOnly}
-              onChange={(event) => setLocalOnly(event.target.checked)}
-              data-testid="local-only"
-              className="h-4 w-4 accent-brass-500"
-            />
-            My city only
-            {cityName && <span className="text-ink-400">({cityName})</span>}
-          </label>
+          {board !== 'players' && cityPicker}
         </div>
 
         {/*
@@ -225,8 +255,15 @@ export function LeaderboardPage() {
             ) : !data ? (
               <p className="p-4 font-body text-[13px] italic text-ink-400">Reading the ledger…</p>
             ) : data.entries.length === 0 ? (
-              <p className="p-4 font-body text-[13px] italic text-ink-400">
-                Nobody has a name here yet.
+              /* A city with nobody on its ground is a real answer and not an empty screen, so it
+                 says which city it looked at. */
+              <p
+                className="p-4 font-body text-[13px] italic text-ink-400"
+                data-testid="standings-empty"
+              >
+                {data.city === null
+                  ? 'Nobody has a name here yet.'
+                  : `Nobody holds ground in ${findCity(data.city)?.name ?? data.city} yet.`}
               </p>
             ) : data.board === 'players' ? (
               rows.length === 0 ? (
@@ -285,6 +322,8 @@ function YourPlace({
   onFind?: (() => void) | undefined;
 }) {
   if (!data) return null;
+  // Named rather than the raw id, and the id itself if the world has forgotten the city.
+  const cityName = data.city === null ? null : (findCity(data.city)?.name ?? data.city);
   return (
     <div
       className="ink-frame card-paper washed edge-lit flex shrink-0 items-center gap-3 px-3.5 py-1.5"
@@ -298,10 +337,21 @@ function YourPlace({
       </span>
       <p className="min-w-0 flex-1 font-body text-[13px] text-ink-300" role="status">
         {data.yourRank === null ? (
+          /*
+           * Why you are off the board, which a city makes a second question: a board of one city
+           * lists whoever holds ground there, so the reader who holds none is absent from it with
+           * nothing wrong on their side. Saying "win a fight" to them would be the wrong answer.
+           */
           board === 'players' ? (
-            'You are not on this board yet. Win a fight.'
-          ) : (
+            cityName === null ? (
+              'You are not on this board yet. Win a fight.'
+            ) : (
+              `You hold nothing in ${cityName}, so you are not on this board.`
+            )
+          ) : cityName === null ? (
             'You are in no faction, so there is nothing of yours on this board.'
+          ) : (
+            `No faction of yours holds ground in ${cityName}.`
           )
         ) : (
           <>
@@ -309,7 +359,11 @@ function YourPlace({
             <span className="font-display text-[16px] font-bold text-brass-300">
               #{data.yourRank}
             </span>
-            {data.localOnly ? ' in your city.' : ' across every city.'}
+            {/* The rank is a place on the board being read, so it says which board that is. Every
+                other figure on the screen is the whole world's and needs no such line. */}
+            {cityName === null
+              ? ' across every city.'
+              : ` among those who hold ground in ${cityName}.`}
           </>
         )}
       </p>

@@ -39,7 +39,7 @@ import { ForcePicker } from './ForcePicker';
 import { MoveDialog } from '../actions/MoveDialog';
 import { SpyDialog, spyStandingFigure, type SpyingProps } from './SpyPanel';
 import { PressError } from '../../components/ui/PressError';
-import { DoorLadder, PamphletPicker, TollingSwitch, TrophyList } from './ReliquaryControls';
+import { DoorLadder, PamphletPicker, TollingSwitch, TrophyList } from './ArcaControls';
 
 /**
  * One location, on one sheet, laid out the same way for every location in the city (board
@@ -293,7 +293,7 @@ export function LocationSheet({
       </Sheet>
 
       {view.door !== null && (
-        // A unit door (Reliquary, 2026-10-07): what each level gives the unit it musters, with
+        // A unit door (Arca, 2026-10-07): what each level gives the unit it musters, with
         // the level this ground has reached marked. Public like the level pips: a rival deciding
         // whether to take a Shrine wants to know what the Saint walks out of it with.
         <Sheet label={`${view.door.name}'s door`} icon="units">
@@ -503,6 +503,7 @@ export function LocationSheet({
               <Button
                 size="sm"
                 variant="ghost"
+                refusal={spying.locationsRefused}
                 onClick={() => setSpyingOpen(true)}
                 data-testid={`spy-open-${view.location.id}`}
               >

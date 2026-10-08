@@ -35,13 +35,12 @@ export const CitySchema = z.object({
   /**
    * Whether a crew can actually play here yet.
    *
-   * Ashfall and Terminus are the two with a painted map, a seeded world and a mission board. The
-   * other three are shut, and they are shut in two different ways: Reliquary has authored ground
-   * in the atlas with no art and no server behind it (written a district at a time, 2026-10-06,
-   * in the place Saltmarch's sketch held until then), and Redline and Deepcut have no ground at
-   * all yet, only a name and what the place is. A card that pretended any was playable would be a
-   * door onto an empty room. The screen draws all five, because "there is a frontier and it is
-   * called Reliquary" is the thing worth knowing.
+   * Ashfall, Terminus and Arca are the three with a painted map, a seeded world and a mission
+   * board (Arca was written a district at a time from 2026-10-06, in the place Saltmarch's sketch
+   * held until then, and opened on 2026-10-07 when its painting landed). Redline and Deepcut are
+   * shut: no ground at all yet, only a name and what the place is. A card that pretended either
+   * was playable would be a door onto an empty room. The screen draws all five, because "there is
+   * a frontier" is the thing worth knowing.
    */
   open: z.boolean(),
 });
@@ -65,12 +64,12 @@ export const CITIES: readonly City[] = [
     open: true,
   },
   {
-    id: 'reliquary',
-    name: 'Reliquary',
+    id: 'arca',
+    name: 'Arca',
     nickname: 'the Old Quarter',
     blurb:
       'The cathedral city the Combine never modernised, so it wired it instead: white stone and crimson banners, bells that are transmitters now, and a camera in every saint. The dead outnumber the living and are better housed.',
-    open: false,
+    open: true,
   },
   {
     id: 'redline',

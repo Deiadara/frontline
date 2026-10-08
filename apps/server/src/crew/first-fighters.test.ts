@@ -146,7 +146,13 @@ describe("a new crew's first session", () => {
     expect(firstAt!).toBeLessThanOrEqual(20 * MINUTE);
     expect(minutes).toBeLessThanOrEqual(45);
 
-    // One Razor walks onto open ground, and the district's board opens under the foothold rule.
+    /*
+     * One Razor walks onto open ground, and the board does **not** open (maintainer, 2026-10-07).
+     *
+     * A district hires only a crew that holds it entirely, so one plot in it is a foothold and
+     * nothing more. What a crew in its first session has is the misc board, which is the whole
+     * reason that board is outside the rule.
+     */
     const ground = openGround(crew);
     await crew.call<ActionsResponse>('POST', '/api/actions/move', {
       from: { kind: 'district' },
@@ -161,7 +167,7 @@ describe("a new crew's first session", () => {
       baseId: crew.baseId,
     });
     const board = await crew.call<MissionsResponse>('GET', '/api/missions');
-    expect(board.areas.map((area) => area.id)).toContain(ground.districtId);
+    expect(board.areas.map((area) => area.id)).toEqual([MISC_AREA_ID]);
 
     // ...and the rest take the misc board's fight card, which a crew of porters is refused.
     const fight = board.areas

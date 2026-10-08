@@ -1,4 +1,4 @@
-import type { DistrictDetailResponse } from '@frontline/shared';
+import { sameHolder, type DistrictDetailResponse } from '@frontline/shared';
 import type { CSSProperties } from 'react';
 import { PLAQUE_PLATE, PlaqueCorners } from '../../components/DistrictPlaque';
 import { DrawnGlyph } from '../../components/ui/DrawnMarks';
@@ -30,8 +30,15 @@ export function HeldByPlaque({
   style?: CSSProperties;
 }) {
   const holder = data.holder;
-  const name = data.locations[0]?.holderName;
-  if (!holder || name === undefined) return null;
+  /*
+   * The name off a plot this holder actually holds, not off the first one on the list (2026-10-07).
+   * A district can be whole for a *table* rather than for one crew, and `holder` is then the member
+   * holding the most of it: with the first plot belonging to a mate, the plate carried the right
+   * badge and the wrong crew's name.
+   */
+  if (!holder) return null;
+  const name = data.locations.find((view) => sameHolder(view.holder, holder))?.holderName;
+  if (name === undefined) return null;
   return (
     <div
       className={cn(PLAQUE_PLATE, 'pointer-events-none !items-start', className)}

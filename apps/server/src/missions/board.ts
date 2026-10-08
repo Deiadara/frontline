@@ -4,6 +4,7 @@ import {
   TRAVEL_BAND_MINUTES,
   offerXp,
   MISC_AREA_ID,
+  missionDealer,
   RESOURCE_KG,
   areaPayPercent,
   leaningsFor,
@@ -12,7 +13,6 @@ import {
   ALL_DISTRICTS,
   areaIsOpen,
   isContested,
-  isHeldBy,
   missionBoardKey,
   type TerritoryEffects,
   missionOffers,
@@ -32,6 +32,7 @@ import {
 } from '@frontline/shared';
 import type { Repositories } from '../db/repos/index.js';
 import type { StoredMission } from '../db/repos/missions.js';
+import { districtsHeldWhole } from '../city/holding.js';
 import { pricedTimings } from './pricing.js';
 
 /**
@@ -48,24 +49,23 @@ import { pricedTimings } from './pricing.js';
  */
 
 /**
- * How much of each district this crew holds, which is all the board needs to know about one.
+ * Which districts this crew holds whole, which is all the board needs to know about one.
+ *
+ * Whole for the crew **and its table** (maintainer, 2026-10-07: "districts that you or your faction
+ * control entirely"), which is why this goes through `districtsHeldWhole` rather than counting
+ * locations itself: that is the one function the unified bonus, the gate and the fight all ask, and
+ * a second count here is a second answer waiting to disagree with them.
  *
  * Every district in the world rather than one city's (2026-09-24). Both callers ask it about ground
  * they name: the read hands it to `projectAreas` beside the districts of the city being read, and
- * the launch route asks it about the one area a request named, which may be in any city. The whole
- * atlas is thirty-odd districts against one already-loaded control map, so the walk costs nothing.
+ * the launch route asks it about the one area a request named. The whole atlas is thirty-odd
+ * districts against one already-loaded control map, so the walk costs nothing.
  */
 export function areaStatesFor(repos: Repositories, base: Base): Map<string, AreaAvailability> {
-  const controls = repos.city.controls();
-  const states = new Map<string, AreaAvailability>();
-  for (const district of ALL_DISTRICTS) {
-    const heldByCrew = district.locations.filter((location) => {
-      const control = controls.get(location.id);
-      return control !== undefined && isHeldBy(control, base.id);
-    }).length;
-    states.set(district.id, { heldByCrew });
-  }
-  return states;
+  const whole = new Set(districtsHeldWhole(repos, base.id));
+  return new Map(
+    ALL_DISTRICTS.map((district) => [district.id, { heldWhole: whole.has(district.id) }]),
+  );
 }
 
 /**
@@ -168,7 +168,7 @@ export function projectAreas(
    * The crew reading it: its level decides which grades each board deals, and its home district
    * how far away a job in another city is (`missionWalkMinutes`).
    */
-  crew: Pick<Base, 'level' | 'districtId'>,
+  crew: Pick<Base, 'level' | 'districtId' | 'id' | 'createdAt'>,
   /**
    * When the boards are being read, which is what each one's key is derived from.
    *
@@ -222,7 +222,7 @@ export function projectAreas(
       payPercent,
       offers:
         activeMissionId === null
-          ? missionOffers(id, key, crew.level).map((job) =>
+          ? missionOffers(id, key, crew.level, missionDealer(crew)).map((job) =>
               gilded(
                 offerFor(
                   job.template,
@@ -259,7 +259,7 @@ export function projectAreas(
     board(
       MISC_AREA_ID,
       'Miscellaneous Missions',
-      'Work that belongs to nobody. Hold a place in a district and its board opens too.',
+      'Work that belongs to nobody. Take a district end to end and its board opens too.',
       1,
     ),
     ...districts

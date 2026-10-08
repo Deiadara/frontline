@@ -533,6 +533,17 @@ describe('the second city', () => {
     expect(read('cities_held')).toBe(1);
   });
 
+  /** Arca's tombs (2026-10-07): one location kind, so the count is the Mausoleums and nothing beside them. */
+  it('counts the Mausoleums held, and not the ground around them', () => {
+    expect(read('mausoleums_held')).toBe(0);
+    give([firstOfKind('candlemarket', 'mausoleum'), firstOfKind('candlemarket', 'market')], mine);
+    expect(read('locations_held')).toBe(2);
+    expect(read('mausoleums_held'), 'the market beside the tomb is not a tomb').toBe(1);
+    give([firstOfKind('gravefields', 'mausoleum')], mine);
+    expect(read('mausoleums_held')).toBe(2);
+    expect(read('cities_held'), 'a third city to hold ground in').toBe(1);
+  });
+
   /**
    * The railway is one location kind, and holding a platform is the whole of owning a line.
    *

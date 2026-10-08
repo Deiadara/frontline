@@ -50,20 +50,23 @@ describe('the door', () => {
     const open = citiesOpenTo([
       stake({ cityId: 'terminus', locationsHeld: 2 }),
       stake({ cityId: 'ashfall', resident: true }),
-      stake({ cityId: 'reliquary', locationsHeld: 0 }),
+      stake({ cityId: 'arca', locationsHeld: 0 }),
+      stake({ cityId: 'redline', locationsHeld: 2 }),
     ]);
     expect(open[0]).toBe('ashfall');
     expect(open).toEqual(['ashfall', 'terminus']);
   });
 
   /*
-   * Maintainer, 2026-09-29: ground claimed in a shut city (Saltmarch then, Reliquary now) kept its Bar,
-   * fence, Runner and board open to the crew holding it. A city that is not open has no rooms.
+   * Maintainer, 2026-09-29: ground claimed in a shut city (Saltmarch, then Arca until it opened on
+   * 2026-10-07) kept its Bar, fence, Runner and board open to the crew holding it. A city that is
+   * not open has no rooms. Redline is shut today; the stake is fabricated, which is all a pure
+   * check needs.
    */
   it('stays shut on a city that is not open, however much of it is held', () => {
-    expect(canEnterCity(stake({ cityId: 'reliquary', locationsHeld: 5 }))).toBe(false);
-    expect(canEnterCity(stake({ cityId: 'reliquary', resident: true }))).toBe(false);
-    expect(citiesOpenTo([stake({ cityId: 'reliquary', locationsHeld: 3 })])).toEqual([]);
+    expect(canEnterCity(stake({ cityId: 'redline', locationsHeld: 5 }))).toBe(false);
+    expect(canEnterCity(stake({ cityId: 'redline', resident: true }))).toBe(false);
+    expect(citiesOpenTo([stake({ cityId: 'redline', locationsHeld: 3 })])).toEqual([]);
   });
 
   it('names the city a district belongs to, and falls back for one the map has not', () => {

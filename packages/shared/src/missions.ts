@@ -156,11 +156,10 @@ export function hastenedRoadMinutes(
   minutes: number,
   speed = 0,
   reductionPercent = 0,
-  flatMinutesOff = 0,
   /** The Cartographer's cut off the road's base (`roadMinutes`). */
   baseCutPercent = 0,
 ): number {
-  return roadMinutes(minutes, speed, reductionPercent, flatMinutesOff, baseCutPercent);
+  return roadMinutes(minutes, speed, reductionPercent, baseCutPercent);
 }
 
 /** The minutes a run's pay and XP are priced on: what the card quoted, or the row's own clock. */

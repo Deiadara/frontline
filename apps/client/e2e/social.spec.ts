@@ -936,7 +936,7 @@ test('the standings rank players, and a tie shares its place', async ({ page }) 
   await page.screenshot({ path: 'screenshots/leaderboard.png', fullPage: false });
 });
 
-test('the standings have a faction board and a scope control', async ({ page }) => {
+test('the standings have a faction board and a city picker', async ({ page }) => {
   await installApi(page, lateGame);
   await page.goto('/game/leaderboard');
 
@@ -948,11 +948,12 @@ test('the standings have a faction board and a scope control', async ({ page }) 
   await expect(page.getByTestId('standing-Rust Assembly')).toContainText('240');
   await expect(page.getByTestId('leaderboard').getByText('Earned')).toBeVisible();
 
-  // The scope toggle applies to whichever board is open.
-  const local = page.getByTestId('local-only');
-  await expect(local).not.toBeChecked();
-  await local.check();
-  await expect(local).toBeChecked();
+  // The city picker applies to whichever board is open, and opens on every city (2026-10-07).
+  const city = page.getByTestId('standings-city');
+  await expect(city).toContainText('All cities');
+  await city.click();
+  await page.getByRole('option', { name: 'Terminus', exact: true }).click();
+  await expect(city).toContainText('Terminus');
 });
 
 test('the standings door sits next to Actions in the standing bar', async ({ page }) => {

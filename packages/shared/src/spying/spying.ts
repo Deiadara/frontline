@@ -527,6 +527,12 @@ export const SPY_REFUSALS = [
   'no_road',
   /** The ground is in a city that is not open yet (`cityIsOpen`): the runners have nowhere to go. */
   'city_closed',
+  /**
+   * The Curate is alive in that district (`city/combine.ts`): nothing comes out of the Printworks
+   * that she has not written. Its own refusal rather than an empty report, because a player who is
+   * told "nothing was found" learns the wrong lesson about their runners.
+   */
+  'only_lies',
 ] as const;
 export type SpyRefusal = (typeof SPY_REFUSALS)[number];
 

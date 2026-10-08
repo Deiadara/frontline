@@ -554,7 +554,7 @@ export interface SideSetup {
   /** This side is the Combine's: the other side's ANTI-COMBINE levels pay against it. */
   government?: boolean;
   /**
-   * The parts of `army` that faction mates sent (Reliquary's Rose Window, `allyFightPercent`),
+   * The parts of `army` that faction mates sent (Arca's Rose Window, `allyFightPercent`),
    * each with the percent its sender's own ground pays. The engine weighs the percent per unit
    * id by how many of that id each mate sent, so one stack per id still stands.
    */
@@ -901,6 +901,32 @@ function applyPresence(defender: SideState, presence: CombinePower | undefined):
       stack.effective.penetration = capRating(stack.effective.penetration + presence.penetration);
       stack.effective.armor = capRating(stack.effective.armor + presence.armor);
       stack.effective.reasons = [...stack.effective.reasons, 'The Syndic'];
+    }
+  }
+  if (presence.kind === 'blood_priest') {
+    // His congregation only. The Eerie half of Blood Baptism is the ground's, not a sheet's, and
+    // is laid on the battlefield by `combineLeaderLabels` so that it bites both sides.
+    for (const stack of defender.stacks) {
+      stack.effective.intimidation = capRating(
+        stack.effective.intimidation + presence.intimidation,
+      );
+      stack.effective.reasons = [...stack.effective.reasons, 'The Blood Priest'];
+    }
+  }
+  if (presence.kind === 'hierarch') {
+    for (const stack of defender.stacks) {
+      stack.effective.evasion = capRating(stack.effective.evasion + presence.evasion);
+      // Damage is not a rating and has no 100 ceiling, so it is a share rather than a capped sum.
+      stack.effective.offense = Math.round(
+        stack.effective.offense * (1 + presence.damagePercent / 100),
+      );
+      // Added to whatever the sheet already resists: a unit with no blunt resistance gains it,
+      // and one that had some is better at the thing he drills hardest.
+      stack.effective.resistances = {
+        ...stack.effective.resistances,
+        blunt: (stack.effective.resistances.blunt ?? 0) + presence.bluntResistance,
+      };
+      stack.effective.reasons = [...stack.effective.reasons, 'The Hierarch'];
     }
   }
   if (presence.kind === 'directive_xero') {
@@ -2490,7 +2516,7 @@ export interface Simulation {
    */
   intimidated: { attacker: number; defender: number };
   /**
-   * The bodies each side lost that the infamy rules price differently (Reliquary): those that
+   * The bodies each side lost that the infamy rules price differently (Arca): those that
    * were too intimidated to fire when they fell (the Fight Pit pays them over) and those credited
    * to a SPECTACLE shooter (paid twice). By the unit id of the dead, on the side that lost them.
    */
@@ -2633,7 +2659,7 @@ export function simulate(input: SimulateInput): Simulation {
   // never attacks, so there is no other side for him to stand against.
   const execution: Execution | undefined =
     presence?.kind === 'executioner' ? { floor: presence.threshold, count: finish } : undefined;
-  // Reliquary's two ledgers of the dead, one per side, and the round's door effects on each.
+  // Arca's two ledgers of the dead, one per side, and the round's door effects on each.
   const kills: { attacker: KillLedger; defender: KillLedger } = {
     attacker: { intimidated: {}, spectacle: {} },
     defender: { intimidated: {}, spectacle: {} },

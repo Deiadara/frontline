@@ -6,7 +6,7 @@ import {
   PAMPHLET_PENALTY_PERCENT,
   PAPERCUT_ARMOR,
   SAINT_CONGREGATION_CAP,
-} from '../city/reliquary.js';
+} from '../city/arca.js';
 import { findUnit, type UnitSpec } from '../units/index.js';
 import { bareBattlefield, type Battlefield } from './battlefield.js';
 import { doorPerks, NO_DOOR_PERKS } from './doors.js';

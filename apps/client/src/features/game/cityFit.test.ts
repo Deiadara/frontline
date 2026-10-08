@@ -88,9 +88,7 @@ describe.each(PAINTED_CITY_IDS)('the %s tags survive the crop', (cityId) => {
  * ...and the marks that do move are named, so the number is a fact rather than a budget.
  *
  * Without this the ceiling above is the only thing on record and a placement pass could walk every
- * mark to the edge of it without failing anything. Terminus contributes nothing: its twelve were
- * placed inside the window this file describes rather than at the edges of it, so the crop has
- * nothing to push, and a Terminus id appearing here means somebody moved one out of the band.
+ * mark to the edge of it without failing anything.
  */
 describe('which marks the crop actually moves', () => {
   it('names every one of them, across both paintings', () => {
@@ -109,7 +107,11 @@ describe('which marks the crop actually moves', () => {
      *
      * Ashen Terraces still moves 10px and is left alone: it is a *top*-edge clamp, under the
      * stockpile rather than over the switcher, and 10px is inside the ceiling the case above pins.
+     *
+     * Terminus's Blockhouse and Signal Row joined it on 2026-10-08, when the maintainer placed
+     * Terminus's tags on a marked-up screenshot: both were drawn above the window, the Blockhouse
+     * moves 10px, and Signal Row sits at the highest mark the ceiling allows.
      */
-    expect(moved.sort()).toEqual(['ashen-terraces:10']);
+    expect(moved.sort()).toEqual(['ashen-terraces:10', 'blockhouse:10', 'signalrow:23']);
   });
 });

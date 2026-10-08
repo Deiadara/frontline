@@ -37,12 +37,13 @@ describe('the frontier between two cities', () => {
      *
      * Positions are normalised inside their own city, so Ashfall's Ashen Terraces at (0.84, 0.62)
      * and Terminus's Last Platform at (0.80, 0.34) are a fifth of a unit square apart on paper and
-     * two hours apart in the world. Before the frontier term this came to the two-minute floor.
+     * four hours apart in the world. Before the frontier term this came to the two-minute floor.
      */
     const home = at('ashen-terraces');
     const away = at('last-platform');
     expect(home.cityId).not.toBe(away.cityId);
-    expect(travelMinutesBetween(home, away)).toBeGreaterThan(INTER_CITY_MINUTES);
+    // A crew with no pace and no holdings pays the figure itself (maintainer, 2026-10-07).
+    expect(travelMinutesBetween(home, away)).toBe(INTER_CITY_MINUTES);
   });
 
   it('costs more than any journey inside either city', () => {
@@ -180,18 +181,10 @@ function longestRoadIn(cityId: string): number {
 }
 
 /**
- * What a crew's road bonuses buy on a journey that is two short walks instead of one long road.
- *
- * Two different kinds of bonus meet here and they behave differently, which is the whole reason
- * this block exists. A **percentage** is spent identically however a road is cut up, because a
- * share of a sum is the sum of the shares. A **flat** cut is not: `road_shortcut` comes off after
- * the percentage, so a rail journey with a walk at either end spends it twice where the same
- * journey on foot spends it once.
- *
- * Pinned rather than argued. The Tram Depot's card says "-4 min off every road" and two legs are
- * two roads, so the reading is defensible; what is not defensible is nobody knowing which reading
- * is in force. If the maintainer wants it charged once for the journey, the change is one call in
- * `railwayOffer` and this block is the test that has to move with it.
+ * A percentage is spent identically however a road is cut up, because a share of a sum is the sum
+ * of the shares. That is the whole of the rule now: the flat cut this block also measured went on
+ * 2026-10-07, when the three things that paid it became points on the travel channel, so a rail
+ * journey and the same journey on foot can no longer disagree about what a bonus is worth.
  */
 describe('what the road bonuses are worth on a ride', () => {
   const wholeLine = stationDistricts(EVERY_STATION);
@@ -205,28 +198,14 @@ describe('what the road bonuses are worth on a ride', () => {
     // Coldwater to the Blockhouse is a platform at either end, so the whole journey is the link.
     const plain = railwayOfferBetween('coldwater-halt', 'blockhouse', wholeLine, legless);
     const hastened = railwayOfferBetween('coldwater-halt', 'blockhouse', wholeLine, cut);
-    expect(plain?.minutes).toBe(RAIL_LINK_MINUTES);
     // Nothing makes a train faster and nothing makes it slower: the same journey, the same clock,
     // with the best pace and the biggest reduction in the game spent on it.
+    expect(plain?.minutes).toBe(RAIL_LINK_MINUTES);
     expect(hastened?.minutes).toBe(RAIL_LINK_MINUTES);
   });
 
-  it('spends the flat cut once on each leg, which is twice on a ride', () => {
-    const off = 9;
-    const walked = travelMinutesBetween(at(FROM), at(TO));
-    const shortWalk = travelMinutesBetween(at(FROM), at(TO), { flatMinutesOff: off });
-    const ride = railwayOfferBetween(FROM, TO, wholeLine, {});
-    const shortRide = railwayOfferBetween(FROM, TO, wholeLine, { flatMinutesOff: off });
-    expect(ride, 'the fixture needs a ride with a walk at both ends').not.toBeNull();
-    expect(ride!.toPlatform).toBeGreaterThan(off);
-    expect(ride!.fromPlatform).toBeGreaterThan(off);
-
-    expect(walked - shortWalk).toBe(off);
-    expect(ride!.minutes - shortRide!.minutes).toBe(off * 2);
-  });
-
-  it('never drives a leg to nothing, however large the flat cut', () => {
-    const huge = railwayOfferBetween(FROM, TO, wholeLine, { flatMinutesOff: 240 });
+  it('never drives a leg to nothing, however hard the percentage is pressed', () => {
+    const huge = railwayOfferBetween(FROM, TO, wholeLine, { speed: 100, reductionPercent: 300 });
     expect(huge).not.toBeNull();
     // A leg that exists is never free, and the fifteen is untouched by a road bonus of any size.
     expect(huge!.toPlatform).toBeGreaterThanOrEqual(MIN_TRAVEL_MINUTES);

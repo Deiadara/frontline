@@ -82,7 +82,7 @@ export function standingEffectsFor(
   );
   const total = combineEffects(territory, crewEffects(crewSheetsFor(repos, base, now)));
   /*
-   * Reliquary's two lists off the control rows (2026-10-07). The crew ignores Noisy everywhere
+   * Arca's two lists off the control rows (2026-10-07). The crew ignores Noisy everywhere
    * while a Tolling Tower it holds is switched on (maintainer: "your units' Loud debuffs are
    * cancelled"), and the units pinned on its Pamphlet Walls fight it at a discount. Read here,
    * where the fight, the roster and the city view all take their standing from, so a switch

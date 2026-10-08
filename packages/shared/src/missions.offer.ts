@@ -54,9 +54,16 @@ export function offerOfMission(
   const grade = mission.grade ?? template.grades[0];
   const timings = missionTimings(mission);
   const priced = pricedTotalMinutes(mission);
+  /*
+   * The area's premium, then the Bounty Wall's gold, which is the order the settle pays them in
+   * (`missions/resolve.ts`). The gold was missing here until 2026-10-07: a golden run already out
+   * was drawn with its gold border and "+N% bounty" on the card and quoted the plain haul beside
+   * it, so the Missions page promised less than the return paid. Same failure the note on
+   * `haulPercent` records, one channel along.
+   */
   const rewards = scaledSpoils(
-    missionRewards(template, 'success', priced, grade),
-    mission.payPercent,
+    scaledSpoils(missionRewards(template, 'success', priced, grade), mission.payPercent),
+    mission.goldenPercent ?? 0,
   );
   const xp = mission.xp > 0 ? mission.xp : missionXp(template, priced, grade);
   return {

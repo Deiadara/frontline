@@ -221,7 +221,7 @@ export const NOTIFICATION_KIND_SPECS: Readonly<Record<NotificationKind, Notifica
     blurb: 'A blueprint page came into the inventory.',
     icon: 'research',
   },
-  // Reliquary (2026-10-07): the Printworks' pages, the Dispensary's stim and the Foundry's parts
+  // Arca (2026-10-07): the Printworks' pages, the Dispensary's stim and the Foundry's parts
   // land once a day on their own clock, so the bell is the only way a player learns they came.
   daily_grant: {
     group: 'district',

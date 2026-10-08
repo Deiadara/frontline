@@ -15,7 +15,7 @@ import { heldCapRoom, queueMuster } from './muster.js';
 import { projectUnits } from './roster.js';
 
 /**
- * The Death Cloaks (maintainer, 2026-10-06): raised in Reliquary's Mausoleums, fifty of them for
+ * The Death Cloaks (maintainer, 2026-10-06): raised in Arca's Mausoleums, fifty of them for
  * every tomb held, counted everywhere the crew has people. `location-consumers.test.ts` holds the
  * other half of the rule, the thirty damage and vitality a tomb puts on each.
  */

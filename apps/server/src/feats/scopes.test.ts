@@ -5,6 +5,7 @@ import {
   COMBINE_UNITS,
   FEATS,
   FEAT_MEASURE_SPECS,
+  MISC_AREA_ID,
   RESOURCE_KEYS,
   featMeasureKey,
   fightCategory,
@@ -20,7 +21,12 @@ import {
 import { beforeEach, describe, expect, it } from 'vitest';
 import { openDatabase, runMigrations, type AppDatabase } from '../db/index.js';
 import { createRepositories, type Repositories } from '../db/repos/index.js';
-import { tallyCombineFight, tallyMissionHome, tallyResourcesEarned } from './tally.js';
+import {
+  tallyCombineFight,
+  tallyMissionHome,
+  tallyResourcesEarned,
+  tallyUnitsMustered,
+} from './tally.js';
 
 /**
  * The **spelling** of a scoped tally, which neither existing gate covers.
@@ -119,7 +125,7 @@ const SCOPED_TALLY_MEASURES = (Object.keys(FEAT_MEASURE_SPECS) as FeatMeasure[])
 const tallies = (): Record<string, number> => repos.feats.tallies(BASE_ID);
 
 describe('a scoped tally is written under the scope the catalogue asks for', () => {
-  it('has the seven measures this file knows how to drive, and no eighth nobody noticed', () => {
+  it('has the eight measures this file knows how to drive, and no ninth nobody noticed', () => {
     // The control. If a scoped tally measure is added and nothing below drives it, this fails
     // rather than the file quietly covering six of eight.
     expect([...SCOPED_TALLY_MEASURES].sort()).toEqual([
@@ -130,7 +136,25 @@ describe('a scoped tally is written under the scope the catalogue asks for', () 
       'missions_in_area',
       'missions_of_kind',
       'resources_earned',
+      'units_mustered_of',
     ]);
+  });
+
+  /**
+   * Arca's Death Cloaks (2026-10-07): the muster counts each sheet a feat names under its id, and
+   * no other. A Razor out of the yard is in the total and in no per-unit row.
+   */
+  it('spells a mustered sheet the way the catalogue does, and writes no other', () => {
+    const sheets = scopesWanted('units_mustered_of');
+    expect(sheets).toEqual(['death_cloaks']);
+    tallyUnitsMustered(repos, BASE_ID, [
+      { unitId: 'death_cloaks', count: 3 },
+      { unitId: 'razors', count: 7 },
+    ]);
+    const held = tallies();
+    expect(held[featMeasureKey('units_mustered_of', 'death_cloaks')]).toBe(3);
+    expect(held[featMeasureKey('units_mustered_of', 'razors')]).toBeUndefined();
+    expect(held[featMeasureKey('units_mustered')]).toBe(10);
   });
 
   it('spells a fight category the way the catalogue does, and counts a won fight only', () => {
@@ -227,7 +251,13 @@ describe('a scoped tally is written under the scope the catalogue asks for', () 
   it('spells a mission area and a mission kind the way the catalogue does', () => {
     const areas = scopesWanted('missions_in_area');
     const kinds = scopesWanted('missions_of_kind');
-    expect(areas.length).toBeGreaterThan(5);
+    /*
+     * One scope since 2026-10-07, where there were seventeen: the board's per-district feats were
+     * replaced by two readings that name no district, and the Miscellaneous board is the only
+     * scope the catalogue still asks for by name. Asserted as the misc id rather than as a count,
+     * because a count of one is the kind of guard that passes when the catalogue asks for nothing.
+     */
+    expect(areas).toEqual([MISC_AREA_ID]);
     expect(kinds.sort()).toEqual(['battle', 'standard']);
 
     for (const areaId of areas) {

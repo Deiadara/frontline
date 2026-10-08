@@ -88,6 +88,7 @@ describe('sections', () => {
       'plate-district-viaduct',
       'plate-district-last-platform',
       'plate-district-blockhouse',
+      'plate-city-arca',
     ]);
     // The officer pool is opaque and croppable and lands here too, all of it. Read off the pool
     // rather than typed: the board added ten faces once and has three times since.

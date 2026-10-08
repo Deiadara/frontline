@@ -223,7 +223,7 @@ export function DeployDialog({
    * ## Why the clock comes off the server
    *
    * It used to be a `travelMinutes` call right here with the column's pace alone, and that is
-   * one of the three channels the server spends. `travelSpeedPercent` and `roadMinutesOff` come
+   * one of the channels the server spends. `travelSpeedPercent` comes
    * off `standingEffectsFor`, which folds the crew's **ground** as well as its people, and the
    * client is only ever sent the people-only fold. So the window promised a longer march than the
    * crew makes, and a crew with a Tram Depot and travel bonuses was told a materially wrong

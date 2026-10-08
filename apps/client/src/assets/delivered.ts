@@ -49,7 +49,7 @@ export function buildingPortraitUrl(kind: BuildingKind): string | null {
 /**
  * A city's painting on the world screen, pending a manifest entry for it.
  *
- * Named off the city id, so dropping `city-ashfall.webp` (and `city-reliquary.webp`, and so on for
+ * Named off the city id, so dropping `city-ashfall.webp` (and `city-arca.webp`, and so on for
  * the five in `CITIES`) into `assets/` puts the painting on the card with no TypeScript edit.
  * Until one lands, `CityPortrait` draws its procedural skyline and nothing is missing.
  *
@@ -70,10 +70,10 @@ export function cityPortraitUrl(cityId: string): string | null {
   /*
    * A portrait of its own first, then the city's own map painting, then nothing.
    *
-   * The second step is what puts a real picture on the world screen today. Ashfall and Terminus
-   * each have a painted whole-city map on the manifest (`plate-city`, `plate-city-terminus`), and
-   * a card drawing a procedural skyline beside a city that has a painting was the card telling a
-   * player the place is not drawn yet when it is. The crop is severe, because a 21:10 map into a
+   * The second step is what puts a real picture on the world screen today. Ashfall, Terminus and
+   * Arca each have a painted whole-city map on the manifest (`plate-city`, `plate-city-terminus`,
+   * `plate-city-arca`), and a card drawing a procedural skyline beside a city that has a painting
+   * was the card telling a player the place is not drawn yet when it is. The crop is severe, because a 21:10 map into a
    * tall card keeps about a fifth of its width, but a fifth of the real city reads as that city
    * and a generated silhouette reads as any city.
    *

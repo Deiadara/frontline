@@ -114,11 +114,11 @@ export const LOCATION_KINDS = [
   // Terminus's railway, appended for the same reason (maintainer, 2026-09-24). By sense it belongs
   // under "ground and defence": a platform is a piece of the map, not a workshop.
   'rail_station',
-  // Reliquary's tombs, appended for the same reason (maintainer, 2026-10-06). By sense it sits
+  // Arca's tombs, appended for the same reason (maintainer, 2026-10-06). By sense it sits
   // beside the Graveyard: it is the ground the Death Cloaks are raised on.
   'mausoleum',
   /*
-   * The rest of Reliquary's kinds (maintainer, 2026-10-06 and 2026-10-07), appended in the order
+   * The rest of Arca's kinds (maintainer, 2026-10-06 and 2026-10-07), appended in the order
    * the city was authored. By sense: a workshop and the stores belong under industry, a shrine and
    * a stage under people, a bounty wall under war, a trophy hall under money, a laboratory under
    * knowledge.
@@ -211,7 +211,7 @@ export type HoldBonusCore =
   | { kind: 'resource_yield'; resource: ResourceKey; percent: number }
   /**
    * Every crew that is out comes home sooner (§E). `inDistrict` narrows it to jobs on the board of
-   * the district the ground paying it stands in (the Printworks' tunnels, Reliquary 2026-10-07).
+   * the district the ground paying it stands in (the Printworks' tunnels, Arca 2026-10-07).
    * A by-city scope existed until the Blockhouse's "twenty per cent off every job in this city"
    * became a level of ANTI-COMBINE (maintainer, 2026-10-07); nothing paid it after that.
    */
@@ -256,15 +256,6 @@ export type HoldBonusCore =
    * *happens* instead: what a porter is allowed to do, what the sky is worth, which sheet the
    * enemy has to deal with first. They carry no percentage on purpose, so a card cannot quote one.
    */
-  /**
-   * Flat minutes off every road, taken after the column's own pace has been spent.
-   *
-   * The one travel bonus a short road can feel. `travel_speed` is a percentage of whatever the
-   * clock came to, so on a nine-minute hop between neighbours it is worth under a minute however
-   * much of it you hold; this is worth the same four minutes on that hop as on an hour's march,
-   * which makes it the bonus a crew fighting over its own corner of the city actually wants.
-   */
-  | { kind: 'road_shortcut'; minutes: number }
   /**
    * The porters take a place in the line, at their own full sheet (maintainer, 2026-09-27).
    *
@@ -324,13 +315,13 @@ export type HoldBonusCore =
    */
   | { kind: 'rail_link' }
   /**
-   * A Mausoleum, Reliquary's city special (maintainer, 2026-10-06). One in every contested
+   * A Mausoleum, Arca's city special (maintainer, 2026-10-06). One in every contested
    * district there. Holding any one lets the crew muster the Death Cloaks; every one held is
    * counted, because their `faith` rule pays per Mausoleum and so does their muster cap.
    */
   | { kind: 'faith' }
   /*
-   * Reliquary's own channels (maintainer, 2026-10-06 and 2026-10-07). Each is a figure or a rule
+   * Arca's own channels (maintainer, 2026-10-06 and 2026-10-07). Each is a figure or a rule
    * one location in the city pays and nothing else did before it; the folded field each lands in
    * is named beside it, and the lane that spends the field is named in `docs/DISTRICTS.md`.
    */
@@ -1022,19 +1013,15 @@ export const LOCATION_CATALOG: Record<LocationKind, LocationSpec> = {
     blurb:
       'Eight roads under one roof, half the fleet still on them, and overhead line that is live in places.',
     reward: 'The city gets smaller. Everything you send anywhere leaves sooner and arrives faster.',
-    bonuses: [
-      { kind: 'travel_speed', percent: 18 },
-      /*
-       * Four minutes flat, and it is the half the percentage cannot buy.
-       *
-       * The depot's 18% is worth eighteen minutes on a two-hour march and under two on the ten
-       * minute hop to the district next door, which is the road a crew fighting over its own corner
-       * of the city actually walks. Four is a little under half of that hop and a rounding error on
-       * the long one, so the two bonuses answer different journeys instead of the same one twice.
-       * `MIN_TRAVEL_MINUTES` is the floor, so no amount of this ever makes a road free.
-       */
-      { kind: 'road_shortcut', minutes: 4 },
-    ],
+    /*
+     * One channel since 2026-10-07 (maintainer: "nerf the bonuses and make them percentage based
+     * for now"). The depot paid 18% and four flat minutes, and the flat half was there because a
+     * percentage is worth what the clock is worth: four minutes bit on the ten-minute hop next
+     * door and were a rounding error on a march. Flat minutes also survived the crossing, where
+     * they were never meant to matter. The four are 4 more points on the travel channel instead,
+     * which bends with everything else through `travelSpeedCut`.
+     */
+    bonuses: [{ kind: 'travel_speed', percent: 22 }],
     baseDefense: 3,
     labels: [L('crammed', 2), L('noisy', 2), L('dark', 1)],
     upgradeCost: 230,
@@ -1437,7 +1424,7 @@ export const LOCATION_CATALOG: Record<LocationKind, LocationSpec> = {
     ],
   },
   /*
-   * Reliquary's own kinds (maintainer, 2026-10-06 and 2026-10-07). Each exists because one place
+   * Arca's own kinds (maintainer, 2026-10-06 and 2026-10-07). Each exists because one place
    * in the city pays something no kind in the catalogue did: a sack-maker's loft, a saint's
    * shrine, a bounty wall. Their catalogue pay is a placeholder a card never prints, because
    * every location of these kinds carries its own authored list (`LocationSchema.bonuses`); what
@@ -1639,8 +1626,6 @@ export function scaledBonus(
         chancePercent: Math.min(100, grow(bonus.chancePercent)),
         rewardPercent: grow(bonus.rewardPercent),
       };
-    case 'road_shortcut':
-      return { ...bonus, minutes: grow(bonus.minutes) };
     /*
      * The rules do not scale, and that is the point of them.
      *
@@ -1678,8 +1663,6 @@ function withLadderFigure(bonus: HoldBonus, figure: number): HoldBonus {
     case 'carrier_loot_flat':
     case 'modification_armor':
       return { ...bonus, flat: figure };
-    case 'road_shortcut':
-      return { ...bonus, minutes: figure };
     case 'pamphlets':
       return { ...bonus, pins: figure };
     case 'daily_component':
@@ -1711,7 +1694,7 @@ function withLadderFigure(bonus: HoldBonus, figure: number): HoldBonus {
 /**
  * What a location pays before any level: its own authored list when it has one, else its kind's.
  *
- * Authored payouts arrived with Reliquary (maintainer, 2026-10-06), where a Market pays forty
+ * Authored payouts arrived with Arca (maintainer, 2026-10-06), where a Market pays forty
  * caps rather than thirty and a Fence Camp houses people and pays nothing: the same kind of
  * place, with its icon, its ground and its gating, worth a different figure on a different map.
  */
@@ -1905,8 +1888,6 @@ export interface TerritoryEffects {
    * fact about *how many* you hold rather than about any one of them.
    */
   unitSlotBonus: number;
-  /** Flat minutes off every road, spent after the column's pace. See the `road_shortcut` bonus. */
-  roadMinutesOff: number;
   /** Whether the porters may stand in the line. See the `carriers_fight` bonus. */
   carriersFight: boolean;
   /** Whether `no_ride` is waived, so everything gets a seat. See the `any_ride` bonus. */
@@ -1935,7 +1916,7 @@ export interface TerritoryEffects {
    */
   mausoleums: number;
   /*
-   * Reliquary's channels (maintainer, 2026-10-06 and 2026-10-07). Each is filled here by one
+   * Arca's channels (maintainer, 2026-10-06 and 2026-10-07). Each is filled here by one
    * `HoldBonus` kind of the same name and spent by one reader, named on the kind.
    */
   /** Flat points on a unit stat, each with the scope it was authored with. See `unit_stat_flat`. */
@@ -2042,7 +2023,6 @@ export function noTerritoryEffects(): TerritoryEffects {
     officerSkillFlat: {},
     unitTierMoraleFlat: {},
     unitSlotBonus: 0,
-    roadMinutesOff: 0,
     carriersFight: false,
     anyRide: false,
     unitMarks: {},
@@ -2224,9 +2204,6 @@ export function applyHoldBonus(
         ...into.officerSkillFlat,
         [bonus.attribute]: (into.officerSkillFlat[bonus.attribute] ?? 0) + bonus.flat,
       };
-      return into;
-    case 'road_shortcut':
-      into.roadMinutesOff += bonus.minutes;
       return into;
     // The three switches are ORs rather than counters. Holding a second Tram Depot does not make
     // the porters fight twice, and a channel that counted would invite somebody to read it as a
@@ -2479,8 +2456,6 @@ export function describeHoldBonus(bonus: HoldBonus, unitName: UnitNamer = spellO
       // The housing budget is called unit slots on every screen (maintainer request, 2026-09-15).
       // The channel keeps its internal name; only what a player reads changed.
       return `+${bonus.flat} unit slots${whole}`;
-    case 'road_shortcut':
-      return `-${bonus.minutes} min off every road`;
     case 'carriers_fight':
       return 'porters fight';
     case 'any_ride':

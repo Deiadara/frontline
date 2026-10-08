@@ -412,7 +412,7 @@ export const recallSleepers = (body: RecallSleepersRequest) =>
 export const upgradeLocation = (body: UpgradeLocationRequest) =>
   apiFetch('/city/upgrade', CityMutationResponseSchema, jsonBody(body));
 
-/** Reliquary (2026-10-07): throw the Tolling Tower's switch on a tower this crew holds. */
+/** Arca (2026-10-07): throw the Tolling Tower's switch on a tower this crew holds. */
 export const throwSwitch = (body: ThrowSwitchRequest) =>
   apiFetch('/city/switch', CityMutationResponseSchema, jsonBody(body));
 
@@ -443,7 +443,7 @@ export const deployToBattle = (body: DeployRequest) =>
  *
  * It exists because the window could not work the first one out. `travelMinutesBetween` spends
  * three channels the server reads off `standingEffectsFor` and none of them is on `BattleView`:
- * `unitSpeedPercent` on the column's pace, `travelSpeedPercent` and `roadMinutesOff` on the clock.
+ * `unitSpeedPercent` on the column's pace and `travelSpeedPercent` on the clock.
  * A screen quoting the road from the catalogue alone therefore promised a longer journey than the
  * crew makes, and labelled it "at most" to stay honest about it. One request is cheaper than
  * teaching the client a fold it cannot see, and it is what the Move dialog already does.
@@ -705,12 +705,14 @@ export const leaveFaction = (successorId?: string) =>
   );
 
 /**
- * The standings (§J9). A GET with the board and the scope in the query string, because it is a
- * read and a player should be able to sit on it with the browser's own refresh.
+ * The standings (§J9). A GET with the board and the city in the query string, because it is a read
+ * and a player should be able to sit on it with the browser's own refresh.
+ *
+ * `null` is every city and sends no city at all, which is what the screen opens on.
  */
-export const getLeaderboard = (board: LeaderboardBoard, localOnly: boolean) =>
+export const getLeaderboard = (board: LeaderboardBoard, city: string | null) =>
   apiFetch(
-    `/leaderboard?board=${board}&localOnly=${localOnly ? 'true' : 'false'}`,
+    `/leaderboard?board=${board}${city === null ? '' : `&city=${encodeURIComponent(city)}`}`,
     LeaderboardResponseSchema,
   );
 

@@ -264,7 +264,7 @@ function holdHint(leader: MissionLeader, now: Date): string {
 }
 
 /** A crew with nothing off its roads, which is what a board read without the figures quotes. */
-const NO_ROAD: MissionRoad = { travelSpeedPercent: 0, roadMinutesOff: 0, unitSpeedPercent: 0 };
+const NO_ROAD: MissionRoad = { travelSpeedPercent: 0, unitSpeedPercent: 0 };
 
 /**
  * The gauge's band off a rated leader: the share of practice fights won, in the same four words
@@ -433,7 +433,7 @@ export function MissionBoard({
   if (areas.length === 0) {
     return (
       <p className="px-4 py-8 text-center font-display text-[11px] uppercase tracking-[0.2em] text-ink-300">
-        Nowhere is hiring. Take a place in a district and its board opens.
+        Nowhere is hiring. Take a district end to end and its board opens.
       </p>
     );
   }
@@ -1097,7 +1097,6 @@ function SendDialog({
     offer.rawTravelMinutes,
     column.speed,
     runSpeedPercent + road.travelSpeedPercent,
-    road.roadMinutesOff,
     road.baseCutPercent ?? 0,
   );
   const walked = missionTimings({

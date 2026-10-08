@@ -20,6 +20,9 @@ import { defenderOf, districtStandingFor } from '../battle/ground.js';
 import { battlefieldOf } from '../battle/resolve.js';
 import { standingEffectsFor } from '../crew/standing.js';
 import { cutFactionTies } from '../factions/ties.js';
+import { declareBattle } from '../battle/declare.js';
+import { groundBehind } from '../spying/spying.js';
+import { cancelGateRaise, raiseCapturedGate } from './gates.js';
 import { spyPointsFor } from '../spying/spying.js';
 import { putControl } from './actions.js';
 import { holdsDistrictWhole } from './gates.js';
@@ -28,7 +31,7 @@ import { wholeHolderOf } from './holding.js';
 import { projectCity, projectDistrict } from './view.js';
 
 /**
- * Holding a district as a faction, and Reliquary's sheet controls (maintainer, 2026-10-06 and
+ * Holding a district as a faction, and Arca's sheet controls (maintainer, 2026-10-06 and
  * 2026-10-07), through the server's own doors: the gate, the fight's defender, the fold, the
  * views, the tie cut, and the switch and pin writes.
  */
@@ -125,12 +128,12 @@ describe('a district held by a faction', () => {
     expect(standingEffectsFor(app.repos, b, T0).payrollPercent).toBe(10);
 
     // The views say so: green for both members, red for the outsider.
-    const mine = projectCity(app.repos, b, T0, 'reliquary').districts.find(
+    const mine = projectCity(app.repos, b, T0, 'arca').districts.find(
       (summary) => summary.district.id === 'printworks',
     )!;
     expect(mine.wholeBy).toBe('mine');
     expect(mine.holderFaction?.name).toBe('Iron Wolves');
-    const theirs = projectCity(app.repos, c, T0, 'reliquary').districts.find(
+    const theirs = projectCity(app.repos, c, T0, 'arca').districts.find(
       (summary) => summary.district.id === 'printworks',
     )!;
     expect(theirs.wholeBy).toBe('enemy');
@@ -276,17 +279,22 @@ describe('the Pamphlet Wall', () => {
     expect(() => pinPamphlets(app.repos, a, WALL, ['razors', 'ghosts', 'wardens'])).toThrow(
       /takes 2 pins/,
     );
+    // ...and a short set is refused as well (2026-10-07): it used to be taken and to lock the wall
+    // at a level that could never reopen, which at the top level is a door with nothing behind it.
+    expect(() => pinPamphlets(app.repos, a, WALL, ['razors'])).toThrow(/all of them at once/);
     pinPamphlets(app.repos, a, WALL, ['razors', 'ghosts']);
     expect(wall()).toMatchObject({ pins: ['razors', 'ghosts'], unlocked: false });
     expect(standingEffectsFor(app.repos, a, T0).pamphletUnits).toEqual(['razors', 'ghosts']);
-    expect(() => pinPamphlets(app.repos, a, WALL, ['razors'])).toThrow(/set until the wall/);
+    expect(() => pinPamphlets(app.repos, a, WALL, ['razors', 'wardens'])).toThrow(
+      /set until the wall/,
+    );
 
     // The next level reopens the set once.
     const control = app.repos.city.control(WALL)!;
     putControl(app.repos, { ...control, level: 3 }, T0);
     expect(wall()).toMatchObject({ capacity: 3, unlocked: true });
-    pinPamphlets(app.repos, a, WALL, ['razors']);
-    expect(wall()).toMatchObject({ pins: ['razors'], unlocked: false });
+    pinPamphlets(app.repos, a, WALL, ['razors', 'ghosts', 'wardens']);
+    expect(wall()).toMatchObject({ pins: ['razors', 'ghosts', 'wardens'], unlocked: false });
   });
 
   it('swaps one pin on a full wall at the top level for caps, once every twelve hours', async () => {
@@ -297,12 +305,15 @@ describe('the Pamphlet Wall', () => {
     app.repos.bases.updateResources(a.id, { ...funded.resources, caps: PAMPHLET_SWAP_CAPS + 1 });
     const stocked = app.repos.bases.findById(a.id)!;
 
+    // A wall at level 5 takes five pins and will not take four (2026-10-07), so the short set the
+    // swap used to be tested against is now written straight onto the row.
     const four = ['razors', 'ghosts', 'wardens', 'ironsides'];
-    pinPamphlets(app.repos, a, WALL, four);
+    expect(() => pinPamphlets(app.repos, a, WALL, four)).toThrow(/all of them at once/);
+    const short = app.repos.city.control(WALL)!;
+    app.repos.city.put({ ...short, pamphlets: four, pamphletsPinnedAt: 5 });
     expect(() =>
       swapPamphlet(app.repos, stocked, WALL, { from: 'razors', to: 'cyber_dogs' }, T0),
     ).toThrow(/every pin set/);
-    // Reopen (level change) is not available at the top, so set five through the row directly.
     const control = app.repos.city.control(WALL)!;
     app.repos.city.put({ ...control, pamphlets: [...four, 'the_saint'], pamphletsPinnedAt: 5 });
 
@@ -339,7 +350,7 @@ describe('the Pamphlet Wall', () => {
     const app = await world();
     const [a, b] = [await register(app, 'alpha'), await register(app, 'beta')];
     wallHeldBy(app, a, 2);
-    pinPamphlets(app.repos, a, WALL, ['razors']);
+    pinPamphlets(app.repos, a, WALL, ['razors', 'ghosts']);
     const control = app.repos.city.control(WALL)!;
     app.repos.city.put({ ...control, switchedOn: true, trophies: { razors: 3 } });
     putControl(app.repos, { ...app.repos.city.control(WALL)!, holder: crew(b) }, T0);
@@ -416,6 +427,161 @@ describe("the fight's ground under the tower", () => {
     expect(
       battlefieldOf(battle, 'Bellfounders').labels.find((label) => label.id === 'noisy')?.tier ?? 0,
     ).toBe(before);
+  });
+});
+
+describe('a gate raise at a shared table', () => {
+  const rich = (app: FastifyInstance, base: Base): Base => {
+    const full = {
+      ...base,
+      resources: Object.fromEntries(
+        Object.keys(base.resources).map((key) => [key, 9e6]),
+      ) as Base['resources'],
+    };
+    app.repos.bases.updateResources(full.id, full.resources);
+    return full;
+  };
+
+  /*
+   * The gate belongs to the member the district names, not to the table (maintainer, 2026-10-07:
+   * "only the named holder can upgrade the gate"). Every member passes `holdsDistrictWhole`, so
+   * without this the cheapest raise in the faction was whoever had the best Engineer, and a mate
+   * could call off work they had not paid for.
+   */
+  it('is refused to a mate at the same table, who is not the one named on it', async () => {
+    const app = await world();
+    const [a, b] = [await register(app, 'alpha'), await register(app, 'beta')];
+    seat(app, [a, b]);
+    // a holds four of the seven, so a is the named holder (`wholeHolderAmong`).
+    hold(app, 'printworks', [...times(4, crew(a)), ...times(3, crew(b))], T0);
+
+    const theirs = rich(app, app.repos.bases.findById(b.id)!);
+    expect(holdsDistrictWhole(app.repos, theirs.id, 'printworks')).toBe(true);
+    expect(raiseCapturedGate(app.repos, theirs, 'printworks', T0)).toEqual({
+      kind: 'refused',
+      reason: 'not_held',
+    });
+
+    const started = raiseCapturedGate(
+      app.repos,
+      rich(app, app.repos.bases.findById(a.id)!),
+      'printworks',
+      T0,
+    );
+    expect(started.kind).toBe('started');
+    const before = app.repos.bases.findById(b.id)!.resources.scrap;
+    expect(
+      cancelGateRaise(app.repos, app.repos.bases.findById(b.id)!, 'printworks', T0, true),
+    ).toEqual({ kind: 'refused', reason: 'not_held' });
+    expect(app.repos.bases.findById(b.id)!.resources.scrap).toBe(before);
+  });
+
+  /*
+   * ...and the name cannot change under a raise in flight, because the raise does not survive the
+   * ground moving: `putControl` drops it and refunds nobody (2026-10-06). That is what closes the
+   * last door on the materials, and it is why `upgradingBy` on the gate row is defence in depth
+   * rather than the guard: it records who paid, so a refund can never reach anybody else.
+   */
+  it('does not survive a plot in the district changing hands, even inside the table', async () => {
+    const app = await world();
+    const [a, b] = [await register(app, 'alpha'), await register(app, 'beta')];
+    seat(app, [a, b]);
+    hold(app, 'printworks', [...times(4, crew(a)), ...times(3, crew(b))], T0);
+    const started = raiseCapturedGate(
+      app.repos,
+      rich(app, app.repos.bases.findById(a.id)!),
+      'printworks',
+      T0,
+    );
+    expect(started.kind).toBe('started');
+
+    // b takes the district's bigger share, which is enough to end the work.
+    hold(app, 'printworks', [...times(2, crew(a)), ...times(5, crew(b))], T0);
+    expect(app.repos.capturedGates.find('printworks')?.upgradingTo ?? null).toBeNull();
+    // Nobody is handed the materials: not the new name on it, and not the crew that paid.
+    const theirs = rich(app, app.repos.bases.findById(b.id)!);
+    const before = app.repos.bases.findById(b.id)!.resources.scrap;
+    expect(cancelGateRaise(app.repos, theirs, 'printworks', T0, true)).toEqual({
+      kind: 'refused',
+      reason: 'nothing_running',
+    });
+    expect(app.repos.bases.findById(b.id)!.resources.scrap).toBe(before);
+  });
+});
+
+describe('a gate that falls when the table breaks up', () => {
+  /*
+   * Maintainer, 2026-10-07: "tell the table, burn the materials". The drop itself was already
+   * right; the return of `dropGatesNoLongerWhole` was read by nobody, so a faction lost a wall in
+   * silence.
+   */
+  it('rings every member, the leaver included', async () => {
+    const app = await world();
+    const [a, b] = [await register(app, 'alpha'), await register(app, 'beta')];
+    seat(app, [a, b]);
+    hold(app, 'printworks', [...times(4, crew(a)), ...times(3, crew(b))], T0);
+    app.repos.capturedGates.put({
+      districtId: 'printworks',
+      level: 4,
+      upgradingTo: null,
+      upgradingUntil: null,
+      upgradingSince: null,
+    });
+
+    cutFactionTies(app.repos, [b.ownerId], [a.ownerId], T0);
+
+    expect(app.repos.capturedGates.find('printworks')?.level).toBe(1);
+    for (const member of [a, b]) {
+      const bells = app.repos.social
+        .notifications(member.ownerId, 20)
+        .filter((note) => note.title.includes('has fallen'));
+      expect(bells.length, member.id).toBe(1);
+      expect(bells[0]?.body).toMatch(/lost/);
+    }
+  });
+});
+
+describe('a gate the table holds', () => {
+  /*
+   * Nobody at the table may read it or call a fight on it (maintainer, 2026-10-07). Only the named
+   * member was refused before, so whether a mate could spy on their own faction's gate came down to
+   * who happened to hold the most plots in it.
+   */
+  it('refuses a spy job and a declaration from a mate, not just from the named holder', async () => {
+    const app = await world();
+    const [a, b, c] = [
+      await register(app, 'alpha'),
+      await register(app, 'beta'),
+      await register(app, 'gamma'),
+    ];
+    seat(app, [a, b]);
+    // Steelbelt, an Ashfall district, because the fixtures around it are Ashfall's. (It was chosen
+    // when Arca was still shut and a district there would have tested only that refusal.)
+    hold(app, 'steelbelt', [...times(4, crew(a)), ...times(3, crew(b))], T0);
+    const steelbelt = findDistrict('steelbelt')!;
+    const target = { kind: 'gate', districtId: 'steelbelt' } as const;
+
+    // a is the named holder, b is the mate, c is at another table entirely.
+    expect(defenderOf(app.repos, target, steelbelt)).toEqual(crew(a));
+    const call = (base: Base) =>
+      declareBattle(app.repos, {
+        base,
+        target,
+        scheduledFor: new Date(T0.getTime() + 7_200_000),
+        now: T0,
+      });
+    for (const member of [a, b]) {
+      const them = app.repos.bases.findById(member.id)!;
+      const read = groundBehind(app.repos, them, { kind: 'gate', districtId: 'steelbelt' }, T0);
+      expect(read.kind, member.id).toBe('refused');
+      if (read.kind === 'refused') expect(read.reason, member.id).toBe('own_ground');
+      const called = call(them);
+      expect(called.kind, member.id).toBe('refused');
+      if (called.kind === 'refused') expect(called.reason, member.id).toBe('own_ground');
+    }
+    // ...and an outsider is refused for some other reason, or not at all.
+    const outsider = call(app.repos.bases.findById(c.id)!);
+    if (outsider.kind === 'refused') expect(outsider.reason).not.toBe('own_ground');
   });
 });
 

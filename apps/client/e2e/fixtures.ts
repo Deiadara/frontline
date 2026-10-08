@@ -15,6 +15,7 @@ import {
   DEFAULT_CITY_ID,
   TRAVEL_BAND_MINUTES,
   FEATS,
+  CAPTURED_GATE_MAX_LEVEL,
   capturedGateDefensePercent,
   capturedGateSeconds,
   capturedGateCost,
@@ -269,7 +270,7 @@ export const overseerChoices: OverseerChoicesResponse = {
   /*
    * Where a new player may live, as the choose-a-city step reads it.
    *
-   * Terminus is full: three of the five cards are locked for having no map, and without this the
+   * Terminus is full: two of the five cards are locked for having no map, and without this the
    * fourth state the screen can draw, a city that filled up, would never be on screen for the
    * browser tests to look at. Ashfall is left with a free plot, so there is something to choose.
    */
@@ -584,20 +585,22 @@ export const city: CityResponse = {
   /*
    * §B7: one district taken whole, so the city screen has a gate to draw.
    *
-   * Level 6 rather than 1, and mid-upgrade rather than idle, because the three states the panel
-   * draws differently are "standing", "being raised" and "at the ceiling", and a fixture at level
-   * 1 and idle screenshots one of them.
+   * One under the ceiling rather than at level 1, because the three states the panel draws
+   * differently are "standing", "being raised" and "at the ceiling", and a fixture at level 1
+   * screenshots the least interesting of them. Written off `CAPTURED_GATE_MAX_LEVEL` rather than
+   * on a literal: a captured gate stopped at 10 and stops at 5 (maintainer, 2026-10-07), and the
+   * level 6 this used to carry is a number the schema now refuses.
    */
   capturedGates: [
     {
       districtId: 'steelbelt',
       districtName: 'The Rustyard',
-      level: 6,
-      nextCost: capturedGateCost(7),
-      nextSeconds: capturedGateSeconds(7),
+      level: CAPTURED_GATE_MAX_LEVEL - 1,
+      nextCost: capturedGateCost(CAPTURED_GATE_MAX_LEVEL),
+      nextSeconds: capturedGateSeconds(CAPTURED_GATE_MAX_LEVEL),
       upgradingUntil: null,
       upgradingSince: null,
-      defensePercent: capturedGateDefensePercent(6),
+      defensePercent: capturedGateDefensePercent(CAPTURED_GATE_MAX_LEVEL - 1),
       refusal: null,
     },
   ],
@@ -654,16 +657,18 @@ export const AWAY_HELD_DISTRICT_ID = AWAY_DISTRICTS.find(
   (district) => district.kind === 'contested',
 )!.id;
 
-export const awayCity: CityResponse = {
-  cityId: TERMINUS_CITY_ID,
-  // The crew's own front door is still at home. An away map holds no `isHome` row at all.
-  homeDistrictId: STARTER_DISTRICT_ID,
-  capturedGates: [],
-  serverNow: NOW,
-  districts: AWAY_DISTRICTS.map((district, index) => {
-    return {
+/** Any city but the crew's own, as `GET /city?city=` answers it. Terminus is the one with a holding. */
+function awayMap(cityId: string): CityResponse {
+  return {
+    cityId,
+    // The crew's own front door is still at home. An away map holds no `isHome` row at all.
+    homeDistrictId: STARTER_DISTRICT_ID,
+    capturedGates: [],
+    serverNow: NOW,
+    districts: districtsOfCity(cityId).map((district, index) => ({
       district,
-      // A real road, and a long one: crossing the frontier is two hours before anything else.
+      // A real road, and a long one: a crossing is four hours flat before anything else
+      // (`INTER_CITY_MINUTES`), so these are a crew's clock after its pace and its holdings.
       travelMinutes: 130 + index * 7,
       holder: null,
       held: {
@@ -674,13 +679,22 @@ export const awayCity: CityResponse = {
       isHome: false,
       holderFaction: null,
       wholeBy: null,
-    };
-  }),
-};
+    })),
+  };
+}
 
-/** The map the server would answer with for one city: the crew's own, or the one abroad. */
+export const awayCity: CityResponse = awayMap(TERMINUS_CITY_ID);
+
+/**
+ * The map the server would answer with for one city: the crew's own, or one abroad.
+ *
+ * Every open city but home answers with its own districts. It used to be Terminus or home, which
+ * answered an Arca request with Ashfall's map the day the third city opened.
+ */
 export function cityFor(cityId: string): CityResponse {
-  return cityId === TERMINUS_CITY_ID ? awayCity : city;
+  if (cityId === TERMINUS_CITY_ID) return awayCity;
+  if (cityId === '' || cityId === DEFAULT_CITY_ID) return city;
+  return awayMap(cityId);
 }
 
 // The clock is live, like the queue above it: a frozen one would run those countdowns backwards.
@@ -1633,7 +1647,7 @@ function areaFixture(id: string, name: string, payPercent: number, activeMission
     name,
     blurb:
       id === MISC_AREA_ID
-        ? 'Work that belongs to nobody. Hold a place in a district and its board opens too.'
+        ? 'Work that belongs to nobody. Take a district end to end and its board opens too.'
         : (findDistrict(id)?.blurb ?? 'Ground somebody is paying to have worked.'),
     difficulty: areaDifficulty(id),
     payPercent,
@@ -4047,8 +4061,7 @@ export const notificationsScreen: NotificationsResponse = {
  */
 export const leaderboardPlayers: LeaderboardResponse = {
   board: 'players',
-  localOnly: false,
-  scope: null,
+  city: null,
   yourRank: 3,
   entries: [
     {
@@ -4151,8 +4164,7 @@ export const leaderboardPlayers: LeaderboardResponse = {
 
 export const leaderboardFactions: LeaderboardResponse = {
   board: 'factions',
-  localOnly: false,
-  scope: null,
+  city: null,
   yourRank: 1,
   entries: [
     {
@@ -4393,7 +4405,7 @@ const FEATS_CLAIMED = new Set([
  * cost the most there are the two-presses-in-flight ones: without two on a single open ladder there
  * is no way to press a second before the first answers.
  */
-const FEATS_READY = new Set(['runs_2', 'level_2', 'pages_1', 'pages_2', 'area_neon_docks']);
+const FEATS_READY = new Set(['runs_2', 'level_2', 'pages_1', 'pages_2', 'infamy_held_1']);
 
 /** A fifth of the way, two fifths, and so on: stable per id, so a screenshot is reproducible. */
 function featShare(id: string): number {
@@ -4436,7 +4448,7 @@ function buildFeats(): FeatsResponse {
     /*
      * One waiting rung whose pay will not fit, so the warning dialog has something to draw.
      *
-     * `area_neon_docks` pays 240 caps, 40 scrap, 40 planks and 20 oil, and this crew's scrap shelf
+     * `infamy_held_1` pays scrap, planks, oil, supplies and caps, and this crew's scrap shelf
      * has room for 15 of the 40. The server quotes the difference on the read; the screen uses it
      * to decide that CLAIM asks before it pays.
      *
@@ -4444,7 +4456,7 @@ function buildFeats(): FeatsResponse {
      * two ladders carry every other case the feats tests press, and a dialog opening over them
      * would put a window in front of half the suite.
      */
-    waste: { area_neon_docks: { resources: { scrap: 25 } } },
+    waste: { infamy_held_1: { resources: { scrap: 25 } } },
     ready: progress.filter((one) => one.state === 'ready').length,
     claimed: progress.filter((one) => one.state === 'claimed').length,
     serverNow: NOW,

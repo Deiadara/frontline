@@ -1,7 +1,7 @@
 import {
   ALL_DISTRICTS,
   DEFAULT_CITY_ID,
-  RELIQUARY_CITY_ID,
+  ARCA_CITY_ID,
   TERMINUS_CITY_ID,
   playerLevelGrants,
   type BarResponse,
@@ -13,7 +13,10 @@ import { buildApp } from '../app.js';
 import { loadConfig } from '../config.js';
 import { openDatabase, runMigrations, type AppDatabase } from '../db/index.js';
 import { chooseOverseer } from '../testing/overseer.js';
+import { shutCityForThisFile } from '../testing/shut-city.js';
 import { barRoster } from '../bar/roster.js';
+
+shutCityForThisFile(ARCA_CITY_ID);
 
 /**
  * The door on a city's bar (maintainer request, 2026-09-17).
@@ -160,14 +163,15 @@ describe('which bar a crew may drink in', () => {
    * Maintainer, 2026-09-29: ground claimed in Saltmarch before its doors were shut opened its Bar
    * to the crew holding it. A city that is not open has no rooms, whatever is held there.
    */
+  // Arca opened on 2026-10-07; this file shuts it again (below) so the door keeps a test.
   it('stays shut in a city that is not open, even to a crew holding ground in it', async () => {
     const app = await makeApp();
     const one = await player(app, 'bar_drowned');
     const drowned = ALL_DISTRICTS.find(
-      (district) => district.cityId === RELIQUARY_CITY_ID && district.locations.length > 0,
+      (district) => district.cityId === ARCA_CITY_ID && district.locations.length > 0,
     )!.locations[0]!;
     give(app, drowned.id, one.baseId);
-    const response = await readBar(app, one.token, RELIQUARY_CITY_ID);
+    const response = await readBar(app, one.token, ARCA_CITY_ID);
     expect(response.statusCode).toBe(403);
     expect(response.json<{ error: { code: string } }>().error.code).toBe('CITY_SHUT');
     expect((await readBar(app, one.token)).json<BarResponse>().cities).toEqual([DEFAULT_CITY_ID]);

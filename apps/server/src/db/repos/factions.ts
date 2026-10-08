@@ -66,6 +66,15 @@ export interface FactionsRepo {
   membershipOf(userId: string): FactionMemberRow | undefined;
   /** Every player's faction, in one read, for the boards that list everybody. */
   factionOfEveryone(): Map<string, string>;
+  /**
+   * Every seat in the world by user id, in one statement.
+   *
+   * `factionOfEveryone` beside it answers a different question and cannot be widened to this one
+   * without changing what its callers get. The tiebreak that names a shared district's defender
+   * needs `joinedAt` as well as the table, and reading it per crew made the faction-aware sweeps
+   * one query a crew a district (2026-10-07).
+   */
+  everySeat(): Map<string, { factionId: string; joinedAt: string }>;
   members(factionId: string): FactionMemberRow[];
   memberCount(factionId: string): number;
   /**
@@ -204,6 +213,7 @@ export function createFactionsRepo(db: AppDatabase): FactionsRepo {
 
   const membershipStmt = db.prepare('SELECT * FROM faction_members WHERE user_id = ?');
   const everyMembershipStmt = db.prepare('SELECT user_id, faction_id FROM faction_members');
+  const everySeatStmt = db.prepare('SELECT user_id, faction_id, joined_at FROM faction_members');
   const membersStmt = db.prepare(
     'SELECT * FROM faction_members WHERE faction_id = ? ORDER BY joined_at',
   );
@@ -278,6 +288,16 @@ export function createFactionsRepo(db: AppDatabase): FactionsRepo {
     factionOfEveryone() {
       const rows = everyMembershipStmt.all() as { user_id: string; faction_id: string }[];
       return new Map(rows.map((row) => [row.user_id, row.faction_id]));
+    },
+    everySeat() {
+      const rows = everySeatStmt.all() as {
+        user_id: string;
+        faction_id: string;
+        joined_at: string;
+      }[];
+      return new Map(
+        rows.map((row) => [row.user_id, { factionId: row.faction_id, joinedAt: row.joined_at }]),
+      );
     },
     membershipOf(userId) {
       const row = membershipStmt.get(userId) as MemberRow | undefined;

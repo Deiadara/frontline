@@ -57,7 +57,14 @@ describe('a job out while nobody works the chair', () => {
             districtId={run.districtId}
             baseId="base-1"
             caps={10_000}
-            spying={{ runs: [run], parties: 1, tiersOpen: [], quote: null, blocker: 'no_whispers' }}
+            spying={{
+              runs: [run],
+              parties: 1,
+              tiersOpen: [],
+              quote: null,
+              blocker: 'no_whispers',
+              locationsRefused: null,
+            }}
             now={new Date(Date.parse(run.departedAt) + 60_000)}
             testId="spy"
             actions={<button type="button">Close</button>}
@@ -92,6 +99,7 @@ describe('a place the runners are already on their way to', () => {
               tiersOpen: ['loose_ears'],
               quote: { minutes: 30 },
               blocker: null,
+              locationsRefused: null,
             }}
             now={new Date(Date.parse(run.departedAt) + 60_000)}
             testId="spy"

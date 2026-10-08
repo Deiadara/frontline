@@ -5,6 +5,7 @@ import {
   districtsOfCity,
   bestFitParty,
   MISC_AREA_ID,
+  missionDealer,
   ORDER_SEQUENCES,
   areaIsOpen,
   automationPowers,
@@ -49,7 +50,7 @@ import {
 } from '@frontline/shared';
 import { randomUUID } from 'node:crypto';
 import type { Repositories } from '../db/repos/index.js';
-import { citiesFor } from '../city/stakes.js';
+import { homeCityOf } from '../city/stakes.js';
 import { areaStatesFor, offerFor } from '../missions/board.js';
 import { launchMission } from '../missions/launch.js';
 import { rampFor } from '../missions/pricing.js';
@@ -126,28 +127,19 @@ export function candidates(
    * The misc board first, always. `areaStatesFor` only knows districts, and the misc board is
    * not one: it is the board every crew has from its first minute, and the one a fresh crew that
    * holds nothing is otherwise left without. Then every district the screen would draw, by the
-   * screen's own rule (`areaIsOpen`): contested, with at least one location held by this crew. A
-   * district the crew has lost its last place in drops out on the next tick, the way it drops off
-   * the screen.
-   */
-  /*
-   * The city this crew is standing in, not the first one.
+   * screen's own rule (`areaIsOpen`): contested, in the crew's home city, held end to end by the
+   * crew or its table. A district a plot of which is lost drops out on the next tick, the way it
+   * drops off the screen.
    *
-   * This walked `CITY_DISTRICTS`, so the Right Hand ran an Ashfall board whoever it was working
-   * for: a Terminus crew's automation would have found nothing open and sat idle, and the one
-   * screen that tells them why is the board it was not reading. The same rule the board itself
-   * uses (`areaIsOpen`) decides what is offered; only the set it is applied to changed.
-   *
-   * **Every city the crew may stand in** (maintainer, 2026-10-02, reversing 2026-09-24). By hand a
-   * crew may take work in any city it holds ground in, and while a slot is on the player cannot
-   * launch by hand at all, so a home-only Right Hand left a crew whose best ground was abroad with
-   * no way to work it. The walk to another city is in the rate (`missionWalkMinutes`), so a far
-   * board is chosen only when it pays for the road.
+   * **The home city and nothing else** (maintainer, 2026-10-07, reversing 2026-10-02): "you can
+   * only do missions in your starting city". The Right Hand reads the same boards a player does,
+   * which is the whole reason it reads them through `areaIsOpen` rather than through a list of its
+   * own, and a slot that could work ground the player cannot would be a standing order with a
+   * longer reach than the hand that set it.
    */
   const open = [
     MISC_AREA_ID,
-    ...citiesFor(repos, base)
-      .flatMap((cityId) => districtsOfCity(cityId))
+    ...districtsOfCity(homeCityOf(base))
       .filter((district) => {
         const state = states.get(district.id);
         return state !== undefined && areaIsOpen(district, state);
@@ -158,7 +150,7 @@ export function candidates(
     if (busyAreas.has(areaId)) continue;
     // The board's own three, off the same key the screen and the launch read.
     const boardKey = missionBoardKey(areaId, now);
-    for (const job of missionOffers(areaId, boardKey, base.level)) {
+    for (const job of missionOffers(areaId, boardKey, base.level, missionDealer(base))) {
       if ((wants === 'battle') !== (job.template.kind === 'battle')) continue;
       found.push({ areaId, boardKey, template: job.template, grade: job.grade });
     }
@@ -618,7 +610,6 @@ const missionsRunner: AutomationRunner = {
       // §C3: the same road cuts the manual launch reads (maintainer, 2026-09-23). A standing
       // order's party walks the same streets as a hand-sent one.
       travelSpeedPercent: effects.travelSpeedPercent,
-      roadMinutesOff: effects.roadMinutesOff,
       roadBaseCutPercent: chairPassiveOf(effects, 'cartographer', 'travel_time'),
       anyRide: effects.anyRide,
       // The opening band, for the same reason `admin` is here: a standing order and a hand-sent

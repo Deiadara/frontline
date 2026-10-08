@@ -32,7 +32,7 @@ interface ControlRow {
   /** Absent on a schema before 0144, which a migration test reads through this repo. */
   upgrade_paid_json?: string | null;
   garrison_json: string;
-  /** Reliquary's state on the ground (0153): the switch, the pins and the trophies. */
+  /** Arca's state on the ground (0153): the switch, the pins and the trophies. */
   ground_json?: string | null;
 }
 
@@ -69,7 +69,8 @@ function groundJson(control: LocationControl): string | null {
     state.pamphletsPinnedAt === 0 &&
     state.pamphletsSwappedAt === null &&
     Object.keys(state.trophies).length === 0 &&
-    state.trophiesSince === null;
+    state.trophiesSince === null &&
+    state.heldSince === null;
   return bare ? null : JSON.stringify(state);
 }
 

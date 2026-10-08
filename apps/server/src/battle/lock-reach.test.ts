@@ -5,6 +5,7 @@ import {
   declarationWindow,
   findDistrict,
   missionBoardKey,
+  missionDealer,
   missionOffers,
   startingHolder,
   type Army,
@@ -217,9 +218,12 @@ describe('the gate and the district are held by their own fights', () => {
     app.repos.bases.updateCommanders(home.baseId, [
       createCommander('off-1', 'Halvard Nyx', 'field_commander'),
     ]);
-    const job = missionOffers(MISC_AREA_ID, missionBoardKey(MISC_AREA_ID, new Date()), 1).find(
-      (offer) => offer.template.kind === 'standard',
-    );
+    const job = missionOffers(
+      MISC_AREA_ID,
+      missionBoardKey(MISC_AREA_ID, new Date()),
+      1,
+      missionDealer(app.repos.bases.findById(home.baseId)!),
+    ).find((offer) => offer.template.kind === 'standard');
     if (!job) throw new Error('the misc board offers no plain job today');
     const launch = () =>
       app.inject({

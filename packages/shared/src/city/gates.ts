@@ -62,6 +62,16 @@ export const CapturedGateSchema = z.object({
    * order and gone by the cancel would refund more than was paid. Null on a row written before.
    */
   upgradePaid: PartialResourcesSchema.nullable().optional(),
+  /**
+   * The crew that ordered the raise and was charged for it (faction gates, 2026-10-07).
+   *
+   * A gate belongs to the ground, and since a district can be whole for a *table* rather than for
+   * one crew, every member passes the door that guards the raise and the cancel. The refund is
+   * read off `upgradePaid` and credited to whoever calls it off, so without this field a mate
+   * could call off a raise they had not paid for and bank ninety per cent of somebody else's
+   * materials. Null on a row written before, which reads as "anybody at the table may stop it".
+   */
+  upgradingBy: IdSchema.nullable().optional(),
 });
 export type CapturedGate = z.infer<typeof CapturedGateSchema>;
 

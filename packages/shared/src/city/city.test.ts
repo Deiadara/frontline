@@ -666,8 +666,10 @@ describe('NPC garrisons (§A3, §A4)', () => {
 
   it('stands each leader on his own plot, once, and nowhere else', () => {
     for (const leader of COMBINE_LEADERS) {
-      const district = findDistrict(leader.districtId);
-      const plot = findLocation(leader.locationId);
+      // Across the world, not Ashfall: Arca's three command Arca (2026-10-07), and the
+      // Ashfall-only lookups this file reads by default found neither their district nor their plot.
+      const district = ALL_DISTRICTS.find((one) => one.id === leader.districtId);
+      const plot = district?.locations.find((one) => one.id === leader.locationId);
       if (!district || !plot) throw new Error(leader.unitId);
       expect(plot.districtId).toBe(leader.districtId);
       expect(startingGarrison(plot, district)[leader.unitId]).toBe(1);
@@ -676,7 +678,8 @@ describe('NPC garrisons (§A3, §A4)', () => {
       }
     }
     // ...and the sentence on the district screen names the units that actually stand there.
-    for (const district of CONTESTED_DISTRICTS.filter((d) => d.allegiance === 'government')) {
+    for (const district of ALL_DISTRICTS) {
+      if (district.kind !== 'contested' || district.allegiance !== 'government') continue;
       const words = garrisonOf(district);
       const standing = new Set(
         district.locations.flatMap((location) => Object.keys(startingGarrison(location, district))),

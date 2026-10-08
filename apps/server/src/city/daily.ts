@@ -14,6 +14,7 @@ import {
   drawWeighted,
   findLocation,
   groundStateOf,
+  itemCount,
   mulberry32,
   pageRarity,
   seedFrom,
@@ -59,6 +60,11 @@ export function drawDailyPage(base: Base, level: number, seed: string): ItemId |
   const pool = BLUEPRINTS.filter((spec) => blueprintStatus(base.inventory, spec) !== 'unlocked')
     .flatMap((spec) => spec.pages.map((page) => ({ spec, page })))
     .filter(({ spec, page }) => pageRarity(spec, page) === rarity)
+    // Not one it already has (bug pass, 2026-10-07): a second copy of a page fills no square, so
+    // a wall of a crew eight-ninths of the way through a document paid it nothing on most days.
+    // The caller threads its own growing inventory through, so two Scriptoriums on one morning
+    // cannot both hand over the same sheet either.
+    .filter(({ page }) => itemCount(base.inventory, page.id) === 0)
     .map(({ page }) => ({ id: page.id, weight: 1 }));
   return drawWeighted(pool, `${seed}:page`);
 }

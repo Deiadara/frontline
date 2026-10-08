@@ -522,7 +522,7 @@ const ASHFALL: readonly WithoutCity<District>[] = [
       // Named, not renamed: the *kind* is the only `doghouse` in the city and it is what puts
       // Cyberhounds on the roster. See `units/catalog.ts`.
       ['kennels', 'The Doghouse', 'doghouse'],
-      // The Bone Market went to Reliquary's Gravefields (maintainer, 2026-10-06), and the works
+      // The Bone Market went to Arca's Gravefields (maintainer, 2026-10-06), and the works
       // got a canteen: the shift has to eat somewhere.
       ['canteen', 'The Shift Canteen', 'soup_kitchen'],
     ]),

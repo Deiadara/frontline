@@ -234,7 +234,7 @@ describe("a ladder's name", () => {
   });
 
   it('names a scoped one after the scope, opened out of whatever hand wrote it', () => {
-    expect(titleOf('area_neon_docks')).toBe('Neon Docks missions');
+    expect(titleOf('oddjobs_1')).toBe('Misc missions');
     expect(titleOf('nexus_1')).toBe('Nexus levels');
     expect(titleOf('metal_1')).toBe('High Quality Metal earned');
   });
@@ -245,20 +245,24 @@ describe("a ladder's name", () => {
    * Opening the id out gets most districts right by luck, because most names are their ids in
    * title case. The CCS is the one that is not, and it was wrong in both spellings its id has
    * had: "Combine Spire missions" while the id was `combine-spire`, and "Ccs missions" once the
-   * ids became the names on the tags. Pinned against the atlas rather than against the string, so
-   * the next district whose name is not plain title case cannot slip through either.
+   * ids became the names on the tags.
+   *
+   * No feat carries a district scope since 2026-10-07, when the board's per-district work was
+   * replaced by two readings that name no ground. The rule is still live code and is still the
+   * right answer for any scope that is a district, so it is exercised on a spec written here
+   * rather than deleted with the feats that used to exercise it.
    */
   it('calls a district what the map calls it, however its id is spelled', () => {
     const ccs = findDistrict('ccs');
     expect(ccs, 'the CCS is missing from the atlas').toBeDefined();
     expect(ccs!.name).toBe('CCS');
-    expect(titleOf('area_ccs')).toBe(`${ccs!.name} missions`);
+    const asScoped = (scope: string) =>
+      ladderTitle({ ...findFeat('oddjobs_1')!, scope, chain: null, after: null });
+    expect(asScoped('ccs')).toBe(`${ccs!.name} missions`);
 
-    // And every other district ladder agrees with the atlas too, so this is a rule rather than a
-    // patch over one name.
+    // And every other district too, so this is a rule rather than a patch over one name.
     for (const district of CONTESTED_DISTRICTS) {
-      const id = `area_${district.id.replace(/-/g, '_')}`;
-      expect(titleOf(id), district.id).toBe(`${district.name} missions`);
+      expect(asScoped(district.id), district.id).toBe(`${district.name} missions`);
     }
   });
 

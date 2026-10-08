@@ -468,7 +468,7 @@ export const LocationViewSchema = z.object({
   /** Names of units holding this kind of location would unlock. Usually empty. */
   unlocks: z.array(z.string()),
   /*
-   * Reliquary (maintainer, 2026-10-07). Every field below is defaulted so a fixture written
+   * Arca (maintainer, 2026-10-07). Every field below is defaulted so a fixture written
    * before it still parses; the server fills what the ground has.
    */
   /** The holder's faction, for the tag's emblem; null for the looters, the Combine, and no table. */
@@ -643,7 +643,7 @@ export const UpgradeLocationRequestSchema = z.object({
 export type UpgradeLocationRequest = z.infer<typeof UpgradeLocationRequestSchema>;
 
 /*
- * Reliquary's three writes on a location the crew holds (maintainer, 2026-10-07), each answered
+ * Arca's three writes on a location the crew holds (maintainer, 2026-10-07), each answered
  * with the district like every other city write. The switch is the Tolling Tower's; the pins are
  * the Pamphlet Wall's, set all at once and locked until the wall is next worked up; the swap is
  * the one paid change a full, maxed wall allows, on a cooldown.
@@ -751,7 +751,7 @@ export const UnitOptionSchema = z.object({
   musterSeconds: z.number().int().positive(),
   unitSlots: z.number().int().positive(),
   /**
-   * A unit raised on an authored door (Reliquary, 2026-10-07): the level of the best door the
+   * A unit raised on an authored door (Arca, 2026-10-07): the level of the best door the
    * crew holds, or null with none, and what each level gives it, for the roster to print.
    */
   doorLevel: z.number().int().min(1).nullable().default(null),
@@ -1380,15 +1380,15 @@ export type MissionArea = z.infer<typeof MissionAreaSchema>;
  * What a crew takes off every road it walks to a job, which the card does not carry.
  *
  * `launchMission` spends all three on the run's own clock and none on the priced one: the crew's
- * `travelSpeedPercent` beside the ground's cut, the `road_shortcut` holding's whole minutes off
- * the end (`roadMinutesOff`), and `unitSpeedPercent` on the pace of every walker. The send dialog
+ * `travelSpeedPercent` beside the ground's cut, and `unitSpeedPercent` on the pace of every walker.
+ * The flat-minutes channel went on 2026-10-07, when the three things that paid it became
+ * percentages on the travel channel. The send dialog
  * re-runs the launch's arithmetic to quote the run a column will actually walk, and without these
  * it quoted a longer round trip than the launch charged for any crew with Stamina, Navigation or
  * a Skate Ground.
  */
 export const MissionRoadSchema = z.object({
   travelSpeedPercent: z.number(),
-  roadMinutesOff: z.number(),
   unitSpeedPercent: z.number(),
   /**
    * The Cartographer's cut off the road's base, before everything else (`roadMinutes`,
@@ -2049,7 +2049,7 @@ export const CrewStandingResponseSchema = z.object({
    */
   haulPercent: z.number().default(0),
   /**
-   * The Straw Sack's bags (`carrierLootFlat`, Reliquary 2026-10-07): loot slots on every carrier,
+   * The Straw Sack's bags (`carrierLootFlat`, Arca 2026-10-07): loot slots on every carrier,
    * flat, off the same standing fold and spent by the same two settles as `haulPercent`.
    */
   carrierFlat: z.number().default(0),

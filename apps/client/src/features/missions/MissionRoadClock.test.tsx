@@ -178,15 +178,14 @@ describe('the road the send dialog quotes', () => {
  * The crew's own cuts off every road it walks (maintainer, 2026-09-23: "speed should affect every
  * walk, missions too").
  *
- * The launch spends three of them on the run's clock and none on the card's: `travelSpeedPercent`
- * (Stamina, Navigation) beside the ground's cut, the `road_shortcut` minutes off the end, and
- * `unitSpeedPercent` on the pace of every walker. The dialog read none of the three, so a crew with
- * any of them read a longer round trip than the one it walked. Nobody rides here, so the walkers'
- * own pace is the column's and all three show.
+ * The launch spends both of them on the run's clock and neither on the card's: `travelSpeedPercent`
+ * (Stamina, Navigation) beside the ground's cut, and `unitSpeedPercent` on the pace of every walker.
+ * The dialog read neither, so a crew with either read a longer round trip than the one it walked.
+ * Nobody rides here, so the walkers' own pace is the column's and both show.
  */
 describe('the crew’s own road', () => {
   it('comes off the quoted round trip the way the launch takes it off', () => {
-    const road = { travelSpeedPercent: 20, roadMinutesOff: 4, unitSpeedPercent: 30 };
+    const road = { travelSpeedPercent: 20, unitSpeedPercent: 30 };
     renderBoard({ fleet: {}, road });
     fireEvent.click(screen.getByTestId(`send-${offer.templateId}`));
     const dialog = screen.getByRole('dialog');
@@ -202,12 +201,7 @@ describe('the crew’s own road', () => {
       }),
     );
     const cut = GROUND_PERCENT + ARRIVAL_PERCENT;
-    const leg = hastenedRoadMinutes(
-      RAW_TRAVEL,
-      pace,
-      cut + road.travelSpeedPercent,
-      road.roadMinutesOff,
-    );
+    const leg = hastenedRoadMinutes(RAW_TRAVEL, pace, cut + road.travelSpeedPercent);
     const onSite = hastenedMinutes(RAW_DURATION, GROUND_PERCENT);
     expect(within(dialog).getByTestId('round-trip-clock').textContent).toBe(
       formatDuration(2 * leg + onSite),

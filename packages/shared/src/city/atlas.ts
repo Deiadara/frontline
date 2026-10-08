@@ -33,7 +33,7 @@ import { DEFAULT_CITY_ID } from './cities.js';
  *
  * Difficulty runs 1 to 10 across the whole world rather than within a city, so a player crossing
  * over is picking an opponent and not only a postcode. Saltmarch, the three-district sketch that
- * sat here from 2026-09-14, was dropped when Reliquary took its place on the world screen
+ * sat here from 2026-09-14, was dropped when Arca took its place on the world screen
  * (maintainer, 2026-10-06).
  */
 
@@ -244,10 +244,10 @@ const TERMINUS: readonly District[] = [
   ]),
 ];
 
-export const RELIQUARY_CITY_ID = 'reliquary';
+export const ARCA_CITY_ID = 'arca';
 
 /**
- * Reliquary: the cathedral city, in crimson and white (maintainer, 2026-10-06).
+ * Arca: the cathedral city, in crimson and white (maintainer, 2026-10-06).
  *
  * Eight contested districts and four plots, the same shape as Terminus. The ladder the maintainer
  * set: Candlemarket 1, Gravefields 2, Bellfounders 3, the Printworks 4 (all looter ground), Saint's
@@ -260,10 +260,10 @@ export const RELIQUARY_CITY_ID = 'reliquary';
  * Where the other cities' locations pay what their kind pays, several here carry their own
  * figures (`LocationSchema.bonuses`): the same kind of place, worth what this map says it is.
  */
-const RELIQUARY: readonly District[] = [
+const ARCA: readonly District[] = [
   districtFrom({
     id: 'candlemarket',
-    cityId: RELIQUARY_CITY_ID,
+    cityId: ARCA_CITY_ID,
     name: 'Candlemarket',
     nickname: 'the Market',
     kind: 'contested',
@@ -327,7 +327,7 @@ const RELIQUARY: readonly District[] = [
   }),
   districtFrom({
     id: 'gravefields',
-    cityId: RELIQUARY_CITY_ID,
+    cityId: ARCA_CITY_ID,
     name: 'Gravefields',
     nickname: 'the Fields',
     kind: 'contested',
@@ -384,7 +384,7 @@ const RELIQUARY: readonly District[] = [
 
   districtFrom({
     id: 'bellfounders',
-    cityId: RELIQUARY_CITY_ID,
+    cityId: ARCA_CITY_ID,
     name: 'Bellfounders',
     nickname: 'the Foundry',
     kind: 'contested',
@@ -461,13 +461,20 @@ const RELIQUARY: readonly District[] = [
   }),
   districtFrom({
     id: 'printworks',
-    cityId: RELIQUARY_CITY_ID,
+    cityId: ARCA_CITY_ID,
     name: 'The Printworks',
     nickname: 'the Presses',
     kind: 'contested',
-    allegiance: 'independent',
+    /*
+     * The regime's third district in Arca (maintainer, 2026-10-07): whoever decides what the
+     * presses print decides what the city believes, so the Combine was never going to leave it
+     * independent. It took Bloodstone's 7 and Bloodstone took its 4, which keeps one district at
+     * each rung of the ladder.
+     */
+    allegiance: 'government',
+    seatOfPower: true,
     position: { x: 0.54, y: 0.64 },
-    difficulty: 4,
+    difficulty: 7,
     blurb:
       'Four storeys of presses that print the city its scripture and its propaganda, and a cellar that prints everything else. The gutters run black and the walls are a street long of posters.',
     locations: [
@@ -528,7 +535,7 @@ const RELIQUARY: readonly District[] = [
   }),
   districtFrom({
     id: 'saints-rest',
-    cityId: RELIQUARY_CITY_ID,
+    cityId: ARCA_CITY_ID,
     name: "Saint's Rest",
     nickname: 'the Hill',
     kind: 'contested',
@@ -580,7 +587,7 @@ const RELIQUARY: readonly District[] = [
         'wellhouse',
         'The Wellhouse',
         'water_works',
-        'The deep well under the hill, the cleanest water in Reliquary.',
+        'The deep well under the hill, the cleanest water in Arca.',
       ],
       [
         'inn',
@@ -602,13 +609,18 @@ const RELIQUARY: readonly District[] = [
   }),
   districtFrom({
     id: 'bloodstone',
-    cityId: RELIQUARY_CITY_ID,
+    cityId: ARCA_CITY_ID,
     name: 'Bloodstone',
     nickname: 'the Stone',
     kind: 'contested',
+    /*
+     * Licensed by the Combine and run by nobody, which is the whole joke of the place: the regime
+     * signs the contracts and does not set foot in the hall. It swapped rungs with the Printworks
+     * on 2026-10-07, when the presses became the regime's third district here.
+     */
     allegiance: 'government',
     position: { x: 0.62, y: 0.42 },
-    difficulty: 7,
+    difficulty: 4,
     blurb:
       'The sellswords’ quarter, licensed by the Combine and run by nobody. Contracts on a wall, blood on a stage, every strong crew in the city drinking in one hall, and the Crimson Dancer at the top of the bill.',
     locations: [
@@ -671,7 +683,7 @@ const RELIQUARY: readonly District[] = [
   }),
   districtFrom({
     id: 'cloisters',
-    cityId: RELIQUARY_CITY_ID,
+    cityId: ARCA_CITY_ID,
     name: 'The Cloisters',
     nickname: 'the Convent',
     kind: 'contested',
@@ -757,7 +769,7 @@ const RELIQUARY: readonly District[] = [
   }),
   districtFrom({
     id: 'nave',
-    cityId: RELIQUARY_CITY_ID,
+    cityId: ARCA_CITY_ID,
     name: 'The Nave',
     nickname: 'the Cathedral',
     kind: 'contested',
@@ -821,7 +833,7 @@ const RELIQUARY: readonly District[] = [
       ],
     ],
   }),
-  ...plots(RELIQUARY_CITY_ID, [
+  ...plots(ARCA_CITY_ID, [
     [
       'almshouses',
       { x: 0.2, y: 0.7 },
@@ -929,7 +941,7 @@ export const ATLAS_UNIFIED_BONUSES: Readonly<Record<string, UnifiedBonus>> = {
    */
   blockhouse: { title: 'The Blockhouse Is Taken', bonus: { kind: 'anti_combine' } },
   /*
-   * Reliquary, every one chosen by the maintainer (2026-10-07). A district held whole counts for
+   * Arca, every one chosen by the maintainer (2026-10-07). A district held whole counts for
    * a faction: the members between them hold every location, and every member is paid.
    */
   // A cut of every pilgrim's purse on the way out.
@@ -962,12 +974,12 @@ export const ATLAS_UNIFIED_BONUSES: Readonly<Record<string, UnifiedBonus>> = {
 };
 
 /** Every district in the world, Ashfall's included, in city order. */
-export const ALL_DISTRICTS: readonly District[] = [...CITY_DISTRICTS, ...TERMINUS, ...RELIQUARY];
+export const ALL_DISTRICTS: readonly District[] = [...CITY_DISTRICTS, ...TERMINUS, ...ARCA];
 
 const BY_CITY: ReadonlyMap<string, readonly District[]> = new Map([
   [DEFAULT_CITY_ID, CITY_DISTRICTS],
   [TERMINUS_CITY_ID, TERMINUS],
-  [RELIQUARY_CITY_ID, RELIQUARY],
+  [ARCA_CITY_ID, ARCA],
 ]);
 
 /**

@@ -3,15 +3,15 @@
 The world has five cities and they are at three different stages, which is worth knowing before
 reading any of this.
 
-| City      | Ground                                                       | Documented here |
-| --------- | ------------------------------------------------------------ | --------------- |
-| Ashfall   | Eight contested and four plots, playable                     | Yes, first      |
-| Terminus  | Eight contested and four plots, playable                     | Yes, at the end |
-| Reliquary | Two of eight contested so far and four plots, being authored | Yes, last       |
-| Redline   | None. A name, a nickname and a blurb                         | Nothing to say  |
-| Deepcut   | None. A name, a nickname and a blurb                         | Nothing to say  |
+| City     | Ground                                                    | Documented here |
+| -------- | --------------------------------------------------------- | --------------- |
+| Ashfall  | Eight contested and four plots, playable                  | Yes, first      |
+| Terminus | Eight contested and four plots, playable                  | Yes, at the end |
+| Arca     | Eight contested and four plots, playable since 2026-10-07 | Yes, last       |
+| Redline  | None. A name, a nickname and a blurb                      | Nothing to say  |
+| Deepcut  | None. A name, a nickname and a blurb                      | Nothing to say  |
 
-Saltmarch, a three-district sketch, held Reliquary's row until 2026-10-06 and was dropped when the
+Saltmarch, a three-district sketch, held Arca's row until 2026-10-06 and was dropped when the
 maintainer chose to keep the world screen at five.
 
 Redline and Deepcut exist so the world screen can show five places (maintainer, 2026-09-24). A city
@@ -22,7 +22,7 @@ rule that keeps that honest: a city with no ground may not be `open`. The city l
 Nothing about a map is generated: a map is only worth learning if it is the same map tomorrow.
 
 Ashfall's half of this file is written from `packages/shared/src/city/districts.ts`, and Terminus's
-and Reliquary's from `packages/shared/src/city/atlas.ts`. If a page and its source disagree, the source is right.
+and Arca's from `packages/shared/src/city/atlas.ts`. If a page and its source disagree, the source is right.
 
 ## An id is the name on the tag
 
@@ -71,7 +71,7 @@ whole stays grey and bare. Location tags read the same way for their holder.
 **Five levels** (maintainer, 2026-10-06). Every location outside a crew's own district is worked up
 from 1 to 5, not 10: each level is worth a whole multiple of the first (a Market pays 30, 60, 90,
 120, 150 caps an hour), the kinds whose figure is a share of a fight climb a gentler ladder to four
-times (`COMBAT_LEVEL_SCALE`), and Reliquary's authored figures carry their own written ladder. The
+times (`COMBAT_LEVEL_SCALE`), and Arca's authored figures carry their own written ladder. The
 upgrade to level n costs and takes what the old upgrade to 2n did, so the last one is still 33.7
 times the kind's figure. Captured gates outside the home district cap at 5 too, each level priced
 and timed as two of the home Gate's and worth 5% of defence; the home district's own structures
@@ -243,15 +243,15 @@ Garrison before anybody takes it: Civic Levy with a squad of Greycoats behind th
 
 **Unified bonus, Run of the Belt:** 2% off what mustering units costs, for holding every location in the district (it was 10 until the general muster cuts were cut, 2026-10-01).
 
-| Location           | Kind                  | What holding it pays                                                                                                     |
-| ------------------ | --------------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| No. 4 Press House  | Scrap Press           | Scrap, steadily, for as long as you hold it.                                                                             |
-| The Breaker's Yard | War Machine Graveyard | Hulls, plate and running gear, a gantry that will lift anything, and troops that come back from more than they should.   |
-| Toolhouse Pawn     | Pawn Shop             | A smaller cut, and a fence who moves what a raid brings back.                                                            |
-| The Slag Bowl      | Skate Ground          | Everything you field moves faster.                                                                                       |
-| Furnace Row Pumps  | Gas Station           | Oil out of the ground, and the scrap off everything anybody abandoned on the forecourt.                                  |
-| The Doghouse       | The Doghouse          | Working dogs, augmented, and handlers who have done this before.                                                         |
-| The Shift Canteen  | Soup Kitchen          | Supplies off the ration line, and a crew that has eaten fights like one. The Bone Market went to Reliquary (2026-10-06). |
+| Location           | Kind                  | What holding it pays                                                                                                   |
+| ------------------ | --------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| No. 4 Press House  | Scrap Press           | Scrap, steadily, for as long as you hold it.                                                                           |
+| The Breaker's Yard | War Machine Graveyard | Hulls, plate and running gear, a gantry that will lift anything, and troops that come back from more than they should. |
+| Toolhouse Pawn     | Pawn Shop             | A smaller cut, and a fence who moves what a raid brings back.                                                          |
+| The Slag Bowl      | Skate Ground          | Everything you field moves faster.                                                                                     |
+| Furnace Row Pumps  | Gas Station           | Oil out of the ground, and the scrap off everything anybody abandoned on the forecourt.                                |
+| The Doghouse       | The Doghouse          | Working dogs, augmented, and handlers who have done this before.                                                       |
+| The Shift Canteen  | Soup Kitchen          | Supplies off the ration line, and a crew that has eaten fights like one. The Bone Market went to Arca (2026-10-06).    |
 
 ### Chrome Row
 
@@ -453,7 +453,7 @@ similar value, and why renaming ground has to leave its `kind` alone.
 | The Abomination                   | `mad_scientist_lair`                 | The Laundry Stair, Undergrid                                  |
 | The Colossus                      | `construction_site`                  | The Unfinished Faculty (Annexes), The Unfinished Wing (Spire) |
 | The Saint                         | `tavern`                             | The Cracked Anvil, Chrome Row; the Wake House, Gravefields    |
-| Death Cloaks                      | `mausoleum`                          | One in every Reliquary district (the city is shut)            |
+| Death Cloaks                      | `mausoleum`                          | One in every Arca district                                    |
 | The Loose End                     | `rail_yard`                          | Hauler Yard, Glasshouse Fields                                |
 | The Cartographer                  | `rail_yard` + `satellite_uplink`     | Glasshouse Fields plus the Annexes or the Spire               |
 | Twins                             | `mad_scientist_lair` + `gene_clinic` | The Undergrid plus the Annexes or the Spire                   |
@@ -886,6 +886,27 @@ defect had already been fixed for the Combine legendary alone.
   the regime never retakes ground. So a named leader whose plot falls is gone for good. The only
   way one comes back on Monday is by dying in a fight the regime won, with the plot still its own.
 
+## How far a city is from a city
+
+Ruled on 2026-10-07: "make the base (0 speed) of between cities to be 4 hours. Assume that relative
+geography only happens inside a city, so it takes time to go from location to location. But city to
+city, it's always the same, adding then the bonuses."
+
+So `INTER_CITY_MINUTES` in `city/geography.ts` is **240 and it is the whole crossing**. Every
+district in one city is four hours from every district in another, whichever two cities they are.
+Inside a city nothing changed: the road is still the straight line at 85 minutes per map unit.
+
+The journey used to be the road out to the middle of your own map, plus a two-hour frontier, plus
+the road in from the middle of theirs, which put a crossing between 135 and 214 raw minutes
+depending on how central the two ends happened to be. Those legs are gone because a position is an
+inside-a-city number: it says how far a district is from its neighbours, and nothing on either map
+measures its distance from the other city.
+
+It is still a road, so the column's pace, its vehicles, the travel channel, the Cartographer's chair
+and `road_shortcut` are all spent on the whole four hours, with no floor under a crossing and no cap
+over it. A crew with nothing pays 240 minutes; a crew at every ceiling pays single digits, which is
+logged in `open-issues.md`.
+
 ## Still open
 
 - **The two seats of power have no leaders.** Ashfall has the Syndic, the Executioner and Directive
@@ -895,17 +916,17 @@ defect had already been fixed for the Combine legendary alone.
 - **Whether the line needs tuning.** It carries marches, which lets a crew holding two platforms
   defend two districts at once. That is the maintainer's ruling and it is deliberate; it is also
   the number most likely to move, and the knob is `RAIL_LINK_MINUTES` in `city/locations.ts`.
-- **How far a city is from a city.** `INTER_CITY_MINUTES` in `city/geography.ts` is two hours, plus
-  the road out to the middle of one map and in from the middle of the other. Taking a foothold
-  abroad should cost an afternoon; whether two hours is that afternoon is a guess until somebody
-  plays it.
+- **Whether four hours is the right crossing.** The figure is the maintainer's and the shape is
+  settled (see "How far a city is from a city" above); what is a guess until somebody plays it is
+  whether four hours is the commitment a foothold abroad should be.
 
-# Reliquary
+# Arca
 
-`reliquary`, "the Old Quarter". The cathedral city the Combine never modernised, so it wired it
+`arca`, "the Old Quarter". The cathedral city the Combine never modernised, so it wired it
 instead: white stone and crimson banners, bells that are transmitters, a camera in every saint, and
 more dead than living. Every district, location and unified bonus was chosen by the maintainer,
-card by card, on 2026-10-06 and 2026-10-07; shut (`open: false`) until its art exists.
+card by card, on 2026-10-06 and 2026-10-07, and opened (`open: true`) on 2026-10-07 when its
+painting (`plate-city-arca`, 3780x1800) and the three Combine leaders' portraits landed.
 
 ## The ladder
 
@@ -914,16 +935,17 @@ card by card, on 2026-10-06 and 2026-10-07; shut (`open: false`) until its art e
 | Candlemarket   | looters                | 1          |
 | Gravefields    | looters                | 2          |
 | Bellfounders   | looters                | 3          |
-| The Printworks | looters                | 4          |
+| Bloodstone     | Combine                | 4          |
 | Saint's Rest   | Combine                | 6          |
-| Bloodstone     | Combine                | 7          |
+| The Printworks | Combine, seat of power | 7          |
 | The Cloisters  | Combine, seat of power | 9          |
 | The Nave       | Combine, seat of power | 10         |
 
 The four plots are `almshouses`, `chantry-lane`, `lamplighters` and `waxworks`, and like every plot
-they carry no name until a crew moves in. Every contested district has a Mausoleum, and every
-contested district has a gate, which arms the way every captured gate does when the district is
-held whole.
+they carry no name until a crew moves in. `waxworks`, on the east side against the industrial wall,
+is home to the seeded AI rival, the Sextons (`seed/constants.ts`, `ARCA_RIVAL_DISTRICT_ID`). Every
+contested district has a Mausoleum, and every contested district has a gate, which arms the way
+every captured gate does when the district is held whole.
 
 ## The Mausoleums
 
@@ -943,7 +965,7 @@ A Mausoleum also houses six, because people live in the tombs.
 
 ## What a plot here pays
 
-Where Ashfall's and Terminus's locations pay what their kind pays, most of Reliquary's carry their
+Where Ashfall's and Terminus's locations pay what their kind pays, most of Arca's carry their
 own figures (`LocationSchema.bonuses`, read through `baseBonusesOf`): the same kind of place, with
 its icon, its ground and its gating, worth what this map says it is. A figure the maintainer set
 level by level is written as a `ladder` on the bonus, five entries for the five levels, and a
@@ -1025,12 +1047,20 @@ inside the 100 cap.
 
 ## The Printworks
 
-`printworks`, called the Presses. Difficulty 4 of 10, looter ground, at 0.54, 0.64 on the map.
+`printworks`, called the Presses. Difficulty 7 of 10, Combine ground and a seat of power, at
+0.54, 0.64 on the map. It was independent ground at difficulty 4 until the maintainer made it the
+regime's third district here (2026-10-07): whoever decides what the presses print decides what the
+city believes. It swapped rungs with Bloodstone, which took its 4.
 
 Four storeys of presses that print the city its scripture and its propaganda, and a cellar that
 prints everything else. The gutters run black and the walls are a street long of posters.
 
 **Unified bonus, Every Press Running:** +10% payroll.
+
+**The Combine leader: the Curate**, on the Great Press. Ballistic damage, 4 unit slots, and the
+weakest legendary in the game: ten of her beat a force of 20 Razors on open ground where ten of the
+Syndic beat 40. Her power is **Propaganda**: no location in the Printworks can be spied while she
+is alive. Take the press hall and she is gone for good.
 
 | Location                 | Kind              | What holding it pays                                                                                                                                                                                                                                                                 |
 | ------------------------ | ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -1066,8 +1096,9 @@ damage and vitality while he is alive.
 
 ## Bloodstone
 
-`bloodstone`, called the Stone. Difficulty 7 of 10, Combine ground, at 0.62, 0.42 on the map. It
-was the Ossuary until the maintainer re-themed it (2026-10-06).
+`bloodstone`, called the Stone. Difficulty 4 of 10, Combine ground, at 0.62, 0.42 on the map. It
+was the Ossuary until the maintainer re-themed it (2026-10-06), and it stood at 7 until it swapped
+rungs with the Printworks (2026-10-07).
 
 The sellswords' quarter, licensed by the Combine and run by nobody. Contracts on a wall, blood on a
 stage, every strong crew in the city drinking in one hall, and the Crimson Dancer at the top of the
@@ -1097,6 +1128,11 @@ spoken in forty years.
 
 **Unified bonus, The Sisters' Blessing:** +5 morale on every rabble unit.
 
+**The Combine leader: the Blood Priest**, in the Chapter of Silence. Chemical damage, 6 unit slots,
+and level with Ashfall's Executioner on the strength ladder (ten of either beat 80 Razors on open
+ground). His power is **Blood Baptism**: every location in the Cloisters is Eerie while he keeps
+the rituals, and every Combine unit fighting there has +10 intimidation.
+
 | Location               | Kind          | What holding it pays                                                                                                                                                                                                                                                                                                                                                                                                             |
 | ---------------------- | ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | The Reliquary Lab      | Laboratory    | A Juggernauts door (a gene clinic does as well; holding both stacks the clinic's vitality on top). They take 10 unit slots and lost Last Stand. Level 2: +20 range. Level 3: +100 vitality, and Wet, Cold and Snowy are home ground. Level 4: +50 damage and they taunt. Level 5: BLOWOUT, a dying Juggernaut deals its damage to enemy units covering up to its own unit slots, smallest units first, only units fully covered. |
@@ -1118,6 +1154,12 @@ siege.
 **Unified bonus, The Nave Is Taken:** one level of ANTI-COMBINE (+10% damage and vitality against
 the Combine), stacking with the Spire's and the Blockhouse's.
 
+**The Combine leader: the Hierarch**, under the Rose Window. Blunt damage, 10 unit slots, and level
+with Directive Xero at the top of the strength ladder (ten of either beat 260 Razors on open
+ground). Forty years a monk before the Combine made him its voice, and he still teaches every
+morning. His power is **Martial Arts Instructor**: every Combine unit in the Nave fights with +15
+evasion, 5% more damage and 5 more resistance to blunt.
+
 | Location              | Kind       | What holding it pays                                                                                                                                                        |
 | --------------------- | ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | The Choir             | Cinema     | +5 Composure, Improvisation and Empathy on every officer, rising 5, 6, 7, 8, 10 by level. No morale.                                                                        |
@@ -1128,11 +1170,32 @@ the Combine), stacking with the Spire's and the Blockhouse's.
 | The Cathedral Close   | Fence Camp | 50 unit slots and 6 caps an hour, as a Fence Camp pays.                                                                                                                     |
 | The Bishops' Crypt    | Mausoleum  | The Death Cloaks, and six beds.                                                                                                                                             |
 
+## The map
+
+Tags on `plate-city-arca` (`DISTRICT_MARKS.arca` in `apps/client/src/features/game/CityView.tsx`).
+These are where a player sees each district, which is not the atlas position above. The contested
+and plot tags are where the maintainer placed them on a marked-up screenshot (2026-10-08);
+Bellfounders was off its edge and keeps its first placement by eye. Almshouses stands on the crane
+at the bottom of the river, inside the captured-gate panel's corner, so a crew holding a district
+whole sees the panel over it.
+
+| District     | Tag          |
+| ------------ | ------------ |
+| The Nave     | 0.409, 0.321 |
+| Cloisters    | 0.471, 0.445 |
+| Bellfounders | 0.895, 0.25  |
+| Printworks   | 0.671, 0.235 |
+| Saint's Rest | 0.198, 0.252 |
+| Bloodstone   | 0.332, 0.544 |
+| Candlemarket | 0.701, 0.784 |
+| Gravefields  | 0.24, 0.445  |
+| Almshouses   | 0.21, 0.8    |
+| Chantry Lane | 0.491, 0.655 |
+| Lamplighters | 0.122, 0.492 |
+| Waxworks     | 0.708, 0.458 |
+
 ## What this still needs
 
-- Art: a city plate, district plates and marks, and the seven new kind icons, before `open` can be
-  true.
-- Feats: a `mausoleums_held` ladder and a Death Cloaks feat, sized off the finished map the day
-  the city opens, the way the platforms chain was for Terminus. The feat world is built off open
-  cities, so a ladder written now would have a ceiling of nothing.
-- A seeded world, a mission board and a control ledger, which is what `open: true` costs.
+- District plates, so a district can be walked into the way Ashfall's and Terminus's are.
+- Painted icons for the seven new location kinds (`workshop`, `shrine`, `bounty_wall`, `stage`,
+  `trophy_hall`, `laboratory`, `stores`): on the manifest, still drawn procedurally.

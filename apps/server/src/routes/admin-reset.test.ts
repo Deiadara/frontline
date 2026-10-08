@@ -6,10 +6,12 @@ import {
   CITY_DISTRICTS,
   MISC_AREA_ID,
   STARTING_RESOURCES,
+  ARCA_CITY_ID,
   TERMINUS_CITY_ID,
   cityOfDistrict,
   declarationWindow,
   findMissionTemplate,
+  groundStateOf,
   randomBadge,
 } from '@frontline/shared';
 import { openDatabase, runMigrations, type AppDatabase } from '../db/index.js';
@@ -227,6 +229,80 @@ describe('the console wipes a crew', () => {
     // Closed without the escrow coming home: the stockpile is the starting one, not the starting
     // one plus twenty-five scrap the old life had posted.
     expect(wiped!.resources).toEqual(STARTING_RESOURCES);
+  });
+
+  /**
+   * The ground goes back as open ground, not as the old life's ground with nobody on it (bug pass,
+   * 2026-10-07).
+   *
+   * The release wrote the control rows itself, which skipped `putControl`: the one writer that
+   * lets a plot *go*. So a reset plot kept everything that belongs to its holder rather than to
+   * the ground. The Tolling Tower's switch stayed thrown, which lays Noisy over a district held by
+   * nobody; the Pamphlet Wall's pins stayed up with `pamphletsPinnedAt` at the old level and the
+   * row written back at level 1, which is a row no legal path produces; and the Trophy Hall still
+   * counted the wiped crew's kills. Bypassing it also skipped `dropGateRaise`, so a crew that
+   * reset while holding a district whole left a half-paid raise standing on a gate nobody holds.
+   */
+  it('hands the ground back through the one door that lets a plot go', async () => {
+    const { app, token, baseId } = await console_();
+    const district = CITY_DISTRICTS.find((one) => one.locations.length > 0)!;
+    const plot = district.locations[0]!;
+    /* Long enough ago that the hand-back cannot write the same stamp by coincidence. */
+    const ONCE = '2026-01-02T03:04:05.000Z';
+
+    const control = app.repos.city.control(plot.id)!;
+    app.repos.city.put({
+      ...control,
+      holder: { kind: 'crew', baseId },
+      garrison: { razors: 2 },
+      level: 3,
+      switchedOn: true,
+      switchedAt: ONCE,
+      pamphlets: ['razors'],
+      pamphletsPinnedAt: 3,
+      pamphletsSwappedAt: ONCE,
+      trophies: { razors: 4 },
+      trophiesSince: ONCE,
+    });
+    // ...and a raise half paid for on the gate of the district the plot sits in.
+    app.repos.capturedGates.put({
+      districtId: district.id,
+      level: 1,
+      upgradingTo: 2,
+      upgradingUntil: new Date(Date.now() + 3_600_000).toISOString(),
+      upgradingSince: ONCE,
+      upgradePaid: { scrap: 500 },
+    });
+
+    const reset = await app.inject({
+      method: 'POST',
+      url: '/api/admin/reset',
+      headers: auth(token),
+      payload: {},
+    });
+    expect(reset.statusCode, reset.body).toBe(200);
+
+    const after = app.repos.city.control(plot.id)!;
+    expect(after.holder).toEqual({ kind: 'unoccupied' });
+    expect(after.level).toBe(1);
+    const state = groundStateOf(after);
+    expect(state.switchedOn, 'the tower is still switched on').toBe(false);
+    expect(state.switchedAt).toBeNull();
+    expect(state.pamphlets, 'the old holder’s pins are still up').toEqual([]);
+    expect(state.pamphletsSwappedAt).toBeNull();
+    expect(state.trophies, 'the hall still counts the wiped crew’s kills').toEqual({});
+    // The count starts at the hand-back rather than carrying the old life's date forward.
+    expect(Date.parse(state.trophiesSince ?? '')).toBeGreaterThan(Date.parse(ONCE));
+    // The pins were pinned at a level the row no longer has, which is the state nothing produces.
+    expect(state.pamphletsPinnedAt).toBe(0);
+    expect(state.pamphletsPinnedAt).toBeLessThanOrEqual(after.level);
+
+    // And the raise the old life was paying for is off the gate, refunded to nobody.
+    expect(app.repos.capturedGates.find(district.id)).toMatchObject({
+      upgradingTo: null,
+      upgradingUntil: null,
+      upgradingSince: null,
+    });
   });
 
   /**
@@ -717,5 +793,30 @@ describe('the console wipes a crew', () => {
     await chooseOverseer(app, token);
     const me = await app.inject({ method: 'GET', url: '/api/me', headers: auth(token) });
     expect(me.json<{ base: { districtId: string } }>().base.districtId).toBe(districtId);
+  });
+
+  /*
+   * ...unless the new game picks another city (maintainer, 2026-10-08: "When I choose a city that
+   * is not Ashfall in a new game, I should be taken to that city"). Start over and a choice of
+   * Arca kept the crew on its Terminus plot, and the game opened on a city it had not picked.
+   */
+  it('moves the crew when the new game picks another city, and keeps the plot for its own', async () => {
+    const { app, token, districtId, baseId } = await console_(TERMINUS_CITY_ID);
+    const reset = () =>
+      app.inject({ method: 'POST', url: '/api/admin/reset', headers: auth(token), payload: {} });
+    const home = async () =>
+      (await app.inject({ method: 'GET', url: '/api/me', headers: auth(token) })).json<{
+        base: { id: string; districtId: string };
+      }>().base;
+
+    expect((await reset()).statusCode).toBe(200);
+    expect((await chooseOverseer(app, token, TERMINUS_CITY_ID)).statusCode).toBe(201);
+    expect((await home()).districtId, 'its own city: the same plot').toBe(districtId);
+
+    expect((await reset()).statusCode).toBe(200);
+    expect((await chooseOverseer(app, token, ARCA_CITY_ID)).statusCode).toBe(201);
+    const moved = await home();
+    expect(cityOfDistrict(moved.districtId), 'the city it picked').toBe(ARCA_CITY_ID);
+    expect(moved.id, 'the same crew, moved rather than minted').toBe(baseId);
   });
 });

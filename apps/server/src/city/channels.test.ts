@@ -48,7 +48,6 @@ const CHANNELS = Object.keys(noTerritoryEffects()) as (keyof TerritoryEffects)[]
 function magnitude(bonus: HoldBonus): number {
   if ('perHour' in bonus) return bonus.perHour;
   if ('flat' in bonus) return bonus.flat;
-  if ('minutes' in bonus) return bonus.minutes;
   if ('perSlot' in bonus) return bonus.perSlot;
   if ('amount' in bonus) return bonus.amount;
   if ('chancePercent' in bonus) return bonus.chancePercent + bonus.rewardPercent;

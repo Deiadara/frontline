@@ -284,7 +284,7 @@ describe('ground', () => {
       wokeSleepers: false,
     });
     expect(await empty()).not.toContain('steelbelt-press');
-    // ...and only ground in a city that is open: Reliquary's empty plots are not on it.
+    // ...and only ground in a city that is open: Arca's empty plots are not on it.
     for (const id of await empty()) {
       const city = findDistrict(findLocation(id!)!.districtId)!.cityId;
       expect(cityIsOpen(city), id!).toBe(true);

@@ -17,6 +17,7 @@ import {
   missionForceRefusal,
   missionBoardDay,
   missionBoardKey,
+  missionDealer,
   missionOffers,
   openAreas,
   payoutSlots,
@@ -229,11 +230,16 @@ describe('which areas are open', () => {
   const contested = CITY_DISTRICTS.find((d) => d.kind === 'contested')!;
   const residential = CITY_DISTRICTS.find((d) => d.kind === 'residential')!;
 
-  /** Maintainer, 2026-09-29: a foothold opens the board, and holding the lot keeps it open. */
-  it('opens on one location held, and stays open with every location held', () => {
-    expect(areaIsOpen(contested, { heldByCrew: 0 })).toBe(false);
-    expect(areaIsOpen(contested, { heldByCrew: 1 })).toBe(true);
-    expect(areaIsOpen(contested, { heldByCrew: contested.locations.length })).toBe(true);
+  /**
+   * Maintainer, 2026-10-07: "only in districts that you or your faction control entirely".
+   *
+   * It replaced the foothold rule of 2026-09-29, under which one location opened the board. The
+   * rule has no degrees now, which is why {@link AreaAvailability} carries a boolean: a crew
+   * holding all but one plot is in the position of a crew holding none.
+   */
+  it('opens only on the whole district, not on a foothold in it', () => {
+    expect(areaIsOpen(contested, { heldWhole: false })).toBe(false);
+    expect(areaIsOpen(contested, { heldWhole: true })).toBe(true);
   });
 
   /**
@@ -245,21 +251,26 @@ describe('which areas are open', () => {
    */
   it('never offers work on a plot, however open it looks', () => {
     expect(residential.locations).toHaveLength(0);
-    expect(areaIsOpen(residential, { heldByCrew: 1 })).toBe(false);
+    expect(areaIsOpen(residential, { heldWhole: true })).toBe(false);
   });
 
-  /** Maintainer, 2026-09-29: a city that is not open has no work in it, whatever is held there. */
+  /*
+   * Maintainer, 2026-09-29: a city that is not open has no work in it, whatever is held there.
+   * No shut city has ground since Arca opened (2026-10-07), so one of Arca's districts is moved
+   * into shut Redline for the check: the same district is open where it really stands.
+   */
   it('never offers work in a city that is not open', () => {
-    const drowned = ALL_DISTRICTS.find(
-      (d) => d.kind === 'contested' && d.cityId === 'reliquary' && d.locations.length > 0,
+    const ground = ALL_DISTRICTS.find(
+      (d) => d.kind === 'contested' && d.cityId === 'arca' && d.locations.length > 0,
     );
-    if (!drowned) throw new Error('fixture: Reliquary has no contested ground');
-    expect(areaIsOpen(drowned, { heldByCrew: drowned.locations.length })).toBe(false);
+    if (!ground) throw new Error('fixture: Arca has no contested ground');
+    expect(areaIsOpen(ground, { heldWhole: true })).toBe(true);
+    expect(areaIsOpen({ ...ground, cityId: 'redline' }, { heldWhole: true })).toBe(false);
   });
 
   it('lists open contested districts in map order, and no plots', () => {
     const soft = (district: District) => isContested(district) && district.difficulty <= 3;
-    const open = openAreas((district) => ({ heldByCrew: soft(district) ? 1 : 0 }));
+    const open = openAreas((district) => ({ heldWhole: soft(district) }));
     expect(open.length).toBeGreaterThan(0);
     expect(open.map((d) => d.id)).toEqual(CITY_DISTRICTS.filter(soft).map((d) => d.id));
     expect(open.every((d) => d.kind === 'contested')).toBe(true);
@@ -538,15 +549,61 @@ describe('the walk to a job in another city', () => {
   const home = CITY_DISTRICTS[0]!;
   const abroad = districtsOfCity(TERMINUS_CITY_ID)[0]!;
 
-  it('is the cross-city road, frontier and all', () => {
+  it('is the cross-city road, which is the flat four hours', () => {
     expect(missionWalkMinutes(home.id, abroad.id)).toBe(
       Math.round(rawMinutesBetween(home, abroad)),
     );
-    expect(missionWalkMinutes(home.id, abroad.id)).toBeGreaterThanOrEqual(INTER_CITY_MINUTES);
+    expect(missionWalkMinutes(home.id, abroad.id)).toBe(INTER_CITY_MINUTES);
+  });
+
+  /**
+   * The ruling of 2026-10-07 read off the board rather than off `geography.ts`: a job abroad is
+   * four hours away whichever district posted it, so the walk cannot be used to shop for the
+   * nearest-looking city on the map.
+   */
+  it('is the same walk to every district in every other city', () => {
+    const away = ALL_DISTRICTS.filter((district) => district.cityId !== home.cityId);
+    expect(away.length).toBeGreaterThan(8);
+    for (const district of away) {
+      expect(missionWalkMinutes(home.id, district.id), district.id).toBe(INTER_CITY_MINUTES);
+    }
   });
 
   it('is nothing inside one city and nothing on the misc board', () => {
     for (const district of CITY_DISTRICTS) expect(missionWalkMinutes(home.id, district.id)).toBe(0);
     expect(missionWalkMinutes(home.id, MISC_AREA_ID)).toBe(0);
+  });
+});
+
+/**
+ * A board is a crew's own (maintainer, 2026-10-08: "Missions should be randomized and varied even
+ * in the beginning ... I just got the same 3 twice when starting a new game").
+ *
+ * The deal was seeded by the area, the key and the slot, so every crew in the world and every new
+ * game on the same day opened on the same three cards.
+ */
+describe('whose board it is', () => {
+  const cardsOf = (dealer: string, day: string, level = 1) =>
+    missionOffers(MISC_AREA_ID, day, level, dealer).map((job) => `${job.template.id}@${job.grade}`);
+  const DAYS = Array.from({ length: 30 }, (_, at) => `2026-10-${String(at + 1).padStart(2, '0')}`);
+  const differing = (a: string, b: string) =>
+    DAYS.filter((day) => cardsOf(a, day).join() !== cardsOf(b, day).join()).length;
+
+  it('deals two crews different boards on the same day, at the very first level', () => {
+    const one = missionDealer({ id: 'crew-a', createdAt: '2026-10-08T10:00:00.000Z' });
+    const two = missionDealer({ id: 'crew-b', createdAt: '2026-10-08T10:00:00.000Z' });
+    // Most days, not every day: two random draws of three can coincide.
+    expect(differing(one, two)).toBeGreaterThanOrEqual(25);
+  });
+
+  it('deals a new game a new board, though the crew keeps its id', () => {
+    const before = missionDealer({ id: 'crew-a', createdAt: '2026-10-08T10:00:00.000Z' });
+    const after = missionDealer({ id: 'crew-a', createdAt: '2026-10-08T10:05:00.000Z' });
+    expect(differing(before, after)).toBeGreaterThanOrEqual(25);
+  });
+
+  it('keeps one crew’s board the same however often it is read', () => {
+    const dealer = missionDealer({ id: 'crew-a', createdAt: '2026-10-08T10:00:00.000Z' });
+    for (const day of DAYS) expect(cardsOf(dealer, day)).toEqual(cardsOf(dealer, day));
   });
 });

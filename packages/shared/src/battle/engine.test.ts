@@ -553,10 +553,12 @@ describe('a shield line screens in proportion to its size', () => {
   });
 
   it('gives a wall about half its line the fire it was built for', () => {
-    // Measured 71% for 30+3 and 100% for 22+6 (25% and 67% by heads; 100% and 93% before the
-    // screen was sized). 39 Razors alone take 30% off the same 40.
+    // Re-measured 2026-10-07, when the Ironsides' damage went from 45 to 95 and their penetration
+    // from 5 to 14 (the tier-ladder lift in `balance.test.ts`): 86% for 30+3 and 100% for 22+6,
+    // against 71% and 100% before it. The ceiling moves with the measurement and keeps its job,
+    // which is to catch a screen that makes three Ironsides worth a whole line on their own.
     expect(middling.rate).toBeGreaterThan(0.55);
-    expect(middling.rate).toBeLessThan(0.85);
+    expect(middling.rate).toBeLessThan(0.95);
     expect(half.rate).toBeGreaterThan(0.9);
     expect(half.rate).toBeGreaterThan(token.rate + 0.15);
   });
@@ -1203,7 +1205,7 @@ describe('counting the line honestly', () => {
       fight(attacking, defending, 'slots').attacker.stacks[0]?.effective.reasons ?? [];
 
     // Wardens rather than Juggernauts since 2026-10-07: the Juggernauts lost Last Stand with the
-    // Reliquary rework, and the Wardens are the two-slot heavy that kept it. Eight Wardens are 16
+    // Arca rework, and the Wardens are the two-slot heavy that kept it. Eight Wardens are 16
     // slots; thirty-two Razors are 32. On heads that is 4:1 against them, and on slots it is 2:1.
     expect(fightingSlots(army({ wardens: 8 }), bareLineRules())).toBe(16);
     expect(fightingSlots(army({ razors: 12 }), bareLineRules())).toBe(12);

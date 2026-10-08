@@ -8,11 +8,11 @@ import { LabelChip } from '../../components/ui/LabelChip';
 import { SpyPointsLine } from '../../components/SpyPointsLine';
 import { structureBonus } from '../base/bonus';
 import { AffinityTag, antiCombineRule } from '../units/tags';
-import { DoorLadder, PamphletPicker, TollingSwitch, TrophyList } from './ReliquaryControls';
+import { DoorLadder, PamphletPicker, TollingSwitch, TrophyList } from './ArcaControls';
 import { SIDE_SIGN, SideMark } from './SideMark';
 
 /*
- * Reliquary's client pieces (2026-10-07), each pinned on the one thing it draws differently from
+ * Arca's client pieces (2026-10-07), each pinned on the one thing it draws differently from
  * the screen it sits on, beside the control that draws it the old way.
  */
 

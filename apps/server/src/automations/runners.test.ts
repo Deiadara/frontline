@@ -7,6 +7,7 @@ import {
   automationPowers,
   MISC_AREA_ID,
   missionBoardKey,
+  missionDealer,
   missionOffers,
   templateTimings,
   areaIsOpen,
@@ -42,6 +43,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { openDatabase, runMigrations, type AppDatabase } from '../db/index.js';
 import { createRepositories, type Repositories } from '../db/repos/index.js';
 import { STALL_RETRY_MS, candidates, settleAutomations } from './runners.js';
+import { QUIET_BOARD } from '../testing/footholds.js';
 import { enemyForce } from '../missions/enemy.js';
 import { areaStatesFor } from '../missions/board.js';
 import { tickWorld } from '../live/clock.js';
@@ -118,12 +120,22 @@ function stack(
   return { repos, base };
 }
 
-/** The crew takes the first location of a district, which is what opens its board. */
+/**
+ * The crew takes a district end to end, which is what opens its board (maintainer, 2026-10-07).
+ *
+ * One location used to be enough. The ground it grants comes with it now, which is why the tests
+ * below that measure a rate read it off the crew's own fold rather than off the catalogue.
+ */
 function holdOneIn(repos: Repositories, baseId: string, districtId: string): void {
-  const location = CITY_DISTRICTS_ALL.find((one) => one.id === districtId)?.locations[0];
-  const control = location ? repos.city.control(location.id) : undefined;
-  if (!control) throw new Error(`fixture: ${districtId} has no location to hold`);
-  repos.city.put({ ...control, holder: { kind: 'crew', baseId } });
+  const district = CITY_DISTRICTS_ALL.find((one) => one.id === districtId);
+  if (!district || district.locations.length === 0) {
+    throw new Error(`fixture: ${districtId} has no location to hold`);
+  }
+  for (const location of district.locations) {
+    const control = repos.city.control(location.id);
+    if (!control) throw new Error(`fixture: no control row for ${location.id}`);
+    repos.city.put({ ...control, holder: { kind: 'crew', baseId } });
+  }
 }
 
 function slot(repos: Repositories, base: Base, over: Partial<Automation> = {}): Automation {
@@ -251,9 +263,15 @@ describe('a standing order on the world clock', () => {
 
   // Every stall read "not at home", so porters named for a fight sat at home under a sentence that
   // blamed their absence (bug pass, 2026-10-02). It now says the launch's own reason.
-  // Every city the crew may stand in (maintainer, 2026-10-02): a crew whose ground is all abroad
-  // had a Right Hand that only ever read the misc board at home.
-  it('reads the boards of every city the crew holds ground in', () => {
+  /**
+   * The home city and nothing else (maintainer, 2026-10-07, reversing 2026-10-02).
+   *
+   * "You can only do missions in your starting city." The Right Hand reads the boards a player
+   * reads, which is the whole reason it goes through `areaIsOpen` rather than a list of its own: a
+   * slot that could work ground the player cannot would have a longer reach than the hand that set
+   * it. Held **whole** there, and still not offered.
+   */
+  it('never reads a board in another city, however much is held there', () => {
     const away = CITY_DISTRICTS_ALL.find(
       (district) =>
         district.kind === 'contested' && district.cityId !== cityOfDistrict('kettle-row'),
@@ -262,7 +280,9 @@ describe('a standing order on the world clock', () => {
     const { repos, base } = stack([AUTOMATION_RUNGS.open], []);
     holdOneIn(repos, base.id, away.id);
     const boards = new Set(candidates(repos, base, 'mission', NOW).map((one) => one.areaId));
-    expect(boards.has(away.id)).toBe(true);
+    expect(boards.has(away.id)).toBe(false);
+    // ...and the one board every crew always has is still there, so the slot is not simply idle.
+    expect([...boards]).toEqual([MISC_AREA_ID]);
   });
 
   it('stalls with the real reason when the party it named cannot fight', () => {
@@ -732,16 +752,16 @@ describe('a standing order on the world clock', () => {
   });
 
   it('chases one resource by the best rate per minute, ignoring everything else', () => {
-    const { repos, base } = stack([
-      AUTOMATION_RUNGS.open,
-      AUTOMATION_RUNGS.bestFit,
-      AUTOMATION_RUNGS.optimise,
-    ]);
-    // Every board this crew can read (the fixture holds a place in every district), so the
-    // expectation is computed over the same set the runner reads.
+    // The quiet district alone, for the reason the premium test above gives.
+    const { repos, base } = stack(
+      [AUTOMATION_RUNGS.open, AUTOMATION_RUNGS.bestFit, AUTOMATION_RUNGS.optimise],
+      [QUIET_BOARD],
+    );
+    // Every board this crew can read, so the expectation is computed over the same set the
+    // runner reads.
     const offersOn = (at: Date) =>
       openAreas(repos, base).flatMap((areaId) =>
-        missionOffers(areaId, missionBoardKey(areaId, at), base.level).filter(
+        missionOffers(areaId, missionBoardKey(areaId, at), base.level, missionDealer(base)).filter(
           (one) => one.template.kind !== 'battle',
         ),
       );
@@ -819,9 +839,9 @@ describe('a standing order on the world clock', () => {
  * happens rather than on a figure standing in for it.
  */
 describe('choosing on what actually happens', () => {
-  const plainOffers = (areas: readonly string[], at: Date, level: number) =>
+  const plainOffers = (areas: readonly string[], at: Date, level: number, dealer: string) =>
     areas.flatMap((areaId) =>
-      missionOffers(areaId, missionBoardKey(areaId, at), level).filter(
+      missionOffers(areaId, missionBoardKey(areaId, at), level, dealer).filter(
         (one) => one.template.kind !== 'battle',
       ),
     );
@@ -855,7 +875,7 @@ describe('choosing on what actually happens', () => {
     let expected = '';
     for (let hour = 0; hour < 24 * 30 && day === null; hour += 1) {
       const at = new Date(NOW.getTime() + hour * 3_600_000);
-      const offers = plainOffers(areas, at, base.level);
+      const offers = plainOffers(areas, at, base.level, missionDealer(base));
       const byHome = offers.reduce((top, one) => (home(one) > home(top) ? one : top));
       const byCard = offers.reduce((top, one) => (listed(one) > listed(top) ? one : top));
       if (byHome.template.id !== byCard.template.id && home(byHome) > home(byCard)) {
@@ -876,16 +896,18 @@ describe('choosing on what actually happens', () => {
    * the same as on Misc. The day is the first hour on which the premium changes which job wins.
    */
   it('counts the district premium the run is paid, as the card does', () => {
-    const { repos, base } = stack([
-      AUTOMATION_RUNGS.open,
-      AUTOMATION_RUNGS.bestFit,
-      AUTOMATION_RUNGS.optimise,
-    ]);
+    // One district, the quiet one, so the expectation below can be computed off the catalogue: a
+    // board is a whole district now and the whole city would pay this crew on half the channels
+    // this arithmetic is made of. Misc beside it is the premium-free board to compare against.
+    const { repos, base } = stack(
+      [AUTOMATION_RUNGS.open, AUTOMATION_RUNGS.bestFit, AUTOMATION_RUNGS.optimise],
+      [QUIET_BOARD],
+    );
     const areas = openAreas(repos, base);
     const carry = missionCarry({ razors: 4 });
     const offersOn = (at: Date) =>
       areas.flatMap((areaId) =>
-        missionOffers(areaId, missionBoardKey(areaId, at), base.level)
+        missionOffers(areaId, missionBoardKey(areaId, at), base.level, missionDealer(base))
           .filter((one) => one.template.kind !== 'battle')
           .map((one) => ({ ...one, areaId })),
       );
@@ -1069,15 +1091,24 @@ describe('choosing on what actually happens', () => {
    * and lost a Fight II every time where two Juggernauts won most of them.
    */
   it('sends a fight party that wins at least as often as the catalogue order would', () => {
-    const { repos, base } = stack([
-      AUTOMATION_RUNGS.open,
-      AUTOMATION_RUNGS.bestFit,
-      AUTOMATION_RUNGS.battles,
-    ]);
+    // No ground at all: the comparison below fights on a bare battlefield, and any district this
+    // crew held whole would put its bonuses on one side of it and not the other. The misc board
+    // deals a fight like any other, which is all this needs.
+    const { repos, base } = stack(
+      [AUTOMATION_RUNGS.open, AUTOMATION_RUNGS.bestFit, AUTOMATION_RUNGS.battles],
+      [],
+    );
     const yard = { sparks: 30, razors: 30, juggernauts: 4, sleepers: 10, cyber_dogs: 10 };
     repos.bases.updateArmy(base.id, yard, []);
     // A name big enough to field all of it, so the ranking and not the notoriety gate decides.
     repos.bases.updateEconomy(base.id, { ...base.economy, notoriety: 10 });
+    /*
+     * Level 2, where this crew's own board (2026-10-08) deals its fight at F+: a grade the
+     * catalogue's party wins some of the time, so "wins at least as often" has something to
+     * measure. At level 10 the deal is E+, which nothing in this yard wins, and 0 against 0 says
+     * nothing about the ranking.
+     */
+    repos.bases.updateProgression(base.id, 2, base.progression);
     slot(repos, base, { order: 'battles', unitSlots: 12, officerId: null, force: {} });
     expect(settleAutomations(repos, NOW)).toBe(1);
     const sent = repos.missions.listActiveByBaseId(base.id)[0]!;
@@ -1101,6 +1132,9 @@ describe('choosing on what actually happens', () => {
     const catalogue = bestFitParty(yard, 12, 'battle')!;
     const ours = winRate(sent.mission.force);
     const theirs = winRate(catalogue);
+    expect(Math.max(ours, theirs), 'fixture: a fight nobody in this yard can win').toBeGreaterThan(
+      0,
+    );
     // Strictly better, unless the catalogue's party already all but always wins: a test that
     // allowed a tie would pass with the ranking taken out, since that sends the catalogue party.
     if (theirs < 0.95) expect(ours).toBeGreaterThan(theirs);

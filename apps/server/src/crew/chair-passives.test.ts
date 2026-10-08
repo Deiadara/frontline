@@ -244,7 +244,7 @@ describe('each chair, from its seat points to where it is spent', () => {
         expect(cut).toBeCloseTo(expectedPercent(50, points), 9);
         // An hour's road at pace 50 and 20% off: the base is shortened first, then divided.
         const road = 60 * (1 - expectedPercent(50, points) / 100);
-        expect(roadMinutes(60, 50, 20, 0, cut)).toBe(Math.round((road / 1.5) * 0.8));
+        expect(roadMinutes(60, 50, 20, cut)).toBe(Math.round((road / 1.5) * 0.8));
       });
 
       it('Field Commander: hands the fight settle the line', async () => {

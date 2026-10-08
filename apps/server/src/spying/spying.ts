@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import {
+  combinePresenceOver,
   sameSpyTarget,
   chairIsSettled,
   chairPassiveOf,
@@ -83,7 +84,7 @@ import {
   standingEffectsFor,
 } from '../crew/standing.js';
 import type { Repositories } from '../db/repos/index.js';
-import { alliesOf, wholeHolderOf } from '../city/holding.js';
+import { alliesOf, tableOf, wholeHolderOf } from '../city/holding.js';
 import { tallySpyJobReturned, tallySpyJobUnnoticed, tallySpyReport } from '../feats/tally.js';
 import { notifyBase } from '../social/notify.js';
 import { workingOfficer } from '../crew/roster.js';
@@ -341,6 +342,13 @@ export function groundBehind(
     if (control.holder.kind === 'unoccupied') return refused('nothing_there');
     // Shut by one holder or by a table holding it together (2026-10-07).
     if (wholeHolderOf(repos, district) !== null) return refused('not_the_gate');
+    /*
+     * The Curate's Propaganda (maintainer, 2026-10-07): while she is alive on her plot, no
+     * location in her district can be read at all. Refused here rather than answered with an empty
+     * or a wrong report, so the player is told there is a reason and can go and kill it.
+     */
+    const over = combinePresenceOver(district.id, [...repos.city.controls().values()]);
+    if (over?.power.kind === 'curate') return refused('only_lies');
 
     // The holder's garrison, the postings on it and, with the rung, the cells, of whoever would
     // defend it against the reader (`standsAgainst`).
@@ -423,7 +431,15 @@ export function groundBehind(
   // The table's named defender answers for a gate held together (2026-10-07).
   const holder = wholeHolderOf(repos, district);
   if (holder === null || holder.kind === 'unoccupied') return refused('nothing_there');
-  if (holder.kind === 'crew' && holder.baseId === reader.id) return refused('own_ground');
+  /*
+   * Nobody at the table (maintainer, 2026-10-07). Only the *named* member was refused until then,
+   * so a mate could run a job against their own faction's gate and read the counter-intel, the
+   * gate level and the whispers points of the crew standing in it. A gate a faction holds is the
+   * faction's own ground whichever member the map happens to name on it.
+   */
+  if (holder.kind === 'crew' && tableOf(repos, reader.id).has(holder.baseId)) {
+    return refused('own_ground');
+  }
   /*
    * What meets a fight at this gate, and nothing else (bug pass, 2026-09-28). A crew holding the
    * district from somewhere else defends its gate with what it sends to the fight: its location
@@ -588,7 +604,6 @@ function walkMinutes(
     speed: officerBattleStats(sheet).speed,
     reductionPercent: effects.travelSpeedPercent,
     baseCutPercent: chairPassiveOf(effects, 'cartographer', 'travel_time'),
-    flatMinutesOff: effects.roadMinutesOff,
   });
 }
 

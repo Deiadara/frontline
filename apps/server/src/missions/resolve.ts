@@ -437,7 +437,7 @@ export function resolveDueMissions(
       routed: battle && reported ? forceSize(battle.fledEnemy) : 0,
       /** The crew's dead the medics brought round, for the `casualties_recovered` ladder. */
       recovered: battle && reported ? battle.recovered : 0,
-      // ...plus Reliquary's two surcharges on the dead, which a declared fight paid and a job
+      // ...plus Arca's two surcharges on the dead, which a declared fight paid and a job
       // did not: the Fight Pit's on the enemy's intimidated and SPECTACLE's on the Dancer's kills.
       infamyDelta:
         template && reported

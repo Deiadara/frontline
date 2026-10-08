@@ -12,6 +12,7 @@ import {
   missionCompletesAt,
   missionOdds,
   missionBoardKey,
+  missionDealer,
   missionOffers,
   templateTimings,
   type Army,
@@ -35,7 +36,7 @@ import { launchMission } from './launch.js';
 import { resolveDueMissions } from './resolve.js';
 import { fightMissionBattle } from './battle.js';
 import { chooseOverseer, pinOverseer } from '../testing/overseer.js';
-import { holdEveryBoard } from '../testing/footholds.js';
+import { QUIET_BOARD, holdDistrictWhole } from '../testing/footholds.js';
 import { sureLeader } from '../testing/leader.js';
 import { cardFor } from '../testing/card.js';
 
@@ -68,6 +69,8 @@ interface Stack {
   userId: string;
 }
 
+/** The crew the last `makeStack` made, as its boards are dealt: boards are a crew's own. */
+let dealtTo = '';
 async function makeStack(username = 'leader'): Promise<Stack> {
   const config = loadConfig({ DATABASE_PATH: ':memory:', JWT_SECRET: 'test-secret' });
   const db = openDatabase(config.databasePath);
@@ -104,10 +107,12 @@ async function makeStack(username = 'leader'): Promise<Stack> {
   const minted = repos.bases.findByOwnerId(user.id);
   if (!minted) throw new Error('no base');
   repos.bases.updateArmy(minted.id, { razors: 80, wardens: 20, haulers: 20 }, minted.musterQueue);
-  // A place in every district, so every board is open to the launches below.
-  holdEveryBoard(repos, minted.id);
+  // One district held end to end, which is what opens a board (maintainer, 2026-10-07). The
+  // quietest one in Ashfall: nothing on it moves the clock, the pay or the infamy measured here.
+  holdDistrictWhole(repos, minted.id, QUIET_BOARD);
   const base = repos.bases.findByOwnerId(user.id);
   if (!base) throw new Error('no base');
+  dealtTo = missionDealer(base);
   return { app, repos, base, token, overseer, userId: user.id };
 }
 
@@ -134,23 +139,21 @@ function withOfficer(stack: Stack, id = 'off-1', name = 'Halvard Nyx'): string {
  * and every launch here came back `That job is not on offer there`.
  */
 /**
- * The contested districts nobody holds end to end on the first day (maintainer, 2026-09-21).
+ * The district boards this file's stack has open, which is the one it holds end to end.
  *
- * Every other one starts behind an armed gate, and the four residential districts are plots and
- * post no work at all, so a helper that walked the whole catalogue would hand a launch an area
- * the route refuses. `missions/board.test.ts` is what holds this pair to the city as authored.
+ * A board opens on the whole district now (maintainer, 2026-10-07), so this is no longer a fact
+ * about the city as authored but about what `makeStack` took: a helper that walked the catalogue
+ * would hand a launch an area the route refuses. `missions/board.test.ts` holds the rule itself.
  */
-const OPEN_ON_DAY_ONE = ['chrome-row', 'glasshouse-fields'];
+const OPEN_ON_DAY_ONE = [QUIET_BOARD];
 
 function aJobToday(level = 1): { template: MissionTemplate; grade: Grade; areaId: string } {
   const now = new Date();
-  // Misc, then the districts that actually post work. A residential district is somebody's plot
-  // and a Combine district starts behind an armed gate (maintainer, 2026-09-21), so a walk over
-  // every district in the catalogue would, on a day the misc board deals no standard job, pick
-  // an area the launch route refuses, and the refusal would read as a fault in the thing under
-  // test. Chrome Row and the Glasshouse Fields are the two that are open from the first day.
+  // Misc, then the board this stack holds. A walk over every district in the catalogue would, on
+  // a day the misc board deals no standard job, pick an area the launch route refuses, and the
+  // refusal would read as a fault in the thing under test.
   for (const areaId of [MISC_AREA_ID, ...OPEN_ON_DAY_ONE]) {
-    const job = missionOffers(areaId, missionBoardKey(areaId, now), level).find(
+    const job = missionOffers(areaId, missionBoardKey(areaId, now), level, dealtTo).find(
       (entry) => entry.template.kind === 'standard',
     );
     if (job) return { template: job.template, grade: job.grade, areaId };
@@ -177,7 +180,7 @@ async function launch(stack: Stack, extra: Record<string, unknown> = {}) {
     payload: {
       templateId: template.id,
       areaId,
-      ...cardFor(areaId, template.id, stack.base.level),
+      ...cardFor(areaId, template.id, stack.base.level, undefined, dealtTo),
       force: { razors: 1 },
       ...extra,
     },
@@ -287,7 +290,7 @@ describe('what a card carries about the odds', () => {
     const now = new Date();
     const { areas } = await board(stack);
     const dealtAt = (areaId: string, level: number) =>
-      missionOffers(areaId, missionBoardKey(areaId, now), level).map((job) => ({
+      missionOffers(areaId, missionBoardKey(areaId, now), level, dealtTo).map((job) => ({
         templateId: job.template.id,
         grade: job.grade,
       }));
@@ -377,10 +380,11 @@ describe('the launch', () => {
     // of the others answer with a 409 of their own.
     const at = new Date();
     const other = OPEN_ON_DAY_ONE.find(
-      (id) => missionOffers(id, missionBoardKey(id, at), stack.base.level).length > 0,
+      (id) => missionOffers(id, missionBoardKey(id, at), stack.base.level, dealtTo).length > 0,
     );
     if (!other) throw new Error('no second board today');
-    const offer = missionOffers(other, missionBoardKey(other, at), stack.base.level)[0]?.template;
+    const offer = missionOffers(other, missionBoardKey(other, at), stack.base.level, dealtTo)[0]
+      ?.template;
     if (!offer) throw new Error('no offer on the second board');
 
     const again = await stack.app.inject({
@@ -390,7 +394,7 @@ describe('the launch', () => {
       payload: {
         templateId: offer.id,
         areaId: other,
-        ...cardFor(other, offer.id, stack.base.level, at),
+        ...cardFor(other, offer.id, stack.base.level, at, dealtTo),
         force: { razors: 1 },
         leaderId: stack.overseer.id,
       },
@@ -434,7 +438,8 @@ describe('the launch', () => {
       .filter((areaId) => areaId !== home.areaId)
       .map((areaId) => ({
         areaId,
-        offer: missionOffers(areaId, missionBoardKey(areaId, now), stack.base.level)[0]?.template,
+        offer: missionOffers(areaId, missionBoardKey(areaId, now), stack.base.level, dealtTo)[0]
+          ?.template,
       }))
       .find((entry) => entry.offer !== undefined);
     if (!elsewhere?.offer) throw new Error('no second board today');
@@ -446,7 +451,7 @@ describe('the launch', () => {
       payload: {
         templateId: elsewhere.offer.id,
         areaId: elsewhere.areaId,
-        ...cardFor(elsewhere.areaId, elsewhere.offer.id, stack.base.level, now),
+        ...cardFor(elsewhere.areaId, elsewhere.offer.id, stack.base.level, now, dealtTo),
         force: { razors: 1 },
         leaderId: stack.overseer.id,
       },

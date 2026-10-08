@@ -30,7 +30,11 @@ async function cityWithHolders(page: Page): Promise<void> {
     ...city,
     districts: city.districts.map((row) => {
       const kind = HELD[row.district.id];
-      return kind === undefined ? row : { ...row, holder: { kind } };
+      // `wholeBy` as well as the holder (maintainer, 2026-10-07): a tag wears a party's mark only
+      // where that party holds every plot in the district, and the looters and the Combine are
+      // both "enemy" from the viewer's side of the table. The holder alone used to draw the mark,
+      // which is why this fixture carried only half of what the map now reads.
+      return kind === undefined ? row : { ...row, holder: { kind }, wholeBy: 'enemy' as const };
     }),
   };
   await page.route('**/api/city', (route) =>

@@ -1,9 +1,15 @@
-import { combineGarrison, combineLeaderAt, combineSlotBudget, looterGarrison } from './combine.js';
+import {
+  combineGarrison,
+  combineLeaderAt,
+  combinePresenceOver,
+  combineSlotBudget,
+  looterGarrison,
+} from './combine.js';
 import { z } from 'zod';
 import { PartialResourcesSchema } from '../resources.js';
 import { IdSchema, IsoDateTimeSchema } from '../primitives.js';
 import { envLabel, type EnvLabel } from './labels.js';
-import { NOISE_SWITCH_TIER } from './reliquary.js';
+import { NOISE_SWITCH_TIER } from './arca.js';
 import { UNIT_SLOTS_PER_LOCATION, UNIT_SLOTS_PER_LOCATION_LEVEL } from '../building/unit-slots.js';
 import type { District } from './districts.js';
 import { findDistrict, unifiedBonusFor } from './atlas.js';
@@ -84,7 +90,7 @@ export const LocationControlSchema = z.object({
   /** Units standing here, keyed by unit id. Belongs to whoever `holder` is. */
   garrison: z.record(z.string(), z.number().int().nonnegative()),
   /*
-   * Reliquary's state on the ground (2026-10-07). Every one is the holder's and every one is
+   * Arca's state on the ground (2026-10-07). Every one is the holder's and every one is
    * reset when the ground changes hands (`putControl`): a switch is thrown by whoever keeps the
    * tower, the pins are whoever keeps the wall's, and a trophy wall counts only what its keeper
    * killed while keeping it.
@@ -100,13 +106,22 @@ export const LocationControlSchema = z.object({
   pamphlets: z.array(z.string().min(1)).optional(),
   pamphletsPinnedAt: z.number().int().min(0).optional(),
   pamphletsSwappedAt: IsoDateTimeSchema.nullable().optional(),
-  /** The Trophy Hall: kills by unit id while held, and since when. */
+  /** The Trophy Hall: kills by unit id while held, and when the tally started. */
   trophies: z.record(z.string(), z.number().int().nonnegative()).optional(),
   trophiesSince: IsoDateTimeSchema.nullable().optional(),
+  /**
+   * When this row last changed hands, for the tiebreak that names a shared district's defender.
+   *
+   * Its own field since 2026-10-07. `trophiesSince` carried both meanings until then, and the
+   * Trophy Hall writes that one on its first kill: a crew whose only plot in a district was a hall
+   * held since before the column existed made one kill anywhere in the world, and the district's
+   * named defender moved to somebody else because of a fight in another district.
+   */
+  heldSince: IsoDateTimeSchema.nullable().optional(),
 });
 export type LocationControl = z.infer<typeof LocationControlSchema>;
 
-/** Reliquary's state on a control row, with every absent field at its default. */
+/** Arca's state on a control row, with every absent field at its default. */
 export interface GroundState {
   switchedOn: boolean;
   switchedAt: string | null;
@@ -115,6 +130,7 @@ export interface GroundState {
   pamphletsSwappedAt: string | null;
   trophies: Record<string, number>;
   trophiesSince: string | null;
+  heldSince: string | null;
 }
 
 export function groundStateOf(control: LocationControl): GroundState {
@@ -126,6 +142,7 @@ export function groundStateOf(control: LocationControl): GroundState {
     pamphletsSwappedAt: control.pamphletsSwappedAt ?? null,
     trophies: control.trophies ?? {},
     trophiesSince: control.trophiesSince ?? null,
+    heldSince: control.heldSince ?? null,
   };
 }
 
@@ -139,6 +156,7 @@ export function clearedGroundState(now: Date): GroundState {
     pamphletsSwappedAt: null,
     trophies: {},
     trophiesSince: now.toISOString(),
+    heldSince: now.toISOString(),
   };
 }
 
@@ -231,9 +249,9 @@ export function districtWholeFor(
  * A single holder is the holder, as `districtHolder` says. Ground split among crews at one table
  * is whole too, and the crew named for it is the one that defends the gate (maintainer,
  * 2026-10-07): the member holding the most locations there, ties to the one that has held its
- * ground the longest, then to the member who joined the table first. `heldSince` reads the
- * row's capture instant (`trophiesSince`, written by `putControl` on every change of hands); a
- * row from before that column counts as held since the start. Null when nobody holds it whole.
+ * ground the longest, then to the member who joined the table first. `heldSince` is the row's own
+ * capture instant, written by `putControl` on every change of hands; a row from before that column
+ * counts as held since the start. Null when nobody holds it whole.
  */
 export function wholeHolderAmong(
   district: District,
@@ -253,7 +271,8 @@ export function wholeHolderAmong(
     const faction = factionOf(control.holder.baseId);
     if (faction === null || (table !== null && faction !== table)) return null;
     table = faction;
-    const heldSince = control.trophiesSince ?? '';
+    // The capture instant, not the trophy tally's start: two different facts since 2026-10-07.
+    const heldSince = control.heldSince ?? '';
     const held = tally.get(control.holder.baseId);
     if (held) {
       held.count += 1;
@@ -291,6 +310,23 @@ export function tollingTowerNoise(
     );
   });
   return on ? [envLabel('noisy', NOISE_SWITCH_TIER)] : [];
+}
+
+/**
+ * The ground labels a living Combine leader lays over his own district.
+ *
+ * One of the three does it: the Blood Priest's Blood Baptism makes every location in the Cloisters
+ * Eerie while he keeps the rituals. The ground's own, like the Tolling Tower's Noisy above, so it
+ * bites both sides and the affinity tables decide who minds; a crew whose units are at home in the
+ * dark is the one that gains by it. Empty for every other district and for a leader who is dead.
+ */
+export function combineLeaderLabels(
+  district: District,
+  controls: ReadonlyMap<string, LocationControl>,
+): EnvLabel[] {
+  const leader = combinePresenceOver(district.id, [...controls.values()]);
+  if (leader?.power.kind !== 'blood_priest') return [];
+  return [envLabel('eerie', leader.power.eerie)];
 }
 
 /**
@@ -348,7 +384,24 @@ export function territoryEffectsFor(
     }
   }
 
-  for (const districtId of held) {
+  /*
+   * The unified bonus goes to every member of the table, including one holding no plot in the
+   * district at all (maintainer, 2026-10-07: "you only get the collective bonus all of you").
+   *
+   * It walked `held` until then, which is the districts this crew has ground in, so a member whose
+   * mates held the other seven plots of the Printworks was counted for the gate, for the three
+   * `districts_held_whole` feats and for the whole-district combat perk, and paid nothing. The
+   * districts to pay are therefore every district whole for the table, which is read off the
+   * locations the fold was handed rather than off this crew's own holdings.
+   */
+  const payable = new Set<string>();
+  for (const location of locations) {
+    if (payable.has(location.districtId)) continue;
+    const control = controls.get(location.id);
+    if (control?.holder.kind !== 'crew' || !together.has(control.holder.baseId)) continue;
+    payable.add(location.districtId);
+  }
+  for (const districtId of payable) {
     if (!isWhole(districtId)) continue;
     const unified = unifiedBonusFor(districtId);
     if (unified) applyHoldBonus(effects, unified.bonus, { districtId });
@@ -465,7 +518,7 @@ export const SQUATTED_PLACES: Readonly<Record<string, number>> = {
   ironmouth: Number.POSITIVE_INFINITY,
   'marshalling-yards': Number.POSITIVE_INFINITY,
   /*
-   * Reliquary (2026-10-06). Candlemarket is the way in, three of seven open like the Halt; the
+   * Arca (2026-10-06). Candlemarket is the way in, three of seven open like the Halt; the
    * clans hold Gravefields end to end, so its gate is armed, as Ironmouth's is.
    */
   candlemarket: 4,

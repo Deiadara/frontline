@@ -512,14 +512,9 @@ function OfficerWindow({
   const [ending, setEnding] = useState(false);
   const fee = dismissalFee(officer.weeklyWage);
   return (
-    <Modal
-      onClose={onClose}
-      labelledBy="officer-window-title"
-      size="wide"
-      className="h-[85vh] border-brass-300/40"
-    >
+    <Modal onClose={onClose} labelledBy="officer-window-title" size="wide" className={CREW_WINDOW}>
       <div className="flex min-h-0 flex-1 flex-col overflow-y-auto" data-testid="crew-detail">
-        <div className="flex shrink-0 flex-wrap items-start justify-between gap-3 border-b border-surface-600/60 px-5 py-4">
+        <div className={CREW_WINDOW_HEAD}>
           <div className="min-w-0">
             <h2
               id="officer-window-title"
@@ -552,7 +547,7 @@ function OfficerWindow({
           </span>
         </div>
 
-        <div className="grid min-h-0 flex-1 gap-4 p-5 md:grid-cols-[14rem_minmax(0,1fr)]">
+        <div className={CREW_WINDOW_BODY}>
           <div className="flex flex-col gap-3">
             <OfficerPortrait
               portraitId={portraitId}
@@ -637,27 +632,29 @@ function OfficerWindow({
             </div>
           </div>
 
-          <div className="flex min-w-0 flex-col gap-3">
-            <div className="flex min-w-0 flex-wrap items-center gap-3">
+          <div className={CREW_WINDOW_SHEET_COLUMN}>
+            <div className={CREW_WINDOW_CHAIR_ROW}>
               <span className="shrink-0 font-display text-[11px] font-bold uppercase tracking-[0.2em] text-brass-300">
                 Their chair
               </span>
               <span aria-hidden className="ink-rule block min-w-0 flex-1" />
-              <Dropdown
-                label={`Position for ${officer.name}`}
-                value={officer.role ?? BENCH}
-                onChange={(value) => onReassign(value === BENCH ? null : value)}
-                disabled={pending}
-                options={[
-                  ...open.map((role) => ({
-                    value: role,
-                    label: OFFICER_ROLE_LABELS[role],
-                  })),
-                  // Taking a chair back without ending the job: the other half of the bench.
-                  { value: BENCH, label: BENCH_LABEL },
-                ]}
-                data-testid="reassign-role"
-              />
+              <div className={CREW_WINDOW_CHAIR}>
+                <Dropdown
+                  label={`Position for ${officer.name}`}
+                  value={officer.role ?? BENCH}
+                  onChange={(value) => onReassign(value === BENCH ? null : value)}
+                  disabled={pending}
+                  options={[
+                    ...open.map((role) => ({
+                      value: role,
+                      label: OFFICER_ROLE_LABELS[role],
+                    })),
+                    // Taking a chair back without ending the job: the other half of the bench.
+                    { value: BENCH, label: BENCH_LABEL },
+                  ]}
+                  data-testid="reassign-role"
+                />
+              </div>
             </div>
             {error !== null && <PressError>{error}</PressError>}
             {officer.passive != null && <ChairPassive passive={officer.passive} />}
@@ -677,6 +674,7 @@ function OfficerWindow({
               lift={officer.lift}
               columns={2}
               roomy
+              fitShort
               role={officer.role}
             />
           </div>
@@ -685,6 +683,28 @@ function OfficerWindow({
     </Modal>
   );
 }
+
+/*
+ * The officer and Overseer windows, which must not scroll (maintainer, 2026-10-08).
+ *
+ * At 1920x1080 the whole file fits in 85% of the screen and is drawn exactly as it always was. On a
+ * screen under 1000px tall it did not: 214px too tall at 1280x720, 33px at 1440x900. There, and only
+ * there, the window takes the full height the backdrop allows, the header and padding tighten, the
+ * chair's dropdown stands beside its label instead of wrapping under it, and the sheet's rows close
+ * up (`AttributeSheet`'s `fitShort`). Written out whole rather than built from a shared prefix,
+ * because Tailwind only generates classes it can read as literals.
+ */
+const CREW_WINDOW = 'h-[85vh] border-brass-300/40 [@media(max-height:999px)]:h-[calc(100vh-2rem)]';
+const CREW_WINDOW_HEAD =
+  'flex shrink-0 flex-wrap items-start justify-between gap-3 border-b border-surface-600/60 px-5 py-4 [@media(max-height:999px)]:py-2.5';
+const CREW_WINDOW_BODY =
+  'grid min-h-0 flex-1 gap-4 p-5 md:grid-cols-[14rem_minmax(0,1fr)] [@media(max-height:999px)]:p-4';
+const CREW_WINDOW_SHEET_COLUMN = 'flex min-w-0 flex-col gap-3 [@media(max-height:999px)]:gap-2';
+const CREW_WINDOW_CHAIR_ROW =
+  'flex min-w-0 flex-wrap items-center gap-3 [@media(max-height:999px)]:flex-nowrap';
+/** The chair control: its own line where the window is tall enough, beside the label where not. */
+const CREW_WINDOW_CHAIR =
+  'w-full [@media(max-height:999px)]:w-[14rem] [@media(max-height:999px)]:shrink-0';
 
 /** What a chair pays the crew, in the server's words (`describeChairPassive`). */
 /** The crew's spy points, on the one chair that runs them (maintainer, 2026-10-07). */
@@ -736,17 +756,12 @@ function ChairSettling({ from }: { from: string }) {
  */
 function OverseerWindow({ overseer, onClose }: { overseer: CrewOverseer; onClose: () => void }) {
   return (
-    <Modal
-      onClose={onClose}
-      labelledBy="overseer-window-title"
-      size="wide"
-      className="h-[85vh] border-brass-300/40"
-    >
+    <Modal onClose={onClose} labelledBy="overseer-window-title" size="wide" className={CREW_WINDOW}>
       <div
         className="flex min-h-0 flex-1 flex-col overflow-y-auto"
         data-testid="crew-detail-overseer"
       >
-        <div className="flex shrink-0 flex-wrap items-start justify-between gap-3 border-b border-surface-600/60 px-5 py-4">
+        <div className={CREW_WINDOW_HEAD}>
           <div className="min-w-0">
             <h2
               id="overseer-window-title"
@@ -763,7 +778,7 @@ function OverseerWindow({ overseer, onClose }: { overseer: CrewOverseer; onClose
           </Button>
         </div>
 
-        <div className="grid min-h-0 flex-1 gap-4 p-5 md:grid-cols-[14rem_minmax(0,1fr)]">
+        <div className={CREW_WINDOW_BODY}>
           <div className="flex flex-col gap-3">
             <span className="painted rivets edge-lit relative block aspect-[4/5] w-full overflow-hidden border-2 border-brass-500/40">
               <OverseerPortrait
@@ -785,8 +800,8 @@ function OverseerWindow({ overseer, onClose }: { overseer: CrewOverseer; onClose
             </InkButton>
           </div>
 
-          <div className="flex min-w-0 flex-col gap-3">
-            <div className="flex min-w-0 flex-wrap items-center gap-3">
+          <div className={CREW_WINDOW_SHEET_COLUMN}>
+            <div className={CREW_WINDOW_CHAIR_ROW}>
               <span className="shrink-0 font-display text-[11px] font-bold uppercase tracking-[0.2em] text-brass-300">
                 Their chair
               </span>
@@ -796,7 +811,10 @@ function OverseerWindow({ overseer, onClose }: { overseer: CrewOverseer; onClose
               <span
                 // The trigger's measured height (38px at every width): a button's own line box sets
                 // it, which a span does not have, and the window should not move between the two.
-                className="brushed edge-lit relative flex min-h-[2.375rem] w-full min-w-0 items-center rounded-sm border border-surface-600 bg-surface-800/80 px-3 py-2"
+                className={cn(
+                  'brushed edge-lit relative flex min-h-[2.375rem] w-full min-w-0 items-center rounded-sm border border-surface-600 bg-surface-800/80 px-3 py-2',
+                  CREW_WINDOW_CHAIR,
+                )}
                 data-testid="overseer-chair"
               >
                 <span className="min-w-0 truncate font-stamp text-[14px] leading-tight text-ink-100">
@@ -811,6 +829,7 @@ function OverseerWindow({ overseer, onClose }: { overseer: CrewOverseer; onClose
               lift={overseer.lift}
               columns={2}
               roomy
+              fitShort
               // Edged by the Overseer's own seat, the one their grade is read on (2026-10-04).
               role="overseer"
             />

@@ -384,8 +384,14 @@ describe('collecting one', () => {
   it('draws a random page on the claim and names it on the receipt', async () => {
     const app = await makeApp();
     const one = await player(app, 'feats_pages');
-    const feat = FEATS.find((spec) => spec.reward.pages !== undefined)!;
-    expect(feat, 'no feat pays a random page').toBeDefined();
+    // A measure `give` can actually set: a crew-source measure is derived in the snapshot and
+    // overwrites whatever is written into the tally table (2026-10-07, when the board's work
+    // became two derived readings).
+    const feat = FEATS.find(
+      (spec) =>
+        spec.reward.pages !== undefined && FEAT_MEASURE_SPECS[spec.measure].source === 'tally',
+    )!;
+    expect(feat, 'no tallied feat pays a random page').toBeDefined();
     give(app, one.baseId, featMeasureKey(feat.measure, feat.scope), feat.target);
 
     const before = app.repos.bases.findByOwnerId(one.userId)!.inventory;
@@ -686,7 +692,11 @@ describe('collecting one', () => {
   it('puts a boost into the same stash the back room fills', async () => {
     const app = await makeApp();
     const one = await player(app, 'feats_boost');
-    const feat = FEATS.find((spec) => spec.reward.boosts !== undefined)!;
+    const feat = FEATS.find(
+      (spec) =>
+        spec.reward.boosts !== undefined && FEAT_MEASURE_SPECS[spec.measure].source === 'tally',
+    )!;
+    expect(feat, 'no tallied feat pays a boost').toBeDefined();
     give(app, one.baseId, featMeasureKey(feat.measure, feat.scope), feat.target);
     // The chain this sits in may have a rung in front of it; give it enough for every rung.
     const response = await claim(app, one.token, feat.id);

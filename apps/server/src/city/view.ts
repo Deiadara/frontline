@@ -50,7 +50,7 @@ import {
   type EnvLabel,
 } from '@frontline/shared';
 import { standingEffectsFor } from '../crew/standing.js';
-import { seatsByBase, type TableSeat, wholeHolderOf } from './holding.js';
+import { readTheMap, seatsByBase, type TableSeat, wholeHolderOf } from './holding.js';
 import {
   pamphletCapacity,
   pamphletsUnlocked,
@@ -194,7 +194,6 @@ function summarise(
       ? travelMinutesBetween(home, district, {
           reductionPercent: context.effects.travelSpeedPercent,
           baseCutPercent: chairPassiveOf(context.effects, 'cartographer', 'travel_time'),
-          flatMinutesOff: context.effects.roadMinutesOff,
         })
       : 0,
     holder: districtHolder(district, context.controls),
@@ -233,13 +232,15 @@ export function projectCity(
   const context = cityContextFor(repos, base);
   const summaries = repos.bases.listSummaries();
 
+  // One read of the seats and the control rows for the city's twelve districts, not twelve.
+  const read = readTheMap(repos);
   return {
     districts: districtsOfCity(cityId).map((district) =>
       summarise(
         district,
         context,
         residentSummary(summaries, district.id, base),
-        wholeHolderOf(repos, district),
+        wholeHolderOf(repos, district, read),
       ),
     ),
     /*
@@ -329,12 +330,12 @@ function projectLocation(
     // ...and the tower's Noisy over the district while its switch is on (2026-10-06), which the
     // fight folds in the same way (`battlefieldOf`).
     labels: mergeLabels(spec.labels, weatherLabels(weatherAt(now)), towerNoise),
-    // By kind, and by any door authored on the ground itself (Reliquary, 2026-10-07).
+    // By kind, and by any door authored on the ground itself (Arca, 2026-10-07).
     unlocks: [
       ...unitsUnlockedByLocation(location.kind).map((unit) => unit.name),
       ...doorsOn(baseBonusesOf(location)).map((unitId) => findUnit(unitId)?.name ?? unitId),
     ],
-    // Reliquary (2026-10-07): whose tag, and what the sheet's own controls stand at.
+    // Arca (2026-10-07): whose tag, and what the sheet's own controls stand at.
     holderFaction:
       control.holder.kind === 'crew' ? context.factionMarkOf(control.holder.baseId) : null,
     holderSide: sideOf(control.holder, context),
@@ -467,8 +468,16 @@ export function projectDistrict(
     resident?.id === base.id
       ? standingThere
       : standingThere.map((building) => ({ ...building, modifications: [] }));
-  const holder = districtHolder(district, context.controls);
-  const wholeHolder = wholeHolderOf(repos, district);
+  /*
+   * Who holds the whole of it, by the table rather than by the crew (faction gates, 2026-10-07).
+   *
+   * `districtHolder` answers null the moment two crews share a district, so a district a faction
+   * held between its members had no holder on its detail at all: the city map tagged it green with
+   * the faction's badge and the painting behind it carried no "Held by" plate. `wholeHolderOf`
+   * falls back to `districtHolder` for the looters, the Combine and a crew holding it alone, so
+   * the one-party meaning is unchanged.
+   */
+  const holder = wholeHolderOf(repos, district);
   const towerNoise = tollingTowerNoise(district, context.controls);
 
   return {
@@ -477,7 +486,6 @@ export function projectDistrict(
       ? travelMinutesBetween(home, district, {
           reductionPercent: context.effects.travelSpeedPercent,
           baseCutPercent: chairPassiveOf(context.effects, 'cartographer', 'travel_time'),
-          flatMinutesOff: context.effects.roadMinutesOff,
         })
       : 0,
     locations: district.locations.flatMap((location) => {
@@ -486,7 +494,7 @@ export function projectDistrict(
     }),
     holder,
     // The table holding it whole, alone or together, for the "Held by" plaque.
-    holderFaction: wholeHolder?.kind === 'crew' ? context.factionMarkOf(wholeHolder.baseId) : null,
+    holderFaction: holder?.kind === 'crew' ? context.factionMarkOf(holder.baseId) : null,
     // The reader's own totals, on their own district's reports (2026-10-07).
     spyPoints: district.id === base.districtId ? spyPointsFor(repos, base, now) : undefined,
     // The Combine legendary over this ground, dead or alive: public, like the seat-of-power tag.

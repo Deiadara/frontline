@@ -129,6 +129,20 @@ export type RaiseGateResult =
  * a queued structure has already been paid for, and a wall somebody is standing in front of should
  * not be cancellable for a refund.
  */
+/**
+ * Whether this crew is the one the district names as holding it whole.
+ *
+ * `holdsDistrictWhole` answers for every member of a table; this answers for the one member the
+ * map, the fight and the feats all name (`wholeHolderAmong`'s tiebreak: most plots, then longest
+ * held, then earliest seat). The gate is that crew's to raise and to stop.
+ */
+export function isNamedHolder(repos: Repositories, baseId: string, districtId: string): boolean {
+  const district = findDistrict(districtId);
+  if (!district) return false;
+  const holder = wholeHolderOf(repos, district);
+  return holder?.kind === 'crew' && holder.baseId === baseId;
+}
+
 export function raiseCapturedGate(
   repos: Repositories,
   base: Base,
@@ -137,7 +151,16 @@ export function raiseCapturedGate(
   /** Testing mode: five seconds and nothing charged, like a build at home (`admin/mode.ts`). */
   admin = false,
 ): RaiseGateResult {
-  const holds = holdsDistrictWhole(repos, base.id, districtId);
+  /*
+   * The named holder alone (maintainer, 2026-10-07: "only the named holder can upgrade the gate").
+   *
+   * A district can be whole for a table, and every member passes `holdsDistrictWhole`, which left
+   * the gate as a thing anybody at the table could spend somebody else's turn on: the cheapest
+   * raise in the faction was whoever had the best Engineer, the feat credit went to the member
+   * holding the most plots whatever they had paid, and a mate could call off a raise and bank the
+   * refund. One crew owns the gate, and it is the one the district names as its defender.
+   */
+  const holds = isNamedHolder(repos, base.id, districtId);
   const gate = repos.capturedGates.find(districtId) ?? gateFor(repos, districtId);
   const pricing = gatePricingFor(repos, base, now);
   const refusal = capturedGateRefusal({
@@ -169,6 +192,8 @@ export function raiseCapturedGate(
     upgradingUntil: new Date(now.getTime() + seconds * 1000).toISOString(),
     upgradingSince: now.toISOString(),
     upgradePaid: charge,
+    // Whose materials these are, for the cancel (faction gates, 2026-10-07).
+    upgradingBy: base.id,
   };
   const paid = {
     ...base,
@@ -270,8 +295,14 @@ export function capturedGatesFor(repos: Repositories, base: Base, now: Date): Ca
     const gate = gateFor(repos, districtId);
     const atCeiling = gate.level >= CAPTURED_GATE_MAX_LEVEL;
     const next = gate.level + 1;
+    /*
+     * Every member of the table sees its gate and what it stands at; only the named holder is
+     * offered the button (maintainer, 2026-10-07). Listing it for everybody is the point of a
+     * faction gate: a mate should be able to read the wall they are standing behind.
+     */
+    const named = isNamedHolder(repos, base.id, districtId);
     const refusal = capturedGateRefusal({
-      holdsDistrict: true,
+      holdsDistrict: named,
       gate,
       stock: base.resources,
       pricing,
@@ -292,14 +323,16 @@ export function capturedGatesFor(repos: Repositories, base: Base, now: Date): Ca
 
 /** Why a gate cannot be raised, in the player's words. */
 const GATE_REFUSALS: Record<CapturedGateRefusal, string> = {
-  not_held: 'You do not hold all of it',
+  // Two readings since faction gates (2026-10-07): ground the crew does not hold whole, and ground
+  // its table holds whole with a mate named on it. The sentence has to cover both.
+  not_held: 'This is not your gate to raise',
   already_working: 'Work is already under way',
   at_ceiling: 'It will not go any higher',
   cannot_afford: 'You cannot pay for it',
 };
 
 export type GateCancelOutcome =
-  | { kind: 'refused'; reason: 'not_held' | 'nothing_running' | 'window_closed' }
+  | { kind: 'refused'; reason: 'not_held' | 'nothing_running' | 'window_closed' | 'not_yours' }
   | { kind: 'cancelled'; gate: CapturedGate; base: Base; refund: PartialResources };
 
 /**
@@ -317,11 +350,22 @@ export function cancelGateRaise(
   /** Testing mode took nothing for the raise, so it hands nothing back. */
   admin = false,
 ): GateCancelOutcome {
-  if (!holdsDistrictWhole(repos, base.id, districtId))
-    return { kind: 'refused', reason: 'not_held' };
+  // The named holder alone, like the raise above: the crew whose work it is calls it off.
+  if (!isNamedHolder(repos, base.id, districtId)) return { kind: 'refused', reason: 'not_held' };
   const gate = gateFor(repos, districtId);
   if (gate.upgradingTo === null || gate.upgradingUntil === null || gate.upgradingSince === null) {
     return { kind: 'refused', reason: 'nothing_running' };
+  }
+  /*
+   * Only the crew that paid (faction gates, 2026-10-07).
+   *
+   * `holdsDistrictWhole` above passes for every member of the table, and the refund below is
+   * credited to the caller, so without this a mate could call off a raise they had not ordered and
+   * bank ninety per cent of its materials: a transfer between crews that goes round the market.
+   * A row written before the field carries null and stays cancellable by anybody holding it.
+   */
+  if (gate.upgradingBy != null && gate.upgradingBy !== base.id) {
+    return { kind: 'refused', reason: 'not_yours' };
   }
   const since = Date.parse(gate.upgradingSince);
   if (!cancelWindowOpen(since, Date.parse(gate.upgradingUntil) - since, now.getTime())) {
@@ -341,6 +385,7 @@ export function cancelGateRaise(
     upgradingUntil: null,
     upgradingSince: null,
     upgradePaid: null,
+    upgradingBy: null,
   };
   const repaid: Base = { ...base, resources: credit.resources };
   repos.capturedGates.put(cleared);

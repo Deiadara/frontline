@@ -39,14 +39,16 @@ const CARD = '[role="tooltip"]';
 
 test('a modifier answers with its name and one line, and keeps the condition', async ({ page }) => {
   await openRoster(page, 'heavy');
-  const tag = page.getByText('Dug In', { exact: true }).first();
+  // GUARD since 2026-10-07, when it replaced Dug In and Bulwark: one modifier on the defending
+  // context, paying damage and vitality rather than two tags paying one each.
+  const tag = page.getByText('GUARD', { exact: true }).first();
   await tag.scrollIntoViewIfNeeded();
   await tag.hover();
 
   const card = page.locator(CARD).first();
   await expect(card).toBeVisible();
-  await expect(card).toContainText('Dug In');
-  await expect(card).toContainText('Better behind cover than in front of it');
+  await expect(card).toContainText('GUARD');
+  await expect(card).toContainText('Hits harder and is harder to kill when defending');
 
   // The headings are the thing that went. Both of them, by name.
   await expect(card).not.toContainText('When it happens');
@@ -56,7 +58,7 @@ test('a modifier answers with its name and one line, and keeps the condition', a
    * The condition survived the trim.
    *
    * Reading the ask as "delete everything but the description" would have been the easy version
-   * and the wrong one: `Dug In` without "when holding ground" is a flat bonus, and the whole point
+   * and the wrong one: GUARD without "when holding ground" is a flat bonus, and the whole point
    * of a modifier is that it is not one.
    */
   await expect(card).toContainText('when holding ground');

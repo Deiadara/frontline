@@ -709,8 +709,11 @@ describe('9. two powers at once', () => {
     for (const leader of COMBINE_LEADERS) {
       expect(combineLeaderOf(leader.districtId)?.unitId).toBe(leader.unitId);
     }
-    // The three powers are three different kinds, so "one power" is also one behaviour.
-    expect(new Set(COMBINE_LEADERS.map((leader) => leader.power.kind)).size).toBe(3);
+    // Every power is its own kind, so "one power" is also one behaviour: no two leaders anywhere
+    // in the world do the same thing, which is what makes a district's leader worth learning.
+    expect(new Set(COMBINE_LEADERS.map((leader) => leader.power.kind)).size).toBe(
+      COMBINE_LEADERS.length,
+    );
   });
 
   /**

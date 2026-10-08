@@ -49,6 +49,7 @@ describe('the backdrop stack', () => {
       'plate-district-viaduct',
       'plate-district-last-platform',
       'plate-district-blockhouse',
+      'plate-city-arca',
     ];
     for (const key of elsewhere) expect(findAssetSpec(key), key).toBeDefined();
 

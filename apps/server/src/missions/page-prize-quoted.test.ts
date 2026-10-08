@@ -2,6 +2,7 @@ import {
   MISC_AREA_ID,
   createCommander,
   missionBoardKey,
+  missionDealer,
   missionOffers,
   pagePrizeFor,
   type LaunchMissionResponse,
@@ -43,14 +44,14 @@ vi.mock('node:crypto', async (importOriginal) => ({
 const PASSWORD = 'hunter2pass';
 
 /**
- * A moment and a job dealt above its floor.
+ * The moment the board is read at.
  *
- * `standard`, so the launch needs nothing a battle job needs. Dealt at F to a new crew, a mark
- * above the job's floor, so the run's seed below can be one that pays at F and not at F-: a launch
- * that rolled the prize at the job's lowest grade rather than the dealt one stores nothing.
+ * The job is the crew's own: a plain card its misc board deals above the job's floor, so the run's
+ * seed below can be one that pays at the dealt grade and not at the floor. A launch that rolled the
+ * prize at the job's lowest grade rather than the dealt one stores nothing. It was a pinned
+ * `scrap-run` until boards became a crew's own (2026-10-08).
  */
 const AT = new Date('2027-03-23T01:00:00.000Z');
-const TEMPLATE = 'scrap-run';
 const JWT_SECRET = 'test-secret';
 
 const instances: { app: FastifyInstance; db: AppDatabase }[] = [];
@@ -91,24 +92,24 @@ async function crewAtTheBoard(): Promise<{ app: FastifyInstance; token: string; 
   app.repos.bases.updateCommanders(baseId, [
     createCommander('off-1', 'Halvard Nyx', 'field_commander'),
   ]);
+  // A crew well into the game, so its board deals cards above their floor grades.
+  app.repos.bases.updateProgression(baseId, 25, base.progression);
   return { app, token, baseId };
 }
 
 describe('the page a run might bring home', () => {
   it('is on the launched row and nowhere on the card', async () => {
     const { app, token, baseId } = await crewAtTheBoard();
-    const level = app.repos.bases.findById(baseId)!.level;
-    // The fixture is only worth running while the card is still on that board, for this crew.
-    const onTheWall = missionOffers(MISC_AREA_ID, missionBoardKey(MISC_AREA_ID, AT), level).find(
-      (job) => job.template.id === TEMPLATE,
-    );
-    expect(
-      onTheWall,
-      `${TEMPLATE} is no longer on the misc board at ${AT.toISOString()}`,
-    ).toBeDefined();
-    expect(onTheWall!.grade, 'the pinned card is dealt at its floor').not.toBe(
-      onTheWall!.template.grades[0],
-    );
+    const crew = app.repos.bases.findById(baseId)!;
+    // A plain card this crew's own board (2026-10-08) deals above its floor, so the grade matters.
+    const onTheWall = missionOffers(
+      MISC_AREA_ID,
+      missionBoardKey(MISC_AREA_ID, AT),
+      crew.level,
+      missionDealer(crew),
+    ).find((job) => job.template.kind === 'standard' && job.grade !== job.template.grades[0]);
+    expect(onTheWall, 'no plain card above its floor on this crew’s misc board').toBeDefined();
+    const TEMPLATE = onTheWall!.template.id;
     const headers = { authorization: `Bearer ${token}` };
     // The first seed whose run pays a page at the dealt grade and not at the job's floor, under the
     // server's secret: without a page the card would have nothing to hide and this would pass

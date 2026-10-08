@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { BLUEPRINTS } from '../blueprints/index.js';
-import { CITY_DISTRICTS } from '../city/districts.js';
+import { ALL_DISTRICTS } from '../city/atlas.js';
 import { COMBINE_LEADERS, combineGarrison } from '../city/combine.js';
 import { startingGarrison, startingHolder } from '../city/control.js';
 import { FEATS } from '../feats/catalog.js';
@@ -51,7 +51,7 @@ function unitIdsIn(value: unknown, into: Set<string> = new Set()): Set<string> {
 
 describe('the wall around the Combine roster', () => {
   it('has something to guard, so none of this is vacuous', () => {
-    expect(COMBINE_IDS.size).toBe(7);
+    expect(COMBINE_IDS.size).toBe(10);
     expect(FEATS.length).toBeGreaterThan(400);
     expect(PLAYER_UNITS.length).toBeGreaterThan(20);
     expect(PLAYER_UNITS.length + COMBINE_UNITS.length).toBe(UNIT_CATALOG.length);
@@ -112,7 +112,7 @@ describe('the wall around the Combine roster', () => {
    * hiring looters.
    */
   it('fields only its own units on its own ground, and the looters only field the roster', () => {
-    for (const district of CITY_DISTRICTS.filter((one) => one.locations.length > 0)) {
+    for (const district of ALL_DISTRICTS.filter((one) => one.locations.length > 0)) {
       for (const location of district.locations) {
         const garrison = startingGarrison(location, district);
         const holder = startingHolder(location, district).kind;
@@ -127,7 +127,7 @@ describe('the wall around the Combine roster', () => {
     }
   });
 
-  it('keeps its three leaders off every garrison but their own plot', () => {
+  it('keeps every leader off every garrison but their own plot', () => {
     for (const difficulty of [1, 3, 5, 7, 9, 10]) {
       for (const slots of [2, 10, 50, 120]) {
         const faces = Object.keys(combineGarrison(difficulty, slots));
@@ -138,7 +138,9 @@ describe('the wall around the Combine roster', () => {
     }
     // ...and each leader stands on exactly one plot in the whole city.
     for (const leader of COMBINE_LEADERS) {
-      const plots = CITY_DISTRICTS.flatMap((district) =>
+      // Every district in the world, not Ashfall's twelve: Arca's command stands in Arca
+      // (2026-10-07), and a sweep of one city reported their plots as zero rather than as one.
+      const plots = ALL_DISTRICTS.flatMap((district) =>
         district.locations.filter(
           (location) => (startingGarrison(location, district)[leader.unitId] ?? 0) > 0,
         ),

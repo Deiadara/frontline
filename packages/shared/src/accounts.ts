@@ -34,13 +34,14 @@ export function withoutInvisibleCharacters(name: string): string {
  *
  * Spelled out here because the seed is server code and this list has to reach the client too.
  * `seed/reserved-names.test.ts` pins that every bot the seed writes is on it, so a fifth bot
- * cannot be added without its name being reserved.
+ * cannot be added without its name being reserved (the fifth, Arca's, was, 2026-10-07).
  */
 export const SEEDED_BOT_USERNAMES = [
   'Vex_Holdings',
   'Sable_Ninth',
   'Sollen_Tam',
   'Halvard_Line',
+  'Ambrose_Sexton',
 ] as const;
 
 /** The house's own words: who runs the game rather than who plays it. */

@@ -111,7 +111,7 @@ export const TUTORIAL_CARDS: readonly TutorialCardSpec[] = [
     body: [
       'A mission sends a crew out for a set time and brings back what the job pays. Every card is graded from F- to S+, and a run that fails banks nothing.',
       'Every run needs somebody leading it, you to start with. Who leads it decides the odds.',
-      'The misc board is always open. A district posts work only once you hold a place in it.',
+      'The misc board is always open. A district in your own city posts work once you or your faction hold every plot in it, and the crew that goes is the one standing in your district.',
     ],
   },
   {

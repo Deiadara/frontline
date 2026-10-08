@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ALL_DISTRICTS, findDistrict } from './atlas.js';
+import { ALL_DISTRICTS, districtsOfCity, findDistrict } from './atlas.js';
 import {
   INTER_CITY_MINUTES,
   MIN_TRAVEL_MINUTES,
@@ -10,12 +10,14 @@ import {
 } from './geography.js';
 
 /**
- * The map's own arithmetic, now that there is more than one map (2026-09-24).
+ * The map's own arithmetic, now that there is more than one map (2026-09-24, retuned 2026-10-07).
  *
  * A position is normalised 0 to 1 inside its own city, so the three cities are printed on top of
- * one another and the distance between two of them is not a distance. `rawMinutesBetween` answers
- * that with a frontier term; what is pinned here is that the term is the whole of the difference,
- * and that it is the same in both directions.
+ * one another and the distance between two of them is not a distance. The maintainer's answer is
+ * that there is no such distance to read: a crossing is a flat four hours whoever is crossing and
+ * wherever the two ends sit, and geography is an inside-a-city idea. Pinned here as an equality
+ * over every pair in the world, which also catches the opposite defect, a flat branch that
+ * swallowed the roads inside a city too.
  */
 
 const at = (id: string) => {
@@ -24,50 +26,42 @@ const at = (id: string) => {
   return district!;
 };
 
-const CITY_MIDDLE = { x: 0.5, y: 0.5 };
-
 describe('the road between two cities', () => {
-  it('is the way out, the frontier and the way in, and nothing else', () => {
-    const home = at('kettle-row');
-    const away = at('blockhouse');
-    expect(home.cityId).not.toBe(away.cityId);
-
-    /*
-     * Worked out here from the rule rather than called: the road out to the middle of your own
-     * city at the map's own rate, the frontier, and the road in from the middle of theirs. A
-     * second copy of the sum is the point, because the defect this replaced was the sum having
-     * no frontier term in it at all and nothing noticing.
-     */
-    const out = mapDistance(home.position, CITY_MIDDLE) * TRAVEL_MINUTES_PER_MAP_UNIT;
-    const back = mapDistance(CITY_MIDDLE, away.position) * TRAVEL_MINUTES_PER_MAP_UNIT;
-    expect(rawMinutesBetween(home, away)).toBeCloseTo(out + INTER_CITY_MINUTES + back, 9);
-  });
-
-  it('reads the same in both directions', () => {
-    for (const [a, b] of [
-      ['kettle-row', 'coldwater-halt'],
-      ['ashen-terraces', 'last-platform'],
-      ['neon-docks', 'carriage'],
-    ] as const) {
-      expect(rawMinutesBetween(at(a), at(b))).toBeCloseTo(rawMinutesBetween(at(b), at(a)), 9);
-    }
-  });
-
-  /**
-   * The shape of the defect, stated as a property rather than as the one pair that showed it.
-   *
-   * Nothing about two normalised positions can make a crossing cheap: whatever the two ends are,
-   * the frontier is already on the clock before the roads either side of it are.
-   */
-  it('is never shorter than the frontier itself, for any pair in the world', () => {
+  it('is a flat four hours, for any pair in the world', () => {
+    expect(INTER_CITY_MINUTES).toBe(240);
+    let pairs = 0;
     for (const from of ALL_DISTRICTS) {
       for (const to of ALL_DISTRICTS) {
         if (from.cityId === to.cityId) continue;
-        expect(rawMinutesBetween(from, to), `${from.id} to ${to.id}`).toBeGreaterThanOrEqual(
-          INTER_CITY_MINUTES,
-        );
+        expect(rawMinutesBetween(from, to), `${from.id} to ${to.id}`).toBe(INTER_CITY_MINUTES);
+        pairs += 1;
       }
     }
+    // The world has to have more than one city for the loop above to have measured anything.
+    expect(pairs).toBeGreaterThan(0);
+  });
+
+  /**
+   * The other half of the ruling: "relative geography only happens inside a city".
+   *
+   * A flat crossing is one `if` away from a flat everything, and a road of four hours between two
+   * neighbouring districts would be the same bug as the two-minute crossing wearing a different
+   * number. So the in-city road is still the straight line at the map's own rate, and it still
+   * differs from pair to pair.
+   */
+  it('leaves the roads inside a city measured off the map', () => {
+    const home = at('kettle-row');
+    const near = at('neon-docks');
+    expect(rawMinutesBetween(home, near)).toBeCloseTo(
+      mapDistance(home.position, near.position) * TRAVEL_MINUTES_PER_MAP_UNIT,
+      9,
+    );
+
+    const roads = new Set(
+      districtsOfCity(home.cityId).map((district) => Math.round(rawMinutesBetween(home, district))),
+    );
+    expect(roads.size).toBeGreaterThan(3);
+    expect(Math.max(...roads)).toBeLessThan(INTER_CITY_MINUTES);
   });
 
   it('spends the crew pace and its bonuses on the whole crossing, floor and all', () => {
@@ -77,10 +71,12 @@ describe('the road between two cities', () => {
     const quick = travelMinutesBetween(home, away, {
       speed: 100,
       reductionPercent: 60,
-      flatMinutesOff: 30,
     });
-    // Halved by the pace, then six tenths off that, then thirty minutes: a crossing is a road and
-    // every channel a road reads is spent on it, the frontier term included.
+    // A crew with nothing pays the figure itself, which is what "adding then the bonuses"
+    // (maintainer, 2026-10-07) means: no floor under the crossing and no cap over it.
+    expect(plain).toBe(INTER_CITY_MINUTES);
+    // Halved by the pace, then the travel channel off that, then thirty whole minutes: a crossing
+    // is a road and every channel a road reads is spent on the whole of it.
     expect(quick).toBeLessThan(plain / 2);
     expect(quick).toBeGreaterThanOrEqual(MIN_TRAVEL_MINUTES);
   });

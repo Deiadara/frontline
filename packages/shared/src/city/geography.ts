@@ -24,26 +24,35 @@ export const TRAVEL_MINUTES_PER_MAP_UNIT = 85;
 export const MIN_TRAVEL_MINUTES = 2;
 
 /**
- * The frontier between one city and the next, in minutes, before any bonus (2026-09-24).
+ * The whole road between one city and the next, in minutes, before any bonus (2026-10-07).
  *
  * A position is normalised 0 to 1 **inside its own city**, because the renderer scales each map to
  * its own viewport. Two cities therefore occupy the same unit square and lie exactly on top of one
  * another, and `mapDistance` between them measures nothing: Ashfall's Ashen Terraces sits at
  * (0.84, 0.62) and Terminus's Last Platform at (0.80, 0.34), so a march from a plot in the first
- * city to the seat of Combine power in the second came to **two minutes**, while crossing Ashfall
- * end to end takes the better part of two hours. The map model had no "between cities" term at all.
+ * city to the seat of Combine power in the second came to **two minutes**, while the longest road
+ * inside Ashfall is 75 minutes. The map model had no "between cities" term at all.
  *
- * This is that term. A cross-city journey is priced as the road out to the middle of your own city,
- * plus this, plus the road in from the middle of theirs, which is the shape of the thing: you leave
- * a city, you cross the frontier, you arrive in a city. Two hours is deliberately a commitment.
- * Taking a foothold abroad is the maintainer's chosen route into a second city (2026-09-24), and it
- * should cost an afternoon rather than a coffee break, but it is still a road: the crew's pace and
- * its travel bonuses are spent on the whole of it, exactly as they are at home.
+ * This is that term, and since the maintainer's ruling of 2026-10-07 it is the entire crossing:
+ * "make the base (0 speed) of between cities to be 4 hours... Assume that relative geography only
+ * happens inside a city, so it takes time to go from location to location. But city to city, it's
+ * always the same, adding then the bonuses." So every district abroad is four hours from every
+ * district at home, whichever two cities they are in.
+ *
+ * The journey used to be the road out to the middle of your own city, plus the frontier, plus the
+ * road in from the middle of theirs, which put a crossing anywhere between 135 and 214 raw minutes
+ * depending on how central the two ends happened to be. Those two legs are gone because positions
+ * are an inside-a-city idea: a district's place on its own map says how far it is from its
+ * neighbours, and reading it as a distance from the frontier is reading a number that was never
+ * measured. One figure for every pair also means a player can hold it in their head, which the
+ * sliding one could not be.
+ *
+ * Four hours is the maintainer's figure for the commitment: taking a foothold abroad is the chosen
+ * route into a second city, and it should cost most of a day's play rather than a coffee break. It
+ * is still a road, so the crew's pace, its vehicles and every travel cut are spent on the whole of
+ * it exactly as they are at home, with no floor under the crossing and no cap over it.
  */
-export const INTER_CITY_MINUTES = 120;
-
-/** The middle of any city's unit square: where a journey out of it is measured to. */
-const CITY_MIDDLE: Position = { x: 0.5, y: 0.5 };
+export const INTER_CITY_MINUTES = 240;
 
 export function mapDistance(a: Position, b: Position): number {
   return Math.hypot(a.x - b.x, a.y - b.y);
@@ -64,8 +73,6 @@ export function mapDistance(a: Position, b: Position): number {
 export interface RoadPace {
   speed?: number;
   reductionPercent?: number;
-  /** Whole minutes the crew's holdings take off after the percentage. See `roadMinutes`. */
-  flatMinutesOff?: number;
   /** The Cartographer's cut off the road's base, before everything else. See `roadMinutes`. */
   baseCutPercent?: number;
 }
@@ -77,7 +84,6 @@ export function travelMinutesBetween(from: District, to: District, pace: RoadPac
       rawMinutesBetween(from, to),
       pace.speed ?? 0,
       pace.reductionPercent ?? 0,
-      pace.flatMinutesOff ?? 0,
       pace.baseCutPercent ?? 0,
     ),
   );
@@ -87,16 +93,13 @@ export function travelMinutesBetween(from: District, to: District, pace: RoadPac
  * The road between two districts in minutes, before anybody's pace or bonuses are spent on it.
  *
  * Inside one city it is the straight-line distance at {@link TRAVEL_MINUTES_PER_MAP_UNIT}. Between
- * two cities it is the way out, the frontier and the way in, because the two maps are drawn in the
- * same unit square and subtracting one from the other is meaningless. See {@link INTER_CITY_MINUTES}.
+ * two cities it is a flat {@link INTER_CITY_MINUTES}, the same for every pair of districts and
+ * every pair of cities: the two maps are drawn in the same unit square, so neither end's position
+ * says anything about how far it is from the other city.
  */
 export function rawMinutesBetween(from: District, to: District): number {
-  if (from.cityId === to.cityId) {
-    return mapDistance(from.position, to.position) * TRAVEL_MINUTES_PER_MAP_UNIT;
-  }
-  const out = mapDistance(from.position, CITY_MIDDLE) * TRAVEL_MINUTES_PER_MAP_UNIT;
-  const back = mapDistance(CITY_MIDDLE, to.position) * TRAVEL_MINUTES_PER_MAP_UNIT;
-  return out + INTER_CITY_MINUTES + back;
+  if (from.cityId !== to.cityId) return INTER_CITY_MINUTES;
+  return mapDistance(from.position, to.position) * TRAVEL_MINUTES_PER_MAP_UNIT;
 }
 
 /** The same, by id. Returns `null` when either end is not on the map. */

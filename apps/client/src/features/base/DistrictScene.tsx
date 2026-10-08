@@ -244,7 +244,13 @@ const BAND_SPAN = (DISTRICT_BAND.bottom - DISTRICT_BAND.top) / 100;
 function bleedOffset(height: number, clear: number): number {
   const top = (DISTRICT_BAND.top / 100) * height;
   const slack = clear - BAND_SPAN * height;
-  return -top + Math.max(0, slack / 2);
+  /*
+   * Never below the top bar (maintainer, 2026-10-08). On a screen with room to spare, centring the
+   * buildings pushed the painting's own top edge down past the HUD, and the gap showed as a strip
+   * of blurred surround under the gold line: about 30px at 1920x1080. Lifting the picture to the
+   * bar only gives the buildings more room underneath, so every plate stays inside the band.
+   */
+  return Math.min(0, -top + Math.max(0, slack / 2));
 }
 
 /**

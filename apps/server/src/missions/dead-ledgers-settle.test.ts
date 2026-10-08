@@ -19,7 +19,7 @@ import { loadConfig } from '../config.js';
 import { openDatabase, runMigrations, type AppDatabase } from '../db/index.js';
 import { createRepositories, type Repositories } from '../db/repos/index.js';
 import { playerXpBonusPercent } from '../progression/award.js';
-import { holdEveryBoard } from '../testing/footholds.js';
+import { QUIET_BOARD, holdDistrictWhole } from '../testing/footholds.js';
 import { chooseOverseer, pinOverseer } from '../testing/overseer.js';
 import { sureLeader } from '../testing/leader.js';
 import { launchMission } from './launch.js';
@@ -29,7 +29,7 @@ import type * as Standing from '../crew/standing.js';
 import type * as Battle from './battle.js';
 
 /**
- * Reliquary's three readings of the dead reach a battle job's settle (maintainer, 2026-10-06:
+ * Arca's three readings of the dead reach a battle job's settle (maintainer, 2026-10-06:
  * "all units that were intimidated", "each unit that dies in battle"): the Fight Pit's surcharge
  * on the enemy's intimidated dead, SPECTACLE's on the Dancer's kills and the Gravefields' XP on
  * the crew's own. The declared-fight settle paid all three and a job paid none. The engine side,
@@ -118,7 +118,9 @@ async function makeStack(username: string): Promise<Stack> {
   const repos = createRepositories(db);
   const base = repos.bases.findByOwnerId(user.id)!;
   repos.bases.updateArmy(base.id, { ...FORCE, haulers: 5 }, base.musterQueue);
-  holdEveryBoard(repos, base.id);
+  // One district held end to end, which is what opens a board (maintainer, 2026-10-07). The
+  // quietest one in Ashfall: nothing on it moves the clock, the pay or the infamy measured here.
+  holdDistrictWhole(repos, base.id, QUIET_BOARD);
   return { repos, baseId: base.id };
 }
 

@@ -1,6 +1,6 @@
 import {
   ALL_DISTRICTS,
-  RELIQUARY_CITY_ID,
+  ARCA_CITY_ID,
   startingControl,
   type Base,
   type District,
@@ -12,19 +12,24 @@ import { buildApp } from '../app.js';
 import { loadConfig } from '../config.js';
 import { openDatabase, runMigrations, type AppDatabase } from '../db/index.js';
 import { chooseOverseer } from '../testing/overseer.js';
+import { shutCityForThisFile } from '../testing/shut-city.js';
 import { settleMoves } from '../moves/moves.js';
 import { releaseClosedCityGround } from './closed-ground.js';
 import { mayEnter } from './stakes.js';
 
 /**
  * Ground in a shut city claimed before its doors were shut (maintainer, 2026-09-29; Saltmarch
- * then, Reliquary now).
+ * then, Arca now).
  *
  * One column of five Razors claimed The Salt House, and the Bar, the back room, the Runner, the
  * market and the mission board of a city no screen draws all answered that crew. The ruling: hand
  * the ground back to the holder the atlas gave it, walk the units home, and keep every room in a
  * closed city shut to everybody.
+ *
+ * Arca opened on 2026-10-07 and no shut city has ground now, so this file shuts Arca for itself.
  */
+
+shutCityForThisFile(ARCA_CITY_ID);
 
 const instances: { app: FastifyInstance; db: AppDatabase }[] = [];
 afterEach(async () => {
@@ -68,7 +73,7 @@ describe('ground held in a city that is not open', () => {
     const app = await world();
     const holder = await crew(app, 'salt_holder');
     const ally = await crew(app, 'salt_ally');
-    const salt = groundIn(RELIQUARY_CITY_ID);
+    const salt = groundIn(ARCA_CITY_ID);
     const home = groundIn('ashfall');
 
     app.repos.city.put({
@@ -90,7 +95,7 @@ describe('ground held in a city that is not open', () => {
 
     // The rooms are shut before the sweep runs: held ground in a closed city opens nothing.
     const holding = app.repos.bases.findById(holder.id)!;
-    expect(mayEnter(app.repos, holding, RELIQUARY_CITY_ID)).toBe(false);
+    expect(mayEnter(app.repos, holding, ARCA_CITY_ID)).toBe(false);
 
     const now = new Date();
     expect(releaseClosedCityGround(app.repos, now)).toEqual({ locations: 1, unitsSentHome: 7 });
@@ -119,10 +124,10 @@ describe('a column landing in a city that is not open', () => {
   it('walks home rather than claiming the ground', async () => {
     const app = await world();
     const holder = await crew(app, 'salt_walker');
-    const empty = ALL_DISTRICTS.filter((district) => district.cityId === RELIQUARY_CITY_ID)
+    const empty = ALL_DISTRICTS.filter((district) => district.cityId === ARCA_CITY_ID)
       .flatMap((district) => district.locations)
       .find((location) => app.repos.city.control(location.id)?.holder.kind === 'unoccupied');
-    if (!empty) throw new Error('fixture: no empty ground in Reliquary');
+    if (!empty) throw new Error('fixture: no empty ground in Arca');
     app.repos.bases.updateArmy(holder.id, {}, []);
     const past = new Date(Date.now() - 60_000).toISOString();
     app.repos.moves.insert({
@@ -141,8 +146,6 @@ describe('a column landing in a city that is not open', () => {
     settleMoves(app.repos, new Date());
 
     expect(app.repos.city.control(empty.id)?.holder.kind).toBe('unoccupied');
-    expect(mayEnter(app.repos, app.repos.bases.findById(holder.id)!, RELIQUARY_CITY_ID)).toBe(
-      false,
-    );
+    expect(mayEnter(app.repos, app.repos.bases.findById(holder.id)!, ARCA_CITY_ID)).toBe(false);
   });
 });

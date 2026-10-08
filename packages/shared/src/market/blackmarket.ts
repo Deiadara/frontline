@@ -211,7 +211,17 @@ const SPECS: readonly BlackMarketGoodSpec[] = [
     description: 'Blister packs, chalky, bitter, and they work.',
     effect:
       'Any fight you take it into: +8% defence, +8% morale. Nobody breaks and nobody sleeps after.',
-    infamy: 140,
+    /*
+     * 290 since 2026-10-07, from 140.
+     *
+     * Not a retune of the crate: the crate is what it was. The heavy tier was lifted that day
+     * (`battle/balance.test.ts`), and the line `market/morale-price.test.ts` prices every boost
+     * against has ten Breakers in it, so a tougher line made a morale point worth more. Measured
+     * on that line, the stims were paying 2.11 times what the Infusers beside them pay per point
+     * of infamy, where the whole of that file is the rule that a morale-carrying good sells at
+     * about the rate of its neighbour without one. At 290 the ratio is 1.02.
+     */
+    infamy: 290,
     boost: { offensePercent: 0, defensePercent: 8, moralePercent: 8 },
   },
   {

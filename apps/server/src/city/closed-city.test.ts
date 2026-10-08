@@ -1,6 +1,6 @@
 import {
   CITIES,
-  RELIQUARY_CITY_ID,
+  ARCA_CITY_ID,
   TERMINUS_CITY_ID,
   createCommander,
   districtHolder,
@@ -14,11 +14,14 @@ import { buildApp } from '../app.js';
 import { loadConfig } from '../config.js';
 import { openDatabase, runMigrations, type AppDatabase } from '../db/index.js';
 import { chooseOverseer } from '../testing/overseer.js';
+import { shutCityForThisFile } from '../testing/shut-city.js';
 
 /**
  * A closed city has ground in the atlas and no way onto it (bug pass, 2026-09-29).
  *
- * Reliquary is authored down to its control rows, and part of Candlemarket is empty. The fight door
+ * Arca was the shut city then, authored down to its control rows with part of Candlemarket empty.
+ * It opened on 2026-10-07, so this file shuts it again (`shutCityForThisFile`) to keep the doors
+ * tested for the next city authored before it opens. The fight door
  * refused it, and every other journey there did not: a column walked in and claimed a plot, which
  * opened the city's Bar, mission board, market and back room to the crew; a Sleeper cell went to
  * ground where no fight can ever be called; and a spy job paid to read a gate nobody may attack.
@@ -26,6 +29,8 @@ import { chooseOverseer } from '../testing/overseer.js';
  * Each door is checked against the same journey into an open city, so a refusal that came from
  * something other than the closed door (no fighting force, no whispers, no caps) cannot pass here.
  */
+
+shutCityForThisFile(ARCA_CITY_ID);
 
 const instances: { app: FastifyInstance; db: AppDatabase }[] = [];
 afterEach(async () => {
@@ -94,8 +99,8 @@ function post(world: World, url: string, payload: object) {
 }
 
 describe('a closed city', () => {
-  it('is Reliquary, and Terminus is open', () => {
-    expect(CITIES.find((city) => city.id === RELIQUARY_CITY_ID)?.open).toBe(false);
+  it('is Arca for this file, and Terminus is open', () => {
+    expect(CITIES.find((city) => city.id === ARCA_CITY_ID)?.open).toBe(false);
     expect(CITIES.find((city) => city.id === TERMINUS_CITY_ID)?.open).toBe(true);
   });
 
@@ -111,7 +116,7 @@ describe('a closed city', () => {
     const open = await send(emptyGround(world, TERMINUS_CITY_ID));
     expect(open.statusCode, open.body).toBe(200);
 
-    const closed = await send(emptyGround(world, RELIQUARY_CITY_ID));
+    const closed = await send(emptyGround(world, ARCA_CITY_ID));
     expect(closed.statusCode).toBe(400);
     expect(closed.json<{ error: { message: string } }>().error.message).toMatch(/not open yet/);
     expect(world.app.repos.moves.activeFor(world.baseId)).toHaveLength(1);
@@ -125,7 +130,7 @@ describe('a closed city', () => {
     const open = await plant(emptyGround(world, TERMINUS_CITY_ID));
     expect(open.statusCode, open.body).toBe(200);
 
-    const closed = await plant(emptyGround(world, RELIQUARY_CITY_ID));
+    const closed = await plant(emptyGround(world, ARCA_CITY_ID));
     expect(closed.statusCode).toBe(409);
     expect(closed.json<{ error: { message: string } }>().error.message).toMatch(/not open yet/);
     expect(world.app.repos.bases.findById(world.baseId)!.army.sleepers).toBe(4);
@@ -139,7 +144,7 @@ describe('a closed city', () => {
         tier: 'loose_ears',
       });
 
-    const closed = await look(combineGate(world, RELIQUARY_CITY_ID));
+    const closed = await look(combineGate(world, ARCA_CITY_ID));
     expect(closed.statusCode).toBe(400);
     expect(closed.json<{ error: { message: string } }>().error.message).toMatch(/not open yet/);
     const caps = world.app.repos.bases.findById(world.baseId)!.resources.caps;

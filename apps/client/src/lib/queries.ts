@@ -222,7 +222,7 @@ export const queryKeys = {
   automations: ['automations'] as const,
   faction: ['faction'] as const,
   feats: ['feats'] as const,
-  leaderboard: (board: string, localOnly: boolean) => ['leaderboard', board, localOnly] as const,
+  leaderboard: (board: string, city: string | null) => ['leaderboard', board, city] as const,
   playerLookup: (q: string) => ['player-lookup', q] as const,
   crewProfile: (id: string) => ['crew-profile', id] as const,
   factionProfile: (id: string) => ['faction-profile', id] as const,
@@ -950,7 +950,7 @@ export const useUpgradeLocation = (baseId: string | undefined, districtId: strin
   useCityWrite(upgradeLocation, baseId, () => districtId ?? null);
 
 /*
- * Reliquary's three sheet controls (2026-10-07): the Tolling Tower's switch, the Pamphlet Wall's
+ * Arca's three sheet controls (2026-10-07): the Tolling Tower's switch, the Pamphlet Wall's
  * pins and the paid pin swap. The same write path as an upgrade, plus `me`: the switch changes
  * which labels the crew ignores and the swap spends caps, both of which the shell reads there.
  */
@@ -1655,6 +1655,9 @@ export function useAdminReset() {
     mutationFn: resetAdmin,
     onSuccess: () => {
       queryClient.clear();
+      // The crew keeps its base id through a reset, so the city it was last looking at would be
+      // remembered into the new game. It starts on its own city, which may be a new one.
+      useViewedCity.getState().look(null);
     },
   });
 }
@@ -2180,23 +2183,24 @@ export function usePlayerLookup(text: string) {
   });
 }
 
-export function useLeaderboard(board: LeaderboardBoard, localOnly: boolean) {
+/** `city` is null for every city, which is the board the screen opens on. */
+export function useLeaderboard(board: LeaderboardBoard, city: string | null) {
   const signedIn = useSession((s) => s.signedIn);
   return useQuery({
-    queryKey: queryKeys.leaderboard(board, localOnly),
-    queryFn: () => getLeaderboard(board, localOnly),
+    queryKey: queryKeys.leaderboard(board, city),
+    queryFn: () => getLeaderboard(board, city),
     enabled: signedIn,
     /*
      * The previous answer holds the screen, but only while it is an answer to the same question.
      *
-     * The key carries the board as well as the scope, and `(previous) => previous` handed back the
+     * The key carries the board as well as the city, and `(previous) => previous` handed back the
      * *other board's* rows across a key change: pressing Factions lit the Factions tab, hid the
      * player search, and left the ranked player table and "You are #3" on screen until the faction
      * request landed. `LeaderboardResponse` is a union discriminated on `board`, so the page
      * narrowed on the stale payload and drew the wrong table under the right tab.
      *
-     * Kept for the scope toggle, which is the same board asked a narrower question and is what
-     * this is for: that one still swaps without the sheet blanking.
+     * Kept for the city picker, which is the same board asked a shorter question and is what this
+     * is for: that one still swaps without the sheet blanking.
      */
     placeholderData: (previous) => (previous?.board === board ? previous : undefined),
   });

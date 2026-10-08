@@ -250,7 +250,7 @@ describe('what the defender built reaches the fight', () => {
    *
    * Measured on Razors, a sheet with nothing that fires when defending, so the only thing between
    * their 75 and the figure read back is the held-ground curve: 500 points of defence come out as
-   * 138.75, which is 75 at the 85 ceiling. It was measured on Wardens until Reliquary gave them
+   * 138.75, which is 75 at the 85 ceiling. It was measured on Wardens until Arca gave them
    * GUARD (2026-10-07), whose quarter of toughness is the unit's own and sits outside the curve
    * on purpose (`effectiveStats`, `ownToughness`): 168 held at 500 reads 352.8, which is the
    * ceiling and GUARD's 25 together, and the second block pins that the two add up that way.

@@ -2,6 +2,7 @@ import {
   MISC_AREA_ID,
   createCommander,
   missionBoardKey,
+  missionDealer,
   missionOffers,
   playerLevelGrants,
   type Grade,
@@ -42,11 +43,17 @@ beforeEach(() => {
 });
 
 /** A level and a plain job on the misc board one level below it that is gone at it. */
-function aCardTheLevelTookAway(): { level: number; templateId: string; grade: Grade } {
+function aCardTheLevelTookAway(dealer: string): {
+  level: number;
+  templateId: string;
+  grade: Grade;
+} {
   const key = missionBoardKey(MISC_AREA_ID, AT);
   for (let level = 2; level < 90; level += 1) {
-    const now = new Set(missionOffers(MISC_AREA_ID, key, level).map((job) => job.template.id));
-    const before = missionOffers(MISC_AREA_ID, key, level - 1).find(
+    const now = new Set(
+      missionOffers(MISC_AREA_ID, key, level, dealer).map((job) => job.template.id),
+    );
+    const before = missionOffers(MISC_AREA_ID, key, level - 1, dealer).find(
       (job) => job.template.kind === 'standard' && !now.has(job.template.id),
     );
     if (before) return { level, templateId: before.template.id, grade: before.grade };
@@ -54,11 +61,17 @@ function aCardTheLevelTookAway(): { level: number; templateId: string; grade: Gr
   throw new Error('no level on this key takes a plain card away');
 }
 
-/** A crew at `level`, with the level-up that brought it there announced or not. */
-async function crewAt(
-  level: number,
-  announced: boolean,
-): Promise<{ app: FastifyInstance; token: string }> {
+/**
+ * A crew at the level that took a card off its own board, with the level-up announced or not.
+ *
+ * The crew comes first and the level second: a board is the crew's own (2026-10-08), so which
+ * level takes a card away is a question about this crew's deal.
+ */
+async function crewAt(announced: boolean): Promise<{
+  app: FastifyInstance;
+  token: string;
+  card: { level: number; templateId: string; grade: Grade };
+}> {
   const config = loadConfig({ DATABASE_PATH: ':memory:', JWT_SECRET: 'test-secret' });
   const db = openDatabase(config.databasePath);
   runMigrations(db);
@@ -78,13 +91,15 @@ async function crewAt(
   app.repos.bases.updateCommanders(baseId, [
     createCommander('off-1', 'Halvard Nyx', 'field_commander'),
   ]);
+  const card = aCardTheLevelTookAway(missionDealer(base));
+  const { level } = card;
   app.repos.bases.updateProgression(baseId, level, base.progression);
   // The marker a background settle leaves until some response announces the level.
   app.repos.bases.setPendingLevelUp(
     baseId,
     announced ? null : { level, levelsGained: 1, grants: playerLevelGrants(level), unlocks: [] },
   );
-  return { app, token };
+  return { app, token, card };
 }
 
 describe('a card pressed across a level-up', () => {
@@ -94,8 +109,8 @@ describe('a card pressed across a level-up', () => {
   ])(
     'still goes out as the board dealt it a level ago, with the level %s',
     async (_, announced) => {
-      const { level, templateId, grade } = aCardTheLevelTookAway();
-      const { app, token } = await crewAt(level, announced);
+      const { app, token, card } = await crewAt(announced);
+      const { templateId, grade } = card;
 
       const launched = await app.inject({
         method: 'POST',

@@ -10,7 +10,7 @@ import { usePinPamphlets, useSwapPamphlet, useThrowSwitch } from '../../lib/quer
 import { formatRemaining } from '../base/format';
 
 /*
- * Reliquary's sheet controls (maintainer, 2026-10-06: "every chooser/switch lives INSIDE the
+ * Arca's sheet controls (maintainer, 2026-10-06: "every chooser/switch lives INSIDE the
  * location's own sheet"). Each one reads the view the district already carries and refuses on the
  * button (greyed, reason on hover) before the server has to; what slips past is a `PressError`
  * beside the button it was pressed on, so nothing on the sheet moves.

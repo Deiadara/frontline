@@ -192,10 +192,12 @@ test.describe.serial('the Right Hand runs the board while the browser is shut', 
       officers: { count: 10, rating: 60 },
       playerLevel: 8,
     });
-    // A place in the crew's own city, so a district board opens beside `misc`: a district hires
-    // only a crew that holds a place in it (2026-09-29), and two slots need two boards to be out
-    // at once.
+    // A whole district in the crew's own city, so a district board opens beside `misc`: a
+    // district hires only a crew that holds every plot in it (2026-10-07; it was one plot from
+    // 2026-09-29), and two slots need two boards to be out at once, since an area holds one run.
+    // The foothold stays as well: it is what gives the multi-city pickers a second city to read.
     await api(request, bearer, 'post', '/api/admin/grant', { footholds: 'every-city' });
+    await api(request, bearer, 'post', '/api/admin/grant', { districtWhole: 'quietest' });
     const me = (await api(request, bearer, 'get', '/api/me')) as MeView;
     expect(me.base.commanders.some((one) => one.role === 'right_hand')).toBe(true);
     expect(Object.values(me.base.army).reduce((sum, count) => sum + count, 0)).toBeGreaterThan(0);

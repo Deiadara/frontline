@@ -966,7 +966,7 @@ function UnitDossier({ unit, enemy = false }: { unit: UnitOption; enemy?: boolea
       <p className="font-body text-[14px] leading-relaxed text-ink-100">{unit.blurb}</p>
 
       {unit.doorSteps.length > 0 && (
-        // A unit raised on an authored door (Reliquary, 2026-10-07): what each level of the door
+        // A unit raised on an authored door (Arca, 2026-10-07): what each level of the door
         // gives them, the level the crew holds marked, and the rest greyed as what is still to
         // win. A crew holding no door sees the ladder too: it is the reason to go and take one.
         <WindowSection label="The door's ladder">

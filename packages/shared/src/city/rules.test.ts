@@ -8,8 +8,6 @@ import {
 } from './locations.js';
 import { combineEffects, mergeCrewEffects, noCrewEffects } from '../crew/effects.js';
 import { creditedLevel, buildingCost } from '../building/cost.js';
-import { MIN_TRAVEL_MINUTES } from './geography.js';
-import { roadMinutes } from '../time/speed.js';
 import { ridingUnitSlots, unitColumnSpeed } from '../units/catalog.js';
 import { bareBattlefield } from '../battle/battlefield.js';
 import { markedUnit, simulate, standsInLine, type Simulation } from '../battle/engine.js';
@@ -59,7 +57,6 @@ const fight = (
 
 describe('every new kind says what it is in one line', () => {
   const LINES: readonly [HoldBonus, string][] = [
-    [{ kind: 'road_shortcut', minutes: 4 }, '-4 min off every road'],
     [{ kind: 'carriers_fight' }, 'porters fight'],
     [{ kind: 'any_ride' }, 'anything can be put on a machine'],
     [{ kind: 'steady_nerve' }, 'a stack that breaks shakes nobody'],
@@ -82,8 +79,8 @@ describe('the switches are permissions, not amounts', () => {
 
   it('adds the counted ones and takes the union of the marks', () => {
     expect(
-      fold({ kind: 'road_shortcut', minutes: 4 }, { kind: 'road_shortcut', minutes: 3 })
-        .roadMinutesOff,
+      fold({ kind: 'travel_speed', percent: 4 }, { kind: 'travel_speed', percent: 3 })
+        .travelSpeedPercent,
     ).toBe(7);
 
     const marks = fold(
@@ -96,27 +93,6 @@ describe('the switches are permissions, not amounts', () => {
     // in it that a consumer counting entries would read as two.
     expect(marks['ironsides']).toEqual(['stalwart', 'taunts']);
     expect(marks['razors']).toEqual(['pack']);
-  });
-});
-
-describe('a flat cut off the road', () => {
-  it('comes off after the pace and the percentage, which is why it is worth anything short', () => {
-    // Twenty minutes at speed 100 is ten; ten per cent off that is nine; four flat is five.
-    expect(roadMinutes(20, 100, 10)).toBe(9);
-    expect(roadMinutes(20, 100, 10, 4)).toBe(5);
-  });
-
-  it('never makes a road free, however much of it a crew holds', () => {
-    expect(roadMinutes(9, 0, 0, 100)).toBe(1);
-    expect(roadMinutes(9, 0, 0, 100)).toBeLessThan(MIN_TRAVEL_MINUTES);
-  });
-
-  it('is worth the same on a short hop as on a long march, unlike the percentage', () => {
-    const shortPercent = roadMinutes(10, 0, 0) - roadMinutes(10, 0, 18);
-    const longPercent = roadMinutes(120, 0, 0) - roadMinutes(120, 0, 18);
-    expect(longPercent).toBeGreaterThan(shortPercent * 5);
-    expect(roadMinutes(10, 0, 0) - roadMinutes(10, 0, 0, 4)).toBe(4);
-    expect(roadMinutes(120, 0, 0) - roadMinutes(120, 0, 0, 4)).toBe(4);
   });
 });
 

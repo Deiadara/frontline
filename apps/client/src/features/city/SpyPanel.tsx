@@ -1,5 +1,7 @@
 import type { ReactNode } from 'react';
 import {
+  PROPAGANDA_REFUSAL_TEXT,
+  combineLeaderOf,
   sameSpyTarget,
   SPY_TIERS,
   SPY_TIER_SPECS,
@@ -48,21 +50,37 @@ export interface SpyingProps {
   tiersOpen: readonly SpyTier[];
   quote: DistrictDetailResponse['spyQuote'];
   blocker: DistrictDetailResponse['spyBlocker'];
+  /**
+   * Why no location here can be read at all, or null: the Curate's Propaganda while she lives
+   * (2026-10-07). The Spy button is greyed with it rather than refused after the send.
+   */
+  locationsRefused: string | null;
 }
 
 /** The panel's slice of a district read, in one place for the five doors that open it. */
 export function spyingOf(
   data: Pick<
     DistrictDetailResponse,
-    'spyRuns' | 'spyParties' | 'spyTiersOpen' | 'spyQuote' | 'spyBlocker'
+    | 'spyRuns'
+    | 'spyParties'
+    | 'spyTiersOpen'
+    | 'spyQuote'
+    | 'spyBlocker'
+    | 'district'
+    | 'combineLeader'
   >,
 ): SpyingProps {
+  // The read's `alive` is `combineLeaderAlive`, the same test the server's refusal makes.
+  const propaganda =
+    data.combineLeader?.alive === true &&
+    combineLeaderOf(data.district.id)?.power.kind === 'curate';
   return {
     runs: data.spyRuns,
     parties: data.spyParties,
     tiersOpen: data.spyTiersOpen,
     quote: data.spyQuote,
     blocker: data.spyBlocker,
+    locationsRefused: propaganda ? PROPAGANDA_REFUSAL_TEXT : null,
   };
 }
 

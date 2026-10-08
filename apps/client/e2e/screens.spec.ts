@@ -1,4 +1,11 @@
-import { CITY_DISTRICTS, HOME_LOCKED_TEXT, labelText, STARTING_RESOURCES } from '@frontline/shared';
+import {
+  CAPTURED_GATE_MAX_LEVEL,
+  CITY_DISTRICTS,
+  HOME_LOCKED_TEXT,
+  capturedGateDefensePercent,
+  labelText,
+  STARTING_RESOURCES,
+} from '@frontline/shared';
 import { expect, test, type Page } from '@playwright/test';
 import type { MeResponse } from '@frontline/shared';
 import {
@@ -1302,9 +1309,10 @@ test('a captured district offers its gate, and raising it reaches the server', a
 
   const panel = page.getByTestId('captured-gate-steelbelt');
   await expect(panel).toBeVisible();
-  // Level 6 at the shared rates: 6 x 2.5 defending, 6 x 1.5 against a spy.
-  await expect(panel).toContainText('Lv 6');
-  await expect(panel).toContainText('15%');
+  // One under the ceiling, at the shared rate: a captured gate's level is worth twice a home
+  // Gate's (`CAPTURED_GATE_DEFENSE_PERCENT_PER_LEVEL`), so level 4 is 20% in a fight.
+  await expect(panel).toContainText(`Lv ${CAPTURED_GATE_MAX_LEVEL - 1}`);
+  await expect(panel).toContainText(`${capturedGateDefensePercent(CAPTURED_GATE_MAX_LEVEL - 1)}%`);
   // No points against spies: spy strength is not public (maintainer, 2026-10-01).
   await expect(panel).not.toContainText(/points|spy/i);
   await page.screenshot({ path: 'e2e-out/captured-gate-panel.png' });
@@ -1572,3 +1580,36 @@ test('walking the whole bar twice pops nothing up', async ({ page }) => {
     }
   }
 });
+
+/**
+ * The officer and Overseer windows never scroll (maintainer, 2026-10-08).
+ *
+ * The whole file has to be on screen at once. It was 214px too tall at 1280x720 and 33px at
+ * 1440x900; under 1000px of height the window now tightens to fit (`CREW_WINDOW` in `CrewPage`).
+ * The commander in `lateGame` is mid-reseat, so the window carries its tallest variant here.
+ */
+for (const [width, height] of [
+  [1024, 768],
+  [1280, 720],
+  [1440, 900],
+  [1920, 1080],
+] as const) {
+  test(`the crew windows show the whole file without scrolling at ${width}x${height}`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width, height });
+    await installApi(page, lateGame);
+    for (const seat of ['seat-field_commander', 'seat-overseer']) {
+      await page.goto('/game/crew');
+      await page.getByTestId(seat).click();
+      await settleFonts(page);
+      const body = page.locator('[role="dialog"] .overflow-y-auto').first();
+      await expect(body).toBeVisible();
+      const { scroll, visible } = await body.evaluate((el) => ({
+        scroll: el.scrollHeight,
+        visible: el.clientHeight,
+      }));
+      expect(scroll, `${seat}: the window scrolls`).toBeLessThanOrEqual(visible);
+    }
+  });
+}

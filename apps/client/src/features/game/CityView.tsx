@@ -54,6 +54,7 @@ import { PressError } from '../../components/ui/PressError';
 export const CITY_PLATES: Readonly<Record<string, string>> = {
   ashfall: 'city',
   terminus: 'city-terminus',
+  arca: 'city-arca',
 };
 
 /** The cities with both a painting and a table of marks on it. */
@@ -139,50 +140,60 @@ export const DISTRICT_MARKS: Readonly<Record<string, Readonly<Record<string, OnP
     'south-quay': { x: 0.787, y: 0.871 },
   },
   /*
-   * Terminus, read off `plate-city-terminus` against a twentieth grid (2026-09-24).
+   * Terminus, on `plate-city-terminus`. Placed by the maintainer on a marked-up screenshot of this
+   * map (2026-10-08), read back to fractions of the painting through the tags that screenshot
+   * already showed. Placed against the picture rather than off `District.position`, which is the
+   * travel-time coordinate and is laid out for a diagram.
    *
-   * The painting is one night rail city stacked along a single line, so the quarters are what a
-   * tag can stand on: the viaduct, the station shed, the walled garrison, the sidings, the gorge
-   * and the terraces below it. Placed by eye against the picture rather than off `District.position`,
-   * which is the travel-time coordinate and is laid out for a diagram: the Yards' coordinate puts
-   * them in the middle of the frame, and every siding in the painting is on the right.
-   *
-   * Kept inside y 0.232..0.873 and x 0.085..0.915 on purpose. `OnPlate` clamps a mark into the
-   * part of the painting the bars leave on screen, and those are the bounds of that window at the
-   * worst band in the matrix (1280x720), so a mark outside them is a tag that slides off the thing
-   * it names rather than one that goes missing. `cityFit.test.ts` measures exactly that.
+   * `OnPlate` clamps a mark into the part of the painting the bars leave on screen at the worst
+   * band (1280x720), and `cityFit.test.ts` holds that push to 24px and names every mark it moves.
+   * The Blockhouse is drawn just above that window and is pushed about 11px there. Signal Row was
+   * drawn higher still, which the crop would push 52px, so it sits at 0.193, the highest mark the
+   * ceiling allows. The Watertower plot is inside the captured-gate panel's bottom-left corner
+   * (x 0..0.41 from y 0.69 at 1280x720), as drawn: a crew holding a district whole sees the panel
+   * over that tag.
    */
   terminus: {
-    // The west end of the line: the arcaded terrace at the left edge, where the rails come in off
-    // forty miles of nothing and the town is still one platform wide.
-    'coldwater-halt': { x: 0.095, y: 0.295 },
-    // The cutting at the bottom left, beside the chapel's spire and the roofs packed round it.
-    // Not lower down the terraces, where it belongs by the picture: the captured-gate panel a crew
-    // sees once it holds a district whole is drawn over the painting's bottom-left corner, and at
-    // 1280x720 it covers x 0..0.41 from y 0.69 down. A tag hangs 78px above its mark, so anything
-    // marked below 0.69 on that side goes under the panel for exactly the crews who have earned it.
-    ironmouth: { x: 0.105, y: 0.655 },
-    // The great glass train shed, the biggest roof in the painting, and its concourse.
-    'last-platform': { x: 0.4, y: 0.26 },
-    // The brick arches carrying the line over the gorge, each one bricked up into something.
-    viaduct: { x: 0.575, y: 0.7 },
-    // The masts and the dish on the rock above the garrison: the only rise for forty miles.
-    'telemetry-hill': { x: 0.725, y: 0.245 },
-    // The garrison itself, at its barred gate under the red banners.
-    blockhouse: { x: 0.8, y: 0.41 },
-    // The bonded warehouses east of the garrison, where the freight stopped moving.
-    'bonded-row': { x: 0.915, y: 0.46 },
-    // The sidings, the standing wagons and the turning loop that fill the right of the frame.
-    'marshalling-yards': { x: 0.845, y: 0.625 },
-    // The four plots, on the ground people actually live on: the terraces behind the lit market,
-    // the embankment under the arches, the cottages on the hill under the garrison, and the row of
-    // carriages set on blocks beside the running lines.
-    // Both carried right of the captured-gate panel's corner for the reason above: a tag centred
-    // at x 0.485 clears its right edge by a tag's own half-width at the worst band.
-    watertower: { x: 0.485, y: 0.845 },
-    embankment: { x: 0.635, y: 0.865 },
-    signalrow: { x: 0.905, y: 0.26 },
-    carriage: { x: 0.895, y: 0.845 },
+    'coldwater-halt': { x: 0.533, y: 0.811 },
+    ironmouth: { x: 0.527, y: 0.538 },
+    'last-platform': { x: 0.582, y: 0.328 },
+    viaduct: { x: 0.126, y: 0.432 },
+    'telemetry-hill': { x: 0.729, y: 0.248 },
+    blockhouse: { x: 0.202, y: 0.214 },
+    'bonded-row': { x: 0.908, y: 0.322 },
+    'marshalling-yards': { x: 0.783, y: 0.578 },
+    // The four plots. Which id stands where only matters for the seeded rival on Signal Row.
+    carriage: { x: 0.158, y: 0.689 },
+    watertower: { x: 0.308, y: 0.845 },
+    embankment: { x: 0.379, y: 0.492 },
+    signalrow: { x: 0.535, y: 0.193 },
+  },
+  /*
+   * Arca, on `plate-city-arca`. Placed by the maintainer on a marked-up screenshot of this map
+   * (2026-10-08), read back to fractions of the painting through the tags that screenshot already
+   * showed; Bellfounders was off its right edge and kept its first placement. All inside the same
+   * window as Terminus's (x 0.085..0.915, y 0.232..0.873): the Printworks was drawn a little above
+   * the top of it and sits on the line instead.
+   *
+   * Almshouses stands on the crane at the bottom of the river (maintainer, 2026-10-08), which is
+   * inside the captured-gate panel's corner: a crew holding a district whole sees the panel over
+   * this tag. The maintainer's call, made after the panel was raised with them.
+   */
+  arca: {
+    nave: { x: 0.409, y: 0.321 },
+    cloisters: { x: 0.471, y: 0.445 },
+    // The foundry's chimneys and steam in the top right corner.
+    bellfounders: { x: 0.895, y: 0.25 },
+    printworks: { x: 0.671, y: 0.235 },
+    'saints-rest': { x: 0.198, y: 0.252 },
+    bloodstone: { x: 0.332, y: 0.544 },
+    candlemarket: { x: 0.701, y: 0.784 },
+    gravefields: { x: 0.24, y: 0.445 },
+    // The four plots. Which id stands where only matters for the seeded rival on the Waxworks.
+    almshouses: { x: 0.21, y: 0.8 },
+    'chantry-lane': { x: 0.491, y: 0.655 },
+    lamplighters: { x: 0.122, y: 0.492 },
+    waxworks: { x: 0.708, y: 0.458 },
   },
 };
 
