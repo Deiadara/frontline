@@ -83,7 +83,6 @@ function open(
       carrierFlat={0}
       marks={{}}
       carriersFight={carriersFight}
-      anyRide={false}
       roster={undefined}
       leaders={[
         {
@@ -169,7 +168,6 @@ describe('a board in the last hour before a raid on home', () => {
         carrierFlat={0}
         marks={{}}
         carriersFight={false}
-        anyRide={false}
         roster={undefined}
         leaders={[]}
         onQuoteFightLeaders={quote}

@@ -61,6 +61,15 @@ import { logFightCalled } from '../factions/log.js';
  */
 export const MAX_PENDING_DECLARATIONS = 3;
 
+/**
+ * The most fights this crew may have called and not yet fought: the cap, widened by what research
+ * has opened (the Raid Boss's last rung, The Name, calls one more fight at once). One reader for
+ * the gate and for the board the dialog greys itself off.
+ */
+export function declarationCapFor(repos: Repositories, base: Base, now: Date): number {
+  return MAX_PENDING_DECLARATIONS + standingEffectsFor(repos, base, now).declarationsFlat;
+}
+
 export const DECLARE_REFUSALS = [
   'off_slot',
   'too_soon',
@@ -215,10 +224,7 @@ export function declareBattle(repos: Repositories, input: DeclareInput): Declare
   if (alreadyCalled(repos, target)) return { kind: 'refused', reason: 'already_declared' };
   if (lostHereRecently(repos, base.id, target, now))
     return { kind: 'refused', reason: 'lost_here' };
-  // The cap, widened by what research has opened (the Raid Boss's last rung, The Name, calls one
-  // more fight at once).
-  const cap = MAX_PENDING_DECLARATIONS + standingEffectsFor(repos, base, now).declarationsFlat;
-  if (repos.sieges.pendingCountFor(base.id) >= cap) {
+  if (repos.sieges.pendingCountFor(base.id) >= declarationCapFor(repos, base, now)) {
     return { kind: 'refused', reason: 'too_many_pending' };
   }
 

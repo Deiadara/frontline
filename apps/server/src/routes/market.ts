@@ -223,7 +223,8 @@ export function registerMarketRoutes(app: FastifyInstance): void {
       const { pages } = parseBody(ReimagineRequestSchema, request.body);
       const now = new Date();
       return app.db.transaction(() => {
-        const base = ownBase(app, request.currentUser.id);
+        // Settled, so the Reimagining rung a finished project banks is open on this very request.
+        const base = settledOwnBase(app, request.currentUser.id, now);
         // Read off the row before the trade, since neither half of the answer moves with the
         // inventory: which city the request was made at, and whether the crew may stand there.
         const atBarrow = askedBoard(base, cityQuery(request.query));

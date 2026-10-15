@@ -1222,13 +1222,13 @@ describe('the build queue (§A1)', () => {
    * literal standing in for a rung, and a renamed rung would leave the slots unreachable for ever
    * while every other test here still passed.
    */
-  it('holds four orders, and six once Batch Runs is in', () => {
+  it('holds four orders, and five once Batch Runs is in', () => {
     expect(BASE_BUILD_QUEUE).toBe(4);
-    expect(MAX_BUILD_QUEUE).toBe(6);
+    expect(MAX_BUILD_QUEUE).toBe(5);
     expect(buildQueueCapacity([])).toBe(4);
     expect(buildQueueCapacity(['tech_load_tables', 'tech_site_discipline'])).toBe(4);
-    expect(buildQueueCapacity([BUILD_QUEUE_RESEARCH_ID])).toBe(6);
-    expect(buildQueueCapacity([BUILD_QUEUE_RESEARCH_ID, 'tech_load_tables'])).toBe(6);
+    expect(buildQueueCapacity([BUILD_QUEUE_RESEARCH_ID])).toBe(5);
+    expect(buildQueueCapacity([BUILD_QUEUE_RESEARCH_ID, 'tech_load_tables'])).toBe(5);
   });
 
   it('names a rung the research catalogue actually has, on the track and step it claims', () => {
@@ -1238,7 +1238,7 @@ describe('the build queue (§A1)', () => {
     // what the maintainer asked for and what the unlock line promises.
     expect(rung?.track).toBe('engineer');
     expect(rung?.step).toBe(3);
-    expect(rung?.payout.unlocks).toContain('build slots');
+    expect(rung?.payout.unlocks).toContain('build slot');
   });
 
   it('starts an order now when the queue is empty, and behind the last one when it is not', () => {
@@ -1376,7 +1376,10 @@ describe('§B5, §B6, §B7: what the Greenhouse, the Gauntlet and the Gate are w
 
     // "Every unit" is the load-bearing half: the Cyber Dogs are made in the Infirmary and the
     // Colossus in the Garage, and both come off the same clock.
-    const elsewhere = UNIT_CATALOG.filter((unit) => unit.musteredAt !== 'gauntlet');
+    // Not the Geppetto's robots, which are made in a fight and have no clock (`UnitSpec.spawned`).
+    const elsewhere = UNIT_CATALOG.filter(
+      (unit) => unit.musteredAt !== 'gauntlet' && unit.spawned !== true,
+    );
     expect(elsewhere.length).toBeGreaterThan(0);
     for (const unit of elsewhere) {
       expect(musterSecondsFor(unit, 1, mid), unit.id).toBeLessThan(musterSecondsFor(unit, 1, 0));

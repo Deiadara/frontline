@@ -88,7 +88,6 @@ function open(): HTMLElement {
       carrierFlat={0}
       marks={{}}
       carriersFight={false}
-      anyRide={false}
       roster={undefined}
       leaders={[
         {

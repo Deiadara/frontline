@@ -71,23 +71,13 @@ describe('readColumn', () => {
   });
 
   /*
-   * ...unless the crew has bought the waiver (`any_ride`, bug pass 2026-09-19).
-   *
-   * The one input that can make this quote **too slow**, which is the direction the module note
-   * says it may not be wrong in. `unitColumnSpeed` has taken `anyRide` since the holding existed
-   * and `missions/launch.ts` passes it; this reader did not, so a crew that had spent a location,
-   * a research rung or a perk on getting the Colossus off its feet was still shown fifteen and a
-   * road hours longer than the one it actually walked.
+   * ...and nothing puts it on a machine (maintainer, 2026-10-15): the ride waiver left the game,
+   * so three wagons with room to spare still wait for the Colossus.
    */
-  it('puts a sheet that will not board in a truck for a crew that holds the waiver', () => {
-    const force = { the_colossus: 1, razors: 4 };
-    const walking = readColumn({ armoured_car: 3 }, force, {});
-    const riding = readColumn({ armoured_car: 3 }, force, {}, true);
-    expect(walking.speed).toEqual(COLOSSUS?.stats.speed);
-    // Everybody is aboard, so the column travels at the slowest machine carrying somebody.
-    expect(riding.speed).toEqual(WAGON?.speed);
-    expect(riding.heldBy).toEqual(`${WAGON?.name}`);
-    expect(riding.speed).toBeGreaterThan(walking.speed);
+  it('never puts a sheet that will not board in a truck', () => {
+    const read = readColumn({ armoured_car: 3 }, { the_colossus: 1, razors: 4 }, {});
+    expect(read.speed).toEqual(COLOSSUS?.stats.speed);
+    expect(WAGON?.speed ?? 0).toBeGreaterThan(read.speed);
   });
 
   /*

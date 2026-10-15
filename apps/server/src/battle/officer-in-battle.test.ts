@@ -1146,14 +1146,6 @@ describe('taking machines to a fight (§C3)', () => {
    */
   it('leaves a machine idle when the only unit going will not ride', async () => {
     const stack = await makeStack(undefined, 'colossus');
-    /*
-     * The crew gives up the Breaker's Yard first, and that is now part of the setup rather than a
-     * detail: the yard grants `any_ride` (`city/locations.ts`), which waives the very rule this
-     * test is about. `makeStack` hands the crew every location in the Rustyard, the yard among
-     * them, so without this the Colossus takes a seat and the wagon is correctly wrecked with it.
-     */
-    const yard = stack.app.repos.city.control('steelbelt-bonefield')!;
-    stack.app.repos.city.put({ ...yard, holder: { kind: 'unoccupied' }, garrison: {} });
     park(stack, { armoured_car: 1 });
     const base = stack.app.repos.bases.findById(stack.baseId)!;
     stack.app.repos.bases.updateArmy(base.id, { the_colossus: 1 }, base.musterQueue);

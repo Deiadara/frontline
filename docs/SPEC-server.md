@@ -604,6 +604,19 @@ stands, and refuses with `409 FACTION_REFUSED` whose message is a `FactionRefusa
 - `POST /api/factions/reinforce` `{battleId, army}`: send units to a faction-mate's fight, on the
   side the caller's faction is on (`battle/alignment.ts`).
 - `GET /api/factions/:id/profile`: any faction's public page (`FactionProfileResponse`).
+- `POST /api/factions/seat` `{userId, card}`: the leader seats a member at a card, swapping with
+  whoever held it. `seat_onboarding` while either seat it moves is in Onboarding.
+
+The table's cards (maintainer, 2026-10-15; `factions/cards.ts`, `cardsAtTable`) pay every member,
+each at `cardValue`: its figure at S+ scaled by the holder's mark, read off the Overseer as their
+Right Hand lifts them. The Ace is up to +10% damage on the attacking side, the King up to +10%
+vitality on the defending side, the Queen up to +10% on a job's pay and experience, the Jack up to
++25% on a fight's final infamy tally (rounded down), and the Joker a luck of up to 10 on every page
+and component draw (`items/luck.ts`: each rarity hands 3% of its weight a point of luck to the next
+one up, rarest first). A seat whose holder changes is in Onboarding for twelve hours
+(`FACTION_SEAT_ONBOARDING_MS`, table `faction_card_holders`): its card pays nothing and the leader
+cannot move anybody into or out of it. A table recorded for the first time takes each holder from
+the day they joined.
 
 ### Where there is work (maintainer, 2026-10-07)
 
@@ -993,7 +1006,10 @@ below refuses with `409` once the window has shut (`PLACE_UNAVAILABLE`, `RESEARC
 `TRAINING_REFUSED`, matching its start route) and `404 NOT_FOUND` when there is nothing to call off.
 
 - `POST /api/base/cancel`: `{orderId}`. Removes a build order (`paid` and `parts` are recorded on
-  the entry at order time); the orders behind it close up. Answers like `/base/build`.
+  the entry at order time), any time while it waits its turn or in its first tenth once it runs.
+  Orders behind it that were built on it (the next level of the same structure, or a structure it
+  unlocks) go with it, each refunded the same way (`queueCancelCascade`); the rest close up.
+  Answers like `/base/build`.
 - `POST /api/research/cancel`: `{}`. Takes the active project off the bench (`paid` is recorded on
   it). Answers with the research screen.
 - `POST /api/city/cancel-upgrade`: `{locationId}`. The start is derived from its end and the
@@ -1099,11 +1115,11 @@ The third city is in `city/atlas.ts` behind `open: false` while it is written a 
   (`crew/standing.ts`), outside `MAX_OFFICER_LIFT` like the group lift; it is not the perk kind
   `officer_attribute`, which skips the officer carrying it. `unit_morale` takes an optional
   `tier`, folded into `TerritoryEffects.unitTierMoraleFlat` and read per unit in `effectiveStats`.
-- **The Mausoleum** (`mausoleum`, appended to `LOCATION_KINDS`) pays `{ kind: 'faith' }`, which
+- **The Mausoleum** (icon `mausoleum`, appended to `LOCATION_ICONS`) pays `{ kind: 'faith' }`, which
   `applyHoldBonus` counts into `TerritoryEffects.mausoleums` rather than switching a flag, plus six
   beds. `effectiveStats` adds `FAITH_PER_MAUSOLEUM` (30) times that count to the damage and
   vitality of a unit whose sheet carries `faith: true`, before any percentage.
-- **A muster cap tied to held ground.** `UnitSpec.capPerHold { locationKind, each }`: the Death
+- **A muster cap tied to held ground.** `UnitSpec.capPerHold { locationIds, each }`: the Death
   Cloaks are fifty a Mausoleum. `heldCapRoom` (`units/muster.ts`) counts them everywhere the crew
   has people and on the bench, like `legendaryRoom`; `queueMuster` refuses past it with
   `at_the_cap` (409, `UNIT_LOCKED`, "That is as many as the ground you hold can raise"), and the

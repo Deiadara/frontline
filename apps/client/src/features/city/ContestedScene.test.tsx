@@ -1,9 +1,4 @@
-import {
-  CITY_DISTRICTS,
-  LOCATION_CATALOG,
-  type LocationHolder,
-  type LocationView,
-} from '@frontline/shared';
+import { CITY_DISTRICTS, type LocationHolder, type LocationView } from '@frontline/shared';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import { ContestedScene } from './ContestedScene';
@@ -11,19 +6,18 @@ import { ContestedScene } from './ContestedScene';
 /**
  * The sign's hover card says what the sheet says.
  *
- * A location may carry its own blurb (the Blacksite's eight do, written to the painting), and the
- * sheet prints that in preference to its kind's. The hover card on the painting read the kind's
- * blurb unconditionally, so for a while the Psychic Ward's tooltip described a black clinic while
- * its sheet described the room in the wall. Two descriptions of one place is the bug; this pins the
- * card to the same rule as the sheet.
+ * The hover card on the painting used to read the location kind's blurb and reward
+ * unconditionally, so for a while the Psychic Ward's tooltip described a black clinic while its
+ * sheet described the room in the wall. Every location carries its own words now (2026-10-14), and
+ * this pins the card to them.
  */
 const blacksite = CITY_DISTRICTS.find((district) => district.id === 'blacksite')!;
 const combine: LocationHolder = { kind: 'government' };
 
-function viewOf(locationId: string, blurb: string | undefined): LocationView {
+function viewOf(locationId: string, blurb?: string): LocationView {
   const location = blacksite.locations.find((one) => one.id === locationId)!;
   return {
-    location: { ...location, blurb },
+    location: { ...location, blurb: blurb ?? location.blurb },
     holder: combine,
     holderName: 'The Combine',
     holderPlayer: null,
@@ -36,13 +30,15 @@ function viewOf(locationId: string, blurb: string | undefined): LocationView {
     garrison: null,
     latestSpyReport: null,
     bonuses: [],
-    reward: LOCATION_CATALOG[location.kind].reward,
+    reward: location.reward,
     labels: [],
     unlocks: [],
     holderFaction: null,
     holderSide: 'enemy',
     noisyFromTower: false,
     switch: null,
+    lamps: null,
+    reactor: null,
     pamphlets: null,
     trophies: null,
     door: null,
@@ -81,18 +77,19 @@ describe('a sign on the painting', () => {
     expect(empty?.querySelector('[data-testid^="insignia-"]')).toBeNull();
   });
 
-  it('prints the location’s own blurb over its kind’s when it has one', () => {
+  it('prints the location’s own blurb', () => {
     const own = 'Glass on the yard side, and the Combine behind it.';
     draw([viewOf('blacksite-blackward', own)]);
     fireEvent.focus(screen.getByTestId('site-blacksite-blackward'));
-    const card = screen.getByRole('tooltip');
-    expect(card).toHaveTextContent(own);
-    expect(card).not.toHaveTextContent(LOCATION_CATALOG.black_clinic.blurb);
+    expect(screen.getByRole('tooltip')).toHaveTextContent(own);
   });
 
-  it('falls back to the kind’s blurb for a location without one', () => {
-    draw([viewOf('blacksite-armory', undefined)]);
+  it('prints the location’s own reward, the line its sheet prints', () => {
+    const armory = blacksite.locations.find((one) => one.id === 'blacksite-armory')!;
+    draw([viewOf('blacksite-armory')]);
     fireEvent.focus(screen.getByTestId('site-blacksite-armory'));
-    expect(screen.getByRole('tooltip')).toHaveTextContent(LOCATION_CATALOG.armory.blurb);
+    const card = screen.getByRole('tooltip');
+    expect(card).toHaveTextContent(armory.blurb);
+    expect(card).toHaveTextContent(armory.reward);
   });
 });

@@ -1,6 +1,8 @@
 import {
   territoryEffectsFor,
   BUILDING_MAX_LEVEL,
+  cancelRefund,
+  mergeResources,
   BASE_BUILD_QUEUE,
   BUILD_QUEUE_RESEARCH_ID,
   MAX_BUILD_QUEUE,
@@ -41,7 +43,7 @@ import { openDatabase, runMigrations, type AppDatabase } from '../db/index.js';
 import { createRepositories, type Repositories } from '../db/repos/index.js';
 import { settleBase } from './settle.js';
 import { cancelBuild, queueBuild, buildClocksFor } from './build.js';
-import { buyBuildBoost } from './boost.js';
+import { buildBoostOilFor, buyBuildBoost } from './boost.js';
 import { clearSlot } from './modifications.js';
 import { districtUnitSlots } from './unit-slots.js';
 import { sendMove, settleMoves } from '../moves/moves.js';
@@ -275,6 +277,37 @@ describe('ordering a level (§A1, §D3)', () => {
   });
 
   /**
+   * Calling off an order takes the ones built on it with it (maintainer, 2026-10-08): Quarters 2
+   * cannot stand once Quarters 1 is gone, so both go, each refunded ninety percent.
+   */
+  it('cancels the orders built on the one called off, and refunds every one of them', () => {
+    const repos = openStack();
+    const base = seedBase(repos, {
+      buildings: [build('nexus', BUILDING_MAX_LEVEL)],
+      resources: {
+        ...STARTING_RESOURCES,
+        caps: 90_000,
+        supplies: 90_000,
+        scrap: 90_000,
+        oil: 90_000,
+      },
+      level: 30,
+    });
+    const one = queueBuild(repos, { base, structure: 'quarters', id: 'q1', now: NOW });
+    if (one.kind !== 'queued') throw new Error(`refused: ${JSON.stringify(one)}`);
+    const two = queueBuild(repos, { base: one.base, structure: 'quarters', id: 'q2', now: NOW });
+    if (two.kind !== 'queued') throw new Error(`refused: ${JSON.stringify(two)}`);
+    expect(two.entry.level).toBe(2);
+
+    const cancelled = cancelBuild(repos, two.base, 'q1', NOW, true);
+    if (cancelled.kind !== 'cancelled') throw new Error(`refused: ${cancelled.reason}`);
+    expect(cancelled.base.buildQueue).toEqual([]);
+    expect(cancelled.refund).toEqual(
+      mergeResources(cancelRefund(one.entry.paid), cancelRefund(two.entry.paid)),
+    );
+  });
+
+  /**
    * The queue is four wide, and six once `Batch Runs` is researched (maintainer, 2026-09-22).
    *
    * This used to be called "refuses a seventh order" and seeded six entries on a crew with no
@@ -282,7 +315,7 @@ describe('ordering a level (§A1, §D3)', () => {
    * fired three orders earlier than the name claimed, against a queue depth the game can no
    * longer produce. Both halves are walked now, and the fixture for each is a state that exists.
    */
-  it('refuses a fifth order, and a seventh once the rung is in', () => {
+  it('refuses a fifth order, and a sixth once the rung is in', () => {
     const repos = openStack();
     const full = seedBase(repos, {
       buildings: [build('nexus', BUILDING_MAX_LEVEL)],
@@ -308,14 +341,16 @@ describe('ordering a level (§A1, §D3)', () => {
       queueBuild(repos, { base: researched, structure: 'greenhouse', id: 'q5b', now: NOW }),
     ).not.toEqual({ kind: 'refused', reason: 'queue_full' });
 
-    // ...and it is still a cap, six entries up.
-    const six = {
+    // ...and it is still a cap, five entries up.
+    const capped = {
       ...researched,
       buildQueue: Array.from({ length: MAX_BUILD_QUEUE }, (_, i) =>
         entry('quarters', i + 1, NOW, 60),
       ),
     };
-    expect(queueBuild(repos, { base: six, structure: 'greenhouse', id: 'q7', now: NOW })).toEqual({
+    expect(
+      queueBuild(repos, { base: capped, structure: 'greenhouse', id: 'q6', now: NOW }),
+    ).toEqual({
       kind: 'refused',
       reason: 'queue_full',
     });
@@ -354,7 +389,7 @@ describe('ordering a level (§A1, §D3)', () => {
      * counts as met**, so a player can order the Nexus rung and the thing it opens without waiting.
      *
      * So only the Nexus is climbed here. The Gate's *other* clause, a Scrapyard, is standing
-     * before the run starts, because six queue slots (`MAX_BUILD_QUEUE`) cannot hold three Nexus
+     * before the run starts, because five queue slots (`MAX_BUILD_QUEUE`) cannot hold three Nexus
      * levels, three Scrapyard levels and the Gate, and a test that failed on the queue cap would be
      * failing for a reason that has nothing to do with what it is asserting.
      */
@@ -923,6 +958,25 @@ describe('§B4: the Generator’s two-hour burn', () => {
     expect(buildBoostActive(lit.base.economy.buildBoostUntil, after)).toBe(false);
   });
 
+  // Shaft Nine (maintainer, 2026-10-09): 10% off the burn's oil at level 1, 20% at level 5.
+  it('charges a crew holding Shaft Nine less oil, the figure `/me` quotes', () => {
+    const repos = openStack();
+    const base = seedBase(repos, {
+      resources: RICH,
+      buildings: [build('nexus', 6), build('generator', 4)],
+    });
+    const list = 4 * BUILD_BOOST_OIL_PER_LEVEL;
+    expect(buildBoostOilFor(repos, base, NOW)).toBe(list);
+    const shaft = repos.city.control('ironmouth-shaftnine')!;
+    repos.city.put({ ...shaft, holder: { kind: 'crew', baseId: base.id }, level: 5 });
+    expect(buildBoostOilFor(repos, base, NOW)).toBe(list * 0.8);
+
+    const lit = buyBuildBoost(repos, base, NOW);
+    if (lit.kind !== 'lit') throw new Error(`refused: ${lit.reason}`);
+    expect(lit.paid.oil).toBe(list * 0.8);
+    expect(lit.base.resources.oil).toBe(RICH.oil - list * 0.8);
+  });
+
   it('refuses a crew with no Generator, and one that cannot cover the oil', () => {
     const repos = openStack();
     const noGenerator = seedBase(repos, { buildings: [build('nexus', 6)] });
@@ -1260,16 +1314,39 @@ describe('the bench (§A5)', () => {
   });
 
   /**
-   * The crash. Testing mode waives `queue_full`, so a sixth order went onto the bench, and the
-   * stored schema then capped the array at five: every later read of that crew threw out of
+   * The crash. Testing mode used to waive `queue_full`, so a sixth order went onto the bench, and
+   * the stored schema then capped the array at five: every later read of that crew threw out of
    * `rowToBase`, `GET /me` 500ed, and the client showed `UPLINK FAILED` with no way back, because
-   * the crew could not be loaded to drain the queue either.
+   * the crew could not be loaded to drain the queue either. Saves from that time still hold
+   * benches longer than the cap, so the read path has to keep loading them.
    */
   it('loads a crew whose bench is longer than the cap', () => {
+    const repos = openStack();
+    const razors = findUnit('razors')!;
+    const long = Array.from({ length: MAX_MUSTER_QUEUE + 2 }, (_, i) => ({
+      id: `long-${i}`,
+      unitId: razors.id,
+      count: 1,
+      delivered: 0,
+      paid: musterCost(razors, 1),
+      startedAt: new Date(NOW.getTime() + i * 60_000).toISOString(),
+      durationSeconds: 60,
+    }));
+    const base = seedBase(repos, { musterQueue: long });
+
+    const reloaded = repos.bases.findById(base.id);
+    expect(reloaded?.musterQueue).toHaveLength(MAX_MUSTER_QUEUE + 2);
+  });
+
+  /**
+   * The bench is five places in testing mode too (maintainer, 2026-10-08): the screen draws five
+   * boxes, and an eighth order on a five-place bench is an order the player cannot see.
+   */
+  it('refuses a sixth order in testing mode as well', () => {
     const { repos, base } = stack();
     const razors = findUnit('razors')!;
     let current = base;
-    for (let i = 0; i < MAX_MUSTER_QUEUE + 2; i += 1) {
+    for (let i = 0; i < MAX_MUSTER_QUEUE; i += 1) {
       const result = queueMuster(repos, {
         base: current,
         unit: razors,
@@ -1280,9 +1357,9 @@ describe('the bench (§A5)', () => {
       if (result.kind !== 'queued') throw new Error(`refused at ${i}: ${result.reason}`);
       current = result.base;
     }
-
-    const reloaded = repos.bases.findById(base.id);
-    expect(reloaded?.musterQueue).toHaveLength(MAX_MUSTER_QUEUE + 2);
+    expect(
+      queueMuster(repos, { base: current, unit: razors, count: 1, now: NOW, admin: true }),
+    ).toEqual({ kind: 'refused', reason: 'queue_full' });
   });
 
   /** ...and the gate itself still holds for anybody not in testing mode. */

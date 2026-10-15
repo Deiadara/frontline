@@ -183,7 +183,7 @@ export async function expectNothingClippedHorizontally(page: Page): Promise<void
      * An element lying past the fold *inside a sideways scroller* is reachable, not cut.
      *
      * Both of this sweep's first two reports were that: the build rail is `overflow-x-auto` and
-     * runs six orders across a box 860px wide, and the missions board's body scrolls below `xl`.
+     * runs five orders across a box 860px wide, and the missions board's body scrolls below `xl`.
      * The scroller's own box still has to be inside the frame, which is the part worth checking,
      * so what is skipped is a descendant of one and never the scroller itself.
      */

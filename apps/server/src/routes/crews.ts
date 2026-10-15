@@ -1,7 +1,6 @@
 import {
   BUILDING_CATALOG,
   EVERY_LOCATION,
-  LOCATION_CATALOG,
   displayNameOf,
   findDistrict,
   type Base,
@@ -81,7 +80,6 @@ export function projectCrewProfile(
   }).map((location) => ({
     locationId: location.id,
     name: location.name,
-    kind: LOCATION_CATALOG[location.kind].label,
     districtId: location.districtId,
     districtName: findDistrict(location.districtId)?.name ?? location.districtId,
     level: controls.get(location.id)?.level ?? 1,

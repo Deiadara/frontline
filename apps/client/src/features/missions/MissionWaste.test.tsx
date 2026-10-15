@@ -73,7 +73,6 @@ function open(stores: MissionStores | undefined): HTMLElement {
       carrierFlat={0}
       marks={{}}
       carriersFight={false}
-      anyRide={false}
       roster={undefined}
       stores={stores}
       leaders={[

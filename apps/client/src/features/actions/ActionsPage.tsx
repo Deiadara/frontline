@@ -25,7 +25,7 @@ import { useState } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 import { Button } from '../../components/ui/Button';
 import { RewardLine } from '../../components/Resources';
-import { CancelMark } from '../../components/ui/CancelMark';
+import { CancelCell } from '../../components/ui/CancelMark';
 import { HoverCard } from '../../components/ui/HoverCard';
 import { Modal } from '../../components/ui/Modal';
 import { DrawnFace } from '../../components/ui/DrawnMarks';
@@ -493,7 +493,7 @@ function Counts({ road }: { road: Road }) {
  * rather than a gap: a planted cell has no clock on it at all. It says how long it has been
  * there instead, because "planted two days ago" is the fact a player is deciding on.
  *
- * Recall is a plain button rather than a `CancelMark`, which is the control for calling
+ * Recall is a plain button rather than a `CancelCell`, which is the control for calling
  * something off inside a short window. Pulling a cell out is allowed at any time and costs the
  * walk home, so it is an ordinary decision and not a last chance.
  */
@@ -642,6 +642,18 @@ function Column({
       testId={`column-${movement.id}`}
       name={movement.targetName}
       status={movement.side === 'attacker' ? 'Going in' : 'Holding'}
+      // The server's word on whether the window is open *and* the row's own clock: `recallable`
+      // is computed when the response is built and `/actions` polls at 5s, so for up to five
+      // seconds after the window shut the row used to read "0s left" beside a live button.
+      cancel={
+        <CancelCell
+          windowMs={movement.recallable ? canRecall : 0}
+          label={`Turn the column to ${movement.targetName} around`}
+          pending={pending}
+          onCancel={onRecall}
+          data-testid={`recall-${movement.id}`}
+        />
+      }
     >
       <Route from={movement.fromName} to={movement.toName} remaining={formatRemaining(left)} />
       <ProgressBar progress={progress} label={movement.targetName} tone="brass" />
@@ -649,20 +661,6 @@ function Column({
         <Force army={movement.army} perimeter={movement.perimeter} testPrefix="walking" />
         <Rides fleet={movement.vehicles} testPrefix="walking" />
       </div>
-      {/* The server's word on whether the window is open *and* the row's own clock: `recallable`
-          is computed when the response is built and `/actions` polls at 5s, so for up to five
-          seconds after the window shut the row used to read "0s left" beside a live button. */}
-      {movement.recallable && canRecall > 0 && (
-        <div className="border-t border-surface-700/70 pt-2.5">
-          <CancelMark
-            windowMs={canRecall}
-            label={`Turn the column to ${movement.targetName} around`}
-            pending={pending}
-            onCancel={onRecall}
-            data-testid={`recall-${movement.id}`}
-          />
-        </div>
-      )}
     </Row>
   );
 }
@@ -762,6 +760,15 @@ function Job({
       }
       tone={remaining === 0 ? 'done' : 'plain'}
       status={mission.recalledAt !== null ? 'Turned around' : PHASE_LABEL[phase]}
+      cancel={
+        <CancelCell
+          windowMs={window}
+          label={`Call the ${name} crew back`}
+          pending={pending}
+          onCancel={onRecall}
+          data-testid={`recall-job-${mission.id}`}
+        />
+      }
     >
       {pinned && card !== null && (
         <Modal
@@ -813,17 +820,6 @@ function Job({
         <Force army={mission.force} testPrefix="working" />
         <Rides fleet={mission.vehicles} testPrefix="working" />
       </div>
-      {window > 0 && (
-        <div className="border-t border-surface-700/70 pt-2.5">
-          <CancelMark
-            windowMs={window}
-            label={`Call the ${name} crew back`}
-            pending={pending}
-            onCancel={onRecall}
-            data-testid={`recall-job-${mission.id}`}
-          />
-        </div>
-      )}
     </Row>
   );
 }
@@ -852,6 +848,15 @@ function Moving({
       testId={`move-${move.id}`}
       name={turned ? move.fromName : move.toName}
       status={empty ? 'Driving home' : turned ? 'Turned round' : 'Moving'}
+      cancel={
+        <CancelCell
+          windowMs={window}
+          label={`Turn the column to ${move.toName} round`}
+          pending={pending}
+          onCancel={onRecall}
+          data-testid={`recall-move-${move.id}`}
+        />
+      }
     >
       <Route
         from={turned ? move.toName : move.fromName}
@@ -872,17 +877,6 @@ function Moving({
         <Force army={move.army} testPrefix={`moving-${move.id}`} />
         <Rides fleet={move.vehicles} testPrefix={`moving-${move.id}`} />
       </div>
-      {window > 0 && (
-        <div className="border-t border-surface-700/70 pt-2.5">
-          <CancelMark
-            windowMs={window}
-            label={`Turn the column to ${move.toName} round`}
-            pending={pending}
-            onCancel={onRecall}
-            data-testid={`recall-move-${move.id}`}
-          />
-        </div>
-      )}
     </Row>
   );
 }
@@ -908,6 +902,15 @@ function SpyJob({
       testId={`spy-run-${run.id}`}
       name={`${SPY_TIER_SPECS[run.tier].label} · ${run.capsPaid.toLocaleString('en-US')} caps`}
       status={turned ? 'Turned round' : 'Spying'}
+      cancel={
+        <CancelCell
+          windowMs={window}
+          label="Turn the runners round"
+          pending={pending}
+          onCancel={onRecall}
+          data-testid={`recall-spy-${run.id}`}
+        />
+      }
     >
       <Route
         from="Home"
@@ -924,17 +927,6 @@ function SpyJob({
           ? `Walking home, in ${formatRemaining(left)}. No report; the caps are spent.`
           : `The report is in, in ${formatRemaining(left)}.`}
       </p>
-      {window > 0 && (
-        <div className="border-t border-surface-700/70 pt-2.5">
-          <CancelMark
-            windowMs={window}
-            label="Turn the runners round"
-            pending={pending}
-            onCancel={onRecall}
-            data-testid={`recall-spy-${run.id}`}
-          />
-        </div>
-      )}
     </Row>
   );
 }

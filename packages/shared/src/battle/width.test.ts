@@ -17,6 +17,7 @@ import {
   type Simulation,
 } from './engine.js';
 import { findUnit } from '../units/index.js';
+import { findLocation } from '../city/index.js';
 
 /**
  * Combat width, and the opening strike.
@@ -33,10 +34,17 @@ const seeing = (side: Simulation['defender'], stealth: number): Simulation['defe
   stacks: side.stacks.map((stack) => ({ ...stack, effective: { ...stack.effective, stealth } })),
 });
 
-const field = (kind: 'sewer_junction' | 'rail_yard' | 'armory') =>
+/** The Undergrid's smugglers' tunnel, the Blacksite armoury and the Hauler Yard. */
+const GROUND = {
+  tunnel: 'undergrid-customs',
+  armory: 'blacksite-armory',
+  rail_yard: 'glasshouse-fields-haulers',
+} as const;
+
+const field = (kind: keyof typeof GROUND) =>
   battlefieldFor({
     locationName: kind,
-    kind,
+    ground: findLocation(GROUND[kind])!,
     at: DAY,
   });
 
@@ -66,18 +74,18 @@ describe('combat width', () => {
    * The ordering, not the three numbers.
    *
    * Frontage is the context's width narrowed (or widened) by how Crammed or Open the ground is
-   * labelled: a sewer junction is `Crammed IV` and gets *narrower* than bare `underground`, which
+   * labelled: a smugglers' tunnel is `Crammed III` and gets *narrower* than bare `underground`, which
    * is the point of reading the label into the width at all. Pinning the raw constants made this
    * a restatement of `FRONTAGE_BY_CONTEXT` that could not see the label doing anything; what has
    * to hold is that a tunnel takes fewer units than a room and a room fewer than a yard.
    */
   it('is narrowest where the ground is narrowest', () => {
-    const tunnel = field('sewer_junction').frontage;
+    const tunnel = field('tunnel').frontage;
     const room = field('armory').frontage;
     const yard = field('rail_yard').frontage;
     expect(tunnel).toBeLessThan(room);
     expect(room).toBeLessThan(yard);
-    // And the labels genuinely bite: a `Crammed IV` tunnel is tighter than bare underground.
+    // And the labels genuinely bite: a `Crammed III` tunnel is tighter than bare underground.
     expect(tunnel).toBeLessThan(FRONTAGE_BY_CONTEXT.underground ?? 0);
     // A rail yard is `Open III`, so it takes more than open ground alone would.
     expect(yard).toBeGreaterThan(FRONTAGE_BY_CONTEXT.open_ground ?? 0);
@@ -172,7 +180,7 @@ describe('combat width', () => {
   /**
    * ...and does nothing at all to a force that fits inside it.
    *
-   * Four units, because a sewer junction is five wide.
+   * Four units, because the tunnel is six wide.
    *
    * This sent eight into both grounds and asserted that all of them deployed, which is not true of
    * a frontage of five and never was: it passed because an even 8-v-8 had already killed the
@@ -183,13 +191,13 @@ describe('combat width', () => {
    */
   it('costs a force that fits within the frontage nothing', () => {
     // The narrow ground is the binding one, so the force is sized to it and checked against both.
-    expect(field('sewer_junction').frontage).toBeGreaterThanOrEqual(4);
+    expect(field('tunnel').frontage).toBeGreaterThanOrEqual(4);
     const [wide] = run({ razors: 4 }, { razors: 1 }, field('rail_yard'), 1).simulations;
-    const [narrow] = run({ razors: 4 }, { razors: 1 }, field('sewer_junction'), 1).simulations;
+    const [narrow] = run({ razors: 4 }, { razors: 1 }, field('tunnel'), 1).simulations;
     expect(wide && narrow).toBeTruthy();
     if (!wide || !narrow) return;
     expect(frontageShare(wide.attacker, field('rail_yard').frontage)).toBe(1);
-    expect(frontageShare(narrow.attacker, field('sewer_junction').frontage)).toBe(1);
+    expect(frontageShare(narrow.attacker, field('tunnel').frontage)).toBe(1);
   });
 });
 

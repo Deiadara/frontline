@@ -72,7 +72,8 @@ export function registerBlackMarketRoutes(app: FastifyInstance): void {
   app.get('/black-market', { preHandler: app.authenticate }, (request): BlackMarketResponse => {
     const now = new Date();
     settleBlackMarketLots(app.repos, now, GAME_TIMEZONE);
-    const base = ownBase(app, request.currentUser.id);
+    // Settled: the Stackhouse's door is a research rung, and only a settle banks one.
+    const base = settledOwnBase(app, request.currentUser.id, now);
     const cityId = cityOrRefuse(base, cityQuery(request.query));
     return projectBlackMarket(app.repos, base, now, GAME_TIMEZONE, cityId);
   });
@@ -146,7 +147,8 @@ export function registerBlackMarketRoutes(app: FastifyInstance): void {
     (request): StackhouseResponse => {
       const now = new Date();
       settleStackhouse(app.repos, now);
-      return projectStackhouse(app.repos, ownBase(app, request.currentUser.id), now);
+      // Settled: the book's door is the Fixer's rung, banked only by a settle.
+      return projectStackhouse(app.repos, settledOwnBase(app, request.currentUser.id, now), now);
     },
   );
 

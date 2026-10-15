@@ -45,7 +45,7 @@ const SIZE: Record<DrawnButtonSize, string> = {
  * `className` at the call site: the inked box behind the words is painted by `DrawnFace` inside
  * this component, and a caller can only reach the text.
  */
-export type DrawnButtonTone = 'brass' | 'danger' | 'go';
+export type DrawnButtonTone = 'brass' | 'danger' | 'go' | 'blue';
 
 /** Label and face per tone, at the four shades `theme/tokens.ts` actually ships for each family. */
 const TONE: Record<DrawnButtonTone, { label: string; face: string }> = {
@@ -60,6 +60,12 @@ const TONE: Record<DrawnButtonTone, { label: string; face: string }> = {
   go: {
     label: 'text-verdigris-300 hover:text-verdigris-100',
     face: 'fill-verdigris-500/25 group-hover/drawn:fill-verdigris-500/40 group-active/drawn:fill-verdigris-500/15',
+  },
+  // A door to another screen rather than a spend (maintainer, 2026-10-08: "a blueish button"),
+  // in the cyan the rest of the chrome uses for the same kind of link.
+  blue: {
+    label: 'text-hextech-300 group-hover/drawn:text-hextech-100',
+    face: 'fill-hextech-500/20 group-hover/drawn:fill-hextech-500/35 group-active/drawn:fill-hextech-500/15',
   },
 };
 
@@ -104,5 +110,39 @@ export function DrawnButton({
       />
       <span className="relative">{children}</span>
     </button>
+  );
+}
+
+/**
+ * The drawn button's face and label with no button under it, for a control whose press belongs to
+ * something larger: an empty bracket card is one big door, and a `<button>` inside it would be a
+ * button inside a button. The face answers to the nearest `group/drawn` above it, so the caller
+ * puts that class on the element that takes the press and the whole of it lights the face.
+ */
+export function DrawnLabel({
+  size = 'sm',
+  tone = 'brass',
+  className,
+  children,
+}: {
+  size?: DrawnButtonSize;
+  tone?: DrawnButtonTone;
+  className?: string;
+  children: ReactNode;
+}) {
+  return (
+    <span
+      className={cn(
+        'relative inline-flex shrink-0 items-center justify-center gap-1.5',
+        'font-display font-bold uppercase leading-none transition-all duration-150 ease-out',
+        'group-hover/drawn:-translate-y-px group-active/drawn:translate-y-px',
+        SIZE[size],
+        TONE[tone].label,
+        className,
+      )}
+    >
+      <DrawnFace face={cn('transition-all duration-150', TONE[tone].face)} />
+      <span className="relative">{children}</span>
+    </span>
   );
 }

@@ -40,8 +40,8 @@ const SCREENS: readonly (readonly [name: string, path: string, ready: string])[]
 /** The heaviest save the fixtures can build: extreme numbers *and* a full build queue. */
 const HEAVIEST = {
   ...hudExtremes,
-  // The research comes with the queue: six orders need the queue rung, and without it the rail
-  // read `6/4`, a state the server refuses to build.
+  // The research comes with the queue: five orders need the queue rung, and without it the rail
+  // read `5/4`, a state the server refuses to build.
   base: {
     ...hudExtremes.base!,
     research: fullQueue.base!.research,

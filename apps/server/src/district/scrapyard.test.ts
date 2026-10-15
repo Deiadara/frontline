@@ -44,11 +44,13 @@ import {
   modificationRequirement,
   notorietyTier,
   unitModificationRequirement,
+  boostedXp,
 } from '@frontline/shared';
 import { afterEach, describe, expect, it } from 'vitest';
 import { openDatabase, runMigrations, type AppDatabase } from '../db/index.js';
 import { createRepositories, type Repositories } from '../db/repos/index.js';
 import { buildAddon, projectScrapyard } from './scrapyard.js';
+import { playerXpBonusPercent } from '../progression/award.js';
 import { unlockContextFor } from '../units/muster.js';
 
 /**
@@ -1050,6 +1052,41 @@ describe('admin mode takes nothing at the yard', () => {
     ['modification', bracket.id, bracket.building],
     ['upgrade', card.id, 'razors'],
   ] as const;
+
+  /*
+   * The Spoil Heap (maintainer, 2026-10-09): every press that builds pays player XP, through the
+   * one funnel every award goes through, so the crew's own XP bonus rides on it. Measured here
+   * because this block already has a bracket, a card and a trap every crew can press.
+   */
+  it('pays the Spoil Heap`s XP on every press that builds, and none without it', () => {
+    for (const [kind, id, target] of orders) {
+      // One fresh crew per press: a bracket filled once is not there to fill again.
+      const xp = (yard?: number): { gained: number; bonus: number } => {
+        const repos = openStack();
+        const base = seedBase(repos, everything());
+        const built = buildAddon(
+          repos,
+          base,
+          kind,
+          id,
+          { refitDiscountPercent: 0, ...(yard === undefined ? {} : { scrapyardXp: yard }) },
+          target,
+          true,
+        );
+        expect(built.kind, id).toBe('built');
+        const after = repos.bases.findById(base.id)!;
+        expect(after.level, id).toBe(base.level);
+        return {
+          gained: after.progression.xpIntoLevel - base.progression.xpIntoLevel,
+          bonus: playerXpBonusPercent(repos, base),
+        };
+      };
+      expect(xp().gained, id).toBe(0);
+      const paid = xp(360);
+      expect(paid.gained, id).toBe(boostedXp(360, paid.bonus));
+      expect(paid.gained, id).toBeGreaterThanOrEqual(360);
+    }
+  });
 
   it('refuses a broke crew outside the testing build', () => {
     for (const [kind, id, target] of orders) {

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { LOCATION_KINDS, MAX_LOCATION_LEVEL, upgradeCost } from '../city/locations.js';
+import { EVERY_LOCATION } from '../city/atlas.js';
+import { MAX_LOCATION_LEVEL, upgradeCost } from '../city/locations.js';
 import { BUILDING_PRICE_RISE, baseBuildingCost, buildCostCut, buildingCost } from './cost.js';
 import { BUILDING_KINDS, levelCeilingFor } from './kinds.js';
 
@@ -48,15 +49,16 @@ describe('the Engineer on a build bill', () => {
 
 describe('the Engineer on a location upgrade', () => {
   it('takes up to half off every line, stops there, and floors every line at one', () => {
-    for (const kind of LOCATION_KINDS) {
+    for (const location of EVERY_LOCATION) {
+      const { id } = location;
       for (let level = 1; level < MAX_LOCATION_LEVEL; level += 1) {
-        const list = upgradeCost(kind, level)!;
-        const half = upgradeCost(kind, level, 50)!;
-        expect(upgradeCost(kind, level, 1_000), `${kind} ${level}`).toEqual(half);
+        const list = upgradeCost(location, level)!;
+        const half = upgradeCost(location, level, 50)!;
+        expect(upgradeCost(location, level, 1_000), `${id} ${level}`).toEqual(half);
         for (const [key, amount] of Object.entries(list) as [string, number][]) {
           const cut = half[key as keyof typeof half]!;
-          expect(cut, `${kind} ${level} ${key}`).toBeGreaterThanOrEqual(1);
-          expect(cut, `${kind} ${level} ${key}`).toBeLessThanOrEqual(amount);
+          expect(cut, `${id} ${level} ${key}`).toBeGreaterThanOrEqual(1);
+          expect(cut, `${id} ${level} ${key}`).toBeLessThanOrEqual(amount);
           if (amount >= 100) expect(cut / amount).toBeCloseTo(0.5, 2);
         }
       }

@@ -423,8 +423,9 @@ describe('intimidation works on low morale', () => {
    * makes you hit harder, it is a stat that makes *the next thing* hit harder.
    */
   it('pays a terror unit more against a shaken target than a steady one', () => {
-    const terror = bare('hollow_men');
-    const modifiers = unit('hollow_men').modifiers;
+    // The Abomination since 2026-10-13, when Terror came off the Hollow Men's sheet.
+    const terror = bare('the_abomination');
+    const modifiers = unit('the_abomination').modifiers;
     const target = bare('razors');
 
     const steady = exchange(terror, modifiers, target, 80).perBody;
@@ -438,8 +439,9 @@ describe('intimidation works on low morale', () => {
    * the report's standing list called shaken at 45 took nothing from a Terror unit.
    */
   it('pays terror in two tiers: some below 60, all of it below 35', () => {
-    const terror = bare('hollow_men');
-    const modifiers = unit('hollow_men').modifiers;
+    // The Abomination since 2026-10-13, when Terror came off the Hollow Men's sheet.
+    const terror = bare('the_abomination');
+    const modifiers = unit('the_abomination').modifiers;
     const target = bare('razors');
     const at = (morale: number) => exchange(terror, modifiers, target, morale).perBody;
     const card = UNIT_MODIFIERS.terror.percent;
@@ -501,7 +503,8 @@ describe('a wall is the least attractive target on the field', () => {
   /** And it is the only one, so the engine's split has something to be a split *from*. */
   it('is carried by exactly one sheet in the catalogue', () => {
     const taunting = UNIT_CATALOG.filter((spec) => spec.taunts === true).map((spec) => spec.id);
-    expect(taunting).toEqual(['ironsides']);
+    // And the Geppetto's robots (2026-10-09), which nobody musters: they are made to stand in front.
+    expect(taunting).toEqual(['ironsides', 'ad_hoc_army']);
   });
 });
 

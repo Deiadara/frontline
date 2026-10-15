@@ -79,6 +79,12 @@ export const GATE_MARK: Readonly<Record<string, Mark>> = {
   // guards closing the concourse under the statue. The sign stands on the concourse floor right
   // of the barriers, clear of the statue's plinth.
   'last-platform': { x: 0.64, y: 0.585 },
+  // The Viaduct's gate stands where the Parapet's sign used to (maintainer, 2026-10-13): on the
+  // bridge deck's stone below the standing train, the way onto the line.
+  viaduct: { x: 0.46, y: 0.335 },
+  // Bonded Row's gate is the great red warehouse the train comes out of (maintainer, 2026-10-13).
+  // The sign stands on its wall above the door and the train, clear of the smoke.
+  'bonded-row': { x: 0.74, y: 0.12 },
   // The Blockhouse's way in is the green-lit arch at the left that the train runs under. The sign
   // stands on the wall to its right rather than over the arch.
   blockhouse: { x: 0.26, y: 0.655 },
@@ -368,8 +374,9 @@ export const LOCATION_MARKS: Readonly<Record<string, Mark>> = {
   'bonded-row-seized': { x: 0.435, y: 0.625 },
   // The ring's own floor, between the rope above it and the two fighters below.
   'bonded-row-ring': { x: 0.508, y: 0.742 },
-  // The ground in front of the goods shed, below the standing train and clear of the signal post.
-  'bonded-row-halt': { x: 0.68, y: 0.415 },
+  // The brick building at the top middle, left of centre (maintainer, 2026-10-13): the station's
+  // sign moved off the ground by the train so the gate's could stand over the warehouse door.
+  'bonded-row-halt': { x: 0.445, y: 0.11 },
   // The apron in front of the cutting floor, left of the trays and under the hanging carcasses.
   'bonded-row-rendering': { x: 0.7, y: 0.625 },
   // The kennel floor above the handlers and their dogs, inside the run rather than outside it.
@@ -396,7 +403,7 @@ export const LOCATION_MARKS: Readonly<Record<string, Mark>> = {
   // The courtyard in front of the green-roofed hall with the banners.
   'telemetry-hill-quiet': { x: 0.3, y: 0.54 },
   // The lane between the small houses with the wire aerials, in the middle of the frame.
-  'telemetry-hill-pirate': { x: 0.53, y: 0.56 },
+  'telemetry-hill-lodge': { x: 0.53, y: 0.56 },
   // The terrace below the copper dome, upper right.
   'telemetry-hill-dome': { x: 0.765, y: 0.36 },
   // The ground in front of the tanks and transformers at the right.
@@ -408,10 +415,12 @@ export const LOCATION_MARKS: Readonly<Record<string, Mark>> = {
   'viaduct-halt': { x: 0.13, y: 0.32 },
   // The approach below the sandbagged gun position at the left.
   'viaduct-battery': { x: 0.2, y: 0.66 },
-  // The bridge deck below the standing train, on the stone of the parapet.
-  'viaduct-parapet': { x: 0.46, y: 0.335 },
-  // The walkway below the arch with the washing lines and lit rooms, centre.
-  'viaduct-undercroft': { x: 0.45, y: 0.52 },
+  // The parapet wall over the great arch, right of the train (maintainer, 2026-10-13): the gate
+  // took the sign's old place on the stone below the train.
+  'viaduct-parapet': { x: 0.64, y: 0.265 },
+  // Refugee's Camp (the Undercroft until 2026-10-13): on the right part of the bridge, in the
+  // second arch to the right of the Parapet's sign (maintainer).
+  'viaduct-camp': { x: 0.775, y: 0.25 },
   // The floor of the lab down the stair, lower left, below its screens.
   'viaduct-archnineteen': { x: 0.235, y: 0.8 },
   // The pier below the two furnaces burning at the right.

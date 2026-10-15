@@ -31,7 +31,6 @@ describe('the ledgers a battle job files', () => {
         force: { juggernauts: 20 },
         vehicles: {},
         grade: 'F-',
-        anyRide: false,
         territory: noCrewEffects(),
       });
       expect(n(fought.intimidatedKills), `seed ${seed}`).toBeGreaterThan(0);
@@ -44,7 +43,6 @@ describe('the ledgers a battle job files', () => {
         force: { razors: 40 },
         vehicles: {},
         grade: 'F-',
-        anyRide: false,
         territory: noCrewEffects(),
       });
       expect(calm.intimidatedKills, `seed ${seed}`).toEqual({});
@@ -64,7 +62,6 @@ describe('the ledgers a battle job files', () => {
         force: { the_crimson_dancer: 1, razors: 10 },
         vehicles: {},
         grade: 'E',
-        anyRide: false,
         territory: { ...noCrewEffects(), doorLevels: { the_crimson_dancer: level } },
       });
     for (const seed of SEEDS) {

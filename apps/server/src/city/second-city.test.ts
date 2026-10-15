@@ -1,6 +1,5 @@
 import {
   ALL_DISTRICTS,
-  LOCATION_CATALOG,
   STARTING_RESOURCES,
   TERMINUS_CITY_ID,
   UNIT_SLOTS_PER_LOCATION,
@@ -16,9 +15,13 @@ import {
   unitsUnlockedByLocation,
   type Base,
   type District,
+  type BonusGround,
   type HoldBonus,
   type Location,
   type TerritoryEffects,
+  findLocation,
+  findUnit,
+  missingRequirements,
 } from '@frontline/shared';
 import { describe, expect, it } from 'vitest';
 import { openDatabase, runMigrations } from '../db/index.js';
@@ -71,7 +74,7 @@ const AWAY_HOME: District = districtsOfCity(TERMINUS_CITY_ID).find(
 const PLAIN: Location = ALL_DISTRICTS.flatMap((district) => district.locations).find(
   (location) =>
     districtsOfCity(TERMINUS_CITY_ID).some((district) => district.id === location.districtId) &&
-    bonusesAt(location.kind, 1).every((bonus) => bonus.kind !== 'unit_slots'),
+    bonusesAt(location, 1).every((bonus) => bonus.kind !== 'unit_slots'),
 )!;
 
 /**
@@ -80,29 +83,44 @@ const PLAIN: Location = ALL_DISTRICTS.flatMap((district) => district.locations).
  * So the unified-bonus test below can name a district's reward without hard-coding which channel
  * this week's atlas pays it on.
  */
-function channelMoved(bonus: HoldBonus): [keyof TerritoryEffects, number] {
+function channelMoved(
+  bonus: HoldBonus,
+  ground: BonusGround,
+): [(effects: TerritoryEffects) => number, number] {
   const probe = noTerritoryEffects();
   const blank = noTerritoryEffects();
-  applyHoldBonus(probe, bonus);
+  applyHoldBonus(probe, bonus, ground);
   for (const key of Object.keys(probe) as (keyof TerritoryEffects)[]) {
     const after = probe[key];
     const before = blank[key];
     if (typeof after === 'number' && typeof before === 'number' && after !== before) {
-      return [key, after - before];
+      return [(effects) => effects[key] as number, after - before];
+    }
+    // A scoped channel is a record of figures (Coldwater Halt's pay on jobs in its city).
+    if (typeof after === 'object' && !Array.isArray(after)) {
+      for (const [sub, figure] of Object.entries(after)) {
+        if (typeof figure !== 'number' || figure === 0) continue;
+        return [(effects) => (effects[key] as Record<string, number>)[sub] ?? 0, figure];
+      }
     }
   }
   throw new Error(`${bonus.kind} moves no numeric channel`);
 }
 
-/** A Terminus block that unlocks a unit, for the roster's side of the same question. */
-const AWAY_UNLOCKS: Location = districtsOfCity(TERMINUS_CITY_ID)
-  .flatMap((district) => district.locations)
-  .find((location) => unitsUnlockedByLocation(location.kind).length > 0)!;
+/** A Terminus block that unlocks a unit, for the roster's side of the same question: the Kennels. */
+const AWAY_UNLOCKS: Location = findLocation('bonded-row-kennels')!;
+const HOUNDS = findUnit('cyber_dogs')!;
 
-/** A Terminus block that takes something off a muster bill, for the breakdown's ground lines. */
-const AWAY_MUSTER: Location = districtsOfCity(TERMINUS_CITY_ID)
+/**
+ * A block that takes something off a muster bill, for the breakdown's ground lines: an Ashfall
+ * armoury, read off what the location itself pays. Terminus has none since 2026-10-13, when its two
+ * armouries were reworked, so the crew that holds this one lives in Terminus (`TERMINUS_HOME`).
+ */
+const AWAY_MUSTER: Location = districtsOfCity('ashfall')
   .flatMap((district) => district.locations)
-  .find((location) => bonusesAt(location.kind, 1).some((bonus) => bonus.kind === 'muster_cost'))!;
+  .find((location) => bonusesAt(location, 1).some((bonus) => bonus.kind === 'muster_cost'))!;
+/** A plot in Terminus, for a crew whose ground abroad is in Ashfall. */
+const TERMINUS_HOME = 'carriage';
 
 function stack(districtId = 'neon-docks'): { repos: Repositories; base: Base } {
   const db = openDatabase(':memory:');
@@ -273,15 +291,18 @@ describe('ground held in the second city pays the crew that holds it', () => {
    */
   it('pays the whole-district bonus abroad', () => {
     const { repos, base } = stack();
-    const [channel, amount] = channelMoved(unifiedBonusFor(AWAY.id)!.bonus);
+    const [channel, amount] = channelMoved(unifiedBonusFor(AWAY.id)!.bonus, {
+      districtId: AWAY.id,
+      cityId: AWAY.cityId,
+    });
 
     takeWhole(repos, base.id, AWAY);
-    const whole = standingEffectsFor(repos, base, new Date(HOUR))[channel] as number;
+    const whole = channel(standingEffectsFor(repos, base, new Date(HOUR)));
 
     const [first] = AWAY.locations;
     const control = repos.city.control(first!.id)!;
     repos.city.put({ ...control, holder: { kind: 'looters' }, garrison: {} });
-    const short = standingEffectsFor(repos, base, new Date(HOUR))[channel] as number;
+    const short = channel(standingEffectsFor(repos, base, new Date(HOUR)));
 
     expect(amount).toBeGreaterThan(0);
     expect(whole - short).toBe(amount);
@@ -333,11 +354,16 @@ describe('the roster and the file read the second city too', () => {
    */
   it('unlocks what a block held abroad unlocks', () => {
     const { repos, base } = stack();
-    expect(unlockContextFor(repos, base).heldPlaceKinds.has(AWAY_UNLOCKS.kind)).toBe(false);
+    const groundMissing = () =>
+      missingRequirements(HOUNDS, unlockContextFor(repos, base)).some(
+        (need) => need.kind === 'location',
+      );
+    expect(unitsUnlockedByLocation(AWAY_UNLOCKS.id)).toContain(HOUNDS);
+    expect(groundMissing()).toBe(true);
 
     take(repos, base.id, AWAY_UNLOCKS);
 
-    expect(unlockContextFor(repos, base).heldPlaceKinds.has(AWAY_UNLOCKS.kind)).toBe(true);
+    expect(groundMissing()).toBe(false);
   });
 
   /** And the level it has been worked up to, which is what `homeMusterBonus` prices. */
@@ -346,7 +372,7 @@ describe('the roster and the file read the second city too', () => {
     const control = repos.city.control(AWAY_UNLOCKS.id)!;
     repos.city.put({ ...control, holder: { kind: 'crew', baseId: base.id }, level: 4 });
 
-    expect(heldLocationLevels(repos, base).get(AWAY_UNLOCKS.kind)).toBe(4);
+    expect(heldLocationLevels(repos, base).get(AWAY_UNLOCKS.id)).toBe(4);
   });
 
   /**
@@ -354,7 +380,7 @@ describe('the roster and the file read the second city too', () => {
    * paying less because of an armoury it holds in Terminus was shown a total with no line under it.
    */
   it('names a block held abroad in the muster breakdown', () => {
-    const { repos, base } = stack();
+    const { repos, base } = stack(TERMINUS_HOME);
     take(repos, base.id, AWAY_MUSTER);
 
     const lines = musterBreakdownFor(repos, base, new Date(HOUR)).cost;
@@ -384,8 +410,8 @@ describe('the roster and the file read the second city too', () => {
     });
 
     expect(profile.holdings.map((holding) => holding.locationId)).toContain(AWAY_UNLOCKS.id);
-    expect(profile.holdings.find((holding) => holding.locationId === AWAY_UNLOCKS.id)?.kind).toBe(
-      LOCATION_CATALOG[AWAY_UNLOCKS.kind].label,
+    expect(profile.holdings.find((holding) => holding.locationId === AWAY_UNLOCKS.id)?.name).toBe(
+      AWAY_UNLOCKS.name,
     );
   });
 });

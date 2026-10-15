@@ -34,43 +34,43 @@ or client-facing type.
 
 ## Module map (shared)
 
-| Module                  | Contents                                                                             |
-| ----------------------- | ------------------------------------------------------------------------------------ |
-| `primitives.ts`         | `IdSchema`, `IsoDateTimeSchema`, `UsernameSchema`                                    |
-| `attributes.ts`         | `ATTRIBUTE_NAMES` (34, four groups), `Attributes` (0..100), `attributeTier`          |
-| `roles.ts`              | `OFFICER_ROLES` (19) + labels; the requirement weights stay server-side (GDD §B8)    |
-| `overseer.ts`           | `Overseer`, archetypes, `OVERSEER_PRESETS` (4), `findOverseerPreset`                 |
-| `commander.ts`          | An officer: their sheet, their 0..3 perks and the wage they signed for               |
-| `crew/perks.ts`         | `PERK_CATALOG` (100+ crew-wide bonuses), `applyPerkBonus`, 0..3 an officer           |
-| `factions/`             | A team of up to 5 players: ranks, invitations, the cap                               |
-| `social/`               | The mailbox (per-recipient fan-out) and the bell (kinds, per-player mute list)       |
-| `allegiance.ts`         | Government vs independent: a _district's_ politics, not a player team                |
-| `resources.ts`          | `Resources` {caps,supplies,oil,scrap,highQualityMetal}, `STARTING_RESOURCES`         |
-| `building/`             | The district: 13 kinds, costs, power, production, standing, queue, 65 modifications  |
-| `base.ts`               | `Base` (district + queue + economy + roster), `BaseSummary` (public projection)      |
-| `city/`                 | The map: 10 districts, 42 location kinds, labels, weather, control, levels           |
-| `units/`                | 27 battle units, their sheets, multi-clause unlocks, mustering and the army cap      |
-| `raid.ts`               | Loot capacity in loot slots, what a raid takes, and the disruption it leaves         |
-| `economy/`              | Meters (§D4/§D7), payroll (§H7), the §D8 reputation tally                            |
-| `bar/`                  | §H join gates, the daily roster, the §H7a auction and its close                      |
-| `research/`             | §B9/§F2 projects, discovered facts, effects                                          |
-| `progression/`          | §I player levels, grants, the (empty) §I3 unlock catalogue                           |
-| `user.ts`               | Client-facing `User` (no password material)                                          |
-| `time/zone.ts`          | Europe/Athens is the game's clock; IANA zones, day boundaries, wall-clock formatting |
-| `market/blackmarket.ts` | The back room: 5 shared slots, priced in infamy, one take a day, battle boosts       |
-| `api.accounts.ts`       | Settings, the black market and the admin bench: the DTOs around the game             |
-| `battle/types.ts`       | `BattleInput`, `BattleResult`, `BattleEngine` interface                              |
-| `battle/skirmish.ts`    | `CoinFlipSkirmishEngine`: a deliberate stub behind a swappable interface             |
-| `battle/schedule.ts`    | Half-hour marks, the 8-24h declaration window, the one-second deployment cutoff      |
-| `battle/scheduled.ts`   | A declared fight: targets, gates, deployments, and what may legally be called        |
-| `battle/perimeter.ts`   | The ring outside the fight, who does not get away, and whose report goes missing     |
-| `battle/traps.ts`       | What is buried under an approach: the small bite it takes, or the wire that slows    |
-| `spying/spying.ts`      | The spy contest: tiers, the two scores, cheapest-first exposure, the report schemas  |
-| `moves/moves.ts`        | Columns between the crew's own places: district, gate, held and allied ground        |
-| `battle/analysis.ts`    | The after-action ledger, and who is allowed to read one                              |
-| `economy/infamy.ts`     | §D7 as an uncapped point total: what a kill is worth, and what a name buys           |
-| `api.ts`                | All request/response DTO schemas + `ApiErrorSchema`                                  |
-| `api.battle.ts`         | The declared-battle contract, kept separate because it is a whole feature's worth    |
+| Module                  | Contents                                                                                               |
+| ----------------------- | ------------------------------------------------------------------------------------------------------ |
+| `primitives.ts`         | `IdSchema`, `IsoDateTimeSchema`, `UsernameSchema`                                                      |
+| `attributes.ts`         | `ATTRIBUTE_NAMES` (34, four groups), `Attributes` (0..100), `attributeTier`                            |
+| `roles.ts`              | `OFFICER_ROLES` (19) + labels; the requirement weights stay server-side (GDD §B8)                      |
+| `overseer.ts`           | `Overseer`, archetypes, `OVERSEER_PRESETS` (4), `findOverseerPreset`                                   |
+| `commander.ts`          | An officer: their sheet, their 0..3 perks and the wage they signed for                                 |
+| `crew/perks.ts`         | `PERK_CATALOG` (100+ crew-wide bonuses), `applyPerkBonus`, 0..3 an officer                             |
+| `factions/`             | A team of up to 5 players: ranks, invitations, the cap                                                 |
+| `social/`               | The mailbox (per-recipient fan-out) and the bell (kinds, per-player mute list)                         |
+| `allegiance.ts`         | Government vs independent: a _district's_ politics, not a player team                                  |
+| `resources.ts`          | `Resources` {caps,supplies,oil,scrap,highQualityMetal}, `STARTING_RESOURCES`                           |
+| `building/`             | The district: 13 kinds, costs, power, production, standing, queue, 65 modifications                    |
+| `base.ts`               | `Base` (district + queue + economy + roster), `BaseSummary` (public projection)                        |
+| `city/`                 | The map: districts, locations (each carrying its own pay and ground), labels, weather, control, levels |
+| `units/`                | 27 battle units, their sheets, multi-clause unlocks, mustering and the army cap                        |
+| `raid.ts`               | Loot capacity in loot slots, what a raid takes, and the disruption it leaves                           |
+| `economy/`              | Meters (§D4/§D7), payroll (§H7), the §D8 reputation tally                                              |
+| `bar/`                  | §H join gates, the daily roster, the §H7a auction and its close                                        |
+| `research/`             | §B9/§F2 projects, discovered facts, effects                                                            |
+| `progression/`          | §I player levels, grants, the (empty) §I3 unlock catalogue                                             |
+| `user.ts`               | Client-facing `User` (no password material)                                                            |
+| `time/zone.ts`          | Europe/Athens is the game's clock; IANA zones, day boundaries, wall-clock formatting                   |
+| `market/blackmarket.ts` | The back room: 5 shared slots, priced in infamy, one take a day, battle boosts                         |
+| `api.accounts.ts`       | Settings, the black market and the admin bench: the DTOs around the game                               |
+| `battle/types.ts`       | `BattleInput`, `BattleResult`, `BattleEngine` interface                                                |
+| `battle/skirmish.ts`    | `CoinFlipSkirmishEngine`: a deliberate stub behind a swappable interface                               |
+| `battle/schedule.ts`    | Half-hour marks, the 8-24h declaration window, the one-second deployment cutoff                        |
+| `battle/scheduled.ts`   | A declared fight: targets, gates, deployments, and what may legally be called                          |
+| `battle/perimeter.ts`   | The ring outside the fight, who does not get away, and whose report goes missing                       |
+| `battle/traps.ts`       | What is buried under an approach: the small bite it takes, or the wire that slows                      |
+| `spying/spying.ts`      | The spy contest: tiers, the two scores, cheapest-first exposure, the report schemas                    |
+| `moves/moves.ts`        | Columns between the crew's own places: district, gate, held and allied ground                          |
+| `battle/analysis.ts`    | The after-action ledger, and who is allowed to read one                                                |
+| `economy/infamy.ts`     | §D7 as an uncapped point total: what a kill is worth, and what a name buys                             |
+| `api.ts`                | All request/response DTO schemas + `ApiErrorSchema`                                                    |
+| `api.battle.ts`         | The declared-battle contract, kept separate because it is a whole feature's worth                      |
 
 The `building/` module is split by concern rather than kept as one file: `kinds` (the catalogue),
 `state` (what stands and its caps), `cost` (materials and clock), `power` (the grid), `production`

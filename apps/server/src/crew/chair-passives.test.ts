@@ -201,7 +201,7 @@ describe('each chair, from its seat points to where it is spent', () => {
         expect(started.kind).toBe('started');
         if (started.kind !== 'started') return;
         expect(started.control.upgradePaid).toEqual(
-          upgradeCost(location.kind, control.level, expectedPercent(50, points)),
+          upgradeCost(location, control.level, expectedPercent(50, points)),
         );
 
         // A row from before the price was kept refunds off the same cut, not the full price
@@ -217,7 +217,7 @@ describe('each chair, from its seat points to where it is spent', () => {
         expect(cancelled.kind).toBe('cancelled');
         if (cancelled.kind !== 'cancelled') return;
         expect(cancelled.refund).toEqual(
-          cancelRefund(upgradeCost(location.kind, control.level, expectedPercent(50, points))!),
+          cancelRefund(upgradeCost(location, control.level, expectedPercent(50, points))!),
         );
       });
 
@@ -498,6 +498,7 @@ describe('what the first pass of the definitive bug pass fixed', () => {
       speedPercent: 0,
       locationLevels: new Map(),
       costPercentByTier: {},
+      speedPercentByTier: {},
     };
     const paid = musterCost(unit, 10, 0, 0, 50).caps ?? 0;
     expect(paid).toBeLessThan((unit.cost.caps ?? 0) * 10);

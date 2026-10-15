@@ -118,10 +118,10 @@ export function districtDefense(buildings: readonly Building[]): number {
  * Percentage off every research price, per Lab level (maintainer ruling P7-C, 2026-10-02).
  *
  * Raising the Lab cuts what research costs and not how long it takes: the clock is the Researcher's
- * (with the crew's research points and the Lab's cards), the price is the Lab's and the
- * track officer's. It took 2 points a level off the clock until that day. At 1.5 a level a Lab at
- * 20 takes 30% off, the same as the best track officer, and the two multiply (`researchItemPrice`),
- * so no price falls below about half.
+ * (with the crew's research points and the Lab's cards), and the price is the Lab's alone since
+ * 2026-10-04, when the maintainer ruled that no officer cuts the price of a programme
+ * (`researchItemPrice`). It took 2 points a level off the clock until P7-C. At 1.5 a level a Lab
+ * at 20 takes 30% off, so no price falls below seven tenths.
  */
 export const RESEARCH_COST_PER_LAB_LEVEL = 1.5;
 
@@ -169,6 +169,18 @@ export const CASUALTY_RECOVERY_PER_INFIRMARY_LEVEL = 4;
 
 export function infirmaryRecoveryPercent(buildings: readonly Building[]): number {
   return buildingLevel(buildings, 'infirmary') * CASUALTY_RECOVERY_PER_INFIRMARY_LEVEL;
+}
+
+/**
+ * Every medic point a crew's win is recovered on: its own (perks, the Joker's card, held ground,
+ * from the standing fold's `casualtyRecoveryPercent`) and the Infirmary's four a level, added.
+ *
+ * The one sum both the fights (`recoverCasualties`) and the Crew page's medic card read
+ * (maintainer, 2026-10-15), so the share the card quotes through `casualtyRecoveryShare` is the
+ * share the fight spends.
+ */
+export function medicPointsOf(crewMedicPoints: number, buildings: readonly Building[]): number {
+  return Math.max(0, crewMedicPoints) + infirmaryRecoveryPercent(buildings);
 }
 
 /** Percentage points on what a won raid brings home. Modifications only: no structure grants it. */

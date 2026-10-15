@@ -1,6 +1,6 @@
 import { ATTRIBUTE_LABELS, type AttributeName, type Attributes } from '../attributes.js';
 import type { NumericEffectChannel } from '../crew/effects.js';
-import { markFromPoints, markIndex, type OfficerMark } from '../crew/marks.js';
+import { OFFICER_MARKS, markFromPoints, markIndex, type OfficerMark } from '../crew/marks.js';
 import { FACTION_RANKS, type FactionCard, type FactionRank } from './factions.js';
 
 /**
@@ -28,60 +28,70 @@ export interface FactionCardSpec {
   readonly blurb: string;
   /** The three attributes it reads. Public, so the holder knows what to train. */
   readonly reads: readonly [AttributeName, AttributeName, AttributeName];
-  /** The standing-effects channel every member of the table is paid on. */
-  readonly channel: NumericEffectChannel;
-  /** The channel in the player's words, for the line under the mark. */
-  readonly channelLabel: string;
-  /** Paid in points rather than percent: the medics' channel goes through a curve (`crew/effects.ts`). */
-  readonly points?: true;
+  /**
+   * The standing-effects channels every member of the table is paid on: the card's value goes on
+   * each. One for every card but the Queen, whose rewards are a job's pay and its experience.
+   */
+  readonly channels: readonly NumericEffectChannel[];
+  /** The card's value at the top grade, S+ (maintainer, 2026-10-15): "up to X". */
+  readonly upTo: number;
 }
 
+/**
+ * The five cards (maintainer, 2026-10-15). Every card pays every member of the faction, each its
+ * own channel, at a value read off the holder's grade (`cardValue`).
+ */
 export const FACTION_CARD_SPECS: Readonly<Record<FactionCard, FactionCardSpec>> = {
   ace_spades: {
     card: 'ace_spades',
     name: 'Ace of spades',
     aspect: 'Attacks',
-    blurb: 'The one who calls the fights. Everybody at the table hits harder for it.',
+    blurb: 'The one who calls the fights. Everybody at the table hits harder going in.',
     reads: ['strength', 'strategy', 'authority'],
-    channel: 'unitOffensePercent',
-    channelLabel: 'What your people hit for',
+    // On the attacking side only (`battle/effects.ts`): declared fights and battle jobs.
+    channels: ['tableAttackOffensePercent'],
+    upTo: 10,
   },
   king_diamonds: {
     card: 'king_diamonds',
     name: 'King of diamonds',
     aspect: 'Defences',
-    blurb: 'The one who holds the door. Everything the table holds is harder to take off it.',
+    blurb: 'The one who holds the door. Everybody at the table is harder to put down at home.',
     reads: ['toughness', 'organization', 'resolve'],
-    channel: 'defensePercent',
-    channelLabel: 'Holding your ground',
+    // On the defending side only (`battle/effects.ts`), outside the held-ground curve.
+    channels: ['tableDefenceVitalityPercent'],
+    upTo: 10,
   },
   queen_hearts: {
     card: 'queen_hearts',
     name: 'Queen of hearts',
     aspect: 'Planning',
-    blurb: 'The one with the map. Every run the table sends out comes home sooner.',
+    blurb: 'The one with the map. Every run the table sends out comes home with more.',
     reads: ['logic', 'analysis', 'logistics'],
-    channel: 'missionSpeedPercent',
-    channelLabel: "Off every run's clock",
+    // A job's pay and its experience, the channels a job's settle already reads.
+    channels: ['missionSpoilsPercent', 'missionXpPercent'],
+    upTo: 10,
   },
   jack_clubs: {
     card: 'jack_clubs',
     name: 'Jack of clubs',
     aspect: 'Infamy',
-    blurb: 'The one whose name gets around. Everything the table does is talked about more.',
+    blurb:
+      'The one whose name gets around. Every fight the table wins a name in is talked about more.',
     reads: ['intimidation', 'charisma', 'deception'],
-    channel: 'infamyGainPercent',
-    channelLabel: 'Infamy off everything that earns it',
+    // A multiplier on a fight's final infamy tally, rounded down (`battle/resolve.ts`).
+    channels: ['tableBattleInfamyPercent'],
+    upTo: 25,
   },
   joker: {
     card: 'joker',
     name: 'The Joker',
     aspect: 'Luck',
-    blurb: 'The one who walks away from things. More of the table walks away with them.',
+    blurb: 'The one who always finds something. The table turns up rarer pages and parts.',
     reads: ['improvisation', 'intuition', 'stealth'],
-    channel: 'casualtyRecoveryPercent',
-    channelLabel: 'Medic points',
-    points: true,
+    // Luck on every page and component draw (`items/luck.ts`).
+    channels: ['dropLuck'],
+    upTo: 10,
   },
 };
 
@@ -172,19 +182,30 @@ export function cardMark(card: FactionCard, attributes: Attributes): OfficerMark
 }
 
 /**
- * What a mark is worth to the table, in percent on the card's channel.
- *
- * Half a point per band, whole numbers: a fresh recruit's F+ is worth one, a B is seven, and the
- * S+ nobody has reached yet is ten. Rounded rather than floored so the odd bands count too.
+ * What a card is worth at a mark: its value at S+ ({@link FactionCardSpec.upTo}), scaled by the
+ * mark's place on the ladder and rounded (maintainer, 2026-10-15: "up to X" at the top grade,
+ * scaling down by grade as before). A ten-point card is a B's 7 and an F-'s nothing; the Jack's
+ * twenty-five is a B's 16.
  */
-export function cardBonusPercent(mark: OfficerMark): number {
-  return Math.round(markIndex(mark) / 2);
+export function cardValue(card: FactionCard, mark: OfficerMark): number {
+  return Math.round((FACTION_CARD_SPECS[card].upTo * markIndex(mark)) / (OFFICER_MARKS.length - 1));
 }
 
-/** "+7% What your people hit for": the effect line under a card. */
+/** What the card does at a mark, in the player's words: the line under a card and its hover. */
 export function describeCardBonus(card: FactionCard, mark: OfficerMark): string {
-  const spec = FACTION_CARD_SPECS[card];
-  return `+${cardBonusPercent(mark)}${spec.points ? '' : '%'} ${spec.channelLabel}`;
+  const value = cardValue(card, mark);
+  switch (card) {
+    case 'ace_spades':
+      return `+${value}% damage when attacking`;
+    case 'king_diamonds':
+      return `+${value}% vitality when defending`;
+    case 'queen_hearts':
+      return `+${value}% mission rewards and experience`;
+    case 'jack_clubs':
+      return `+${value}% infamy from battles`;
+    case 'joker':
+      return `Luck ${value}: better odds of rarer pages and components`;
+  }
 }
 
 /** "Strength, Strategy and Authority": what the card reads, for the members list. */

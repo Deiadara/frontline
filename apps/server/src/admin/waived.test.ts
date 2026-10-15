@@ -134,7 +134,7 @@ describe('the gates admin mode waives, met by an ordinary player', () => {
     expect(ordered.json<{ error: { code: string } }>().error.code).toBe('INSUFFICIENT_RESOURCES');
   });
 
-  it('refuses a fifth build order, and a seventh once Batch Runs is in', async () => {
+  it('refuses a fifth build order, and a sixth once Batch Runs is in', async () => {
     const app = await makeApp();
     const { token, baseId } = await makePlayer(app, 'eager');
     const base = app.repos.bases.findById(baseId);
@@ -163,10 +163,10 @@ describe('the gates admin mode waives, met by an ordinary player', () => {
       });
 
     /*
-     * The queue is four wide before anything is researched (maintainer, 2026-09-22) and six after
+     * The queue is four wide before anything is researched (maintainer, 2026-09-22) and five after
      * Batch Runs, the Engineer's third rung. Both halves are walked here rather than only the second,
-     * because a capacity that ignored the crew's research would sit at six for everybody and the
-     * old version of this test, which queued six and expected a refusal on the seventh, would
+     * because a capacity that ignored the crew's research would sit at one figure for everybody and
+     * the old version of this test, which queued the ceiling and expected a refusal past it, would
      * have passed all the way through the change without noticing.
      */
     for (let placed = 0; placed < BASE_BUILD_QUEUE; placed += 1) {
@@ -190,9 +190,9 @@ describe('the gates admin mode waives, met by an ordinary player', () => {
       const res = await order();
       expect(res.statusCode, res.body.slice(0, 200)).toBe(200);
     }
-    const seventh = await order();
-    expect(seventh.statusCode).toBe(409);
-    expect(errorOf(seventh.body)).toContain(String(MAX_BUILD_QUEUE));
+    const sixth = await order();
+    expect(sixth.statusCode).toBe(409);
+    expect(errorOf(sixth.body)).toContain(String(MAX_BUILD_QUEUE));
   });
 
   /**
@@ -283,7 +283,6 @@ describe('the gates admin mode waives, met by an ordinary player', () => {
         'no_unit_slots',
         'not_enough_infamy',
         'not_interested',
-        'queue_full',
         'requirement',
       ].sort(),
     );

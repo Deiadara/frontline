@@ -180,6 +180,12 @@ export const PayrollLedgerSchema = z.object({
    * constant, so the button cannot promise a number the book does not move by.
    */
   stepSize: z.number().int().positive(),
+  /**
+   * Caps tonight's Bar bids hold on the book, won or lost, until the close (maintainer,
+   * 2026-10-04 and 2026-10-13): taken off `available`, so the Crew page and the Bar agree about
+   * what is left to promise. Zero on a night the crew has bid on nobody.
+   */
+  heldByBids: z.number().int().nonnegative().default(0),
 });
 export type PayrollLedger = z.infer<typeof PayrollLedgerSchema>;
 
@@ -189,21 +195,25 @@ export function payrollLedger(
   bonusPercent = 0,
   stepDiscountPercent = 0,
   fixerPercent = 0,
+  /** What tonight's bids hold (`wagesHeldByBids`), off what is left to promise. */
+  heldByBids = 0,
 ): PayrollLedger {
   const capacity = payrollCapacity(nexusLevel, payroll.purchasedSteps, bonusPercent, fixerPercent);
   const committed = committedPayroll(payroll.commitments);
+  const held = Math.max(0, Math.round(heldByBids));
   return {
     capacity,
     committed,
     // Never negative on screen. It can genuinely go negative for a crew that demolished its Nexus
     // with a full book, and a player reading "-40 available" learns nothing they cannot see from
     // the two figures above it.
-    available: Math.max(0, capacity - committed),
+    available: Math.max(0, capacity - committed - held),
     purchasedSteps: payroll.purchasedSteps,
     nextStepCost: payrollStepCost(payroll.purchasedSteps, stepDiscountPercent),
     stepSize:
       payrollCapacity(nexusLevel, payroll.purchasedSteps + 1, bonusPercent, fixerPercent) -
       capacity,
+    heldByBids: held,
   };
 }
 

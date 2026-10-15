@@ -27,6 +27,7 @@ import {
   type RailwayOffer,
   type UnitMove,
   type UnitMoveView,
+  shortcutMinutes,
 } from '@frontline/shared';
 import { isFightingForce, mergeArmies, removeForce } from '../battle/forces.js';
 import { columnSpeedFor } from '../battle/movement.js';
@@ -281,7 +282,8 @@ export function moveMinutes(
   const middle = byRail
     ? (rawRailOffer(repos, base, from, to, riding)?.minutes ?? legs.road)
     : legs.road;
-  return middle + (legs.throughTheDoor ? legs.gateLeg : 0);
+  // SHORTCUT: the Cartographer halves the whole journey, door and rails included.
+  return shortcutMinutes(middle + (legs.throughTheDoor ? legs.gateLeg : 0), riding.army);
 }
 
 /**

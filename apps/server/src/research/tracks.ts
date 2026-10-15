@@ -131,6 +131,7 @@ export function researchHead(
     addsPercent: published(
       researchTimeCut(others + clock.headCutPercent) - researchTimeCut(others),
     ),
+    settled: fit.chairSettled('researcher'),
   };
 }
 

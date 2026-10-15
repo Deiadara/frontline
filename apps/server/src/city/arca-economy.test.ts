@@ -96,7 +96,8 @@ describe('the readers of the Arca ground (B2)', () => {
     const rabble = ratesForUnit(musterRatesFor(repos, base, NOW), findUnit('razors')!);
     const heavy = ratesForUnit(musterRatesFor(repos, base, NOW), findUnit('juggernauts')!);
     expect(findUnit('razors')!.tier).toBe('rabble');
-    expect(rabble.costPercent - before.costPercent).toBe(20);
+    // Level 5 is the doubled last step (2026-10-09): 4, 8, 12, 16, 24.
+    expect(rabble.costPercent - before.costPercent).toBe(24);
     expect(heavy.costPercent).toBe(before.costPercent);
   });
 
@@ -108,9 +109,9 @@ describe('the readers of the Arca ground (B2)', () => {
     };
     const before = drillSecondsBySubject(repos, crew, undefined, NOW).get('o')!;
     take(repos, base.id, 'saints-rest-yard', 5);
-    expect(standingEffectsFor(repos, base, NOW).trainingTimePercent).toBe(25);
+    expect(standingEffectsFor(repos, base, NOW).trainingTimePercent).toBe(30);
     expect(drillSecondsBySubject(repos, crew, undefined, NOW).get('o')).toBe(
-      Math.round(before * 0.75),
+      Math.round(before * 0.7),
     );
   });
 
@@ -119,7 +120,7 @@ describe('the readers of the Arca ground (B2)', () => {
     const before = storeCeilingsOf(repos, base, NOW);
     take(repos, base.id, 'nave-undercroft', 5);
     const after = storeCeilingsOf(repos, base, NOW);
-    expect(standingEffectsFor(repos, base, NOW).storageGroundPercent).toBe(20);
+    expect(standingEffectsFor(repos, base, NOW).storageGroundPercent).toBe(24);
     expect(after.planks).toBeGreaterThan(before.planks);
     expect(after.oil).toBeGreaterThan(before.oil);
     expect(after.caps).toBe(before.caps);
@@ -147,7 +148,7 @@ describe('the readers of the Arca ground (B2)', () => {
     const { repos, base } = stack();
     const before = missionXpBonusPercent(repos, base, NOW);
     take(repos, base.id, 'cloisters-choirloft', 5);
-    expect(missionXpBonusPercent(repos, base, NOW) - before).toBe(6);
+    expect(missionXpBonusPercent(repos, base, NOW) - before).toBe(7);
   });
 
   it('Printworks held whole: a bigger payroll book', () => {

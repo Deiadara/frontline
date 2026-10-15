@@ -1,7 +1,9 @@
 import type { ReactNode } from 'react';
 import { HoverCard } from '../../components/ui/HoverCard';
+import { Icon } from '../../components/ui/Icon';
 import { cn } from '../../lib/cn';
 import { RULE_CHIP, RULE_INK, ruleTone } from './rules';
+import { AdHocArmyScrap } from './AdHocArmyRule';
 
 /**
  * The three chips a unit's marks band is made of, each explaining itself on a pointer.
@@ -39,7 +41,7 @@ export function antiCombineRule(levels: number): {
   return {
     id: 'anti_combine',
     label: `Anti-Combine ${numeral}`,
-    description: `Every unit of the crew fights a Combine force at +${percent}% offense and +${percent}% vitality: one rung for the Nave, and one for each city's last Combine district held whole.`,
+    description: `Every unit of the crew fights a Combine force in a declared battle at +${percent}% offense and +${percent}% vitality: one rung for the Nave, and one for each city's last Combine district held whole. A battle job on the board does not count.`,
   };
 }
 
@@ -57,7 +59,7 @@ function TagScrap({ title, ink, children }: { title: string; ink: string; childr
  * A rule, which is not a modifier and must not look like one.
  *
  * `taunts` and `mends` change what *happens* rather than what a number is, and a player who reads
- * `SHIELD LINE` in the same verdigris chip as `CLOSE QUARTERS` will file it as another +25%. Brass,
+ * `TAUNT` in the same verdigris chip as `CLOSE QUARTERS` will file it as another +25%. Brass,
  * which is the chrome the interface already uses for "this is a mechanism", and always first in the
  * row: a rule outranks a percentage.
  *
@@ -69,16 +71,29 @@ function TagScrap({ title, ink, children }: { title: string; ink: string; childr
 export function RuleTag({
   rule,
 }: {
-  rule: { id: string; label: string; description: string; tone?: string };
+  rule: {
+    id: string;
+    label: string;
+    description: string;
+    tone?: string;
+    level?: number | undefined;
+  };
 }) {
   const tone = ruleTone(rule);
+  // AD HOC ARMY shows the robot's whole card above its words, so it takes a card-sized hover.
+  const robots = rule.id === 'ad_hoc_army';
   return (
     <HoverCard
       label={rule.label}
+      {...(robots ? { size: 'card' as const } : {})}
       card={
-        <TagScrap title={rule.label} ink={RULE_INK[tone]}>
-          {rule.description}
-        </TagScrap>
+        robots ? (
+          <AdHocArmyScrap rule={rule} ink={RULE_INK[tone]} />
+        ) : (
+          <TagScrap title={rule.label} ink={RULE_INK[tone]}>
+            {rule.description}
+          </TagScrap>
+        )
       }
     >
       <span
@@ -94,30 +109,77 @@ export function RuleTag({
   );
 }
 
+/**
+ * A tag the unit gains from a location's level and has not unlocked yet (maintainer, 2026-10-09):
+ * the same chip greyed out with a cross, and the hover says what it does and how to get it.
+ */
+export function LockedRuleTag({
+  tag,
+}: {
+  tag: { label: string; description: string; unlock: string };
+}) {
+  return (
+    <HoverCard
+      label={`${tag.label}: locked`}
+      card={
+        <TagScrap title={tag.label} ink="text-ink-300">
+          {tag.description} <span className="text-ink-400">{tag.unlock}.</span>
+        </TagScrap>
+      }
+    >
+      <span
+        className={cn(
+          'flex h-5 items-center gap-1 whitespace-nowrap rounded-sm border px-1.5',
+          'border-surface-600/60 bg-surface-950/40 text-ink-400 opacity-70',
+          'font-display text-[10px] font-semibold uppercase tracking-[0.08em]',
+        )}
+        data-locked="yes"
+      >
+        <Icon name="close" className="h-2.5 w-2.5" />
+        {tag.label}
+      </span>
+    </HoverCard>
+  );
+}
+
+/**
+ * A modifier that is the sheet's signature (`UnitSpec.goldenModifiers`, the Breakers' Breaching,
+ * maintainer 2026-10-09) draws in the gold the Bounty Wall's golden jobs wear: same size, same
+ * hover, a different metal.
+ */
+const GOLDEN_CHIP =
+  'border-ember-100 bg-ember-100/15 text-ember-100 shadow-[0_0_0_1px_rgba(255,209,102,0.6)]';
+const PLAIN_CHIP = 'border-verdigris-500/60 bg-verdigris-700/25 text-verdigris-100';
+
 export function ModifierTag({
   modifier,
 }: {
-  modifier: { label: string; description: string; when: string };
+  modifier: { label: string; description: string; when: string; golden?: boolean | undefined };
 }) {
   return (
     <HoverCard
       label={modifier.label}
       card={
-        <TagScrap title={modifier.label} ink="text-verdigris-100">
-          {modifier.description}{' '}
+        <TagScrap
+          title={modifier.label}
+          ink={modifier.golden ? 'text-ember-100' : 'text-verdigris-100'}
+        >
           {/*
-           * The condition, folded into the sentence rather than filed under its own heading.
-           *
-           * It had one ("When it happens"), and the heading was longer than the answer: `when` is a
-           * clause, "in the city" or "when holding ground", never a sentence. Dropping it outright
-           * would have been the easy reading of the ask and the wrong one, because Ambush without
-           * "in the city" is a flat +25% and the whole point of the modifier is that it is not.
+           * The description alone (maintainer, 2026-10-13): the grey "Counts in ..." clause that
+           * trailed it is gone from every unit tag. Each description names its own condition. The
+           * one grey line a tag still carries is a locked tag's way to unlock it (`LockedRuleTag`).
            */}
-          <span className="text-ink-400">Counts {modifier.when}.</span>
+          {modifier.description}
         </TagScrap>
       }
     >
-      <span className="flex h-5 items-center whitespace-nowrap rounded-sm border border-verdigris-500/60 bg-verdigris-700/25 px-1.5 font-display text-[10px] font-semibold uppercase tracking-[0.08em] text-verdigris-100">
+      <span
+        className={cn(
+          'flex h-5 items-center whitespace-nowrap rounded-sm border px-1.5 font-display text-[10px] font-semibold uppercase tracking-[0.08em]',
+          modifier.golden ? GOLDEN_CHIP : PLAIN_CHIP,
+        )}
+        data-golden={modifier.golden ? 'yes' : undefined}
+      >
         {modifier.label}
       </span>
     </HoverCard>
@@ -134,16 +196,18 @@ export function ModifierTag({
 export function AffinityTag({
   affinity,
   unitName,
-  ignored = false,
+  cancelledBy = null,
 }: {
   affinity: { id: string; label: string; note: string; good: boolean };
   unitName: string;
   /**
-   * A weakness the crew's ground cancels (the Tolling Tower's Noisy, 2026-10-07): drawn in the
-   * tower's blue and struck through, the hover saying which ground does it.
+   * What cancels this weakness for the crew's unit, by name (maintainer, 2026-10-15): a Tolling
+   * Tower while its bells ring, a held place that makes the crew immune, or the unit's door. Drawn
+   * in blue and struck through, the hover naming it.
    */
-  ignored?: boolean;
+  cancelledBy?: string | null | undefined;
 }) {
+  const ignored = cancelledBy !== null && cancelledBy !== undefined;
   return (
     <HoverCard
       label={`${affinity.label}: ${affinity.note}`}
@@ -158,9 +222,11 @@ export function AffinityTag({
               : `${unitName} suffer where this holds: ${affinity.note}.`}
           </p>
           {ignored && (
-            <p className="font-body text-[13px] leading-relaxed text-hextech-300">
-              Cancelled by your Tolling Tower: {unitName} ignore {affinity.label} everywhere while
-              the bells ring.
+            <p
+              className="font-body text-[13px] leading-relaxed text-hextech-300"
+              data-testid={`cancelled-by-${affinity.id}`}
+            >
+              Cancelled by {cancelledBy}: {unitName} ignore {affinity.label} in a fight.
             </p>
           )}
         </div>

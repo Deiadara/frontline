@@ -3,6 +3,7 @@ import {
   FACTION_CARD_SPECS,
   canAdminister,
   describeCardBonus,
+  describeOnboarding,
   describeCardReads,
   FACTION_RANK_LABELS,
   canKick,
@@ -77,6 +78,14 @@ export function MemberWindow({
   const mayRank = rank !== null && !isSelf && canSetRank(rank) && member.rank !== 'leader';
   // The leader seats everybody at the table, themselves included (P3-C, 2026-10-02).
   const maySeat = rank !== null && canAdminister(rank);
+  // Onboarding (2026-10-15): a seat whose holder changed in the last twelve hours is locked, so
+  // nobody moves out of this member's seat or into a card whose seat is still onboarding.
+  const now = new Date();
+  const ownOnboarding = describeOnboarding(member.onboardingUntil, now);
+  const onboardingOf = (card: FactionCard): string | null => {
+    const holder = data.members.find((one) => one.card === card);
+    return holder ? describeOnboarding(holder.onboardingUntil, now) : null;
+  };
   const [asking, setAsking] = useState<'kick' | 'hand_over' | 'leave' | null>(null);
   const theirArmy = data.armies.find((entry) => entry.memberUserId === member.userId);
   const takesItWithYou = isSelf && rank !== null && leavingDisbands(rank, data.members.length);
@@ -153,7 +162,10 @@ export function MemberWindow({
                 {FACTION_CARD_SPECS[member.card].blurb}
               </p>
               <p className="font-body text-[12px] text-ink-300">
-                Reads {describeCardReads(member.card)}. At their {member.cardMark}:{' '}
+                {/* Off the Overseer as their Right Hand lifts them, the sheet the crew screen
+                    prints (maintainer, 2026-10-15). */}
+                Reads {describeCardReads(member.card)}, with their Right Hand&rsquo;s lift. At their{' '}
+                {member.cardMark}:{' '}
                 <span className="text-ink-100">
                   {describeCardBonus(member.card, member.cardMark)}
                 </span>{' '}
@@ -189,19 +201,29 @@ export function MemberWindow({
             <Dropdown
               label={`Which card ${memberName(member)} sits at`}
               value={member.card}
-              disabled={pending}
+              // A seat in Onboarding is locked (2026-10-15): greyed, the reason under it.
+              disabled={pending || ownOnboarding !== null}
               onChange={(value) => {
                 if (value !== member.card) onSeat(value);
               }}
-              options={CARD_BY_SLOT.map((card) => ({
-                value: card,
-                label: FACTION_CARD_SPECS[card].name,
-                hint: FACTION_CARD_SPECS[card].aspect,
-              }))}
+              options={CARD_BY_SLOT.map((card) => {
+                const locked = onboardingOf(card);
+                return {
+                  value: card,
+                  label: FACTION_CARD_SPECS[card].name,
+                  hint: locked ?? FACTION_CARD_SPECS[card].aspect,
+                  disabled: locked !== null,
+                };
+              })}
               data-testid={`seat-${member.username}`}
             />
-            <p className="font-body text-[12px] leading-snug text-ink-400">
-              Whoever holds that card now takes this seat&rsquo;s card instead.
+            <p
+              className="font-body text-[12px] leading-snug text-ink-400"
+              data-testid={`seat-reason-${member.username}`}
+            >
+              {ownOnboarding === null
+                ? 'Whoever holds that card now takes this seat\u2019s card instead.'
+                : `${ownOnboarding}: this seat is locked, and its card pays nothing until then.`}
             </p>
           </section>
         )}

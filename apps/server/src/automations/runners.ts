@@ -45,6 +45,7 @@ import {
   NO_RIGHT_HAND_TEXT,
   missionSpeedPercentIn,
   areaPayPercent,
+  missionCityPercentIn,
   missionWalkMinutes,
   type MissionOffer,
 } from '@frontline/shared';
@@ -549,9 +550,14 @@ const missionsRunner: AutomationRunner = {
         // What the launch below freezes: the ground's premium, the crew's cut and the leader's.
         areaPayPercent(candidate.areaId) +
           effects.missionSpoilsPercent +
+          missionCityPercentIn(
+            effects.missionSpoilsPercentByCity,
+            base.districtId,
+            candidate.areaId,
+          ) +
           effects.leadLootPercent +
           (ramp?.payPercent ?? 0),
-        missionSpeedPercentIn(effects, candidate.areaId),
+        missionSpeedPercentIn(effects, candidate.areaId, base.districtId),
         ramp,
         missionWalkMinutes(base.districtId, candidate.areaId),
         effects.missionCapsPercent,
@@ -600,18 +606,21 @@ const missionsRunner: AutomationRunner = {
       // by hand and the full real length by standing order, which made the Console useless for
       // watching an automation work and was a real inconsistency in a mode the board tests in.
       admin,
-      missionSpeedPercent: missionSpeedPercentIn(effects, chosen.areaId),
+      missionSpeedPercent: missionSpeedPercentIn(effects, chosen.areaId, base.districtId),
       // An officer at the head of the party pays their leading perks here as they do on a
       // hand-sent run (`routes/missions.ts`): the arrival cut on the running clock, the loot cut
       // on the take. Both were missing, so a led standing order ran on the unled clock and pay.
       leadSpeedPercent: effects.leadArrivalPercent,
       missionSpoilsPercent: effects.missionSpoilsPercent + effects.leadLootPercent,
+      missionSpoilsPercentByCity: effects.missionSpoilsPercentByCity,
+      missionTravelPercentByCity: effects.missionTravelPercentByCity,
       unitSpeedPercent: effects.unitSpeedPercent,
       // §C3: the same road cuts the manual launch reads (maintainer, 2026-09-23). A standing
       // order's party walks the same streets as a hand-sent one.
       travelSpeedPercent: effects.travelSpeedPercent,
       roadBaseCutPercent: chairPassiveOf(effects, 'cartographer', 'travel_time'),
-      anyRide: effects.anyRide,
+      vehicleCapacityPercent: effects.vehicleCapacityPercent,
+      vehicleSpeedPercent: effects.vehicleSpeedPercent,
       // The opening band, for the same reason `admin` is here: a standing order and a hand-sent
       // party on the same job must run on the same clock and be paid the same premium.
       ramp,

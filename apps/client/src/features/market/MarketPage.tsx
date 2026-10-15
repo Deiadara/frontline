@@ -487,6 +487,7 @@ function BrokerPanel({ market }: { market: MarketResponse }) {
     market.marketDiscountPercent,
     market.traderPoints ?? null,
     give,
+    market.supplyCutPercent ?? 0,
   );
   const quote = barterQuote(give, want, amount, rate);
   // The shelf the server measures the trade against, which the supply board already carries per
@@ -754,7 +755,14 @@ function SupplyPanel({ market, resetsAt }: { market: MarketResponse; resetsAt: s
   // a bad first impression.
   const units = Math.min(wanted, most);
   // After the crew's market discount, the figure the till charges (maintainer, 2026-09-29).
-  const price = supplyPrice(key, units, market.marketDiscountPercent, market.traderPoints ?? null);
+  // ...and the Long Bond's cut off the run alone (2026-10-09).
+  const price = supplyPrice(
+    key,
+    units,
+    market.marketDiscountPercent,
+    market.traderPoints ?? null,
+    market.supplyCutPercent ?? 0,
+  );
   const blocked =
     most === 0 ? supplyStall(line, market, left, resetsAt) : units <= 0 ? 'Say how much' : null;
 
@@ -816,6 +824,7 @@ function SupplyPanel({ market, resetsAt }: { market: MarketResponse; resetsAt: s
                 each,
                 market.marketDiscountPercent,
                 market.traderPoints ?? null,
+                market.supplyCutPercent ?? 0,
               ).toLocaleString(undefined, {
                 maximumFractionDigits: 2,
               })}

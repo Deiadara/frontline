@@ -517,6 +517,41 @@ describe('the salvage refund on a side of several crews', () => {
   });
 });
 
+/**
+ * The Cold Sidings (maintainer, 2026-10-14): so much scrap and HQ metal a dead body, credited after
+ * the fight through the stores, and said in the report.
+ */
+describe('the Cold Sidings on a lost attack', () => {
+  it('pays the holder for its own dead, rounded down once, and puts the line in the report', async () => {
+    const world = await makeWorld('defender', {
+      killed: { razors: 20 },
+      fled: {},
+      winnerLosses: {},
+    });
+    const { caller } = await crews(world, { caller: { razors: 20 } });
+    const sidings = world.app.repos.city.control('last-platform-sidings')!;
+    world.app.repos.city.put({
+      ...sidings,
+      holder: { kind: 'crew', baseId: caller.baseId },
+      level: 2,
+      garrison: {},
+    });
+    const stock = () => world.app.repos.bases.findById(caller.baseId)!.resources;
+    expect((await call(world, caller, onBelt(PLOT))).statusCode).toBe(200);
+    const battleId = onlyPending(world);
+    expect((await deploy(world, caller, battleId, { razors: 20 })).statusCode).toBe(200);
+    const before = stock();
+    expect(runOnTheTick(world)).toBe(1);
+    // Twenty dead at level 2: 9 scrap and 1.8 HQ metal a body, so 180 and 36.
+    expect(stock().scrap - before.scrap).toBe(180);
+    expect(stock().highQualityMetal - before.highQualityMetal).toBe(36);
+    const [report] = world.app.repos.sieges.resolvedFor(caller.baseId, 1);
+    expect(report?.analysis?.log).toContain(
+      "The Cold Sidings stripped the attacker's dead for 180 Scrap and 36 HQ metal.",
+    );
+  });
+});
+
 describe('an ally whose posting stood in the defence (bug pass, 2026-10-05)', () => {
   it('is in the fight’s history, as the holder is', async () => {
     const world = await makeWorld('attacker', {

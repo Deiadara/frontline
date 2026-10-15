@@ -119,3 +119,49 @@ describe('a place the runners are already on their way to', () => {
     expect(screen.getByTestId('spy-send')).toBeTruthy();
   });
 });
+
+/*
+ * Guard, then the reason on hover (maintainer, 2026-10-06). The send greyed out for a tier the
+ * crew could not pay for and said nothing about why.
+ */
+describe('a tier the crew cannot pay for', () => {
+  function panel(caps: number) {
+    const run = F.actionsResponse.spyRuns[0]!;
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <MemoryRouter>
+          <SpyPanel
+            target={{ kind: 'location', locationId: 'somewhere-else' }}
+            placeName="the place"
+            districtId={run.districtId}
+            baseId="base-1"
+            caps={caps}
+            spying={{
+              runs: [],
+              parties: 1,
+              tiersOpen: ['loose_ears'],
+              quote: { minutes: 30 },
+              blocker: null,
+              locationsRefused: null,
+            }}
+            now={new Date(Date.parse(run.departedAt) + 60_000)}
+            testId="spy"
+          />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+    return screen.getByTestId('spy-send');
+  }
+
+  it('greys the send and says what the tier costs against what is held', () => {
+    const send = panel(40);
+    expect(send).toBeDisabled();
+    expect(send.getAttribute('data-tip')).toBe('Loose Ears costs 100 caps and you hold 40');
+  });
+
+  it('offers the send with no reason on it once the caps are there', () => {
+    const send = panel(10_000);
+    expect(send).toBeEnabled();
+    expect(send.getAttribute('data-tip')).toBeNull();
+  });
+});

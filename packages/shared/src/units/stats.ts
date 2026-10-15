@@ -231,6 +231,18 @@ export const UNIT_MODIFIERS = {
     context: 'vs_low_morale',
     percent: 35,
   },
+  /*
+   * Terror as Arch Nineteen hands it to the Hollow Men at level 5 (maintainer, 2026-10-13): the same
+   * rule a little stronger, drawn in gold. 40 at a wavering target where the ordinary one is 35,
+   * so 16 at a shaken one through the same `terrorShare`. Never on a sheet: granted alone.
+   */
+  golden_terror: {
+    label: 'Terror',
+    description:
+      'Hits a shaken enemy (morale under 60) 16% harder, and a wavering one (under 35) 40% harder.',
+    context: 'vs_low_morale',
+    percent: 40,
+  },
   last_stand: {
     label: 'Last Stand',
     description:
@@ -270,12 +282,6 @@ export const UNIT_MODIFIERS = {
     context: 'urban',
     percent: 25,
     when: 'in urban ground, and on any ground at all for the opening exchange',
-  },
-  rooftop: {
-    label: 'Rooftop',
-    description: 'Hits harder in the streets, firing from above.',
-    context: 'urban',
-    percent: 15,
   },
 } as const;
 

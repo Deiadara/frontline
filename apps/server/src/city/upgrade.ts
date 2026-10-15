@@ -1,6 +1,5 @@
 import {
   chairPassiveOf,
-  LOCATION_CATALOG,
   canAfford,
   spendResources,
   upgradeCost,
@@ -13,7 +12,7 @@ import {
   type PartialResources,
 } from '@frontline/shared';
 import { adminCost, adminSeconds, adminWaives } from '../admin/mode.js';
-import { crewEffectsFor } from '../crew/standing.js';
+import { crewEffectsFor, standingEffectsFor } from '../crew/standing.js';
 import type { Repositories } from '../db/repos/index.js';
 import { creditBase, refuseWaste } from '../district/stores.js';
 
@@ -37,16 +36,16 @@ import { creditBase, refuseWaste } from '../district/stores.js';
  * Four steps, one per upgrade on the five-level ladder (maintainer, 2026-10-06): each upgrade to
  * level n takes what the old nine-step clock gave the upgrade to level 2n, the same way
  * `UPGRADE_COST_SCALE` reads the old price ladder at every second step. So the last level still
- * takes 11.5x the base, which on the worst ground in the catalogue (an Abandoned Nuclear Plant,
+ * takes 11.5x the base, which on the worst ground on the map (an Abandoned Nuclear Plant,
  * `baseDefense` 7) is about eight hours, the same "better part of a working day" the top of the
  * building ladder asks for; the whole climb is shorter because the in-between levels are gone.
  */
 export const UPGRADE_BASE_SECONDS = 900;
 export const UPGRADE_SECONDS_SCALE: readonly number[] = [3, 5.9, 9.2, 11.5];
 
-export function upgradeSeconds(kind: Location['kind'], level: number): number {
+export function upgradeSeconds(location: Pick<Location, 'baseDefense'>, level: number): number {
   const step = Math.min(UPGRADE_SECONDS_SCALE.length, Math.max(1, level)) - 1;
-  const weight = LOCATION_CATALOG[kind].baseDefense / 4;
+  const weight = location.baseDefense / 4;
   return Math.round(UPGRADE_BASE_SECONDS * (UPGRADE_SECONDS_SCALE[step] as number) * (1 + weight));
 }
 
@@ -77,6 +76,11 @@ function engineerCutFor(repos: Repositories, base: Base, now: Date): number {
   return chairPassiveOf(crewEffectsFor(repos, base, now), 'engineer', 'building_cost');
 }
 
+/** The Records Office's cut off every location upgrade (2026-10-14), off the held ground. */
+function recordsCutFor(repos: Repositories, base: Base, now: Date): number {
+  return standingEffectsFor(repos, base, now).locationUpgradeDiscountPercent;
+}
+
 export function startUpgrade(
   repos: Repositories,
   args: {
@@ -99,15 +103,20 @@ export function startUpgrade(
   }
   if (control.upgradingUntil !== null) return { kind: 'refused', reason: 'already_working' };
 
-  const cost = upgradeCost(location.kind, control.level, engineerCutFor(repos, base, now));
-  const note = upgradeNote(location.kind, control.level);
+  const cost = upgradeCost(
+    location,
+    control.level,
+    engineerCutFor(repos, base, now),
+    recordsCutFor(repos, base, now),
+  );
+  const note = upgradeNote(location, control.level);
   if (!cost || !note) return { kind: 'refused', reason: 'at_ceiling' };
   if (!canAfford(base.resources, cost) && !adminWaives('cannot_afford', admin)) {
     return { kind: 'refused', reason: 'cannot_afford' };
   }
 
   const until = new Date(
-    now.getTime() + upgradeClockSeconds(location.kind, control.level, admin) * 1000,
+    now.getTime() + upgradeClockSeconds(location, control.level, admin) * 1000,
   ).toISOString();
   const charged = adminCost(cost, admin);
   const upgraded: LocationControl = { ...control, upgradingUntil: until, upgradePaid: charged };
@@ -119,11 +128,11 @@ export function startUpgrade(
 }
 
 /**
- * The clock an upgrade actually runs on: the catalogue's, or five seconds in admin mode. The screen
- * still quotes the catalogue's (`upgradeSeconds`), as every flattened clock does.
+ * The clock an upgrade actually runs on: the location's own, or five seconds in admin mode. The
+ * screen still quotes the real one (`upgradeSeconds`), as every flattened clock does.
  */
-function upgradeClockSeconds(kind: Location['kind'], level: number, admin: boolean): number {
-  return adminSeconds(upgradeSeconds(kind, level), admin);
+function upgradeClockSeconds(location: Location, level: number, admin: boolean): number {
+  return adminSeconds(upgradeSeconds(location, level), admin);
 }
 
 /**
@@ -140,8 +149,7 @@ export function upgradingSince(
 ): string | null {
   if (control.upgradingUntil === null) return null;
   return new Date(
-    Date.parse(control.upgradingUntil) -
-      upgradeClockSeconds(location.kind, control.level, admin) * 1000,
+    Date.parse(control.upgradingUntil) - upgradeClockSeconds(location, control.level, admin) * 1000,
   ).toISOString();
 }
 
@@ -186,7 +194,12 @@ export function cancelUpgrade(
     // the nearest thing to what was paid; the bare catalogue price paid back more than went in.
     cancelRefund(
       control.upgradePaid ??
-        upgradeCost(location.kind, control.level, engineerCutFor(repos, base, now)) ??
+        upgradeCost(
+          location,
+          control.level,
+          engineerCutFor(repos, base, now),
+          recordsCutFor(repos, base, now),
+        ) ??
         {},
     ),
     admin,

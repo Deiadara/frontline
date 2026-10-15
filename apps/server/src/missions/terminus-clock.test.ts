@@ -15,6 +15,7 @@ import {
   missionWalkMinutes,
   type Base,
   type MissionTemplate,
+  isStation,
 } from '@frontline/shared';
 import type { FastifyInstance } from 'fastify';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -73,7 +74,9 @@ const RAZOR_SPEED = findUnit('razors')!.stats.speed;
 const roadAt = (bandMinutes: number, speed: number, reductionPercent: number): number =>
   Math.round((bandMinutes / (1 + speed / 100)) * (1 - travelSpeedCut(reductionPercent) / 100));
 
-async function world(username: string): Promise<{ repos: Repositories; base: Base }> {
+async function world(
+  username: string,
+): Promise<{ repos: Repositories; base: Base; app: FastifyInstance; token: string }> {
   const config = loadConfig({ DATABASE_PATH: ':memory:', JWT_SECRET: 'test-secret' });
   const db = openDatabase(config.databasePath);
   runMigrations(db);
@@ -92,7 +95,7 @@ async function world(username: string): Promise<{ repos: Repositories; base: Bas
   const baseId = chosen.json<{ base: { id: string } }>().base.id;
   const base = repos.bases.findById(baseId)!;
   repos.bases.updateArmy(base.id, { razors: 8 }, base.musterQueue);
-  return { repos, base: repos.bases.findById(baseId)! };
+  return { repos, base: repos.bases.findById(baseId)!, app, token };
 }
 
 /** Hands this crew every location in `districtId`, which is what arms the unified bonus. */
@@ -110,7 +113,7 @@ function takeTheWhole(repos: Repositories, baseId: string, districtId: string): 
 function takeEveryPlatform(repos: Repositories, baseId: string): number {
   let taken = 0;
   for (const district of TERMINUS) {
-    const station = district.locations.find((one) => one.kind === 'rail_station');
+    const station = district.locations.find(isStation);
     if (!station) continue;
     const control = repos.city.control(station.id);
     if (!control) throw new Error(`no control row for ${station.id}`);
@@ -121,33 +124,23 @@ function takeEveryPlatform(repos: Repositories, baseId: string): number {
 }
 
 describe('what two Terminus districts are worth to a job', () => {
-  it('pays the Yards on every board, and the Blockhouse in ANTI-COMBINE rather than on the clock', async () => {
+  it('pays neither on the clock: the Yards build Heavies, the Blockhouse is ANTI-COMBINE', async () => {
     const { repos, base } = await world('yardmaster');
-    const bare = standingEffectsFor(repos, base).missionSpeedPercent;
+    const bare = standingEffectsFor(repos, base);
 
     takeTheWhole(repos, base.id, 'marshalling-yards');
     const yardsOnly = standingEffectsFor(repos, repos.bases.findById(base.id)!);
-    expect(yardsOnly.missionSpeedPercent - bare).toBe(12);
+    // Built in the Yards (maintainer, 2026-10-09): +10% damage and vitality on every Heavy, where
+    // it was 12 points of mission speed.
+    expect(yardsOnly.unitTierPercent.heavy).toMatchObject({ offense: 10, vitality: 10 });
+    expect(yardsOnly.missionSpeedPercent).toBe(bare.missionSpeedPercent);
 
     takeTheWhole(repos, base.id, 'blockhouse');
     const both = standingEffectsFor(repos, repos.bases.findById(base.id)!);
-    /*
-     * The Blockhouse held whole is a level of ANTI-COMBINE (maintainer, 2026-10-07); it paid 25
-     * on Terminus work until then. The Yards' 12 is everywhere, and nothing is scoped to a city.
-     */
     expect(both.antiCombineLevels - yardsOnly.antiCombineLevels).toBe(1);
-    expect(missionSpeedPercentIn(both, 'marshalling-yards') - bare).toBe(12);
-    expect(both.missionSpeedPercent - bare).toBe(12);
-    expect(missionSpeedPercentIn(both, ASHFALL_WORK.id) - bare).toBe(12);
-    expect(missionSpeedPercentIn(both, MISC_AREA_ID) - bare).toBe(12);
-    /*
-     * And nothing else on the road moved with them.
-     *
-     * `mission_speed` and `travel_speed` are different channels spent in different places, and a
-     * unified bonus that leaked into the second would shorten a march and a spy job as well
-     * as a job. Neither district pays `travel_speed`, and the Yards' own
-     * locations pay travel inside the district, so the second hold must add nothing on top.
-     */
+    expect(missionSpeedPercentIn(both, 'marshalling-yards')).toBe(bare.missionSpeedPercent);
+    expect(missionSpeedPercentIn(both, MISC_AREA_ID)).toBe(bare.missionSpeedPercent);
+    // And nothing on the road moved with them.
     expect(both.travelSpeedPercent).toBe(yardsOnly.travelSpeedPercent);
   });
 
@@ -232,6 +225,145 @@ describe('a district-scoped cut, on the boards', () => {
   });
 });
 
+/**
+ * Coldwater Halt held whole (maintainer, 2026-10-09): +5% pay on every job worked in Terminus,
+ * where it was +15% loot capacity. Scoped to the city, so the same crew's work anywhere else is
+ * paid as before; the misc board is worked where the crew lives.
+ */
+describe('Everything Off the Train, on the pay', () => {
+  const TERMINUS_HOME = 'carriage';
+
+  it('folds into the city-scoped channel and nowhere else', async () => {
+    const { repos, base } = await world('halted');
+    const bare = standingEffectsFor(repos, base);
+    takeTheWhole(repos, base.id, 'coldwater-halt');
+    const whole = standingEffectsFor(repos, repos.bases.findById(base.id)!);
+    expect(whole.missionSpoilsPercentByCity).toEqual({ [TERMINUS_CITY_ID]: 5 });
+    expect(whole.missionSpoilsPercent).toBe(bare.missionSpoilsPercent);
+    expect(whole.lootCapacityPercent).toBe(bare.lootCapacityPercent);
+    expect(describeHoldBonus(unifiedBonusFor('coldwater-halt')!.bonus)).toBe(
+      '+5% mission pay on jobs in this city',
+    );
+  });
+
+  it('freezes five more points of pay on a Terminus job, and none on an Ashfall one', async () => {
+    const { base } = await world('payroll');
+    const launch = (home: string, areaId: string, byCity: Record<string, number>) =>
+      launchMission({
+        id: `mission-${home}-${areaId}`,
+        base: { ...base, districtId: home },
+        template: RAID,
+        areaId,
+        force: { razors: 4 },
+        now: new Date(),
+        grade: RAID.grades[0],
+        leader: sureLeader(),
+        ramp: null,
+        missionSpoilsPercentByCity: byCity,
+      }).mission.payPercent;
+    const held = { [TERMINUS_CITY_ID]: 5 };
+    expect(launch(TERMINUS_HOME, 'marshalling-yards', held)).toBe(
+      launch(TERMINUS_HOME, 'marshalling-yards', {}) + 5,
+    );
+    expect(launch(TERMINUS_HOME, MISC_AREA_ID, held)).toBe(
+      launch(TERMINUS_HOME, MISC_AREA_ID, {}) + 5,
+    );
+    expect(launch(base.districtId, ASHFALL_WORK.id, held)).toBe(
+      launch(base.districtId, ASHFALL_WORK.id, {}),
+    );
+  });
+
+  it('quotes the same five points on every board the crew is shown in Terminus', async () => {
+    const { base } = await world('quotedpay');
+    const yards = TERMINUS.find((one) => one.id === 'marshalling-yards')!;
+    const open = new Map([yards, ASHFALL_WORK].map((one) => [one.id, { heldWhole: true }]));
+    const pay = (home: string, citySpoilsPercent: Record<string, number>) =>
+      new Map(
+        projectAreas([yards, ASHFALL_WORK], open, [], { ...base, districtId: home }, new Date(), {
+          citySpoilsPercent,
+        }).map((area) => [area.id, area.payPercent]),
+      );
+    const bare = pay(TERMINUS_HOME, {});
+    const held = pay(TERMINUS_HOME, { [TERMINUS_CITY_ID]: 5 });
+    expect(held.get(yards.id)).toBe(bare.get(yards.id)! + 5);
+    expect(held.get(MISC_AREA_ID)).toBe(bare.get(MISC_AREA_ID)! + 5);
+    expect(held.get(ASHFALL_WORK.id)).toBe(bare.get(ASHFALL_WORK.id));
+  });
+});
+
+/**
+ * The Bricked Arches (maintainer, 2026-10-09): points off the road legs of every job worked in
+ * Terminus, 10 rising to 20, and nothing off the time on site. Spent on the running clock with the
+ * road's other cuts, and on the send dialog's road, but not on the priced clock, so a faster road
+ * does not pay less.
+ */
+describe('the Bricked Arches, on the road to a job', () => {
+  const TERMINUS_HOME = 'carriage';
+
+  it('folds into the city-scoped road channel and leaves the job clock alone', async () => {
+    const { repos, base } = await world('archway');
+    const bare = standingEffectsFor(repos, base);
+    const arches = repos.city.control('ironmouth-arches')!;
+    repos.city.put({ ...arches, holder: { kind: 'crew', baseId: base.id }, level: 5 });
+    const held = standingEffectsFor(repos, repos.bases.findById(base.id)!);
+    expect(held.missionTravelPercentByCity).toEqual({ [TERMINUS_CITY_ID]: 20 });
+    expect(held.missionSpeedPercent).toBe(bare.missionSpeedPercent);
+  });
+
+  it('shortens the road legs of a Terminus job and nothing else', async () => {
+    const { base } = await world('roadworks');
+    const launch = (home: string, areaId: string, byCity: Record<string, number>) =>
+      launchMission({
+        id: `mission-${home}-${areaId}`,
+        base: { ...base, districtId: home },
+        template: RAID,
+        areaId,
+        force: { razors: 4 },
+        now: new Date(),
+        grade: RAID.grades[0],
+        leader: sureLeader(),
+        ramp: null,
+        missionTravelPercentByCity: byCity,
+      }).mission;
+    const held = { [TERMINUS_CITY_ID]: 10 };
+    const plain = launch(TERMINUS_HOME, 'marshalling-yards', {});
+    const cut = launch(TERMINUS_HOME, 'marshalling-yards', held);
+    expect(plain.travelMinutes).toBe(roadAt(20, RAZOR_SPEED, 0));
+    expect(cut.travelMinutes).toBe(roadAt(20, RAZOR_SPEED, 10));
+    expect(cut.travelMinutes).toBeLessThan(plain.travelMinutes);
+    // Time on site and the priced clock are the job's, not the road's.
+    expect(cut.durationMinutes).toBe(plain.durationMinutes);
+    expect(cut.pricedMinutes).toBe(plain.pricedMinutes);
+    // The misc board is worked where the crew lives; work in Ashfall is not on this road.
+    expect(launch(TERMINUS_HOME, MISC_AREA_ID, held).travelMinutes).toBeLessThan(
+      launch(TERMINUS_HOME, MISC_AREA_ID, {}).travelMinutes,
+    );
+    expect(launch(base.districtId, ASHFALL_WORK.id, held).travelMinutes).toBe(
+      launch(base.districtId, ASHFALL_WORK.id, {}).travelMinutes,
+    );
+  });
+
+  it('hands the send dialog the same road cut for a crew living in Terminus', async () => {
+    const { app, token, base } = await world('dialog');
+    const road = async () =>
+      (
+        await app.inject({
+          method: 'GET',
+          url: '/api/missions',
+          headers: { authorization: `Bearer ${token}` },
+        })
+      ).json<{ road: { travelSpeedPercent: number } }>().road.travelSpeedPercent;
+    app.db.prepare('UPDATE bases SET district_id = ? WHERE id = ?').run(TERMINUS_HOME, base.id);
+    const bare = await road();
+    const arches = app.repos.city.control('ironmouth-arches')!;
+    app.repos.city.put({ ...arches, holder: { kind: 'crew', baseId: base.id }, level: 2 });
+    expect((await road()) - bare).toBe(12);
+    // A crew living in Ashfall is shown Ashfall's boards, where the Arches pay nothing.
+    app.db.prepare('UPDATE bases SET district_id = ? WHERE id = ?').run(ASHFALL_WORK.id, base.id);
+    expect(await road()).toBe(bare);
+  });
+});
+
 describe('the railway and a mission', () => {
   it('changes no clock a job runs on, however many platforms the crew holds', async () => {
     const { repos, base } = await world('trainless');
@@ -249,7 +381,6 @@ describe('the railway and a mission', () => {
       missionSpeedPercent: before.missionSpeedPercent,
       travelSpeedPercent: before.travelSpeedPercent,
       unitSpeedPercent: before.unitSpeedPercent,
-      anyRide: before.anyRide,
     });
 
     const platforms = takeEveryPlatform(repos, base.id);
@@ -281,7 +412,6 @@ describe('the railway and a mission', () => {
       missionSpeedPercent: after.missionSpeedPercent,
       travelSpeedPercent: after.travelSpeedPercent,
       unitSpeedPercent: after.unitSpeedPercent,
-      anyRide: after.anyRide,
     });
     expect(rode.mission.travelMinutes).toBe(walked.mission.travelMinutes);
     expect(rode.mission.durationMinutes).toBe(walked.mission.durationMinutes);

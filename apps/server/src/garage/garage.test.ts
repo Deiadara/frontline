@@ -2,6 +2,7 @@ import {
   MAX_PER_VEHICLE,
   MAX_MUSTER_QUEUE,
   findVehicle,
+  machineSpeed,
   type GarageResponse,
 } from '@frontline/shared';
 import type { FastifyInstance } from 'fastify';
@@ -171,6 +172,63 @@ describe('the Garage page (§B11)', () => {
 
     finishTheBench(app, baseId);
     expect(app.repos.bases.findById(baseId)!.fleet.motorcycle).toBe(1);
+  });
+
+  /**
+   * The Fuelling Point at Coldwater Halt (maintainer, 2026-10-09): 5% off the scrap at level 1,
+   * one point more a level. The card quotes it and the order pays it, off the one `price`.
+   */
+  it('quotes and charges less scrap for a crew holding the Fuelling Point', async () => {
+    const { app, token, baseId } = await makeStack();
+    raiseGarage(app, baseId, 2);
+    stock(app, baseId);
+    grantBlueprint(app, baseId, 'bp_motorcycle');
+    const list = findVehicle('motorcycle')!.cost;
+    expect(
+      (await garage(app, token)).vehicles.find((row) => row.id === 'motorcycle')!.cost,
+    ).toEqual(list);
+
+    const control = app.repos.city.control('coldwater-halt-fuelling')!;
+    app.repos.city.put({
+      ...control,
+      holder: { kind: 'crew', baseId },
+      level: 3,
+      garrison: {},
+    });
+    const cheaper = { ...list, scrap: Math.round(list.scrap! * 0.93) };
+    expect(
+      (await garage(app, token)).vehicles.find((row) => row.id === 'motorcycle')!.cost,
+    ).toEqual(cheaper);
+
+    expect((await build(app, token, 'motorcycle')).statusCode).toBe(200);
+    expect(app.repos.bases.findById(baseId)!.musterQueue[0]!.paid).toEqual(cheaper);
+  });
+
+  // The Hump (maintainer, 2026-10-09): every machine seats more, rounded up, on the page as at
+  // the doors that count seats.
+  // The Coaling Stage (maintainer, 2026-10-09): every machine's pace, on the page as on the road.
+  it('quotes a faster machine for a crew holding the Coaling Stage', async () => {
+    const { app, token, baseId } = await makeStack();
+    const control = app.repos.city.control('marshalling-yards-coalstage')!;
+    app.repos.city.put({ ...control, holder: { kind: 'crew', baseId }, level: 5, garrison: {} });
+    for (const row of (await garage(app, token)).vehicles) {
+      const spec = findVehicle(row.id)!;
+      expect(row.speed, row.id).toBe(machineSpeed(spec, { speedPercent: 10 }));
+      expect(row.speed, row.id).toBeGreaterThan(Math.min(spec.speed, 99));
+    }
+  });
+
+  it('quotes more seats on every machine for a crew holding the Hump', async () => {
+    const { app, token, baseId } = await makeStack();
+    const before = await garage(app, token);
+    const control = app.repos.city.control('marshalling-yards-hump')!;
+    app.repos.city.put({ ...control, holder: { kind: 'crew', baseId }, level: 5, garrison: {} });
+    const after = await garage(app, token);
+    for (const row of after.vehicles) {
+      const spec = findVehicle(row.id)!;
+      expect(before.vehicles.find((one) => one.id === row.id)!.capacity).toBe(spec.capacity);
+      expect(row.capacity, row.id).toBe(Math.ceil((spec.capacity * 120) / 100));
+    }
   });
 
   it('refuses a machine the Garage is too small for, and banks nothing', async () => {

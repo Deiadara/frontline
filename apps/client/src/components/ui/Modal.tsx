@@ -86,7 +86,7 @@ interface ModalProps {
    * the element and the generated stylesheet's order silently picks the winner. That is the same
    * trap the coloured tags fell into, and it is why width is chosen from a list here.
    */
-  size?: 'default' | 'wide' | 'broad' | 'full' | 'room';
+  size?: 'default' | 'wide' | 'broad' | 'plot' | 'full' | 'room';
   className?: string;
   /**
    * Draws a close cross in the window's top right (maintainer, 2026-09-20).
@@ -133,6 +133,12 @@ const WIDTH: Record<NonNullable<ModalProps['size']>, string> = {
    * 992px to be had, and 960 leaves the window looking like a window rather than like a page.
    */
   broad: 'max-w-[60rem]',
+  /*
+   * The plot window, a step past `broad` (maintainer, 2026-10-08): wide enough that a level's whole
+   * price sits on one line in the left column, with the order under way drawn on a line of its own
+   * under it. At 1024 it meets the backdrop's gutter and is the 992px `broad` would be there.
+   */
+  plot: 'max-w-[64rem]',
   // A whole report: seven panels of readouts that want two columns at any real viewport.
   full: 'max-w-[72rem]',
   // The screen takes the room, and there is a reason it has to: the Bar's seat screen puts all

@@ -3,6 +3,9 @@ import {
   fittedFor,
   findUnit,
   findVehicle,
+  vehicleSeats,
+  machineSpeed,
+  type MachineBonus,
   unitColumnSpeed,
   type Army,
   type ColumnUnit,
@@ -68,6 +71,7 @@ interface ColumnGroup extends ColumnUnit {
 function seat(
   fleet: Fleet,
   groups: readonly ColumnGroup[],
+  bonus: MachineBonus,
 ): { walking: ColumnGroup[]; carrying: VehicleSpec[] } {
   const boarding = groups
     .filter((group) => group.rides)
@@ -82,13 +86,14 @@ function seat(
 
   const carrying: VehicleSpec[] = [];
   for (const machine of machines) {
-    let seats = machine.capacity;
+    let seats = vehicleSeats(machine, bonus.capacityPercent ?? 0);
+    const pace = machineSpeed(machine, bonus);
     let carried = 0;
     let wanted = false;
     for (const group of boarding) {
       // `boarding` is slowest first, so the first group this machine cannot outrun is also the
       // last: nobody behind it would take a seat on it either.
-      if (group.speed >= machine.speed) break;
+      if (group.speed >= pace) break;
       if (group.count === 0) continue;
       wanted = true;
       // Unit slots, exactly as `columnSpeed` spends them: a heavy sheet takes more than one seat,
@@ -126,12 +131,6 @@ function seat(
  * screen that quotes a column has a base on it, and a default would let the next caller quote the
  * printed sheet without noticing that the armour line moves it.
  *
- * `anyRide` is the crew's waiver on `no_ride` (`UnitsResponse.anyRide`). It is the one input that
- * can make the quote **too slow** rather than too fast, which is the direction the note above says
- * these quotes may not be wrong in: a Colossus holds a column to fifteen, and a crew that has
- * bought the waiver puts it in a truck. The server has read the waiver at every seat it spends
- * since it existed; this did not, so the board quoted a road the crew then beat by hours.
- *
  * `unitSpeedPercent` is the crew's own lift on every unit's pace (`CrewEffects.unitSpeedPercent`),
  * which the mission launch spends on the column. Defaulted, so a screen that has not been handed
  * it quotes the bare sheets it always did.
@@ -140,14 +139,14 @@ export function readColumn(
   fleet: Fleet,
   force: Army,
   loadouts: UnitLoadouts,
-  anyRide = false,
   unitSpeedPercent = 0,
+  /** The crew's extra seats and pace on every machine (the Hump, the Coaling Stage). */
+  machines: MachineBonus = {},
 ): ColumnRead {
   const speedOf = (unitId: string): ColumnUnit =>
     unitColumnSpeed(unitId, {
       percent: unitSpeedPercent,
       fitted: fittedFor(loadouts, unitId),
-      anyRide,
     });
   const groups: ColumnGroup[] = Object.entries(force)
     .filter(([, count]) => count > 0)
@@ -158,8 +157,8 @@ export function readColumn(
     }));
   if (groups.length === 0) return { speed: 0, heldBy: null };
 
-  const speed = columnSpeed(fleet, force, speedOf);
-  const { walking, carrying } = seat(fleet, groups);
+  const speed = columnSpeed(fleet, force, speedOf, machines);
+  const { walking, carrying } = seat(fleet, groups, machines);
 
   const onFoot = walking.find((group) => group.speed === speed);
   if (onFoot) return { speed, heldBy: `${onFoot.count} ${onFoot.name} walking` };
@@ -167,7 +166,7 @@ export function readColumn(
   // Nobody walks at the column's pace, so a machine with somebody in it is what holds it. Only the
   // machines that actually took anybody are candidates: one parked at home, or one every rider
   // declined, is not what the column is waiting for.
-  const machine = carrying.find((spec) => spec.speed === speed);
+  const machine = carrying.find((spec) => machineSpeed(spec, machines) === speed);
   /*
    * No article in front of it: every machine's name carries its own now (maintainer, 2026-09-20,
    * "make all the vehicle titles start with THE"), and this line used to supply one, so the

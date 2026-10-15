@@ -74,6 +74,8 @@ export interface MissionBattle {
   carrying: Army;
   /** The enemy's units that broke and ran on a win. Empty on a loss. */
   fledEnemy: Army;
+  /** Robots the crew's Geppetto made in the fight (AD HOC ARMY), for the `robots_made` ladder. */
+  robotsMade: number;
   /** The machines that came back. */
   vehicles: Fleet;
   /** §C3: and the ones whose riders all died. */
@@ -91,8 +93,6 @@ export function fightMissionBattle(args: {
   grade: Grade;
   /** §D1: whoever led the run, folded in the way a declared battle folds them. */
   leader?: BattleOfficer | undefined;
-  /** §C3: whether this crew's holdings put anybody in a seat (`any_ride`). */
-  anyRide: boolean;
   /** §B10: what the crew's medicine and its Infirmary get back off a win, as a percentage. */
   recoveryPercent?: number;
   /**
@@ -165,7 +165,11 @@ export function fightMissionBattle(args: {
    */
   // Unit slots on both sides, the currency the seats were sold in (`building/vehicles.ts`).
   const committed = unitSlotsUsed(args.force);
-  const riding = loadable(args.vehicles, ridingGroups(args.force, args.anyRide));
+  const riding = loadable(
+    args.vehicles,
+    ridingGroups(args.force),
+    args.territory?.vehicleCapacityPercent ?? 0,
+  );
   const idle = removeFleet(args.vehicles, riding);
   const wreckedVehicles = committed <= 0 ? {} : wrecked(riding, unitSlotsUsed(home) / committed);
 
@@ -179,6 +183,7 @@ export function fightMissionBattle(args: {
     intimidatedKills: fought.kills.defender.intimidated,
     spectacleKills: fought.kills.defender.spectacle,
     fledEnemy,
+    robotsMade: fought.adHocArmy?.attacker.made ?? 0,
     home,
     carrying,
     vehicles: mergeFleets(idle, removeFleet(riding, wreckedVehicles)),

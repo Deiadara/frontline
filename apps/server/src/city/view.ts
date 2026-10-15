@@ -8,7 +8,6 @@ import {
   districtsOfCity,
   findDistrict,
   HOLDER_LABELS,
-  LOCATION_CATALOG,
   describeHoldBonus,
   displayNameOf,
   districtHolder,
@@ -20,7 +19,6 @@ import {
   travelMinutesBetween,
   unifiedBonusFor,
   unitsUnlockedByLocation,
-  baseBonusesOf,
   doorsOn,
   type Base,
   type CityResponse,
@@ -34,11 +32,8 @@ import {
   type SpyReport,
   type CrewEffects,
   bonusesAt,
-  mergeLabels,
   upgradeCost,
   upgradeNote,
-  weatherAt,
-  weatherLabels,
   groundStateOf,
   tollingTowerNoise,
   PAMPHLET_SWAP_CAPS,
@@ -48,6 +43,13 @@ import {
   type FactionMark,
   type PartialResources,
   type EnvLabel,
+  LAMPS_COOLDOWN_MS,
+  lampsLit,
+  lampsReach,
+  locationGroundLabels,
+  isCombatUnit,
+  reactorChangesAt,
+  unlockedUnits,
 } from '@frontline/shared';
 import { standingEffectsFor } from '../crew/standing.js';
 import { readTheMap, seatsByBase, type TableSeat, wholeHolderOf } from './holding.js';
@@ -61,6 +63,7 @@ import {
 import { spyPointsFor } from '../spying/spying.js';
 import { upgradeSeconds, upgradingSince } from './upgrade.js';
 import type { Repositories } from '../db/repos/index.js';
+import { unlockContextFor } from '../units/muster.js';
 import { isClosedPlot } from '../battle/ground.js';
 import { planSpy, spyBlocker, spyPartiesFor, spyRunViews } from '../spying/spying.js';
 import { capturedGatesFor } from './gates.js';
@@ -96,6 +99,8 @@ export interface CityContext {
   seats: Map<string, TableSeat>;
   /** A table's name and badge for the tag, or null for a crew at none. */
   factionMarkOf: (baseId: string) => FactionMark | null;
+  /** The fighting unit types this crew can field, for the Reactor Shed's picker (2026-10-14). */
+  fieldable?: () => { id: string; name: string }[];
 }
 
 /** Whose side a holder is on, as the viewer sees it: the colour of the tag. */
@@ -119,11 +124,16 @@ export function cityContextFor(repos: Repositories, base: Base): CityContext {
   const players = new Map<string, string | null>();
   const seats = seatsByBase(repos);
   const marks = new Map<string, FactionMark | null>();
+  let fieldable: { id: string; name: string }[] | undefined;
   return {
     base,
     controls,
     effects,
     seats,
+    fieldable: () =>
+      (fieldable ??= unlockedUnits(unlockContextFor(repos, base))
+        .filter((unit) => isCombatUnit(unit))
+        .map((unit) => ({ id: unit.id, name: unit.name }))),
     factionMarkOf: (baseId) => {
       let mark = marks.get(baseId);
       if (mark === undefined) {
@@ -267,18 +277,19 @@ function projectLocation(
   /** The Tolling Tower's Noisy over the whole district while its switch is on, or none. */
   towerNoise: readonly EnvLabel[],
 ): LocationView {
-  const spec = LOCATION_CATALOG[location.kind];
   const mine = isHeldBy(control, context.base.id);
   const ground = groundStateOf(control);
-  const bonuses = baseBonusesOf(location);
+  const bonuses = location.bonuses;
   const door = bonuses.find((bonus) => bonus.kind === 'unit_door');
   const doorUnit = door?.kind === 'unit_door' ? findUnit(door.unitId) : undefined;
   const nextCost = upgradeCost(
-    location.kind,
+    location,
     control.level,
     chairPassiveOf(context.effects, 'engineer', 'building_cost'),
+    // The Records Office (2026-10-14), the same cut the charge takes (`city/upgrade.ts`).
+    context.effects.locationUpgradeDiscountPercent,
   );
-  const note = upgradeNote(location.kind, control.level);
+  const note = upgradeNote(location, control.level);
 
   return {
     location,
@@ -293,7 +304,11 @@ function projectLocation(
             toLevel: control.level + 1,
             cost: nextCost,
             note,
-            seconds: upgradeSeconds(location.kind, control.level),
+            seconds: upgradeSeconds(location, control.level),
+            // What the step is worth, in the card's own words, so a ladder is not bought blind.
+            pays: bonusesAt(location, control.level + 1).map((bonus) =>
+              describeHoldBonus(bonus, (unitId) => findUnit(unitId)?.name ?? unitId),
+            ),
           }
         : null,
     holderName:
@@ -318,7 +333,7 @@ function projectLocation(
     bonuses: bonusesAt(location, control.level).map((bonus) =>
       describeHoldBonus(bonus, (unitId) => findUnit(unitId)?.name ?? unitId),
     ),
-    reward: spec.reward,
+    reward: location.reward,
     /*
      * What the ground is like *right now* (§A4).
      *
@@ -329,11 +344,14 @@ function projectLocation(
      */
     // ...and the tower's Noisy over the district while its switch is on (2026-10-06), which the
     // fight folds in the same way (`battlefieldOf`).
-    labels: mergeLabels(spec.labels, weatherLabels(weatherAt(now)), towerNoise),
-    // By kind, and by any door authored on the ground itself (Arca, 2026-10-07).
+    // ...and Lampman's Row, lit or out, which can take a label away as well as lay one: the one
+    // place the game works a location's ground out, so the chips are the fight's (2026-10-09).
+    labels: locationGroundLabels(location, now, context.controls),
+    // The units whose requirements list this ground (Box Nine's Snipers, 2026-10-09), and any
+    // door authored on the ground itself (Arca, 2026-10-07).
     unlocks: [
-      ...unitsUnlockedByLocation(location.kind).map((unit) => unit.name),
-      ...doorsOn(baseBonusesOf(location)).map((unitId) => findUnit(unitId)?.name ?? unitId),
+      ...unitsUnlockedByLocation(location.id).map((unit) => unit.name),
+      ...doorsOn(location.bonuses).map((unitId) => findUnit(unitId)?.name ?? unitId),
     ],
     // Arca (2026-10-07): whose tag, and what the sheet's own controls stand at.
     holderFaction:
@@ -343,6 +361,22 @@ function projectLocation(
     // The switch's position is public (its noise is on the map); the cooldown is the holder's.
     switch: bonuses.some((bonus) => bonus.kind === 'noise_switch')
       ? { on: ground.switchedOn, changesAt: mine ? switchChangesAt(ground, now) : null }
+      : null,
+    // Lampman's Row: lit or out is public (the map shows it), the cooldown is the holder's.
+    lamps: bonuses.some((bonus) => bonus.kind === 'lamps_switch')
+      ? {
+          lit: lampsLit(control),
+          changesAt: mine ? switchChangesAt(ground, now, LAMPS_COOLDOWN_MS) : null,
+          ...lampsReach(control.level),
+        }
+      : null,
+    // The Reactor Shed: the unit named is public; the lock and the list are the holder's.
+    reactor: bonuses.some((bonus) => bonus.kind === 'reactor_choice')
+      ? {
+          unitId: ground.reactorUnit,
+          changesAt: mine ? reactorChangesAt(ground.reactorChosenAt, now) : null,
+          options: mine ? (context.fieldable?.() ?? []) : [],
+        }
       : null,
     // The pins are public (they say who fights the holder at a discount); the locks are the holder's.
     pamphlets: bonuses.some((bonus) => bonus.kind === 'pamphlets')

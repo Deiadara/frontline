@@ -67,7 +67,7 @@ import { sideForce } from './side.js';
 import { spyRunViews } from '../spying/spying.js';
 import { moveViews } from '../moves/moves.js';
 import { sideOf } from './deploy.js';
-import { callPriceFor } from './declare.js';
+import { callPriceFor, declarationCapFor } from './declare.js';
 import {
   defendingBaseOf,
   districtsLivedIn,
@@ -75,7 +75,7 @@ import {
   residentOf,
   targetName,
 } from './ground.js';
-import { assemble, battlefieldOf, groundLabelsOver } from './resolve.js';
+import { assemble, battlefieldOf } from './resolve.js';
 import { presenceAt, unrowedFor, type Presence } from './alignment.js';
 import { mergeArmies, removeForce } from './forces.js';
 import { insideLock, placeLocked } from './lock.js';
@@ -355,11 +355,7 @@ function viewOf(repos: Repositories, base: Base, battle: ScheduledBattle, now: D
      * The deployment screen forecasts on it. Not a secret from either side: where the fight is and
      * what that ground is like is the one thing a declaration makes public.
      */
-    battlefield: battlefieldOf(
-      battle,
-      district?.name ?? 'somewhere',
-      district ? groundLabelsOver(district, repos.city.controls()) : [],
-    ),
+    battlefield: battlefieldOf(battle, district?.name ?? 'somewhere', repos.city.controls()),
     // A bystander is not buying anything for a fight they are not in, and sending them the shelf
     // would be sending them the caller's own research and officer list.
     boosts:
@@ -848,6 +844,8 @@ export function projectBattles(
     spyReports: repos.spying.reportsFor(base.id, REPORT_HISTORY),
     slots: declarableSlots(now).map((slot) => slot.toISOString()),
     infamy: base.economy.infamy,
+    callsPending: repos.sieges.pendingCountFor(base.id),
+    callsAllowed: declarationCapFor(repos, base, now),
     callPrices: callPricesFor(repos),
     callPriceWaived: admin,
     gates: gatesFor(repos, now),

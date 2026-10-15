@@ -691,9 +691,9 @@ const CATALOG: Perk[] = [
     'Crane Hand',
     'logistics',
     'Has put things on a flatbed that had no business being on one.',
-    // Waives `no_ride` (`any_ride`). Nothing at all to a crew with no legend on the roster, and the
-    // difference between a Colossus at 15 and a Colossus in a truck for the crew that has one.
-    { kind: 'any_ride' },
+    // Machines carry 10% more units, rounded up per machine (maintainer, 2026-10-15): the Hump's
+    // channel. It waived `no_ride` until that waiver left the game: the Colossus never rides.
+    { kind: 'vehicle_capacity', percent: 10 },
   ),
   perk(
     'shortcut_runner',

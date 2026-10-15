@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   MUSTER_COST_PER_LOCATION_LEVEL,
   bonusesAt,
+  findLocation,
   findPerk,
   findResearchItem,
   unifiedBonusFor,
@@ -41,10 +42,12 @@ describe('the general muster cuts', () => {
     ]);
   });
 
-  it('works an Armory up from 1 to 5, where it was 12 to 66', () => {
-    // One a level over the five-level ladder (2026-10-06); the old ten reached 6.
-    const ladder = Array.from({ length: 5 }, (_, index) => costOf(bonusesAt('armory', index + 1)));
-    expect(ladder).toEqual([1, 2, 3, 4, 5]);
+  it('works an Armory up from 1 to 6, where it was 12 to 66', () => {
+    // One a step over the five-level ladder (2026-10-06), the last level a double step (2026-10-09).
+    const ladder = Array.from({ length: 5 }, (_, index) =>
+      costOf(bonusesAt(findLocation('blacksite-armory')!, index + 1)),
+    );
+    expect(ladder).toEqual([1, 2, 3, 4, 6]);
     for (let index = 1; index < ladder.length; index += 1) {
       expect(ladder[index]!, `level ${index + 1}`).toBeGreaterThanOrEqual(ladder[index - 1]!);
     }

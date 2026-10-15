@@ -85,6 +85,17 @@ export interface FactionsRepo {
   setRank(userId: string, rank: FactionRank): void;
   /** Seats a member at a card, or clears their seat back to the deal. The leader's to set. */
   setSeat(userId: string, seat: FactionCard | null): void;
+  /**
+   * Who held each card the last time the table was read, and since when (`0156`, Onboarding).
+   * A card nobody holds has no row.
+   */
+  cardHolders(factionId: string): Map<FactionCard, { userId: string; since: string }>;
+  /** Records a card's holder from `since`, or clears it with `null`. */
+  setCardHolder(
+    factionId: string,
+    card: FactionCard,
+    holder: { userId: string; since: string } | null,
+  ): void;
   removeMember(userId: string): void;
   /**
    * Credits a fight's infamy to the faction the winner was in, and to their own row in it.
@@ -203,6 +214,17 @@ export function createFactionsRepo(db: AppDatabase): FactionsRepo {
   const dropMembersStmt = db.prepare('DELETE FROM faction_members WHERE faction_id = ?');
   const dropInvitesStmt = db.prepare('DELETE FROM faction_invites WHERE faction_id = ?');
   const dropLogStmt = db.prepare('DELETE FROM faction_log WHERE faction_id = ?');
+  const dropHoldersStmt = db.prepare('DELETE FROM faction_card_holders WHERE faction_id = ?');
+  const holdersStmt = db.prepare(
+    'SELECT card, user_id, since FROM faction_card_holders WHERE faction_id = ?',
+  );
+  const putHolderStmt = db.prepare(
+    `INSERT INTO faction_card_holders (faction_id, card, user_id, since) VALUES (?, ?, ?, ?)
+     ON CONFLICT (faction_id, card) DO UPDATE SET user_id = excluded.user_id, since = excluded.since`,
+  );
+  const dropHolderStmt = db.prepare(
+    'DELETE FROM faction_card_holders WHERE faction_id = ? AND card = ?',
+  );
   const logInsertStmt = db.prepare(
     `INSERT INTO faction_log (id, faction_id, kind, at, user_id, name, target_name, side, units)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -282,6 +304,7 @@ export function createFactionsRepo(db: AppDatabase): FactionsRepo {
       dropInvitesStmt.run(id);
       dropMembersStmt.run(id);
       dropLogStmt.run(id);
+      dropHoldersStmt.run(id);
       disbandStmt.run(id);
     },
 
@@ -314,6 +337,19 @@ export function createFactionsRepo(db: AppDatabase): FactionsRepo {
     },
     setRank(userId, rank) {
       setRankStmt.run(rank, userId);
+    },
+    cardHolders(factionId) {
+      const rows = holdersStmt.all(factionId) as { card: string; user_id: string; since: string }[];
+      return new Map(
+        rows
+          // A card the catalogue no longer knows is a seat that no longer exists.
+          .filter((row) => (FACTION_CARDS as readonly string[]).includes(row.card))
+          .map((row) => [row.card as FactionCard, { userId: row.user_id, since: row.since }]),
+      );
+    },
+    setCardHolder(factionId, card, holder) {
+      if (holder === null) dropHolderStmt.run(factionId, card);
+      else putHolderStmt.run(factionId, card, holder.userId, holder.since);
     },
     setSeat(userId, seat) {
       setSeatStmt ??= db.prepare('UPDATE faction_members SET seat = ? WHERE user_id = ?');

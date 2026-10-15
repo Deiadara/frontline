@@ -511,6 +511,34 @@ describe('§I4d: the trap goes off at the mark and leaves the bag', () => {
   });
 
   /**
+   * The trap's victims are the setter's kills on the Trophy Hall, as they are on the infamy
+   * ledger (bug pass, 2026-10-14). The engine here kills nobody, so every Razor on the wall is one
+   * the trap took.
+   */
+  it('puts the trap\u2019s victims on the setter\u2019s Trophy Hall', async () => {
+    const stack = await makeStack(counting({ attacking: 0 }));
+    const battleId = await declareOn(stack);
+    give(stack, stack.defender.id, TRAP_ITEM, 1);
+    await setTrap(stack, stack.defender.token, battleId, TRAP.id);
+    const hall = stack.app.repos.city.control('bloodstone-trophyhall')!;
+    stack.app.repos.city.put({
+      ...hall,
+      holder: { kind: 'crew', baseId: stack.defender.id },
+      level: 1,
+      garrison: {},
+    });
+    await sendAttackers(stack, battleId, { razors: 30 });
+    bringForward(stack, battleId, new Date(Date.now() - 60_000));
+    const [resolved] = settleBattles(stack.app.repos, stack.app.skirmishEngine, new Date());
+
+    const victims = resolved!.analysis.trap!.killed;
+    expect(victims).toBeGreaterThan(0);
+    expect(stack.app.repos.city.control('bloodstone-trophyhall')!.trophies).toEqual({
+      razors: victims,
+    });
+  });
+
+  /**
    * §I4d: the same trap named on two fights lands on whichever resolves first.
    *
    * Exactly the rule contraband follows. Naming costs nothing and is reversible, so the bag is the

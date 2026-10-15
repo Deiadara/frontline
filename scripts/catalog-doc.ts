@@ -35,7 +35,7 @@ import {
   BUILDING_KINDS,
   CITY_DISTRICTS,
   isContested,
-  CITY_LOCATIONS,
+  EVERY_LOCATION,
   describeBoostEffect,
   describeBoostUnlock,
   describeBuildingRequirement,
@@ -47,6 +47,7 @@ import {
   ENV_LABEL_CATALOG,
   ENV_LABEL_IDS,
   FACTION_CARD_SPECS,
+  describeCardBonus,
   FACTION_RANK_BLURBS,
   FACTION_RANK_LABELS,
   FACTION_RANKS,
@@ -63,7 +64,6 @@ import {
   scrapyardLevelForTrap,
   scrapyardLevelForUpgrade,
   labelText,
-  LOCATION_CATALOG,
   upgradeCost,
   MISC_AREA_ID,
   FEATS,
@@ -124,7 +124,6 @@ import {
   type BlueprintSpec,
   type ItemCost,
   type ItemSpec,
-  type LocationKind,
   type MissionTemplate,
   type PartialResources,
   type UnitSpec,
@@ -557,39 +556,37 @@ function areasSection(): Section {
 /* ------------------------------------------------------------------- locations */
 
 function locationsSection(): Section {
-  const kinds = Object.keys(LOCATION_CATALOG) as LocationKind[];
-  const kindRows = kinds.map((kind) => {
-    const spec = LOCATION_CATALOG[kind];
-    return [
-      code(kind),
-      spec.label,
-      String(spec.baseDefense),
-      spec.bonuses.map((bonus) => describeHoldBonus(bonus, unitNameOf)).join(', '),
-      spec.labels.map(labelText).join(', '),
-      // The whole first order, not the plank figure the catalogue stores: the mix is the same
-      // everywhere now, and a reader wants to know what the bill looks like.
-      money(upgradeCost(kind, 1) ?? {}),
-      clip(spec.blurb),
-      clip(spec.reward, 60),
-    ];
-  });
-  const placed = CITY_LOCATIONS.map((location) => [
+  // Every location carries its own pay, ground and price (2026-10-14: location types removed), so
+  // the table is the map itself, one row a place.
+  const rows = EVERY_LOCATION.map((location) => [
     code(location.id),
     location.name,
     code(location.districtId),
-    code(location.kind),
+    String(location.baseDefense),
+    // Clipped: a location with five authored bonuses reads past what a table cell can hold.
+    clip(location.bonuses.map((bonus) => describeHoldBonus(bonus, unitNameOf)).join(', '), 240),
+    location.labels.map(labelText).join(', '),
+    // The whole first order, not the plank figure the location stores: the mix is the same
+    // everywhere, and a reader wants to know what the bill looks like.
+    money(upgradeCost(location, 1) ?? {}),
+    clip(location.blurb),
+    clip(location.reward, 60),
   ]);
   return {
     title: 'Locations',
-    sources: ['packages/shared/src/city/locations.ts', 'packages/shared/src/city/districts.ts'],
-    rows: kinds.length + CITY_LOCATIONS.length,
+    sources: [
+      'packages/shared/src/city/locations.ts',
+      'packages/shared/src/city/districts.ts',
+      'packages/shared/src/city/atlas.ts',
+    ],
+    rows: EVERY_LOCATION.length,
     body: [
-      `${kinds.length} kinds of ground, ${CITY_LOCATIONS.length} of them placed on the map. Bonuses and labels are the level 1 figures.`,
-      `#### Kinds (${kinds.length})`,
+      `${EVERY_LOCATION.length} locations across every city. Bonuses and labels are the level 1 figures.`,
       table(
         [
-          'Kind',
-          'Label',
+          'Id',
+          'Name',
+          'District',
           'Defense',
           'Holding it pays',
           'Ground',
@@ -597,10 +594,8 @@ function locationsSection(): Section {
           'Blurb',
           'Reward',
         ],
-        kindRows,
+        rows,
       ),
-      `#### Placed on the map (${CITY_LOCATIONS.length})`,
-      table(['Id', 'Name', 'District', 'Kind'], placed),
     ].join('\n\n'),
   };
 }
@@ -1047,13 +1042,13 @@ function factionsSection(): Section {
     body: [
       `#### Table cards (${cards.length})`,
       table(
-        ['Card', 'Name', 'Aspect', 'Reads', 'Pays the table', 'Blurb'],
+        ['Card', 'Name', 'Aspect', 'Reads', 'Pays the table at S+', 'Blurb'],
         cards.map((spec) => [
           code(spec.card),
           spec.name,
           spec.aspect,
           spec.reads.map((name) => ATTRIBUTE_LABELS[name]).join(', '),
-          spec.channelLabel,
+          describeCardBonus(spec.card, 'S+'),
           clip(spec.blurb),
         ]),
       ),

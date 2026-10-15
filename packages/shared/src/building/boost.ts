@@ -57,11 +57,20 @@ export const BUILD_BOOST_OIL_PER_LEVEL = 250;
  * (`fittedToTheStore`, maintainer ruling P4-A): a Generator at 6 or 7 ahead of its Apothecary
  * asked 1,500 or 1,750 oil of a store that could hold 1,441, so no amount of waiting bought one.
  */
-export function buildBoostOilCost(buildings: readonly Building[]): number {
+export function buildBoostOilCost(
+  buildings: readonly Building[],
+  /**
+   * Off the fitted price, from the ground (`buildBoostOilPercent`, Shaft Nine). The server
+   * charges, refuses and quotes through this one figure, and sends it to the dialog on `/me`.
+   */
+  discountPercent = 0,
+): number {
   const level = buildingLevel(buildings, 'generator');
   const oil = level * BUILD_BOOST_OIL_PER_LEVEL;
   if (oil === 0) return 0;
-  return fittedToTheStore({ oil }, apothecaryAllowedFor('generator', level)).oil ?? oil;
+  const fitted = fittedToTheStore({ oil }, apothecaryAllowedFor('generator', level)).oil ?? oil;
+  const off = Math.min(100, Math.max(0, discountPercent)) / 100;
+  return Math.max(1, Math.round(fitted * (1 - off)));
 }
 
 /** Whether a burn is running at `now`. */

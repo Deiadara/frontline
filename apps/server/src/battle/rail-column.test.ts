@@ -1,8 +1,9 @@
 import {
-  RAIL_LINK_MINUTES,
   TERMINUS_CITY_ID,
   createCommander,
   districtsOfCity,
+  railLinkMinutes,
+  isStation,
 } from '@frontline/shared';
 import type { FastifyInstance } from 'fastify';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -18,6 +19,7 @@ import {
   settleMovements,
   turnRound,
 } from './movement.js';
+import { deployQuote } from './deploy.js';
 
 /**
  * A battle column rides Terminus's line, not only a unit move (maintainer, 2026-09-24).
@@ -30,6 +32,9 @@ import {
 
 const MINUTE_MS = 60_000;
 
+/** The rails out of a platform nobody has worked up. */
+const LEVEL_ONE_RIDE = railLinkMinutes(1);
+
 const instances: { app: FastifyInstance; db: AppDatabase }[] = [];
 afterEach(async () => {
   for (const { app, db } of instances.splice(0)) {
@@ -41,7 +46,7 @@ afterEach(async () => {
 /** Every Terminus Station, by the district it stands in. */
 const PLATFORMS = new Map(
   districtsOfCity(TERMINUS_CITY_ID).flatMap((district) => {
-    const station = district.locations.find((one) => one.kind === 'rail_station');
+    const station = district.locations.find(isStation);
     return station ? [[district.id, station.id] as const] : [];
   }),
 );
@@ -115,14 +120,23 @@ describe('a column on its way to a declared fight', () => {
     const march = minutesOf(walked(app, base, 'blockhouse', false));
     const ride = minutesOf(walked(app, base, 'blockhouse', true));
     // A guard on the fixture: if the march were already short this would prove nothing.
-    expect(march).toBeGreaterThan(RAIL_LINK_MINUTES * 2);
-    expect(ride).toBe(RAIL_LINK_MINUTES);
+    expect(march).toBeGreaterThan(LEVEL_ONE_RIDE * 2);
+    expect(ride).toBe(LEVEL_ONE_RIDE);
     expect(ride).toBeLessThan(march);
+  });
+
+  it('rides at the clock of the platform it leaves from', async () => {
+    // The column boards at home. Home's platform at level 4 is nine minutes on the rails,
+    // whatever level the far one is at (maintainer, 2026-10-09).
+    const { app, base } = await crewOnTheLine(['coldwater-halt', 'blockhouse'], 'coldwater-halt');
+    const home = app.repos.city.control(PLATFORMS.get('coldwater-halt')!)!;
+    app.repos.city.put({ ...home, level: 4 });
+    expect(minutesOf(walked(app, base, 'blockhouse', true))).toBe(9);
   });
 
   it('marches when it was not asked for, which is the default', async () => {
     const { app, base } = await crewOnTheLine(['coldwater-halt', 'blockhouse'], 'coldwater-halt');
-    expect(minutesOf(walked(app, base, 'blockhouse', false))).toBeGreaterThan(RAIL_LINK_MINUTES);
+    expect(minutesOf(walked(app, base, 'blockhouse', false))).toBeGreaterThan(LEVEL_ONE_RIDE);
   });
 
   it('marches on one platform, because a line needs two ends', async () => {
@@ -134,7 +148,7 @@ describe('a column on its way to a declared fight', () => {
   /**
    * §D5: the officer leading shortens the two walks, because they are roads like any other.
    *
-   * Only the fifteen minutes in the middle is a rule nothing speeds up. `railColumnOffer` folded
+   * Only the rails in the middle are a rule no road bonus speeds up. `railColumnOffer` folded
    * the standing effects and never `leading()`, while the march it is compared against folded both,
    * so a crew with an officer on the job was offered a ride priced without them and judged against
    * a march priced with them: the comparison leaned towards marching for exactly the crews that had
@@ -171,8 +185,46 @@ describe('a column on its way to a declared fight', () => {
     expect(alone.fromPlatform).toBeGreaterThan(0);
     expect(led.fromPlatform).toBeLessThan(alone.fromPlatform);
     // And the rails themselves are untouched, which is the other half of the rule.
-    expect(led.minutes).toBe(RAIL_LINK_MINUTES + led.toPlatform + led.fromPlatform);
+    expect(led.minutes).toBe(LEVEL_ONE_RIDE + led.toPlatform + led.fromPlatform);
     expect(alone.minutes - led.minutes).toBe(alone.fromPlatform - led.fromPlatform);
+  });
+
+  it('halves the walk at the ends with the Cartographer, as it halves the ride', async () => {
+    // The quoted total already took SHORTCUT and the walk did not, so a column could read
+    // "18 min, including 20 on foot at the ends": a part printed larger than its whole.
+    const { app, base } = await crewOnTheLine(['coldwater-halt', 'blockhouse'], 'coldwater-halt');
+    app.repos.bases.updateArmy(base.id, { razors: 8, the_cartographer: 1 }, base.musterQueue);
+    // The Hill has no platform, so a ride there ends with a walk off the Blockhouse platform.
+    app.repos.sieges.insert({
+      id: 'battle-hill',
+      attackerBaseId: base.id,
+      target: { kind: 'gate', districtId: 'telemetry-hill' },
+      defender: { kind: 'government' },
+      declaredAt: new Date('2026-09-24T11:00:00.000Z').toISOString(),
+      scheduledFor: new Date('2026-09-25T11:00:00.000Z').toISOString(),
+      resolvedAt: null,
+      seed: 'battle-hill-seed',
+      holdAfterCapture: false,
+      wokeSleepers: false,
+    });
+    const battle = app.repos.sieges.find('battle-hill')!;
+    const crew = app.repos.bases.findById(base.id)!;
+    const quote = (changes: Record<string, number>) =>
+      deployQuote(app.repos, {
+        base: crew,
+        battle,
+        side: 'attacker',
+        changes,
+        perimeterChanges: {},
+        now: new Date('2026-09-24T12:00:00.000Z'),
+      });
+    const onFoot = quote({ razors: 4 });
+    const withHer = quote({ razors: 4, the_cartographer: 1 });
+    if (!onFoot.rail || !withHer.rail) throw new Error('fixture: no ride was offered to the Hill');
+    // A guard on the fixture: a walk of a minute halves to itself and would prove nothing.
+    expect(onFoot.rail.walkMinutes).toBeGreaterThan(2);
+    expect(withHer.rail.walkMinutes).toBe(Math.round(onFoot.rail.walkMinutes / 2));
+    expect(withHer.rail.walkMinutes).toBeLessThanOrEqual(withHer.rail.minutes);
   });
 
   /**

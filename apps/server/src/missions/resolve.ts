@@ -28,11 +28,13 @@ import {
   type Mission,
   type MissionOutcome,
   addItems,
-  infirmaryRecoveryPercent,
+  medicPointsOf,
   fightCategory,
   leadingAs,
   officerSheetBonusFor,
   rollSalvage,
+  deathSalvageFor,
+  mergeResources,
 } from '@frontline/shared';
 import { forceSize, mergeArmies } from '../battle/forces.js';
 
@@ -59,11 +61,18 @@ import { creditBaseInTurn } from '../district/stores.js';
 import { settleBase } from '../district/settle.js';
 import { reportTickFailure } from '../world/guard.js';
 import { tellPagesFound } from '../social/pages.js';
+import { withTableInfamy } from '../battle/resolve.js';
 import type { StoredMission } from '../db/repos/missions.js';
-import { awardPlayerXp, missionXpBonusPercent, professorXpPercent } from '../progression/award.js';
+import {
+  awardPlayerXp,
+  missionXpBonusPercent,
+  missionXpExtraPercent,
+} from '../progression/award.js';
+import { recordTrophyKills } from '../city/daily.js';
 import {
   tallyInfamyEarned,
   tallyUnitsRouted,
+  tallyRobotsMade,
   tallyMissionHome,
   tallyCasualtiesRecovered,
   tallyPagesIn,
@@ -227,11 +236,10 @@ export function resolveDueMissions(
    * The crew's whole book rather than one flag off it.
    *
    * Everything a declared battle reads is on here: the perks, the held ground, cohesion, the marks,
-   * the salvage refund, the infamy multiplier and the medicine. A battle job read `anyRide` and
-   * nothing else, and fought without any of the rest.
+   * the salvage refund, the infamy multiplier and the medicine. A battle job once read one ride
+   * flag and nothing else, and fought without any of the rest.
    */
   const crew = fights ? standingEffectsFor(repos, base, now) : null;
-  const anyRide = crew?.anyRide ?? false;
   /*
    * ...and the same fold for the bag, which every job needs rather than only the ones that fight.
    *
@@ -239,6 +247,8 @@ export function resolveDueMissions(
    * settlement of three scrap runs walks the holdings once instead of three times or never.
    */
   const crewCarry = crew ?? standingEffectsFor(repos, base, now);
+  // The Joker at the crew's table (2026-10-15): rarer finds and pages, not more of them.
+  const luck = crewCarry.dropLuck;
   const overseer = fights ? overseerOf(repos, base) : undefined;
   const room = fights ? officerLiftRoom(repos, base, now) : null;
 
@@ -275,7 +285,6 @@ export function resolveDueMissions(
             vehicles: stored.mission.vehicles,
             grade,
             leader: room ? leaderOf(stored, base, overseer, crew, room) : undefined,
-            anyRide,
             // The crew's brackets as they stand at the mark, the same read `missionCarry` gets.
             loadouts: base.unitLoadouts,
             ...(crew
@@ -287,8 +296,7 @@ export function resolveDueMissions(
                     !stored.mission.overseerLed && stored.mission.officerId !== null
                       ? leadingAs(crew, chairLeading(stored, base), 'mission')
                       : crew,
-                  recoveryPercent:
-                    crew.casualtyRecoveryPercent + infirmaryRecoveryPercent(base.buildings),
+                  recoveryPercent: medicPointsOf(crew.casualtyRecoveryPercent, base.buildings),
                 }
               : {}),
           })
@@ -372,7 +380,7 @@ export function resolveDueMissions(
     const rng = createRng(stored.seed);
     rng(); // The outcome's own draw, consumed so the finds do not reuse it.
     const rolled =
-      recalled || !reported ? {} : rollSalvage(pricedMinutes, outcome === 'success', rng);
+      recalled || !reported ? {} : rollSalvage(pricedMinutes, outcome === 'success', rng, luck);
     /*
      * The top fight's guarantee (maintainer, 2026-09-23): a won Mayhem always brings components home,
      * on top of whatever the dice said, and always a page (below). Off the same stream, one draw
@@ -381,7 +389,7 @@ export function resolveDueMissions(
     const mayhemWon =
       thisFights && fightCategory(grade) === 'mayhem' && outcome === 'success' && reported;
     const found = mayhemWon
-      ? addItems(rolled, guaranteedSalvage(MAYHEM_GUARANTEED_PARTS, rng))
+      ? addItems(rolled, guaranteedSalvage(MAYHEM_GUARANTEED_PARTS, rng, luck))
       : rolled;
     /*
      * §F1e/§F1f: the page, decided on arrival rather than when the card was drawn.
@@ -393,13 +401,14 @@ export function resolveDueMissions(
      */
     const pageWon =
       stored.mission.pagePrize !== null && outcome === 'success' && !recalled && reported
-        ? pageWonFrom(stored.mission.pagePrize, stored.seed)
+        ? pageWonFrom(stored.mission.pagePrize, stored.seed, luck)
         : mayhemWon
           ? // A Mayhem pays a page whether or not the run carried one: the category comes off
             // the seed, the sheet off the same draw every other page comes off.
             pageWonFrom(
               BLUEPRINT_CATEGORIES[stored.seed % BLUEPRINT_CATEGORIES.length] ?? 'unit',
               `${String(stored.seed)}:siege`,
+              luck,
             )
           : null;
 
@@ -433,23 +442,33 @@ export function resolveDueMissions(
        * everything that earns any" (§D8). It reached the declared-battle settler and not this one,
        * so the Graveyard and `sig_name_maker` paid on a raid and nothing on a job.
        */
+      /** Enemy units the crew killed, by id, for the Trophy Hall's tally. Empty on plain work. */
+      killed: battle && reported ? battle.killed : {},
       /** Enemy units the crew made run, for the `units_routed` ladder. Zero on plain work. */
       routed: battle && reported ? forceSize(battle.fledEnemy) : 0,
+      /** Robots the crew's Geppetto made, for the `robots_made` ladder. Zero on plain work. */
+      robotsMade: battle && reported ? battle.robotsMade : 0,
       /** The crew's dead the medics brought round, for the `casualties_recovered` ladder. */
       recovered: battle && reported ? battle.recovered : 0,
       // ...plus Arca's two surcharges on the dead, which a declared fight paid and a job
       // did not: the Fight Pit's on the enemy's intimidated and SPECTACLE's on the Dancer's kills.
       infamyDelta:
         template && reported
-          ? Math.round(
-              earnedInfamy(
-                MISSION_INFAMY_DELTA[template.kind][outcome] +
-                  (battle
-                    ? missionInfamyForBattle(battle.killed, battle.fledEnemy) +
-                      missionInfamySurcharge(battle, crew?.intimidatedInfamyPercent ?? 0)
-                    : 0),
-                crew?.infamyGainPercent ?? 0,
+          ? withTableInfamy(
+              Math.round(
+                earnedInfamy(
+                  MISSION_INFAMY_DELTA[template.kind][outcome] +
+                    (battle
+                      ? missionInfamyForBattle(battle.killed, battle.fledEnemy) +
+                        missionInfamySurcharge(battle, crew?.intimidatedInfamyPercent ?? 0)
+                      : 0),
+                  (crew?.infamyGainPercent ?? 0) +
+                    // The Last Platform held whole (2026-10-14): fights only, so battle jobs only.
+                    (template.kind === 'battle' ? (crew?.battleInfamyPercent ?? 0) : 0),
+                ),
               ),
+              // The Jack of clubs (2026-10-15): a battle job's final tally, rounded down.
+              template.kind === 'battle' ? (crew?.tableBattleInfamyPercent ?? 0) : 0,
             )
           : 0,
       /*
@@ -482,9 +501,13 @@ export function resolveDueMissions(
       // Gated on `reported` like every other payout on this object (bug pass, 2026-09-23). The
       // spec's rule is that a run nobody came home from "banks nothing: no pay, no salvage, no page,
       // no XP, no infamy", and the Bone Market's caps-for-bodies was the one line that ignored it.
+      // ...and the Cold Sidings pay their so much a body on top (2026-10-14), on the same gate.
       refund:
         battle && reported && crew
-          ? refundFor(battle.lost, crew.salvageRefundPercent, musterRatesFor(repos, base, now))
+          ? mergeResources(
+              refundFor(battle.lost, crew.salvageRefundPercent, musterRatesFor(repos, base, now)),
+              deathSalvageFor(forceSize(battle.lost), crew.deathSalvagePerBody),
+            )
           : {},
       /*
        * §C3: and so do the machines, every time.
@@ -538,7 +561,8 @@ export function resolveDueMissions(
   // than the figure before the district's and the crew's bonus. One sum for every run in this
   // settle: nothing between here and the award moves the buildings or the people.
   const xpBonus = missionXpBonusPercent(repos, base, now);
-  const professor = professorXpPercent(repos, base, now);
+  // The Professor's and the ground's: `awardPlayerXp` adds the crew's own share itself.
+  const extraXp = missionXpExtraPercent(repos, base, now);
   const xpPaidBy = (at: number) => boostedXp(settlements[at]?.xp ?? 0, xpBonus);
 
   // Missions are closed out before the payout lands on purpose. Both writes are synchronous and
@@ -632,6 +656,10 @@ export function resolveDueMissions(
       });
     }
     tallyUnitsRouted(repos, base.id, settlement.routed);
+    // The Trophy Hall ticks a job's kills as it ticks a declared fight's (bug pass, 2026-10-11:
+    // only `battle/resolve.ts` recorded them, so the hall never saw the most common fight).
+    recordTrophyKills(repos, base.id, settlement.killed, now);
+    tallyRobotsMade(repos, base.id, settlement.robotsMade);
     tallyCasualtiesRecovered(repos, base.id, settlement.recovered);
     tallyResourcesEarned(repos, base.id, paidIn(at)?.landed ?? {});
     // The refund too, as the fight settle counts its own (bug pass, 2026-10-06): the feat counted a
@@ -662,7 +690,7 @@ export function resolveDueMissions(
       repos,
       progressed,
       'missionCompleted',
-      professor,
+      extraXp,
       settlement.xp,
       now,
     ).base;

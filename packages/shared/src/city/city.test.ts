@@ -24,17 +24,11 @@ import {
   isSeatOfGovernmentPower,
   raidTargetOf,
 } from './districts.js';
-import { ALL_DISTRICTS, unifiedBonusFor } from './atlas.js';
+import { ALL_DISTRICTS, EVERY_LOCATION, unifiedBonusFor } from './atlas.js';
 import { DistrictNameSchema } from '../base.js';
 import { hastenedMinutes } from '../missions.js';
 import { musterSecondsFor } from '../units/muster.js';
-import {
-  LOCATION_KINDS,
-  LOCATION_CATALOG,
-  applyHoldBonus,
-  describeHoldBonus,
-  noTerritoryEffects,
-} from './locations.js';
+import { applyHoldBonus, describeHoldBonus, noTerritoryEffects } from './locations.js';
 import { MIN_TRAVEL_MINUTES, travelMinutes } from './geography.js';
 import {
   districtHolder,
@@ -125,14 +119,13 @@ describe('the map (§A4)', () => {
 });
 
 describe('the locations inside it (§A4)', () => {
-  it('gives every location kind a mechanic, a blurb and a reason to want it', () => {
-    for (const kind of LOCATION_KINDS) {
-      const spec = LOCATION_CATALOG[kind];
-      expect(spec.label, kind).toBeTruthy();
-      expect(spec.blurb.length, kind).toBeGreaterThan(20);
-      expect(spec.reward.length, kind).toBeGreaterThan(15);
-      expect(spec.baseDefense, kind).toBeGreaterThan(0);
-      for (const bonus of spec.bonuses) expect(describeHoldBonus(bonus), kind).toBeTruthy();
+  it('gives every location a mechanic, a blurb and a reason to want it', () => {
+    for (const location of EVERY_LOCATION) {
+      const { id } = location;
+      expect(location.blurb.length, id).toBeGreaterThan(20);
+      expect(location.reward.length, id).toBeGreaterThan(15);
+      expect(location.baseDefense, id).toBeGreaterThan(0);
+      for (const bonus of location.bonuses) expect(describeHoldBonus(bonus), id).toBeTruthy();
     }
   });
 
@@ -150,10 +143,9 @@ describe('the locations inside it (§A4)', () => {
 
       // Completing a district must be worth something *other* than more of what it already pays,
       // or the reward for finishing is indistinguishable from farming its best location.
+      // What each plot pays, read off the plot itself.
       const inside = new Set(
-        district.locations.flatMap((location) =>
-          LOCATION_CATALOG[location.kind].bonuses.map((bonus) => bonus.kind),
-        ),
+        district.locations.flatMap((location) => location.bonuses.map((bonus) => bonus.kind)),
       );
       expect(
         inside.has(unified!.bonus.kind),
@@ -182,13 +174,12 @@ describe('what a location says about itself (maintainer, 2026-09-15)', () => {
     }
   });
 
-  it('gives every Blacksite location its own line, none of them the kind’s', () => {
+  it('gives every Blacksite location its own line', () => {
     const lines = new Set<string>();
     for (const location of blacksite.locations) {
-      const blurb = location.blurb ?? '';
+      const { blurb } = location;
       expect(blurb.length, location.id).toBeGreaterThan(40);
       expect(blurb.trim().endsWith('.'), location.id).toBe(true);
-      expect(blurb, location.id).not.toBe(LOCATION_CATALOG[location.kind].blurb);
       lines.add(blurb);
     }
     expect(lines.size).toBe(blacksite.locations.length);
@@ -203,20 +194,18 @@ describe('what a location says about itself (maintainer, 2026-09-15)', () => {
     expect(findLocation('blacksite-pit17')?.blurb).toMatch(/[Mm]achines/);
   });
 
-  it('puts the Glasshouses on the Green Belt, on a kind that pays supplies', () => {
+  it('puts the Glasshouses on the Green Belt, paying supplies', () => {
     const glasshouses = findLocation('glasshouse-fields-glasshouses');
-    expect(glasshouses?.kind).toBe('glasshouse');
+    expect(glasshouses?.icon).toBe('glasshouse');
     expect(glasshouses?.blurb).toMatch(/glass/);
-    expect(LOCATION_CATALOG.glasshouse.bonuses).toContainEqual(
+    expect(glasshouses?.bonuses).toContainEqual(
       expect.objectContaining({ kind: 'resource', resource: 'supplies' }),
     );
     expect(findDistrict('glasshouse-fields')?.locations).toHaveLength(8);
   });
 
-  // A location without a line is not a hole: everything outside the Blacksite still parses.
-  it('leaves the blurb optional for ground authored without one', () => {
+  it('parses a district with every location carrying its own words', () => {
     const docks = findDistrict('neon-docks')!;
-    expect(docks.locations.every((location) => location.blurb === undefined)).toBe(true);
     expect(() => DistrictSchema.parse(docks)).not.toThrow();
   });
 });
@@ -310,8 +299,7 @@ describe('who holds what (§A4)', () => {
 
     // The squatters take the best ground, not the first ground: an empty location a new crew can
     // walk onto has to be the *cheap* one, or "open" buys them nothing.
-    const defenseOf = (location: (typeof open.locations)[number]): number =>
-      LOCATION_CATALOG[location.kind].baseDefense;
+    const defenseOf = (location: (typeof open.locations)[number]): number => location.baseDefense;
     expect(Math.min(...held.map(defenseOf))).toBeGreaterThanOrEqual(
       Math.max(...empty.map(defenseOf)),
     );
@@ -387,7 +375,7 @@ describe('who holds what (§A4)', () => {
     const bare = locationDefense(location, control(location.id));
     const held = locationDefense(location, control(location.id, { garrison: { razors: 20 } }));
 
-    expect(bare).toBe(LOCATION_CATALOG[location.kind].baseDefense);
+    expect(bare).toBe(location.baseDefense);
     expect(held).toBeGreaterThan(bare);
     expect(garrisonSize(control(location.id, { garrison: { razors: 3, ghosts: 2 } }))).toBe(5);
   });
@@ -577,10 +565,7 @@ describe('NPC garrisons (§A3, §A4)', () => {
     expect(looterPlots.length).toBeGreaterThan(20);
     for (const { district, location } of looterPlots) {
       const garrison = startingGarrison(location, district);
-      const budget = combineSlotBudget(
-        district.difficulty,
-        LOCATION_CATALOG[location.kind].baseDefense,
-      );
+      const budget = combineSlotBudget(district.difficulty, location.baseDefense);
       expect(slotsOf(garrison), location.id).toBe(budget);
       expect(Object.keys(garrison).sort(), location.id).toEqual(['razors', 'scrapers']);
     }

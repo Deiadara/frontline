@@ -11,7 +11,7 @@ import { VEHICLE_IDS } from '../building/index.js';
 import {
   CITY_DISTRICTS,
   DISTRICT_KINDS,
-  LOCATION_KINDS,
+  LOCATION_ICONS,
   type DistrictKind,
 } from '../city/index.js';
 import { OVERSEER_ARCHETYPES, type OverseerArchetype } from '../overseer.js';
@@ -1010,15 +1010,14 @@ const iconDrafts = [
       prompt: { subject: DISTRICT_KIND_ICON_SUBJECTS[kind], framing: FRAMING.icon },
     }),
   ),
-  // §A4: one marker per *kind* of location rather than one per location. Forty-two locations on
-  // the map share these, and a player reads the kind off the marker: two substations should look
-  // like two substations.
-  ...LOCATION_KINDS.map((kind, index) =>
+  // §A4: one marker per icon rather than one per location (`Location.icon`). The locations on the
+  // map share these: two substations should look like two substations.
+  ...LOCATION_ICONS.map((icon, index) =>
     draft({
-      key: `icon-location-${toKebab(kind)}`,
+      key: `icon-location-${toKebab(icon)}`,
       class: 'icon',
       seed: SEED_BASE.locationIcon + index + 1,
-      prompt: { subject: LOCATION_ICON_SUBJECTS[kind], framing: FRAMING.icon },
+      prompt: { subject: LOCATION_ICON_SUBJECTS[icon], framing: FRAMING.icon },
     }),
   ),
   // §C1: one per machine the Garage builds, so a delivered file overrides the interim block with
@@ -1198,9 +1197,9 @@ function iconSubjectResolves(subject: string): boolean {
     return (DISTRICT_KINDS as readonly string[]).includes(toSnake(districtKind));
   }
 
-  const locationKind = stripPrefix(subject, 'location-');
-  if (locationKind !== null) {
-    return (LOCATION_KINDS as readonly string[]).includes(toSnake(locationKind));
+  const locationIcon = stripPrefix(subject, 'location-');
+  if (locationIcon !== null) {
+    return (LOCATION_ICONS as readonly string[]).includes(toSnake(locationIcon));
   }
 
   const vehicle = stripPrefix(subject, 'vehicle-');

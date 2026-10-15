@@ -502,11 +502,6 @@ describe('the second city', () => {
     return found;
   };
   const places = (districtId: string) => district(districtId).locations.map((one) => one.id);
-  const firstOfKind = (districtId: string, kind: string) => {
-    const found = district(districtId).locations.find((one) => one.kind === kind);
-    if (!found) throw new Error(`fixture: ${districtId} has no ${kind}`);
-    return found.id;
-  };
 
   it('counts a holding in the other city, and knows it is not at home', () => {
     // Kettle Row is in Ashfall, and the crew never moves house: a foothold abroad is ground taken.
@@ -517,7 +512,7 @@ describe('the second city', () => {
     expect(read('locations_held_abroad')).toBe(0);
     expect(read('cities_held')).toBe(0);
 
-    give([firstOfKind('coldwater-halt', 'market')], mine);
+    give(['coldwater-halt-market'], mine);
     expect(read('locations_held'), 'a holding is a holding wherever it stands').toBe(1);
     expect(read('locations_held_abroad')).toBe(1);
     expect(read('cities_held'), 'ground in one city, and it is not the one they live in').toBe(1);
@@ -528,7 +523,7 @@ describe('the second city', () => {
     expect(read('cities_held')).toBe(2);
 
     // And it falls, which is what makes these crew measures: ground abroad can be taken back.
-    give([firstOfKind('coldwater-halt', 'market')], { kind: 'looters' });
+    give(['coldwater-halt-market'], { kind: 'looters' });
     expect(read('locations_held_abroad')).toBe(0);
     expect(read('cities_held')).toBe(1);
   });
@@ -536,10 +531,10 @@ describe('the second city', () => {
   /** Arca's tombs (2026-10-07): one location kind, so the count is the Mausoleums and nothing beside them. */
   it('counts the Mausoleums held, and not the ground around them', () => {
     expect(read('mausoleums_held')).toBe(0);
-    give([firstOfKind('candlemarket', 'mausoleum'), firstOfKind('candlemarket', 'market')], mine);
+    give(['candlemarket-tomb', 'candlemarket-waxstalls'], mine);
     expect(read('locations_held')).toBe(2);
     expect(read('mausoleums_held'), 'the market beside the tomb is not a tomb').toBe(1);
-    give([firstOfKind('gravefields', 'mausoleum')], mine);
+    give(['gravefields-mausoleums'], mine);
     expect(read('mausoleums_held')).toBe(2);
     expect(read('cities_held'), 'a third city to hold ground in').toBe(1);
   });
@@ -551,18 +546,44 @@ describe('the second city', () => {
    * `rail_stations_held` from `locations_held`: a reader wired to "anything in Terminus" counts
    * two and a reader wired to the kind counts one.
    */
+  it("counts a platform a mate at the table holds, and not a stranger's (2026-10-13)", () => {
+    db.prepare(
+      `INSERT INTO users (id, username, password_hash, created_at) VALUES ('veteran', 'two', 'x', ?)`,
+    ).run(T0.toISOString());
+    repos.bases.insert({ ...makeBase(), id: 'base-2', ownerId: 'veteran', name: 'The Halt' });
+    repos.factions.insert({
+      id: 'the-line',
+      name: 'The Line',
+      badge: DEFAULT_BADGE,
+      blurb: '',
+      foundedAt: T0.toISOString(),
+    });
+    for (const [userId, rank] of [
+      [OWNER, 'leader'],
+      ['veteran', 'member'],
+    ] as const) {
+      repos.factions.addMember({ userId, factionId: 'the-line', rank, joinedAt: T0.toISOString() });
+    }
+    // A mate's platform is one the crew rides from, so the ladder counts it.
+    give(['bonded-row-halt'], { kind: 'crew', baseId: 'base-2' });
+    expect(read('rail_stations_held')).toBe(1);
+    // A crew at no table with the reader is not a mate.
+    give(['coldwater-halt-platform'], { kind: 'crew', baseId: 'a-stranger' });
+    expect(read('rail_stations_held')).toBe(1);
+  });
+
   it('counts the Stations a crew holds, and not the rest of the city', () => {
     expect(read('rail_stations_held')).toBe(0);
 
-    give([firstOfKind('coldwater-halt', 'rail_station')], mine);
+    give(['coldwater-halt-platform'], mine);
     expect(read('rail_stations_held')).toBe(1);
 
-    give([firstOfKind('bonded-row', 'downtown_market')], mine);
+    give(['bonded-row-longbond'], mine);
     expect(read('rail_stations_held'), 'a warehouse is not a platform').toBe(1);
     expect(read('locations_held')).toBe(2);
 
     // Two is the number the train needs: `railwayOffer` refuses anything under it.
-    give([firstOfKind('bonded-row', 'rail_station')], mine);
+    give(['bonded-row-halt'], mine);
     expect(read('rail_stations_held')).toBe(2);
   });
 
@@ -605,8 +626,8 @@ describe('the second city', () => {
    * catalogue now ends on both, and this is the reader that has to be able to reach two.
    */
   it('reads both of the regime’s chapels', () => {
-    const chosen = firstOfKind('ccs', 'combine_chapel');
-    const frontier = firstOfKind('blockhouse', 'combine_chapel');
+    const chosen = 'ccs-chapel';
+    const frontier = 'blockhouse-chapel';
 
     expect(read('chapel_held')).toBe(0);
 

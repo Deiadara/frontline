@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { MAX_ROUNDS } from './engine.js';
 import { defaultSkirmishEngine } from './skirmish.js';
 import { findFeat } from '../feats/catalog.js';
 import {
@@ -94,12 +95,17 @@ describe('Razor Wire slows the attack instead of killing it', () => {
   it('hands the speed and the morale back after its opening rounds', () => {
     // Held for its two rounds and then for the whole fight: in front of a rifle line, and with the
     // morale half alone on a column big enough for a few points to decide it if they stayed.
-    expect(winRate(EVEN, RANGED, { ...slow, rounds: 12 })).toBeLessThan(
-      winRate(EVEN, RANGED, wire) - 0.1,
+    // A column of Razors alone since the Breakers went to 300 vitality (2026-10-09): ten of them in
+    // the column carried it through the wire however long it held, which measured the Breakers and
+    // not the wire. Fifty-five Razors against a rifle line is near even and feels every round.
+    const column: Army = { razors: 55 };
+    const rifles: Army = { razors: 30, snipers: 8 };
+    expect(winRate(column, rifles, { ...slow, rounds: MAX_ROUNDS })).toBeLessThan(
+      winRate(column, rifles, slow) - 0.1,
     );
     const big: Army = { razors: 160, breakers: 40 };
     const morale: TrapWire = { speedCut: 0, moraleCut: 4, rounds: 2 };
-    expect(winRate(big, big, { ...morale, rounds: 12 })).toBeLessThan(
+    expect(winRate(big, big, { ...morale, rounds: MAX_ROUNDS })).toBeLessThan(
       winRate(big, big, morale) - 0.1,
     );
   });

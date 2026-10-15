@@ -86,6 +86,25 @@ export function UnitBonuses({
           lines={section.lines}
         />
       ))}
+
+      {/* The held ground's flat points on this sheet, each naming its plot (2026-10-13). */}
+      {(unit.groundStats ?? []).length > 0 && (
+        <section data-testid={`unit-ground-stats-${unit.id}`}>
+          <h4 className="font-display text-[11px] font-bold uppercase tracking-[0.18em] text-brass-300">
+            On the sheet, from the ground you hold
+          </h4>
+          <span aria-hidden className="mb-1 mt-0.5 block h-1.5 text-ink-300/60">
+            <DrawnRule />
+          </span>
+          <ul className="flex flex-col gap-0.5">
+            {(unit.groundStats ?? []).map((line) => (
+              <li key={line} className="font-stamp text-[13px] leading-tight text-ink-100">
+                {line}
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
     </div>
   );
 }

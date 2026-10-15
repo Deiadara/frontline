@@ -15,7 +15,7 @@ import {
   tierOf,
   MIN_GROUND_EFFECT_PERCENT,
 } from './labels.js';
-import { CITY_LOCATIONS } from './index.js';
+import { CITY_LOCATIONS, findLocation } from './index.js';
 import { WEATHER_KINDS } from './weather.js';
 import { UNIT_CATALOG } from '../units/index.js';
 import { battlefieldFor } from '../battle/battlefield.js';
@@ -237,7 +237,7 @@ describe('how much of a force fits', () => {
 describe('the worst ground in the game', () => {
   const stormyPlant = () =>
     battlefieldFor({
-      kind: 'nuclear_plant',
+      ground: findLocation('blacksite-pile')!,
       locationName: 'The Abandoned Nuclear Plant',
       // Fortification is irrelevant at level 0, and this file is about the labels.
       weather: 'stormy',
@@ -267,11 +267,11 @@ describe('the worst ground in the game', () => {
   it('leaves no unit with a negative offense anywhere in the city, in any weather', () => {
     let worst = Infinity;
     let checked = 0;
-    for (const kind of new Set(CITY_LOCATIONS.map((location) => location.kind))) {
+    for (const location of CITY_LOCATIONS) {
       for (const weather of WEATHER_KINDS) {
         const field = battlefieldFor({
-          kind,
-          locationName: kind,
+          ground: location,
+          locationName: location.name,
           weather,
           at: new Date('2026-08-14T12:00:00.000Z'),
         });

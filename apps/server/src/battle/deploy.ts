@@ -1,5 +1,5 @@
 import {
-  capRating,
+  crewStealth,
   effectiveSpeed,
   findUnit,
   fittedFor,
@@ -10,6 +10,7 @@ import {
   mulberry32,
   perimeterToll,
   seedFrom,
+  shortcutMinutes,
   type Army,
   bareLineRules,
   type BattleDeployment,
@@ -136,7 +137,9 @@ export function deployQuote(repos: Repositories, input: DeployInput): DeployQuot
             minutes: offer.minutes,
             boardAt: offer.boardAt.name,
             alightAt: offer.alightAt.name,
-            walkMinutes: offer.toPlatform + offer.fromPlatform,
+            // Halved with the Cartographer as `offer.minutes` already is (`railRideBetween`), so
+            // the "on foot at the ends" line never prints more than the whole ride.
+            walkMinutes: shortcutMinutes(offer.toPlatform + offer.fromPlatform, riding.army),
             ...landing(offer.minutes),
           },
   };
@@ -319,14 +322,13 @@ export function adjustDeployment(repos: Repositories, input: DeployInput): Deplo
    * ground, and refusing one because a column that left yesterday is over the ceiling would strand
    * those units with no door out, which is the shape of the attacker-ring defect next door.
    */
-  const seats = fleetCapacity(existing.vehicles);
+  const seats = fleetCapacity(existing.vehicles, effects.vehicleCapacityPercent);
   if (seats > 0 && sendingNow) {
     const aboard = seatsAsked(repos, {
       baseId: base.id,
       battleId: battle.id,
       side,
       now,
-      anyRide: effects.anyRide,
       seats,
       sending: mergeArmies(departing.army, departing.perimeter),
     });
@@ -353,15 +355,15 @@ export function adjustDeployment(repos: Repositories, input: DeployInput): Deplo
       enemyRing(repos, battle, side),
       next,
       (unitId: string) => {
-        const printed = findUnit(unitId)?.stats;
+        const unit = findUnit(unitId);
         // Unreachable in practice: `move` refuses anything that is not a combat unit before this
         // runs. Answered rather than asserted because a sheet nobody can find is one nobody can
         // catch either, which is what `catchChance` does with it.
-        if (!printed) return { speed: 0, stealth: 0 };
-        const fitted = upgradedStats(printed, fittedFor(base.unitLoadouts, unitId));
+        if (!unit) return { speed: 0, stealth: 0 };
+        const fitted = upgradedStats(unit.stats, fittedFor(base.unitLoadouts, unitId));
         return {
           speed: effectiveSpeed(fitted.speed, { percent: effects.unitSpeedPercent }),
-          stealth: capRating(Math.round(fitted.stealth * (1 + effects.unitStealthPercent / 100))),
+          stealth: crewStealth(unit, fitted.stealth, effects),
         };
       },
       /*

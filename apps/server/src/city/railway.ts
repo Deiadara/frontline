@@ -1,7 +1,7 @@
 import {
   EVERY_LOCATION,
+  isStation,
   findUnit,
-  isHeldBy,
   partyCanRide,
   railwayOfferBetween,
   stationDistricts,
@@ -10,8 +10,11 @@ import {
   type Fleet,
   type RailwayOffer,
   type RoadPace,
+  type StationLevels,
+  shortcutMinutes,
 } from '@frontline/shared';
 import type { Repositories } from '../db/repos/index.js';
+import { alliesOf } from './holding.js';
 
 /**
  * Who is on Terminus's line, and whether a given party may board it.
@@ -26,19 +29,27 @@ import type { Repositories } from '../db/repos/index.js';
  */
 
 /**
- * The districts in which this crew holds a Station.
+ * The districts in which this crew or a mate at its table holds a Station, with each platform's
+ * level (maintainer, 2026-10-13: the line is the table's).
  *
  * Read off the live control map every time rather than cached on the crew, because losing a
  * platform has to drop that node out of the line immediately: a crew that was linked five minutes
- * ago and has just been pushed off Bond Street Halt is not linked any more.
+ * ago and has just been pushed off Bond Street Halt is not linked any more. The level comes off
+ * the same row, because it sets how long the rails out of that platform take
+ * (`railLinkMinutes`), and both the move and the battle column read it here.
  */
-export function stationsHeldBy(repos: Repositories, base: Base): Set<string> {
+export function stationsHeldBy(repos: Repositories, base: Base): StationLevels {
   const controls = repos.city.controls();
-  const held: string[] = [];
+  const table = new Set([base.id, ...alliesOf(repos, base.id)]);
+  const held = new Map<string, number>();
   for (const location of EVERY_LOCATION) {
-    if (location.kind !== 'rail_station') continue;
+    if (!isStation(location)) continue;
     const control = controls.get(location.id);
-    if (control && isHeldBy(control, base.id)) held.push(location.id);
+    // The table's platforms as well as the crew's own (maintainer, 2026-10-13): a mate's Station
+    // is a platform you may board at or get off at.
+    if (control && control.holder.kind === 'crew' && table.has(control.holder.baseId)) {
+      held.set(location.id, control.level);
+    }
   }
   return stationDistricts(held);
 }
@@ -63,8 +74,8 @@ export function partyRides(army: Army, vehicles: Fleet): boolean {
  * The ride this crew could take between two districts, or `null` when there is none to take.
  *
  * Four silent noes rather than refusals: fewer than two platforms held, the two ends in different
- * cities, a party carrying machines, or a road that is already quicker than fifteen minutes plus
- * the two walks. The caller offers whatever comes back beside the march and the player chooses.
+ * cities, a party carrying machines, or a road that is already quicker than the rails plus the
+ * two walks. The caller offers whatever comes back beside the march and the player chooses.
  */
 export function railRideBetween(
   repos: Repositories,
@@ -83,7 +94,9 @@ export function railRideBetween(
     pace,
   );
   if (offer === null) return null;
+  // SHORTCUT halves the ride's own clock, the road it is weighed against already halved.
+  const ride = { ...offer, minutes: shortcutMinutes(offer.minutes, riding.army) };
   // A ride that arrives no sooner than the march is not an offer. Two neighbouring districts are a
-  // short hop and fifteen minutes on a train is not a service anybody wants.
-  return offer.minutes >= road ? null : offer;
+  // short hop and a quarter of an hour on a train is not a service anybody wants.
+  return ride.minutes >= road ? null : ride;
 }

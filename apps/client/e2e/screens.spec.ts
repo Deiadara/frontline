@@ -684,18 +684,18 @@ test('the unit roster shows what is fielded and what is still locked (§A5)', as
   await expect(
     page.getByTestId('unit-the-colossus').or(page.getByTestId('unit-the_colossus')),
   ).toBeVisible();
-  // The Colossus is assembled standing up now, on the only crane in the city (§A4).
-  //
-  // "Hold The", not "hold a": five of the location labels carry the article already, so the old
-  // template produced "hold a The Doghouse", and the fix is the definite article everywhere. The
-  // regex is anchored on the article for exactly that reason: a check for the place's name alone
-  // would pass over the bug this wording exists to fix.
+  // The Colossus is assembled standing up, on a crane: either of the two scaffolds, named with
+  // their districts since location types left the game (2026-10-14), "Hold X in Y, or Z in W".
   //
   // Read off the hover rather than off the card, because that is where the whole list lives: the
   // card names the first two clauses and counts the rest, so that a unit gated on four things is
   // not a card cut off mid-word. The dossier prints every clause on a line of its own.
   await page.getByTestId('unit-the_colossus').getByText('Locked').hover();
-  await expect(page.getByText('Hold The Construction Site', { exact: true })).toBeVisible();
+  await expect(
+    page.getByText('Hold The Unfinished Faculty in The Annexes, or The Unfinished Wing in CCS', {
+      exact: true,
+    }),
+  ).toBeVisible();
 
   // The tier tabs carry `transition-colors`, and React flips the class a frame before the paint
   // catches up, so a screenshot taken the instant the cards change shows *Rabble* still lit over a
@@ -1310,11 +1310,14 @@ test('a captured district offers its gate, and raising it reaches the server', a
   const panel = page.getByTestId('captured-gate-steelbelt');
   await expect(panel).toBeVisible();
   // One under the ceiling, at the shared rate: a captured gate's level is worth twice a home
-  // Gate's (`CAPTURED_GATE_DEFENSE_PERCENT_PER_LEVEL`), so level 4 is 20% in a fight.
+  // Gate's (`CAPTURED_GATE_DEFENSE_PERCENT_PER_LEVEL`), so level 4 is 20 raw points of defence,
+  // which the fight curves with the holder's other defence (maintainer, 2026-10-15).
   await expect(panel).toContainText(`Lv ${CAPTURED_GATE_MAX_LEVEL - 1}`);
-  await expect(panel).toContainText(`${capturedGateDefensePercent(CAPTURED_GATE_MAX_LEVEL - 1)}%`);
+  await expect(panel).toContainText(
+    `+${capturedGateDefensePercent(CAPTURED_GATE_MAX_LEVEL - 1)} points of defence`,
+  );
   // No points against spies: spy strength is not public (maintainer, 2026-10-01).
-  await expect(panel).not.toContainText(/points|spy/i);
+  await expect(panel).not.toContainText(/spy|%/i);
   await page.screenshot({ path: 'e2e-out/captured-gate-panel.png' });
 
   const raised = page.waitForRequest(
@@ -1582,11 +1585,21 @@ test('walking the whole bar twice pops nothing up', async ({ page }) => {
 });
 
 /**
- * The officer and Overseer windows never scroll (maintainer, 2026-10-08).
+ * The officer and Overseer windows never scroll (maintainer, 2026-10-08), and end where the sheet
+ * ends (maintainer, 2026-10-09).
  *
  * The whole file has to be on screen at once. It was 214px too tall at 1280x720 and 33px at
  * 1440x900; under 1000px of height the window now tightens to fit (`CREW_WINDOW` in `CrewPage`).
  * The commander in `lateGame` is mid-reseat, so the window carries its tallest variant here.
+ *
+ * It was also 85% of the screen tall whatever it held, which at 1080 left the sheet floating well
+ * above the window's foot with "Let go" alone down there. The window is as tall as the file now:
+ * the gap under the sheet is the gap beside it, "Let go" ends on the sheet's bottom line, and the
+ * window sits in the middle of the screen.
+ *
+ * The gap check is also the honest no-scroll check. At 1280x720 the file ran 6px past the body's
+ * content box into its padding, which `scrollHeight` does not count, so the scroll check alone
+ * passed a window the file did not fit.
  */
 for (const [width, height] of [
   [1024, 768],
@@ -1610,6 +1623,42 @@ for (const [width, height] of [
         visible: el.clientHeight,
       }));
       expect(scroll, `${seat}: the window scrolls`).toBeLessThanOrEqual(visible);
+
+      await page.screenshot({ path: test.info().outputPath(`${seat}-${width}x${height}.png`) });
+      const edges = await page.evaluate(() => {
+        const rect = (selector: string) => {
+          const node = document.querySelector(selector);
+          if (node === null) return null;
+          const { top, right, bottom } = node.getBoundingClientRect();
+          return { top, right, bottom };
+        };
+        return {
+          frame: window.innerHeight,
+          window: rect('[role="dialog"]'),
+          sheet: rect('[role="dialog"] [data-testid="attribute-sheet"]'),
+          letGo: rect('[role="dialog"] [data-testid="let-go"]'),
+        };
+      });
+      if (edges.window === null || edges.sheet === null) throw new Error(`${seat}: no sheet`);
+      const below = edges.window.bottom - edges.sheet.bottom;
+      const beside = edges.window.right - edges.sheet.right;
+      expect(
+        Math.abs(below - beside),
+        `${seat}: ${below}px under the sheet against ${beside}px beside it`,
+      ).toBeLessThanOrEqual(1);
+      const above = edges.window.top;
+      const under = edges.frame - edges.window.bottom;
+      expect(
+        Math.abs(above - under),
+        `${seat}: ${above}px above the window against ${under}px under it`,
+      ).toBeLessThanOrEqual(1);
+      if (seat === 'seat-field_commander') {
+        if (edges.letGo === null) throw new Error(`${seat}: no Let go`);
+        expect(
+          Math.abs(edges.letGo.bottom - edges.sheet.bottom),
+          `${seat}: Let go ends at ${edges.letGo.bottom}px, the sheet at ${edges.sheet.bottom}px`,
+        ).toBeLessThanOrEqual(1);
+      }
     }
   });
 }

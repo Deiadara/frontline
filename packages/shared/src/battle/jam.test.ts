@@ -21,7 +21,8 @@ import {
   groundedWonderCut,
   wonderJam,
   jammedSheet,
-  LOCATION_KINDS,
+  EVERY_LOCATION,
+  findLocation,
   noTerritoryEffects,
   simulate,
   upgradedStats,
@@ -181,7 +182,7 @@ describe('what a jamming line takes off the other side', () => {
     // `night_operations`, so a tight dark room is their ground and open daylight is not.
     const cellar = battlefieldFor({
       locationName: 'a cellar',
-      kind: 'smugglers_tunnel',
+      ground: findLocation('neon-docks-runners')!,
       at: new Date('2026-09-18T12:00:00.000Z'),
       weather: 'normal',
     });
@@ -242,21 +243,21 @@ describe('what a jamming line takes off the other side', () => {
      * are decided per exchange in `matchup.ts`, against one defender at a time, and a jam has no
      * one defender.
      *
-     * Swept over every location kind rather than asserted about one, because this is a claim
-     * about the whole map and a new kind is the way it would quietly stop being true.
+     * Swept over every location rather than asserted about one, because this is a claim about the
+     * whole map and a new location is the way it would quietly stop being true.
      */
     const targetShaped: readonly CombatContext[] = ['vs_armor', 'vs_evasive', 'vs_low_morale'];
-    for (const kind of LOCATION_KINDS) {
+    for (const location of EVERY_LOCATION) {
       const ground = battlefieldFor({
-        locationName: kind,
-        kind,
+        locationName: location.name,
+        ground: location,
         at: new Date('2026-09-19T22:00:00.000Z'),
         weather: 'stormy',
       });
       // And since fortification left the game (2026-09-26), not `vs_structure` either: a gate is
       // the holder's and arrives with their territory, so no ground carries any of the family.
       for (const context of [...targetShaped, 'vs_structure' as const]) {
-        expect(ground.contexts, `${kind} carries ${context}`).not.toContain(context);
+        expect(ground.contexts, `${location.id} carries ${context}`).not.toContain(context);
       }
     }
   });

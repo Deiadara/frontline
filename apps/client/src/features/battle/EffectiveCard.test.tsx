@@ -1,4 +1,10 @@
-import { battlefieldFor, findUnit, findUnitModification, type BattleView } from '@frontline/shared';
+import {
+  battlefieldFor,
+  findUnit,
+  findUnitModification,
+  type BattleView,
+  findLocation,
+} from '@frontline/shared';
 import { render, screen, within } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import { EffectiveCard } from './EffectiveCard';
@@ -30,7 +36,7 @@ const view: BattleView = {
   districtName: 'Steelbelt',
   battlefield: battlefieldFor({
     locationName: 'Kessler Press',
-    kind: 'scrap_press',
+    ground: findLocation('steelbelt-press')!,
     at: new Date(MARK),
     weather: 'normal',
   }),

@@ -1,4 +1,4 @@
-import { RAIL_LINK_MINUTES } from './locations.js';
+import { isStation, railLinkMinutes } from './locations.js';
 import { ALL_DISTRICTS, findDistrict } from './atlas.js';
 import { rawMinutesBetween, type RoadPace } from './geography.js';
 import { roadMinutes } from '../time/speed.js';
@@ -18,8 +18,10 @@ import type { District } from './districts.js';
  * cannot use the railway."
  *
  * So: a unit move or a battle column may **choose** to ride. The clock is the road to the platform
- * it boards at, plus {@link RAIL_LINK_MINUTES} flat on the rails, plus the road from the platform
- * it gets off at to wherever it is actually going. Missions and spy jobs never ride.
+ * it boards at, plus {@link railLinkMinutes} on the rails for the level of that platform
+ * (maintainer, 2026-10-09: 15 minutes from a level 1 Station down to 7 from a level 5), plus the
+ * road from the platform it gets off at to wherever it is actually going. Missions and spy jobs
+ * never ride.
  *
  * ## Why it is a search and not a lookup
  *
@@ -34,19 +36,27 @@ import type { District } from './districts.js';
  * ## Why the ride is never forced
  *
  * Riding is not always what you want. The train leaves the machines behind ({@link partyCanRide}),
- * and a short hop between two neighbouring districts is quicker on foot than fifteen minutes on
- * the rails. So this answers with *both* clocks and the caller offers the choice, which is what
+ * and a short hop between two neighbouring districts is quicker on foot than the minutes on the
+ * rails. So this answers with *both* clocks and the caller offers the choice, which is what
  * the maintainer asked for. `railwayOffer` returning `null` means there is nothing to offer.
  */
 
-/** The districts in which this crew holds a Station, as district ids. */
-export function stationDistricts(heldLocationIds: Iterable<string>): Set<string> {
-  const held = new Set(heldLocationIds);
-  const districts = new Set<string>();
+/**
+ * The Stations a crew holds, as the level of the platform in each district, by district id.
+ *
+ * A level because the rails out of a platform take {@link railLinkMinutes} of it. Takes the held
+ * locations with their levels, or bare ids for a crew whose platforms are all at level 1.
+ */
+export type StationLevels = ReadonlyMap<string, number>;
+
+export function stationDistricts(
+  held: ReadonlyMap<string, number> | Iterable<string>,
+): Map<string, number> {
+  const levels = held instanceof Map ? held : new Map([...held].map((id) => [id, 1] as const));
+  const districts = new Map<string, number>();
   for (const district of ALL_DISTRICTS) {
-    if (district.locations.some((one) => one.kind === 'rail_station' && held.has(one.id))) {
-      districts.add(district.id);
-    }
+    const station = district.locations.find((one) => isStation(one) && levels.has(one.id));
+    if (station) districts.set(district.id, levels.get(station.id) as number);
   }
   return districts;
 }
@@ -73,6 +83,8 @@ export interface RailwayOffer {
   readonly toPlatform: number;
   /** The road from the far platform to the destination, in minutes, already paced. */
   readonly fromPlatform: number;
+  /** The rails between the two, set by the level of the platform it boards at. */
+  readonly ride: number;
   /** The whole journey by rail, in minutes. */
   readonly minutes: number;
 }
@@ -87,15 +99,16 @@ export interface RailwayOffer {
  * The two road legs are paced with the caller's own `pace`, because they are roads: the column's
  * speed, its travel bonuses and its road shortcuts all apply to the walk at either end exactly as
  * they would to the whole journey. The middle leg is not paced, and that is the point of it being
- * a rule: nothing makes a train faster and nothing makes it slower.
+ * a rule: no road bonus touches it, and only the level of the departure platform moves it.
  */
 export function railwayOffer(
   from: District,
   to: District,
-  stations: ReadonlySet<string>,
+  stations: StationLevels,
   pace: RoadPace = {},
 ): RailwayOffer | null {
-  // Maintainer, 2026-09-29: the line is for moving within Terminus, between two stations you hold.
+  // Maintainer, 2026-09-29: the line is for moving within Terminus, between two stations you hold;
+  // since 2026-10-13 a mate's Station counts as yours here.
   if (from.cityId !== to.cityId) return null;
   if (stations.size < 2) return null;
 
@@ -110,9 +123,10 @@ export function railwayOffer(
       if (boardAt.id === alightAt.id) continue;
       const toPlatform = pacedRoad(from, boardAt, pace);
       const fromPlatform = pacedRoad(alightAt, to, pace);
-      const minutes = toPlatform + RAIL_LINK_MINUTES + fromPlatform;
+      const ride = railLinkMinutes(stations.get(boardAt.id) ?? 1);
+      const minutes = toPlatform + ride + fromPlatform;
       if (best === null || minutes < best.minutes) {
-        best = { boardAt, alightAt, toPlatform, fromPlatform, minutes };
+        best = { boardAt, alightAt, toPlatform, fromPlatform, ride, minutes };
       }
     }
   }
@@ -123,7 +137,7 @@ export function railwayOffer(
 export function railwayOfferBetween(
   fromId: string,
   toId: string,
-  stations: ReadonlySet<string>,
+  stations: StationLevels,
   pace: RoadPace = {},
 ): RailwayOffer | null {
   const from = findDistrict(fromId);
@@ -136,7 +150,7 @@ export function railwayOfferBetween(
  * One leg of the walk, in whole minutes.
  *
  * Zero when the party is already in that district, which is the common case at both ends and is
- * what makes "board at home, get off at the destination" cost exactly the fifteen minutes the rule
+ * what makes "board at home, get off at the destination" cost exactly the rails the rule
  * promises. Everywhere else it is an ordinary road and is charged as one, including the floor:
  * a leg that exists is never free.
  */

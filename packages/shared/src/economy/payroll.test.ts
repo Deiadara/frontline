@@ -101,6 +101,16 @@ describe('the payroll book (§H7)', () => {
     expect(committedPayroll(payroll.commitments)).toBe(100);
   });
 
+  it("takes what tonight's bids hold off what is left, and says how much (2026-10-13)", () => {
+    const payroll = { ...startingPayroll(), commitments: { a: 60 } };
+    const ledger = payrollLedger(payroll, 0, 0, 0, 0, 50);
+    expect(ledger.heldByBids).toBe(50);
+    expect(ledger.available).toBe(PAYROLL_BASE - 60 - 50);
+    // The hold is a hold, not a commitment: the gate still measures the fee against the book.
+    expect(ledger.committed).toBe(60);
+    expect(payrollLedger(payroll, 0).heldByBids).toBe(0);
+  });
+
   it('never reports a negative remainder, however far over the book a crew is', () => {
     const payroll = { ...startingPayroll(), commitments: { a: PAYROLL_BASE + 500 } };
     expect(payrollLedger(payroll, 0).available).toBe(0);

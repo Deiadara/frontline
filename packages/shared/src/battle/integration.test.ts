@@ -1,12 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { findUnit, type Army } from '../units/index.js';
+import { findLocation } from '../city/index.js';
 import {
   bareBattlefield,
   battlefieldFor,
   homeBattlefield,
   type Battlefield,
 } from './battlefield.js';
-import { simulate, type Simulation } from './engine.js';
+import { MAX_ROUNDS, simulate, type Simulation } from './engine.js';
 import { LUCK_LIMIT } from './luck.js';
 import { moraleState, PURSUIT_LOSS } from './morale.js';
 import { FINDING_KINDS, FINDING_VISIBILITIES } from './report.js';
@@ -39,7 +40,7 @@ const SCENARIOS: { name: string; attacking: Army; defending: Army; ground: Battl
     defending: { wardens: 10, ironsides: 4 },
     ground: battlefieldFor({
       locationName: 'The Sump',
-      kind: 'sewer_junction',
+      ground: findLocation('undergrid-junction')!,
       at: NIGHT,
     }),
   },
@@ -49,7 +50,7 @@ const SCENARIOS: { name: string; attacking: Army; defending: Army; ground: Battl
     defending: { snipers: 14, kite_crews: 6 },
     ground: battlefieldFor({
       locationName: 'The Yard',
-      kind: 'rail_yard',
+      ground: findLocation('glasshouse-fields-haulers')!,
       at: DAY,
     }),
   },
@@ -65,7 +66,7 @@ const SCENARIOS: { name: string; attacking: Army; defending: Army; ground: Battl
     defending: { stitchers: 4, wardens: 8 },
     ground: battlefieldFor({
       locationName: 'The Armoury',
-      kind: 'armory',
+      ground: findLocation('blacksite-armory')!,
       at: NIGHT,
     }),
   },
@@ -75,7 +76,7 @@ const SCENARIOS: { name: string; attacking: Army; defending: Army; ground: Battl
     defending: { the_colossus: 1, ironsides: 6 },
     ground: battlefieldFor({
       locationName: 'The Graveyard',
-      kind: 'war_machine_graveyard',
+      ground: findLocation('steelbelt-bonefield')!,
       at: DAY,
     }),
   },
@@ -85,7 +86,7 @@ const SCENARIOS: { name: string; attacking: Army; defending: Army; ground: Battl
     defending: {},
     ground: battlefieldFor({
       locationName: 'The Press',
-      kind: 'scrap_press',
+      ground: findLocation('steelbelt-press')!,
       at: DAY,
     }),
   },
@@ -161,7 +162,7 @@ describe.each(SCENARIOS.map((scenario) => [scenario.name, scenario] as const))(
         expect(simulation.rounds.map((record) => record.round)).toEqual(
           simulation.rounds.map((_, index) => index + 1),
         );
-        expect(simulation.rounds.length).toBeLessThanOrEqual(12);
+        expect(simulation.rounds.length).toBeLessThanOrEqual(MAX_ROUNDS);
         for (const record of simulation.rounds) {
           expect(record.attackerLost).toBeGreaterThanOrEqual(0);
           expect(record.defenderLost).toBeGreaterThanOrEqual(0);

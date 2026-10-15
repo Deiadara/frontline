@@ -101,7 +101,7 @@ describe('what a sky puts on the ground', () => {
     for (const kind of WEATHER_KINDS) {
       expect(weatherLabels(kind), kind).toEqual(weatherLabels(kind));
       // And no sky brings darkness with it. Dark ground is a property of the place: see the
-      // `dark` labels in `LOCATION_CATALOG` and `DARK_GROUND_TIER`.
+      // `dark` labels on each location and `DARK_GROUND_TIER`.
       expect(tierOf(weatherLabels(kind), 'dark'), kind).toBe(0);
     }
   });

@@ -6,7 +6,7 @@ import { IdSchema, IsoDateTimeSchema } from '../primitives.js';
 import { softCap } from '../battle/soft-cap.js';
 import { musterSpeedAfterTaper } from '../time/speed.js';
 import { PartialResourcesSchema, RESOURCE_KEYS, type PartialResources } from '../resources.js';
-import type { LocationKind } from '../city/locations.js';
+import { levelSteps } from '../city/locations.js';
 import { UnitIdSchema, findUnit, locationsMustering, type UnitSpec } from './catalog.js';
 
 /**
@@ -124,7 +124,7 @@ export type MusterOrder = z.infer<typeof MusterOrderSchema>;
  * legal when it was written and make it unreadable later, which turns one bad write into a
  * permanently 500ing `GET /me` and a client that shows `UPLINK FAILED` and nothing else.
  *
- * That is not hypothetical. Testing mode waives `queue_full` (`admin/mode.ts`) so a reviewer can
+ * That is not hypothetical. Testing mode used to waive `queue_full` (`admin/mode.ts`) so a reviewer could
  * stack orders, and the sixth one bricked the save: every subsequent read threw `too_big` out of
  * `rowToBase`, so the crew could not be loaded to *drain* the queue either. Lowering the constant
  * in a balance pass would have done the same thing to every existing save.
@@ -262,7 +262,7 @@ export function musterCost(
 /**
  * §A4: what the ground a unit comes from does to its bill and its clock, per level above 1.
  *
- * The Doghouse is where the Cyberhounds are bred, so working the Doghouse up has to show in the
+ * The Kennels are where the Cyberhounds are bred, so working the Kennels up has to show in the
  * Cyberhounds and nowhere else. One point off the price and three off the clock per level, so a
  * location at the ceiling is 9% cheaper and 27% quicker on its own unit: real, and still well
  * under {@link MAX_MUSTER_DISCOUNT} and the knee of the speed taper, which every other source of
@@ -280,17 +280,17 @@ export const MUSTER_SPEED_PER_LOCATION_LEVEL = 7;
 /**
  * What the crew's own ground takes off this unit, in percentage points.
  *
- * `heldLevels` is the best level held *per location kind*, and it is the caller's job to have
- * built it from locations this crew actually holds. A kind that is missing from it is a kind
+ * `heldLevels` is the level of every location this crew holds, by id, and it is the caller's job
+ * to have built it from locations this crew actually holds. A location missing from it is one
  * somebody else has, or nobody has, and either way it is worth nothing here: a unit whose only
- * home is a Doghouse the crew does not hold is a unit the crew cannot muster at all.
+ * home is a Kennels the crew does not hold is a unit the crew cannot muster at all.
  *
- * The best of the kinds rather than the sum of them, for the two units gated on more than one
- * place: what a unit gets is the best home it has, not one bonus per gate it happens to carry.
+ * The best of its homes rather than the sum of them, for the units gated on more than one place:
+ * what a unit gets is the best home it has, not one bonus per gate it happens to carry.
  */
 export function homeMusterBonus(
   unit: UnitSpec,
-  heldLevels: ReadonlyMap<LocationKind, number>,
+  heldLevels: ReadonlyMap<string, number>,
 ): { costPercent: number; speedPercent: number } {
   const home = homeMusterSource(unit, heldLevels);
   if (home === null) return { costPercent: 0, speedPercent: 0 };
@@ -299,18 +299,18 @@ export function homeMusterBonus(
 
 /** Which home paid a unit's own muster bonus, and what it was worth. */
 export interface HomeMusterSource {
-  kind: LocationKind;
+  locationId: string;
   level: number;
   costPercent: number;
   speedPercent: number;
 }
 
 /**
- * The same bonus as {@link homeMusterBonus}, keeping which kind of ground paid it.
+ * The same bonus as {@link homeMusterBonus}, keeping which location paid it.
  *
  * Split out rather than worked out twice (maintainer, 2026-09-17: each unit should carry a tag
  * saying what it is given, "including the global ones and its private ones"). The private half is
- * this, and a page that names the Doghouse has to agree with the figure the route charges: one
+ * this, and a page that names the Kennels has to agree with the figure the route charges: one
  * walk, two readers, the way `crewSheetSources` is split from `crewSheet`.
  *
  * Null when this crew holds none of the ground this unit calls home, which is also the case where
@@ -318,19 +318,20 @@ export interface HomeMusterSource {
  */
 export function homeMusterSource(
   unit: UnitSpec,
-  heldLevels: ReadonlyMap<LocationKind, number>,
+  heldLevels: ReadonlyMap<string, number>,
 ): HomeMusterSource | null {
-  let best: { kind: LocationKind; level: number } | null = null;
-  for (const kind of locationsMustering(unit)) {
-    const level = heldLevels.get(kind) ?? 0;
-    if (level > (best?.level ?? 0)) best = { kind, level };
+  let best: { locationId: string; level: number } | null = null;
+  for (const locationId of locationsMustering(unit)) {
+    const level = heldLevels.get(locationId) ?? 0;
+    if (level > (best?.level ?? 0)) best = { locationId, level };
   }
   if (best === null) return null;
-  // The first level of a home is worth nothing: what pays is the work put into it above level one.
-  const levels = Math.max(0, best.level - 1);
+  // The first level of a home is worth nothing: what pays is the work put into it above level one,
+  // a step a level and two for the last (`levelSteps`, 2026-10-09).
+  const levels = levelSteps(best.level);
   if (levels === 0) return null;
   return {
-    kind: best.kind,
+    locationId: best.locationId,
     level: best.level,
     costPercent: levels * MUSTER_COST_PER_LOCATION_LEVEL,
     speedPercent: levels * MUSTER_SPEED_PER_LOCATION_LEVEL,
@@ -405,6 +406,21 @@ export function musterRemainingMs(order: MusterOrder, now: Date): number {
   return Math.max(0, musterCompletesAt(order).getTime() - now.getTime());
 }
 
+/** Whether the batch is still waiting its turn behind the one on the bench. */
+export function musterWaiting(order: MusterOrder, now: Date): boolean {
+  return Date.parse(order.startedAt) > now.getTime();
+}
+
+/**
+ * The time a queue row shows for a batch (maintainer, 2026-10-08): what is left while it is
+ * worked, and its whole duration, holding still, while it waits its turn.
+ */
+export function musterClockMs(order: MusterOrder, now: Date): number {
+  return musterWaiting(order, now)
+    ? order.durationSeconds * SECOND_MS
+    : musterRemainingMs(order, now);
+}
+
 export function musterProgressAt(order: MusterOrder, now: Date): number {
   const elapsedMs = now.getTime() - Date.parse(order.startedAt);
   return Math.min(1, Math.max(0, elapsedMs / (order.durationSeconds * SECOND_MS)));
@@ -419,8 +435,8 @@ export function musterProgressAt(order: MusterOrder, now: Date): number {
  *
  * Ten percent of the batch's *own* clock, so a run of Razors gives seconds and a Colossus gives
  * minutes, which is right: the longer the thing takes, the longer you have to notice you clicked
- * the wrong one. Ninety-five percent back, and the missing twentieth is the material already cut
- * up before anybody said stop.
+ * the wrong one. Ninety percent back, and the missing tenth is the material already cut up before
+ * anybody said stop.
  */
 export const MUSTER_CANCEL_WINDOW = CANCEL_WINDOW;
 /** Ninety, not the ninety-five it was: one refund for everything (`time/cancel.ts`). */

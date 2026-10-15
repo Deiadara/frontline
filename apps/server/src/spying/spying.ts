@@ -5,7 +5,6 @@ import {
   chairIsSettled,
   chairPassiveOf,
   HOLDER_LABELS,
-  LOCATION_CATALOG,
   SPY_ACCURACY_RESEARCH_ID,
   SPY_ESTIMATE_RESEARCH_ID,
   SPY_GATE_PLACE,
@@ -16,7 +15,7 @@ import {
   SPY_WRITTEN_RESEARCH_ID,
   buildingLevel,
   canAfford,
-  capRating,
+  crewStealth,
   counterIntelPoints,
   cityIsOpen,
   counterScore,
@@ -171,12 +170,12 @@ function crewStealthReader(
    * you" got it in a fight and got nothing at all against a spy, which is the half it was bought
    * for. The same mistake `missions/resolve.ts` records having made once with `infamy_gain`.
    */
-  const percent = standingEffectsFor(repos, holder, now).unitStealthPercent;
+  const effects = standingEffectsFor(repos, holder, now);
   return (unitId) => {
     const unit = findUnit(unitId);
     if (!unit) return 0;
     const fitted = upgradedStats(unit.stats, fittedFor(holder.unitLoadouts, unitId));
-    return capRating(Math.round(fitted.stealth * (1 + percent / 100)));
+    return crewStealth(unit, fitted.stealth, effects);
   };
 }
 
@@ -386,7 +385,7 @@ export function groundBehind(
         counter: {
           kind: control.holder.kind,
           districtDifficulty: district.difficulty,
-          baseDefense: LOCATION_CATALOG[location.kind].baseDefense,
+          baseDefense: location.baseDefense,
         },
       },
     };
@@ -487,10 +486,7 @@ export function groundBehind(
         kind: holder.kind,
         districtDifficulty: district.difficulty,
         // The hardest ground in the district is what its gate is read against.
-        baseDefense: Math.max(
-          0,
-          ...district.locations.map((location) => LOCATION_CATALOG[location.kind].baseDefense),
-        ),
+        baseDefense: Math.max(0, ...district.locations.map((location) => location.baseDefense)),
       },
     },
   };

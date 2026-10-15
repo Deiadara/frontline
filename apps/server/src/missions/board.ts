@@ -7,6 +7,7 @@ import {
   missionDealer,
   RESOURCE_KG,
   areaPayPercent,
+  missionCityPercentIn,
   leaningsFor,
   missionXp,
   templateTimings,
@@ -190,7 +191,11 @@ export function projectAreas(
     speedPercent?: number;
     /** Speed that pays on one district's board alone (`missionSpeedPercentByDistrict`). */
     districtSpeedPercent?: Record<string, number>;
+    /** Speed that pays on every job in one city, by city id (`missionSpeedPercentByCity`). */
+    citySpeedPercent?: Record<string, number>;
     spoilsPercent?: number;
+    /** Pay on jobs in one city alone, by city id (`missionSpoilsPercentByCity`). */
+    citySpoilsPercent?: Readonly<Record<string, number>>;
     /** Cap Counter's cut of a job's caps (`missionCapsPercent`), quoted as the return pays it. */
     capsPercent?: number;
     /** The XP bonus every job is paid with (`missionXpBonusPercent`, the Professor included), quoted as the return pays it. */
@@ -211,6 +216,7 @@ export function projectAreas(
     const payPercent =
       areaPayPercent(id) +
       (standing.spoilsPercent ?? 0) +
+      missionCityPercentIn(standing.citySpoilsPercent ?? {}, crew.districtId, id) +
       // The opening band's premium, which is what stops a two-minute first job paying two minutes
       // of loot (`missions.ramp.ts`). Zero once the crew is out of the ramp.
       (standing.ramp?.payPercent ?? 0);
@@ -233,8 +239,10 @@ export function projectAreas(
                     {
                       missionSpeedPercent: standing.speedPercent ?? 0,
                       missionSpeedPercentByDistrict: standing.districtSpeedPercent ?? {},
+                      missionSpeedPercentByCity: standing.citySpeedPercent ?? {},
                     },
                     id,
+                    crew.districtId,
                   ),
                   standing.ramp ?? null,
                   missionWalkMinutes(crew.districtId, id),

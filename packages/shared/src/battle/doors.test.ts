@@ -9,7 +9,7 @@ import {
 } from '../city/arca.js';
 import { findUnit, type UnitSpec } from '../units/index.js';
 import { bareBattlefield, type Battlefield } from './battlefield.js';
-import { doorPerks, NO_DOOR_PERKS } from './doors.js';
+import { DOOR_UNIT_IDS, doorPerks, doorRuleSteps, doorUnit, NO_DOOR_PERKS } from './doors.js';
 import { effectiveStats, type UnitFightContext } from './effects.js';
 import { auraSheet, simulate, type SideSetup, type Simulation } from './engine.js';
 
@@ -51,7 +51,9 @@ describe('the door ladders as data', () => {
     expect(doorPerks('the_condemned', 0)).toEqual(NO_DOOR_PERKS);
     expect(doorPerks('nobody', 5)).toEqual(NO_DOOR_PERKS);
     expect(doorPerks('the_condemned', 3).offense).toBe(2 * CONDEMNED_PER_LEVEL);
-    expect(doorPerks('the_condemned', 5).offense).toBe(4 * CONDEMNED_PER_LEVEL);
+    expect(doorPerks('the_condemned', 4).offense).toBe(3 * CONDEMNED_PER_LEVEL);
+    // The last step double: 30, 60, 90, then 150.
+    expect(doorPerks('the_condemned', 5).offense).toBe(5 * CONDEMNED_PER_LEVEL);
     expect(doorPerks('the_condemned', 4).lastChancePercent).toBe(0);
     expect(doorPerks('the_condemned', 5).lastChancePercent).toBeGreaterThan(0);
     expect(doorPerks('the_saint', 2).stalwart).toBe(true);
@@ -67,8 +69,8 @@ describe('the door ladders as data', () => {
   it('puts the door flats on the sheet before the percentages, and the congregation under its cap', () => {
     const plain = sheet('the_condemned');
     const l5 = sheet('the_condemned', {}, { door: doorPerks('the_condemned', 5) });
-    expect(l5.offense - plain.offense).toBeCloseTo(4 * CONDEMNED_PER_LEVEL, 5);
-    expect(l5.vitality - plain.vitality).toBeCloseTo(4 * CONDEMNED_PER_LEVEL, 5);
+    expect(l5.offense - plain.offense).toBeCloseTo(5 * CONDEMNED_PER_LEVEL, 5);
+    expect(l5.vitality - plain.vitality).toBeCloseTo(5 * CONDEMNED_PER_LEVEL, 5);
     const saint = sheet('the_saint');
     const small = sheet('the_saint', {}, { door: doorPerks('the_saint', 5), slotsBeside: 40 });
     const huge = sheet('the_saint', {}, { door: doorPerks('the_saint', 5), slotsBeside: 5000 });
@@ -227,13 +229,16 @@ describe('the rules that read the other side', () => {
     const plain = sheet('wardens');
     const flats: Partial<TerritoryEffects> = {
       unitStatFlats: [
-        { stat: 'range', flat: 10, rule: 'guard' },
+        { stat: 'range', flat: 10, rule: 'guard', source: 'The Cloister Wall' },
         { stat: 'penetration', flat: 7, tier: 'heavy' },
         { stat: 'armor', flat: 5, damageType: 'energy' },
       ],
     };
     const wardens = sheet('wardens', flats);
     expect(wardens.range).toBe(plain.range + 10);
+    // Each flat that lands is a reason naming its plot, so the report can say where it came from.
+    expect(wardens.reasons).toContain('+10 range (The Cloister Wall)');
+    expect(sheet('razors', flats).reasons).not.toContain('+10 range (The Cloister Wall)');
     expect(wardens.penetration).toBe(
       plain.penetration + (unit('wardens').tier === 'heavy' ? 7 : 0),
     );
@@ -412,5 +417,67 @@ describe('the ledgers of the dead', () => {
     const hers = l3.kills.defender.spectacle['civic_levy'] ?? 0;
     expect(hers).toBeGreaterThan(0);
     expect(hers).toBeLessThanOrEqual(l3.defender.stacks[0]!.started - l3.defender.stacks[0]!.alive);
+  });
+});
+
+/**
+ * The door's rules reach the card (2026-10-14). The engine ran PAPERCUT, SPECTACLE, BLOWOUT,
+ * INSPIRATION and LAST CHANCE off the ladder's numbers and no sheet ever said so: the Dancer had
+ * no PAPERCUT chip, locked or held. One list in `doors.ts` now writes each rule on the sheet a
+ * crew fields and lists it by the level that pays it, so a rule the engine runs is a rule the
+ * card can grey out.
+ */
+describe('the door writes its rules on the sheet', () => {
+  it('flags every rule the ladder pays, at the level it pays it, and nothing below', () => {
+    const dancer = unit('the_crimson_dancer');
+    expect(doorUnit(dancer, doorPerks('the_crimson_dancer', 1))).toBe(dancer);
+    const third = doorUnit(dancer, doorPerks('the_crimson_dancer', 3));
+    expect([third.spectacle, third.papercut]).toEqual([true, undefined]);
+    const fifth = doorUnit(dancer, doorPerks('the_crimson_dancer', 5));
+    expect([fifth.spectacle, fifth.papercut, fifth.strikes_first]).toEqual([true, true, true]);
+    const saint = doorUnit(unit('the_saint'), doorPerks('the_saint', 4));
+    expect([saint.stalwart, saint.inspiration]).toEqual([true, true]);
+    const heavy = doorUnit(unit('juggernauts'), doorPerks('juggernauts', 5));
+    expect([heavy.taunts, heavy.blowout]).toEqual([true, true]);
+    expect(doorUnit(unit('the_condemned'), doorPerks('the_condemned', 5)).last_chance).toBe(true);
+    expect(doorUnit(unit('the_condemned'), doorPerks('the_condemned', 4)).last_chance).toBe(
+      undefined,
+    );
+  });
+
+  it('lists the ladder as rules by level, for the card to grey out', () => {
+    expect(doorRuleSteps('the_crimson_dancer')).toEqual([
+      { level: 3, ruleId: 'spectacle' },
+      { level: 5, ruleId: 'papercut' },
+    ]);
+    expect(doorRuleSteps('the_saint')).toEqual([
+      { level: 2, ruleId: 'stalwart' },
+      { level: 4, ruleId: 'inspiration' },
+    ]);
+    expect(doorRuleSteps('juggernauts')).toEqual([
+      { level: 4, ruleId: 'taunts' },
+      { level: 5, ruleId: 'blowout' },
+    ]);
+    expect(doorRuleSteps('the_condemned')).toEqual([{ level: 5, ruleId: 'last_chance' }]);
+    expect(doorRuleSteps('razors')).toEqual([]);
+  });
+
+  /**
+   * Every rule-shaped perk on the ladder is on the list: a flag or a percentage added to
+   * `DoorPerks` tomorrow that changes what happens, and is not here, is the Dancer's bug again.
+   * The stat fields are numbers on the sheet and the label lists are affinities, not rules.
+   */
+  it('leaves no rule-shaped door perk off the card', () => {
+    const numbers = new Set(['offense', 'vitality', 'range', 'evasion', 'speed', 'stealth']);
+    const labels = new Set(['ignoredLabels', 'homeLabels']);
+    const congregation = new Set(['congregationPerSlot', 'congregationCap']);
+    const listed = new Set(
+      DOOR_UNIT_IDS.flatMap((id) => doorRuleSteps(id).map((step) => step.ruleId)),
+    );
+    for (const field of Object.keys(NO_DOOR_PERKS)) {
+      if (numbers.has(field) || labels.has(field) || congregation.has(field)) continue;
+      const rule = { lastChancePercent: 'last_chance', papercutArmor: 'papercut' }[field] ?? field;
+      expect(listed.has(rule as never), field).toBe(true);
+    }
   });
 });

@@ -16,7 +16,12 @@ import { areasOffering } from '@frontline/shared';
 import { settleDistrict } from '../district/settle.js';
 import { sureLeader } from '../testing/leader.js';
 import { acceptOffer, postOffer } from '../market/board.js';
-import { tallyBattleResolved, tallyBattleSide, tallyRailJourney } from './tally.js';
+import {
+  tallyBattleResolved,
+  tallyBattleSide,
+  tallyRailJourney,
+  tallyRobotsMade,
+} from './tally.js';
 import {
   startingEconomy,
   startingProgression,
@@ -479,6 +484,16 @@ describe('the railway', () => {
     tallyRailJourney(repos, 'base-1');
     tallyRailJourney(repos, 'base-1');
     expect(talliesNow()[featMeasureKey('rail_journeys')]).toBe(2);
+  });
+});
+
+describe('the Geppetto’s robots', () => {
+  it('counts every robot he made, and nothing for a fight he was not in', () => {
+    tallyRobotsMade(repos, 'base-1', 0);
+    expect(talliesNow()[featMeasureKey('robots_made')]).toBeUndefined();
+    tallyRobotsMade(repos, 'base-1', 7);
+    tallyRobotsMade(repos, 'base-1', 4);
+    expect(talliesNow()[featMeasureKey('robots_made')]).toBe(11);
   });
 });
 

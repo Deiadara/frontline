@@ -551,6 +551,7 @@ describe('every migration from 0081 on, on a database with rows in every table',
     '0153_ground_state.sql',
     '0154_daily_grants.sql',
     '0155_gate_raised_by.sql',
+    '0156_faction_card_holders.sql',
   ];
   /**
    * Dropped along with the mechanics under them, so they are not there to be counted: the Bar's

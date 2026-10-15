@@ -1,6 +1,6 @@
-import type { AllyArmy } from '@frontline/shared';
+import type { AllyArmy, FactionMember } from '@frontline/shared';
 import { Modal } from '../../components/ui/Modal';
-import { MemberSigil } from './MemberSigil';
+import { MemberFace } from './MemberFace';
 import { ArmyTags, EmptyPlate, Figure, WindowHead } from './parts';
 
 /**
@@ -13,13 +13,17 @@ import { ArmyTags, EmptyPlate, Figure, WindowHead } from './parts';
  */
 export function Armies({
   armies,
+  members,
   myUserId,
   onClose,
 }: {
   armies: readonly AllyArmy[];
+  /** The table, for each row's face: the Overseer's painting, as the members window draws it. */
+  members: readonly FactionMember[];
   myUserId: string;
   onClose: () => void;
 }) {
+  const byUser = new Map(members.map((member) => [member.userId, member]));
   return (
     <Modal
       onClose={onClose}
@@ -40,11 +44,19 @@ export function Armies({
                 key={ally.memberUserId}
                 className="card-paper washed flex min-w-0 gap-3 rounded-sm border border-surface-600/80 p-3"
               >
-                <span className="icon-plate flex h-14 w-12 shrink-0 items-center justify-center rounded-sm text-brass-300">
-                  <MemberSigil
-                    seed={ally.memberUserId}
-                    name={`${ally.memberName}, drawn`}
-                    className="h-10 w-10"
+                {/* Their own face (maintainer, 2026-10-15), the same painting the members window
+                    and their file draw, rather than a sigil hashed off the account. A row whose
+                    member the table no longer lists keeps the drawn fallback. */}
+                <span className="h-14 w-12 shrink-0">
+                  <MemberFace
+                    member={
+                      byUser.get(ally.memberUserId) ?? {
+                        userId: ally.memberUserId,
+                        username: ally.memberName,
+                        portraitId: null,
+                      }
+                    }
+                    size="sm"
                   />
                 </span>
                 <div className="flex min-w-0 flex-1 flex-col gap-1.5">

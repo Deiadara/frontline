@@ -25,12 +25,12 @@ import {
   sealBid,
   settleBarAuctions,
   tablesHeldIn,
-  wagesHeldByBids,
   type BidRefusal,
   type BidRequest,
   type BidResult,
 } from '../bar/auction.js';
 import {
+  heldByBidsFor,
   bidCeilingFor,
   factionInfamyOf,
   ledgerFor,
@@ -43,7 +43,7 @@ import { barDay, barRoster, cityOfRecruit, findBarRecruit } from '../bar/roster.
 import { barRoomOf } from '../bar/room.js';
 import { cityAsked, citiesFor } from '../city/stakes.js';
 import { seatedRoles } from '../crew/roster.js';
-import { crewEffectsFor, standingEffectsFor } from '../crew/standing.js';
+import { standingEffectsFor } from '../crew/standing.js';
 import type { BarBid } from '../db/repos/bar.js';
 import { settleBase } from '../district/settle.js';
 import { districtUnitSlots } from '../district/unit-slots.js';
@@ -290,7 +290,8 @@ export function registerBarRoutes(app: FastifyInstance): void {
     const usernames = usernamesFor(app, bids);
     // Read once: the book and the discount feed the ledger, the bid ceiling and the payroll gate.
     const effects = standingEffectsFor(app.repos, base);
-    const ledger = ledgerFor(base, effects);
+    // With tonight's holds on it, so the ledger the screen prints is the one the ceiling is cut from.
+    const ledger = ledgerFor(base, effects, heldByBidsFor(app.repos, base, now, effects));
 
     return {
       day,
@@ -328,17 +329,7 @@ export function registerBarRoutes(app: FastifyInstance): void {
       // The most this crew can put on a table: what the book holds after its own negotiators, less
       // the wages its other bids tonight already hold, won or lost (2026-10-04). One figure for
       // the room, so it can read a little low on a table the crew itself is leading.
-      bidCeiling: bidCeilingFor(
-        ledger.available -
-          wagesHeldByBids(
-            app.repos,
-            request.currentUser.id,
-            day,
-            null,
-            effects.wageDiscountPercent,
-          ),
-        effects.wageDiscountPercent,
-      ),
+      bidCeiling: bidCeilingFor(ledger.available, effects.wageDiscountPercent),
       wageDiscountPercent: Math.min(MAX_WAGE_DISCOUNT, Math.max(0, effects.wageDiscountPercent)),
       // Only the tables this crew sat at, from the last night it sat at any. A results panel that
       // carried every close in the city would be a leaderboard nobody asked for.
@@ -417,10 +408,13 @@ export function registerBarRoutes(app: FastifyInstance): void {
       );
     }
 
-    // §B7: officers who make widening the book cheaper (`payrollStepDiscountPercent`).
+    // §B7: officers who make widening the book cheaper (`payrollStepDiscountPercent`). Off the
+    // standing fold, the one `ledgerFor` prices `nextStepCost` with (bug pass, 2026-10-11): the
+    // people-only fold agrees today because no ground pays the channel, and the first location
+    // that does would have put one price on the button and another on the stockpile.
     const cost = payrollStepCost(
       base.economy.payroll.purchasedSteps,
-      crewEffectsFor(app.repos, base).payrollStepDiscountPercent,
+      standingEffectsFor(app.repos, base, now).payrollStepDiscountPercent,
     );
     if (cost > base.resources[PAYROLL_STEP_RESOURCE] && !app.config.admin) {
       throw new AppError('INSUFFICIENT_RESOURCES', `You need ${cost} caps to widen the book`);
@@ -447,7 +441,11 @@ export function registerBarRoutes(app: FastifyInstance): void {
     return {
       spent: cost,
       resources: raised.resources,
-      payroll: ledgerFor(raised, standingEffectsFor(app.repos, raised)),
+      payroll: ledgerFor(
+        raised,
+        standingEffectsFor(app.repos, raised),
+        heldByBidsFor(app.repos, raised, now, standingEffectsFor(app.repos, raised)),
+      ),
     };
   });
 }

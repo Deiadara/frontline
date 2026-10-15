@@ -5,7 +5,9 @@ import {
   areaIsOpen,
   areaPayPercent,
   areasOffering,
+  missionCityPercentIn,
   missionBoardKey,
+  missionCityOf,
   missionOffers,
   openAreas,
 } from './missions.areas.js';
@@ -109,35 +111,61 @@ describe('whose boards a crew is shown', () => {
 });
 
 /**
- * The Yards pay mission speed and the Blockhouse pays ANTI-COMBINE (maintainer, 2026-10-07; it
- * paid 25 on the same channel until then).
- *
- * `mission_speed` is a divisor channel: the job leg is `minutes / (1 + percent/100)`, the percent
- * bent under its ceiling (`missionSpeedCut`). What this checks is that the Yards' figure stands
- * nowhere near the clamp with a second source beside it, because a pair that silently capped
- * would make the second worth nothing.
+ * Neither the Yards nor the Blockhouse pays on a mission clock any more: the Blockhouse is a level
+ * of ANTI-COMBINE (2026-10-07) and the Yards make Heavies stronger (maintainer, 2026-10-09; they
+ * paid 12 on `mission_speed` until then). Pinned so a board that still quoted the old speed would
+ * fail here rather than on a player's clock.
  */
-describe('the Yards and a second source of speed', () => {
-  const speedOf = (districtId: string): number => {
-    const bonus = unifiedBonusFor(districtId)?.bonus;
-    return bonus?.kind === 'mission_speed' ? bonus.percent : 0;
-  };
-
-  it('pays the Yards, leaves the Blockhouse to ANTI-COMBINE, and stays under the ceiling with both', () => {
-    const yards = speedOf('marshalling-yards');
-    expect(yards).toBe(12);
+describe('the Yards and the Blockhouse on a mission clock', () => {
+  it('pays neither on the job: the Yards build Heavies and the Blockhouse is ANTI-COMBINE', () => {
+    expect(unifiedBonusFor('marshalling-yards')?.bonus).toEqual({
+      kind: 'tier_strength',
+      tier: 'heavy',
+      percent: 10,
+    });
     expect(unifiedBonusFor('blockhouse')?.bonus.kind).toBe('anti_combine');
-    expect(speedOf('blockhouse')).toBe(0);
-    expect(yards + 25).toBeLessThan(MISSION_SPEED_CEILING);
+    const speedPayers = TERMINUS.filter(
+      (district) => unifiedBonusFor(district.id)?.bonus.kind === 'mission_speed',
+    );
+    expect(speedPayers).toEqual([]);
+    // The channel itself still bends under its ceiling for whatever pays it.
+    expect(hastenedMinutes(240, 25)).toBeLessThan(240);
+    expect(MISSION_SPEED_CEILING).toBeGreaterThan(25);
+  });
+});
+
+/**
+ * Coldwater Halt held whole pays more on every job worked in Terminus (maintainer, 2026-10-09).
+ * The scope is the city the job is worked in; the misc board has no address, so it counts as the
+ * crew's own city.
+ */
+describe('pay scoped to one city', () => {
+  const byCity = { [TERMINUS_CITY_ID]: 5 };
+  const terminusHome = 'carriage';
+  const ashfallHome = CITY_DISTRICTS.find((district) => !isContested(district))!.id;
+
+  it('is the Halt`s unified bonus, five per cent on jobs in its city', () => {
+    expect(unifiedBonusFor('coldwater-halt')?.bonus).toEqual({
+      kind: 'mission_spoils',
+      percent: 5,
+      inCity: true,
+    });
   });
 
-  it('takes more off the clock for two sources than for either alone', () => {
-    const yards = speedOf('marshalling-yards');
-    const tunnels = 25;
-    const job = 240;
-    const both = hastenedMinutes(job, yards + tunnels);
-    expect(both).toBeLessThan(hastenedMinutes(job, tunnels));
-    expect(hastenedMinutes(job, tunnels)).toBeLessThan(hastenedMinutes(job, yards));
-    expect(both).toBeGreaterThan(hastenedMinutes(job, 1_000));
+  it('pays on every Terminus board and on the misc board of a crew living there', () => {
+    expect(cityOf(terminusHome)).toBe(TERMINUS_CITY_ID);
+    expect(missionCityOf(terminusHome, MISC_AREA_ID)).toBe(TERMINUS_CITY_ID);
+    expect(missionCityPercentIn(byCity, terminusHome, MISC_AREA_ID)).toBe(5);
+    for (const district of CONTESTED) {
+      expect(missionCityPercentIn(byCity, terminusHome, district.id), district.id).toBe(5);
+    }
+  });
+
+  it('pays nothing on work in another city', () => {
+    expect(cityOf(ashfallHome)).toBe(DEFAULT_CITY_ID);
+    expect(missionCityPercentIn(byCity, ashfallHome, MISC_AREA_ID)).toBe(0);
+    const ashfallBoard = CITY_DISTRICTS.find(isContested)!.id;
+    expect(missionCityPercentIn(byCity, terminusHome, ashfallBoard)).toBe(0);
+    expect(missionCityPercentIn({}, terminusHome, MISC_AREA_ID)).toBe(0);
   });
 });

@@ -13,7 +13,7 @@ import {
 import { randomUUID } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import { AppError, parseBody } from '../errors.js';
-import { ownBase } from './own-base.js';
+import { settledOwnBase } from './own-base.js';
 import { officerDuty } from '../crew/duty.js';
 import { workingOfficer } from '../crew/roster.js';
 import { automationCooldownMs } from '../automations/runners.js';
@@ -44,8 +44,11 @@ export function registerAutomationRoutes(app: FastifyInstance): void {
   };
 
   app.get('/automations', { preHandler: app.authenticate }, (request): AutomationsResponse => {
-    const base = ownBase(app, request.currentUser.id);
     const now = new Date();
+    // Settled first (bug pass, 2026-10-11): the ladder is read off `research.technologies`, and
+    // a rung is only banked there by a settle, so a rung that finished while the player was on
+    // another screen stayed shut here and the write refused it by name.
+    const base = settledOwnBase(app, request.currentUser.id, now);
     const powers = readPowers(base.research.technologies);
     return {
       powers,
@@ -57,8 +60,11 @@ export function registerAutomationRoutes(app: FastifyInstance): void {
 
   app.post('/automations', { preHandler: app.authenticate }, (request): AutomationsResponse => {
     const body = parseBody(SaveAutomationRequestSchema, request.body);
-    const base = ownBase(app, request.currentUser.id);
     const now = new Date();
+    // Settled first (bug pass, 2026-10-11): the ladder is read off `research.technologies`, and
+    // a rung is only banked there by a settle, so a rung that finished while the player was on
+    // another screen stayed shut here and the write refused it by name.
+    const base = settledOwnBase(app, request.currentUser.id, now);
     const powers = readPowers(base.research.technologies);
 
     const pastTheLadder = automationRungRefusal(powers, body);

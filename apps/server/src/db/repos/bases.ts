@@ -113,6 +113,13 @@ export interface BasesRepo {
    */
   allCommanders(): Commander[];
   /**
+   * One owner's officers and nothing else off their crew row, for the faction cards: a card's
+   * mark reads the Overseer's sheet as the Right Hand lifts it (maintainer, 2026-10-15), and the
+   * table is folded on every standing read, so it reads one column per member rather than a
+   * whole crew. An unreadable row reads as nobody, like `allCommanders`.
+   */
+  commandersOfOwner(ownerId: string): Commander[];
+  /**
    * Every district's standing, for the leaderboard (§J9).
    *
    * A projection of its own rather than `listSummaries` plus a lookup per row: the board is one
@@ -638,6 +645,9 @@ export function createBasesRepo(db: AppDatabase): BasesRepo {
   // more than one. An unordered scan makes that answer depend on the storage engine's mood, so the
   // map, the battle board and the settler could each name a different crew for the same ground.
   const allCommandersStmt = db.prepare('SELECT id, commanders_json FROM bases');
+  const ownerCommandersStmt = db.prepare(
+    'SELECT id, commanders_json FROM bases WHERE owner_id = ?',
+  );
   const summariesStmt = db.prepare(
     'SELECT id, owner_id, name, district_id, level, is_bot FROM bases ORDER BY created_at, id',
   );
@@ -784,6 +794,12 @@ export function createBasesRepo(db: AppDatabase): BasesRepo {
             row.training_json === null ? undefined : knownTraining(readJson(row.training_json)),
         }),
       );
+    },
+    commandersOfOwner(ownerId) {
+      const rows = ownerCommandersStmt.all(ownerId) as { id: string; commanders_json: string }[];
+      return readableRows(rows, 'crew officers', (row) =>
+        CommanderSchema.array().parse(knownCommanders(readJson(row.commanders_json))),
+      ).flat();
     },
     allCommanders() {
       const rows = allCommandersStmt.all() as { id: string; commanders_json: string }[];

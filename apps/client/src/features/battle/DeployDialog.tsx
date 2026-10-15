@@ -5,6 +5,9 @@ import {
   VEHICLES,
   findUnit,
   fleetCapacity,
+  vehicleSeats,
+  machineSpeed,
+  type MachineBonus,
   mergeFleets,
   lootCapacityOf,
   ridingUnitSlots,
@@ -64,9 +67,7 @@ import { usePlayerZone } from '../settings/usePlayerZone';
  * - **Seats are {@link fleetCapacity}** over the machines this crew has committed to this fight.
  * - **A sheet that will not ride needs no seat.** `no_ride` (`units/rules.ts`, `walksAlways`) keeps
  *   a unit off every machine, so it is off this number in both directions: it never eats a seat
- *   and the ceiling never stops it going. Unless this crew holds the waiver: `any_ride` lifts the
- *   rule, and the server spends the seat either way (`ridingUnitSlots(muster, effects.anyRide)`),
- *   so the window reads `UnitsResponse.anyRide` rather than the catalogue alone.
+ *   and the ceiling never stops it going. Nothing waives it (maintainer, 2026-10-15).
  *
  * **Nothing loaded is no ceiling.** An empty yard is the walk every column was before the Garage,
  * and `columnSpeed` still costs it honestly, so a crew with no machines sends what it always could.
@@ -168,16 +169,11 @@ export function DeployDialog({
    */
   const roster = useUnits();
   const options = new Map((roster.data?.units ?? []).map((option) => [option.id, option]));
-  /*
-   * §C3: whether this crew's machines seat anything at all (`any_ride`).
-   *
-   * Off the roster because that is where the other switch of its kind already rides
-   * (`carriersFight`), and read here rather than at each of the four call sites below so the
-   * window has one answer. `?? false` is the catalogue's reading, which is what a crew without
-   * the waiver gets and what a payload from an older build says.
-   */
-  const anyRide = roster.data?.anyRide ?? false;
   const unitSpeedPercent = roster.data?.unitSpeedPercent ?? 0;
+  // The Hump's bigger loads (`vehicleSeats`), so the window seats what the deploy door counts.
+  const capacityPercent = roster.data?.vehicleCapacityPercent ?? 0;
+  // ...and the Coaling Stage's pace (`machineSpeed`).
+  const machines = { capacityPercent, speedPercent: roster.data?.vehicleSpeedPercent ?? 0 };
 
   /*
    * §C3: loading a machine is its own write, and an absolute one (`TakeVehiclesRequestSchema`).
@@ -234,7 +230,7 @@ export function DeployDialog({
    * and it is what the sheet beside it is describing.
    */
   const sending: Army = Object.fromEntries(Object.entries(deltas).filter(([, delta]) => delta > 0));
-  const column = readColumn(view.vehicles, sending, loadouts, anyRide, unitSpeedPercent);
+  const column = readColumn(view.vehicles, sending, loadouts, unitSpeedPercent, machines);
   const quote = useDeployQuote(
     armySize(sending) > 0
       ? {
@@ -292,15 +288,15 @@ export function DeployDialog({
    */
   const loadedFleet = view.vehicles;
   const ownedFleet = mergeFleets(view.yard, view.vehicles);
-  const seats = fleetCapacity(loadedFleet);
+  const seats = fleetCapacity(loadedFleet, capacityPercent);
   /*
    * What the machines must seat, as the server counts it (`seatsAsked`): this batch whole, and
    * every column still on the road, each at most the seats there are (one too big for them fills
    * them once and walks). Whoever has landed rides nothing (maintainer, 2026-10-06).
    */
   const aboard = walking.reduce(
-    (total, column) => total + Math.min(seats, ridingUnitSlots(column, anyRide)),
-    ridingUnitSlots(sending, anyRide),
+    (total, column) => total + Math.min(seats, ridingUnitSlots(column)),
+    ridingUnitSlots(sending),
   );
   /** Nothing loaded is the walk, and the walk has no ceiling. See the note at the top. */
   const capped = seats > 0;
@@ -369,7 +365,7 @@ export function DeployDialog({
                * seats at all. Withdrawals are untouched: `min` is what is already on the ground,
                * and bringing people home needs no seat.
                */
-              const rides = !walksAlways(unit.id, anyRide);
+              const rides = !walksAlways(unit.id);
               const claimed = rides ? aboard - Math.max(0, value) * unit.unitSlots : aboard;
               const ceiling =
                 capped && rides
@@ -390,7 +386,7 @@ export function DeployDialog({
                       {`${atHome} at home · ${alreadyThere[unit.id] ?? 0} ${copy.where}`}
                       {/* §C3: this one is not getting on the truck. Only worth saying once there is
                           a truck: with nothing loaded every unit walks and the note is noise. */}
-                      {riding && walksAlways(unit.id, anyRide) && (
+                      {riding && walksAlways(unit.id) && (
                         <span className="text-oxblood-300" data-testid={`walks-${unit.id}`}>
                           {' · '}walks
                         </span>
@@ -477,6 +473,7 @@ export function DeployDialog({
           loaded={loadedFleet}
           owned={ownedFleet}
           seats={seats}
+          machines={machines}
           aboard={aboard}
           shut={!view.deploymentOpen}
           locked={!view.withdrawalOpen}
@@ -687,6 +684,7 @@ function VehicleRows({
   loaded,
   owned,
   seats,
+  machines,
   aboard,
   shut,
   locked,
@@ -698,6 +696,8 @@ function VehicleRows({
   /** That plus whatever is still parked at home. */
   owned: Fleet;
   seats: number;
+  /** The crew's extra seats and pace on every machine (`vehicleSeats`, `machineSpeed`). */
+  machines: MachineBonus;
   /** Unit slots already picked upstairs. */
   aboard: number;
   /** The mark has passed: nothing moves either way. */
@@ -733,7 +733,8 @@ function VehicleRows({
           {lines.map((spec) => {
             const taking = loaded[spec.id] ?? 0;
             const held = owned[spec.id] ?? 0;
-            const spare = seats - spec.capacity >= aboard;
+            const carries = vehicleSeats(spec, machines.capacityPercent ?? 0);
+            const spare = seats - carries >= aboard;
             return (
               <li
                 key={spec.id}
@@ -745,7 +746,8 @@ function VehicleRows({
                     {spec.name}
                   </span>
                   <span className="block font-body text-[11px] text-ink-300">
-                    {spec.capacity} unit slots · speed {spec.speed} · {held - taking} in the yard
+                    {carries} unit slots · speed {machineSpeed(spec, machines)} · {held - taking} in
+                    the yard
                   </span>
                 </span>
                 <span className="flex shrink-0 items-center gap-1.5">
@@ -772,7 +774,7 @@ function VehicleRows({
                     disabled={shut || pending || taking >= held}
                     onClick={() => onTake(spec.id, taking + 1)}
                     data-testid={`deploy-take-more-${spec.id}`}
-                    data-tip={`One more ${vehicleNoun(spec.name)}: ${spec.capacity} more unit slots`}
+                    data-tip={`One more ${vehicleNoun(spec.name)}: ${carries} more unit slots`}
                   >
                     +
                   </Button>

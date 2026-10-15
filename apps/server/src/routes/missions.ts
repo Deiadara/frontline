@@ -132,9 +132,16 @@ function historyWithRunning(
 function missionRoad(app: FastifyInstance, base: Base, now: Date): MissionRoad {
   const effects = standingEffectsFor(app.repos, base, now);
   return {
-    travelSpeedPercent: Math.max(0, effects.travelSpeedPercent),
+    // With the road cut that pays on jobs in one city (the Bricked Arches), read for the crew's
+    // own city: every board it is shown is there and the launch refuses work anywhere else, so
+    // this is the figure `launchMission` adds for every card the dialog can send.
+    travelSpeedPercent:
+      Math.max(0, effects.travelSpeedPercent) +
+      (effects.missionTravelPercentByCity[boardCity(base)] ?? 0),
     unitSpeedPercent: effects.unitSpeedPercent,
     baseCutPercent: chairPassiveOf(effects, 'cartographer', 'travel_time'),
+    vehicleCapacityPercent: effects.vehicleCapacityPercent,
+    vehicleSpeedPercent: effects.vehicleSpeedPercent,
   };
 }
 
@@ -194,14 +201,18 @@ export function registerMissionRoutes(app: FastifyInstance): void {
         (({
           missionSpeedPercent,
           missionSpeedPercentByDistrict,
+          missionSpeedPercentByCity,
           missionSpoilsPercent,
+          missionSpoilsPercentByCity,
           missionCapsPercent,
           leadLootPercent,
           goldenJobsByDistrict,
         }) => ({
           speedPercent: missionSpeedPercent,
           districtSpeedPercent: missionSpeedPercentByDistrict,
+          citySpeedPercent: missionSpeedPercentByCity,
           spoilsPercent: missionSpoilsPercent,
+          citySpoilsPercent: missionSpoilsPercentByCity,
           capsPercent: missionCapsPercent,
           leadLootPercent,
           goldenJobs: goldenJobsByDistrict,
@@ -456,18 +467,23 @@ export function registerMissionRoutes(app: FastifyInstance): void {
       ...(({
         missionSpeedPercent,
         missionSpeedPercentByDistrict,
+        missionSpeedPercentByCity,
         missionSpoilsPercent,
+        missionSpoilsPercentByCity,
+        missionTravelPercentByCity,
         leadLootPercent,
         leadArrivalPercent,
         unitSpeedPercent,
         travelSpeedPercent,
-        anyRide,
+        vehicleCapacityPercent,
+        vehicleSpeedPercent,
         chairPoints,
       }) => ({
         // A district-scoped cut pays on that board alone.
         missionSpeedPercent: missionSpeedPercentIn(
-          { missionSpeedPercent, missionSpeedPercentByDistrict },
+          { missionSpeedPercent, missionSpeedPercentByDistrict, missionSpeedPercentByCity },
           areaId,
+          base.districtId,
         ),
         // §C3: every walk in the game reads these, and a mission's road is a walk (maintainer,
         // 2026-09-23). Off the **unled** fold, so the leader's own Short Way is not counted twice:
@@ -478,13 +494,13 @@ export function registerMissionRoutes(app: FastifyInstance): void {
         roadBaseCutPercent: chairPassiveOf({ chairPoints }, 'cartographer', 'travel_time'),
         leadSpeedPercent: officer ? leadArrivalPercent : 0,
         missionSpoilsPercent: missionSpoilsPercent + (officer ? leadLootPercent : 0),
+        missionSpoilsPercentByCity,
+        missionTravelPercentByCity,
         // §C3: the same channel the march reads (`battle/movement.ts`). The Skate Ground says
         // "everything you field moves faster" and the road to a job is a road.
         unitSpeedPercent,
-        // And the other half of that sentence, which was missing: the Tram Depot's `any_ride`.
-        // The march read it and the job did not, so one crew's Colossus rode to a fight and walked
-        // to a mission on the same streets.
-        anyRide,
+        vehicleCapacityPercent,
+        vehicleSpeedPercent,
       }))(book),
     });
     // The row and the roster move together: a crew that is out is a crew that is not at home to
@@ -629,14 +645,18 @@ export function registerMissionRoutes(app: FastifyInstance): void {
           (({
             missionSpeedPercent,
             missionSpeedPercentByDistrict,
+            missionSpeedPercentByCity,
             missionSpoilsPercent,
+            missionSpoilsPercentByCity,
             missionCapsPercent,
             leadLootPercent,
             goldenJobsByDistrict,
           }) => ({
             speedPercent: missionSpeedPercent,
             districtSpeedPercent: missionSpeedPercentByDistrict,
+            citySpeedPercent: missionSpeedPercentByCity,
             spoilsPercent: missionSpoilsPercent,
+            citySpoilsPercent: missionSpoilsPercentByCity,
             capsPercent: missionCapsPercent,
             leadLootPercent,
             goldenJobs: goldenJobsByDistrict,

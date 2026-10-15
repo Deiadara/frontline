@@ -69,6 +69,11 @@ export const PLAYER_XP_AWARDS = {
    * there is no payout on the other side of it for their rarity to steer.
    */
   pagesReimagined: 5000,
+  /**
+   * A press at the Scrapyard while the crew holds the Spoil Heap (maintainer, 2026-10-09). The
+   * figure here is the Heap's level 1 pay; the award passes the held level's own (`scrapyardXp`).
+   */
+  scrapyardBuild: 200,
 } as const;
 
 export type PlayerXpSource = keyof typeof PLAYER_XP_AWARDS;

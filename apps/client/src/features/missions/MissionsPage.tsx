@@ -26,7 +26,7 @@ import { Link } from 'react-router-dom';
 import { LevelUpBanner } from '../../components/LevelUp';
 import { RewardLine } from '../../components/Resources';
 import { Button } from '../../components/ui/Button';
-import { CancelMark } from '../../components/ui/CancelMark';
+import { CancelCell } from '../../components/ui/CancelMark';
 import { Panel } from '../../components/ui/Panel';
 import { ProgressBar } from '../../components/ui/ProgressBar';
 import { LoadFailure } from '../../components/ui/LoadFailure';
@@ -164,7 +164,7 @@ function InFlightRow({
   return (
     <li
       className={cn(
-        'flex min-w-0 flex-col rounded-sm border',
+        'relative flex min-w-0 flex-col rounded-sm border',
         RAIL_TONE[done ? 'home' : 'travelling'],
       )}
     >
@@ -217,7 +217,11 @@ function InFlightRow({
         {/* Who took them out. A run is somebody's now, and which of your people is unavailable for
             the next job is read off this line rather than guessed at from the picker. */}
         <span
-          className="truncate font-display text-[10px] uppercase tracking-[0.16em] text-brass-300"
+          className={cn(
+            'truncate font-display text-[10px] uppercase tracking-[0.16em] text-brass-300',
+            // The last line when there is no haul to quote, so it keeps clear of the X's corner.
+            worth === null && 'pr-20',
+          )}
           data-testid={`mission-leader-${mission.id}`}
         >
           {ledBy(mission, leaders, overseerName)}
@@ -234,7 +238,8 @@ function InFlightRow({
               {template?.kind === 'battle' ? 'If it comes off, at most' : 'If it comes off'}
             </span>
             <RewardLine rewards={worth.rewards} />
-            <span className="font-display text-[11px] font-bold tabular-nums text-hextech-100">
+            {/* As wide as its figure, so the X's corner beside it is free. */}
+            <span className="self-start font-display text-[11px] font-bold tabular-nums text-hextech-100">
               +{worth.xp.toLocaleString('en-US')} XP
             </span>
           </div>
@@ -242,19 +247,20 @@ function InFlightRow({
       </Link>
 
       {/* The first tenth of the road out (maintainer request, 2026-09-12): call them back and they
-          walk home the distance covered, arriving with nothing. Gone once the window shuts, and
-          the padding goes with it so a shut window leaves no empty band under the row. */}
-      {recallLeft > 0 && (
-        <div className="px-2.5 pb-2">
-          <CancelMark
-            windowMs={recallLeft}
-            label={`Call the ${name} crew back`}
-            pending={pending}
-            onCancel={onRecall}
-            data-testid={`recall-mission-${mission.id}`}
-          />
-        </div>
-      )}
+          walk home the distance covered, arriving with nothing. Laid over the card's bottom-right
+          corner rather than given a column (maintainer, 2026-10-08), so the bar and every line run
+          the full width and the card is the same box with the X or without it. */}
+      <CancelCell
+        size="sm"
+        // One line high, level with the card's last line (the XP figure, which is short), so it
+        // never lands on the haul above it.
+        className="absolute bottom-2 right-2"
+        windowMs={recallLeft}
+        label={`Call the ${name} crew back`}
+        pending={pending}
+        onCancel={onRecall}
+        data-testid={`recall-mission-${mission.id}`}
+      />
     </li>
   );
 }
@@ -399,12 +405,11 @@ export function MissionsPage() {
   // on the missions payload, and the send dialog has to quote the bag the settle will pay.
   const standing = useCrewStanding();
   /*
-   * The two switches the board's dialog needs and `effects` cannot carry (`UnitsResponse`).
+   * The switch the board's dialog needs and `effects` cannot carry (`UnitsResponse`).
    *
-   * `effects` is `Record<string, number>`, so neither of these could ever ride on it: whether the
-   * crew's porters stand in a line (`carriers_fight`) and whether its machines seat anything
-   * (`any_ride`). Both pay the settle, and without them the picker said "cannot fight" beside a
-   * Scavenger that fights and "walks" beside a Colossus that rides.
+   * `effects` is `Record<string, number>`, so whether the crew's porters stand in a line
+   * (`carriers_fight`) could never ride on it, and without it the picker said "cannot fight"
+   * beside a Scavenger that fights.
    */
   const roster = useUnits();
   const launch = useLaunchMission();
@@ -416,9 +421,10 @@ export function MissionsPage() {
   const stores = held
     ? {
         resources: held.resources,
+        // The people's and the ground's (the Undercroft Stores), as the settle fills the shelves.
         ceilings: storeCeilings(
           held.buildings,
-          standing.data?.effects['storageCapacityPercent'] ?? 0,
+          me.data?.productionYield?.storageCapacityPercent ?? 0,
         ),
       }
     : undefined;
@@ -705,7 +711,6 @@ export function MissionsPage() {
                   carrierFlat={standing.data?.carrierFlat ?? 0}
                   marks={standing.data?.marks ?? {}}
                   carriersFight={roster.data?.carriersFight ?? false}
-                  anyRide={roster.data?.anyRide ?? false}
                   // §C3: what the crew takes off the road, so the dialog quotes the run it walks.
                   {...(data.road ? { road: data.road } : {})}
                   roster={roster.data}

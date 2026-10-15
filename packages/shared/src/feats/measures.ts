@@ -112,6 +112,13 @@ export const FEAT_MEASURES = [
   'battles_won_loud',
   'battles_won_abroad',
   'rail_journeys',
+  'lamps_thrown',
+  'robots_made',
+  'drill_bonus_points',
+  'reactor_choices',
+  'components_broken_down',
+  'components_delivered',
+  'pages_delivered',
   'districts_raided',
   'raids_repelled',
   'trap_kills',
@@ -342,6 +349,26 @@ export const FEAT_MEASURE_SPECS: Readonly<Record<FeatMeasure, FeatMeasureSpec>> 
    * Colossus, so this counts only the moves the offer was actually taken on.
    */
   rail_journeys: { source: 'tally', scoped: false, unit: 'journeys' },
+  /**
+   * Times the holder of Lampman's Row lit its lamps or put them out (`city/ground-labels.ts`,
+   * maintainer 2026-10-09). Six hours apart at the fastest, so a ladder on it is a habit.
+   */
+  lamps_thrown: { source: 'tally', scoped: false, unit: 'changes' },
+  /** Robots the crew's Geppetto made in its fights, declared or on a job (AD HOC ARMY, 2026-10-09). */
+  robots_made: { source: 'tally', scoped: false, unit: 'units' },
+  /** Extra attribute points the Technicians' Bunkroom paid off finished drills (2026-10-09). */
+  drill_bonus_points: { source: 'tally', scoped: false, unit: 'points' },
+  /** Unit types named RADIOACTIVE at a Reactor Shed the crew holds (2026-10-14). */
+  reactor_choices: { source: 'tally', scoped: false, unit: 'changes' },
+  /** Components broken down at the Scrapyard into HQ metal and scrap (2026-10-09). */
+  components_broken_down: { source: 'tally', scoped: false, unit: 'components' },
+  /**
+   * Components the ground handed over at the day's turn: the Chop Shop's and the Wagon
+   * Breakers' (`city/daily.ts`, 2026-10-09).
+   */
+  components_delivered: { source: 'tally', scoped: false, unit: 'components' },
+  /** Blueprint pages the ground handed over at the day's turn: the Scriptorium's and the Office's. */
+  pages_delivered: { source: 'tally', scoped: false, unit: 'pages' },
   /** Break-ins on a lived-in district: one counts for whoever forced it, the other for whoever did not let them. */
   districts_raided: { source: 'tally', scoped: false, unit: 'raids' },
   raids_repelled: { source: 'tally', scoped: false, unit: 'raids' },

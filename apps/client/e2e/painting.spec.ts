@@ -13,7 +13,6 @@ import { expect, test, type Page } from '@playwright/test';
 import {
   CITY_DISTRICTS,
   DEFAULT_BADGE,
-  LOCATION_CATALOG,
   cityOf,
   findDistrict,
   type DistrictDetailResponse,
@@ -51,13 +50,13 @@ const PAINTED = [
   // detail is stubbed in `open` rather than in `fixtures.ts`, which another lane owns.
   'coldwater-halt',
   'ironmouth',
-  // The Yards and the Bond (2026-09-25). Neither painting shows a district gate, so neither has a
-  // `GATE_MARK`: the way in stays on the buttons beside the painting, which is where it already
-  // was, and these sweeps only ever read the location signs.
+  // The Yards and the Bond (2026-09-25). The Yards' painting shows no district gate, so it has no
+  // `GATE_MARK`; the Bond's has one since 2026-10-13, on the red warehouse the train leaves.
+  // These sweeps only ever read the location signs.
   'marshalling-yards',
   'bonded-row',
-  // The four Combine districts (2026-09-29). Telemetry Hill, the Last Platform and the Blockhouse
-  // carry a `GATE_MARK`; the Viaduct's painting shows no gate.
+  // The four Combine districts (2026-09-29). All four carry a `GATE_MARK`, the Viaduct's since
+  // 2026-10-13, where the Parapet's sign used to stand.
   'telemetry-hill',
   'viaduct',
   'last-platform',
@@ -238,7 +237,6 @@ for (const id of PAINTED) {
     test('says what a location is and what holding it pays', async ({ page }) => {
       await open(page, id, VIEWPORTS[3]);
       const location = district.locations[0]!;
-      const spec = LOCATION_CATALOG[location.kind];
 
       // Scoped to the tooltip, because the card below the painting says the same two sentences.
       // Asserted shut first, in the same test: an assertion that only runs after the focus passes
@@ -252,12 +250,11 @@ for (const id of PAINTED) {
       // covered by the scroll test below.
       await page.getByTestId(`site-${location.id}`).focus();
       await expect(tip).toContainText(location.name);
-      // A location with its own blurb (the Blacksite's eight, written to the painting) prints
-      // that; only a location without one falls back to its kind's. The same rule as the sheet.
-      await expect(tip, 'the card does not say what the place is').toContainText(
-        location.blurb ?? spec.blurb,
+      // Every location carries its own words, and the card prints them as the sheet does.
+      await expect(tip, 'the card does not say what the place is').toContainText(location.blurb);
+      await expect(tip, 'the card does not say what holding it pays').toContainText(
+        location.reward,
       );
-      await expect(tip, 'the card does not say what holding it pays').toContainText(spec.reward);
     });
 
     test("clicking a sign opens that location's card", async ({ page }) => {

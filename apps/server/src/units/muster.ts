@@ -18,9 +18,7 @@ import {
   blueprintGateMet,
   canAfford,
   findUnit,
-  heldPlaceKindsOf,
   doorsOn,
-  baseBonusesOf,
   isHeldBy,
   isUnitUnlocked,
   LEGENDARY_CAP,
@@ -36,7 +34,6 @@ import {
   type Army,
   type Base,
   type PartialResources,
-  type LocationKind,
   type PlayerXpAward,
   type MusterOrder,
   type UnitSpec,
@@ -99,7 +96,7 @@ export function buildableVehiclesFor(base: Base): Set<string> {
   );
 }
 
-/** What this crew's territory does to unlocks: the place kinds it currently holds. */
+/** What this crew's territory does to unlocks: the locations it currently holds. */
 export function unlockContextFor(repos: Repositories, base: Base): UnlockContext {
   const controls = repos.city.controls();
   const held = (locationId: string): boolean => {
@@ -108,13 +105,16 @@ export function unlockContextFor(repos: Repositories, base: Base): UnlockContext
   };
   return {
     buildings: base.buildings,
-    heldPlaceKinds: heldPlaceKindsOf(EVERY_LOCATION, held),
     // The doors authored on the ground itself (Arca, 2026-10-07): the Shrine the Saint
-    // answers to is one location, not a kind of place.
+    // answers to.
     heldDoors: new Set(
       EVERY_LOCATION.filter((location) => held(location.id)).flatMap((location) =>
-        doorsOn(baseBonusesOf(location)),
+        doorsOn(location.bonuses),
       ),
+    ),
+    // The locations a clause can name (`place` and `location`): Box Nine, the Kennels, a tomb.
+    heldPlaces: new Set(
+      EVERY_LOCATION.filter((location) => held(location.id)).map((one) => one.id),
     ),
     buildableVehicles: buildableVehiclesFor(base),
     // §D12a: thirteen units are behind a blueprint document, and the document lives in the inventory.
@@ -125,24 +125,20 @@ export function unlockContextFor(repos: Repositories, base: Base): UnlockContext
 }
 
 /**
- * §A4: the best level this crew holds, per location kind.
+ * §A4: the level of every location this crew holds, by id.
  *
- * The input to `homeMusterBonus`, and the reason it is a map of *kinds* rather than of locations:
- * two Doghouses are one Doghouse as far as the Cyberhounds are concerned, and the one that counts
- * is the better of them. A kind nobody in this crew holds is simply absent, which is what makes
- * "somebody else's level does nothing for you" fall out rather than need saying.
+ * The input to `homeMusterBonus`, which takes the best of a unit's homes: two kennels are one
+ * kennels as far as the Cyberhounds are concerned, and the one that counts is the better of them.
+ * A location nobody in this crew holds is simply absent, which is what makes "somebody else's
+ * level does nothing for you" fall out rather than need saying.
  */
-export function heldLocationLevels(
-  repos: Repositories,
-  base: Base,
-): ReadonlyMap<LocationKind, number> {
+export function heldLocationLevels(repos: Repositories, base: Base): ReadonlyMap<string, number> {
   const controls = repos.city.controls();
-  const levels = new Map<LocationKind, number>();
+  const levels = new Map<string, number>();
   for (const location of EVERY_LOCATION) {
     const control = controls.get(location.id);
     if (!control || !isHeldBy(control, base.id)) continue;
-    const level = clampLevel(control.level);
-    if (level > (levels.get(location.kind) ?? 0)) levels.set(location.kind, level);
+    levels.set(location.id, clampLevel(control.level));
   }
   return levels;
 }
@@ -180,6 +176,8 @@ export function musterRatesFor(
     costPercent: effects.musterCostPercent,
     // The Hiring Hall (maintainer, 2026-10-06): off the rabble's price only, applied per unit.
     costPercentByTier: effects.musterCostByTier,
+    // Telemetry Hill held whole (2026-10-09): one tier's units off the clock only.
+    speedPercentByTier: effects.musterSpeedByTier,
     // §B5: the Greenhouse, and the modifications that grow with it.
     suppliesPercent: musterSuppliesReduction(base.buildings),
     veteranPercent: chairPassiveOf(effects, 'veteran', 'muster_cost'),
@@ -200,7 +198,8 @@ export function ratesForUnit(rates: MusterRates, unit: UnitSpec): MusterRates {
   return {
     ...rates,
     costPercent: rates.costPercent + home.costPercent + (rates.costPercentByTier[unit.tier] ?? 0),
-    speedPercent: rates.speedPercent + home.speedPercent,
+    speedPercent:
+      rates.speedPercent + home.speedPercent + (rates.speedPercentByTier[unit.tier] ?? 0),
   };
 }
 
@@ -208,12 +207,14 @@ export interface MusterRates {
   costPercent: number;
   /** Off one tier's price only (the Hiring Hall's rabble). Read only through {@link ratesForUnit}. */
   costPercentByTier: Partial<Record<UnitTier, number>>;
+  /** Off one tier's clock only (Telemetry Hill's Wonders). Read only through {@link ratesForUnit}. */
+  speedPercentByTier: Partial<Record<UnitTier, number>>;
   suppliesPercent: number;
   /** The Veteran's passive, off every line after the other cuts (2026-10-04). */
   veteranPercent: number;
   speedPercent: number;
-  /** §A4: the best level held per location kind. Read only through {@link ratesForUnit}. */
-  locationLevels: ReadonlyMap<LocationKind, number>;
+  /** §A4: the level of every location held, by id. Read only through {@link ratesForUnit}. */
+  locationLevels: ReadonlyMap<string, number>;
 }
 
 export interface MusterSettlement {
@@ -492,8 +493,8 @@ function everywhereArmy(repos: Repositories, base: Base): Army {
  * How many more of a unit capped on held ground the crew may raise, or null for a unit with no
  * such cap (`UnitSpec.capPerHold`, 2026-10-06).
  *
- * Counted everywhere the crew has people, like `legendaryRoom`, and against every held location of
- * the kind: a Death Cloak congregation is fifty a tomb, wherever it is standing.
+ * Counted everywhere the crew has people, like `legendaryRoom`, and against every held location on
+ * its list: a Death Cloak congregation is fifty a tomb, wherever it is standing.
  */
 export function heldCapRoom(repos: Repositories, base: Base, unit: UnitSpec): number | null {
   const cap = unit.capPerHold;
@@ -502,7 +503,7 @@ export function heldCapRoom(repos: Repositories, base: Base, unit: UnitSpec): nu
   const held = EVERY_LOCATION.filter((location) => {
     const control = controls.get(location.id);
     return (
-      location.kind === cap.locationKind && control !== undefined && isHeldBy(control, base.id)
+      cap.locationIds.includes(location.id) && control !== undefined && isHeldBy(control, base.id)
     );
   }).length;
   return Math.max(

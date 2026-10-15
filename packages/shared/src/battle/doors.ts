@@ -1,4 +1,6 @@
 import type { EnvLabelId } from '../city/labels.js';
+import type { UnitSpec } from '../units/catalog.js';
+import type { UnitRuleId } from '../units/rules.js';
 import {
   CONDEMNED_PER_LEVEL,
   LAST_CHANCE_PERCENT,
@@ -23,7 +25,7 @@ export interface DoorPerks {
   evasion: number;
   speed: number;
   stealth: number;
-  /** Holds the Line while more than half of the stack stands (`holdsTheLine`). */
+  /** Holds the Line: the stack's morale does not drop during the fight (`holdsTheLine`). */
   stalwart: boolean;
   /** The enemy fires on this stack before the line behind it (`tauntPull`). */
   taunts: boolean;
@@ -80,9 +82,10 @@ const DOOR_LADDERS: Readonly<Record<string, readonly [DoorStep, DoorStep, DoorSt
     { offense: CONDEMNED_PER_LEVEL, vitality: CONDEMNED_PER_LEVEL },
     { offense: CONDEMNED_PER_LEVEL, vitality: CONDEMNED_PER_LEVEL },
     { offense: CONDEMNED_PER_LEVEL, vitality: CONDEMNED_PER_LEVEL },
+    // The last step pays double, like every ladder (maintainer, 2026-10-09).
     {
-      offense: CONDEMNED_PER_LEVEL,
-      vitality: CONDEMNED_PER_LEVEL,
+      offense: 2 * CONDEMNED_PER_LEVEL,
+      vitality: 2 * CONDEMNED_PER_LEVEL,
       lastChancePercent: LAST_CHANCE_PERCENT,
     },
   ],
@@ -105,7 +108,7 @@ export const DOOR_UNIT_IDS: readonly string[] = Object.keys(DOOR_LADDERS);
 
 /**
  * Everything a door at `level` pays this unit, the steps summed. Numbers add, flags and label
- * lists accumulate, so a level-5 Condemned is +120 and a level-5 Dancer still ignores the mud.
+ * lists accumulate, so a level-5 Condemned is +150 and a level-5 Dancer still ignores the mud.
  */
 export function doorPerks(unitId: string, level: number): DoorPerks {
   const ladder = DOOR_LADDERS[unitId];
@@ -133,10 +136,69 @@ export function doorPerks(unitId: string, level: number): DoorPerks {
   return out;
 }
 
+/**
+ * The door level at which each ground label stops biting this unit (`ignoredLabels`), so a card
+ * can say what cancelled it: the Crimson Dancer's Crammed and Wet at level 4.
+ */
+export function doorLabelLevels(unitId: string): Partial<Record<EnvLabelId, number>> {
+  const levels: Partial<Record<EnvLabelId, number>> = {};
+  (DOOR_LADDERS[unitId] ?? []).forEach((step, index) => {
+    for (const label of step.ignoredLabels ?? []) levels[label] ??= index + 2;
+  });
+  return levels;
+}
+
 /** The door level a crew holds for a unit, 0 when it holds none. */
 export function doorLevelOf(
   doorLevels: Readonly<Record<string, number>> | undefined,
   unitId: string,
 ): number {
   return Math.max(0, Math.floor(doorLevels?.[unitId] ?? 0));
+}
+
+/**
+ * The door perks that are rules on the card (`units/rules.ts`), by the perk field that pays them.
+ *
+ * One list, read twice: `doorUnit` writes the rule on the sheet a crew fields, and `doorRuleSteps`
+ * lists the same rules by the level that pays them, for the card to grey out what is still to win.
+ * A door perk that is a rule and is not on this list is one the engine runs and no card mentions,
+ * which is how PAPERCUT went unlisted until 2026-10-14. `doors.test.ts` refuses that.
+ */
+const DOOR_RULE_FLAGS: readonly (readonly [keyof DoorPerks, UnitRuleId])[] = [
+  ['stalwart', 'stalwart'],
+  ['taunts', 'taunts'],
+  ['inspiration', 'inspiration'],
+  ['lastChancePercent', 'last_chance'],
+  ['spectacle', 'spectacle'],
+  ['papercutArmor', 'papercut'],
+  ['blowout', 'blowout'],
+];
+
+/** Whether this perk field, as a step or a summed ladder holds it, pays its rule. */
+function pays(value: DoorPerks[keyof DoorPerks] | undefined): boolean {
+  return value === true || (typeof value === 'number' && value > 0);
+}
+
+/**
+ * The unit as its door makes it: Holds the Line at a level-2 Shrine, a taunt at a level-4 Lab,
+ * PAPERCUT at a level-5 Stage. The rules the engine asks the sheet for (`unit.stalwart`,
+ * `unit.taunts`) are now set, and the ones it reads off the ladder's numbers are flagged so the
+ * card prints them; `fieldedUnit` in `battle/line.ts` is the one caller both sides share.
+ */
+export function doorUnit(unit: UnitSpec, door: DoorPerks): UnitSpec {
+  const granted = DOOR_RULE_FLAGS.filter(([field]) => pays(door[field])).map(([, rule]) => rule);
+  if (granted.length === 0) return unit;
+  return { ...unit, ...Object.fromEntries(granted.map((rule) => [rule, true])) };
+}
+
+/** The rules a unit's door hands it, each with the door level that first pays it. Empty off a door. */
+export function doorRuleSteps(unitId: string): { level: number; ruleId: UnitRuleId }[] {
+  const ladder = DOOR_LADDERS[unitId];
+  if (!ladder) return [];
+  return ladder.flatMap((step, index) =>
+    DOOR_RULE_FLAGS.filter(([field]) => pays(step[field])).map(([, ruleId]) => ({
+      level: index + 2,
+      ruleId,
+    })),
+  );
 }

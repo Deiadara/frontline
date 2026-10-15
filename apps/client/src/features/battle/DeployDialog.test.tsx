@@ -9,6 +9,7 @@ import {
   modificationsForUnit,
   type UnitOption,
   type UnitsResponse,
+  findLocation,
 } from '@frontline/shared';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router-dom';
@@ -50,7 +51,7 @@ const view: BattleView = {
   districtName: 'Steelbelt',
   battlefield: battlefieldFor({
     locationName: 'Kessler Press',
-    kind: 'scrap_press',
+    ground: findLocation('steelbelt-press')!,
     at: new Date(MARK),
     weather: 'normal',
   }),
@@ -134,7 +135,6 @@ const roster: UnitsResponse = {
   musterCostReduction: 0,
   musterSpeedBonus: 0,
   built: [],
-  ignoredLabels: [],
   antiCombineLevels: 0,
 };
 

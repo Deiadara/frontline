@@ -1,7 +1,7 @@
 import { CHANNEL_LABELS, type EffectChannel } from '@frontline/shared';
 import { Icon, type IconName } from '../../components/ui/Icon';
 import { cn } from '../../lib/cn';
-import { channelFigure } from './channelFigure';
+import { channelFigure, type SpentFigures } from './channelFigure';
 
 /**
  * One outcome the books are buying, as a card.
@@ -51,9 +51,21 @@ const GROUP_STYLE: Readonly<
  * feeding these channels on 2026-10-04 (a chair's work is its one passive now), so a chip would
  * name a skill that moves nothing here.
  */
-export function ChannelCard({ channel, amount }: { channel: EffectChannel; amount: number }) {
+export function ChannelCard({
+  channel,
+  amount,
+  spent = {},
+  medicSharePercent,
+}: {
+  channel: EffectChannel;
+  amount: number;
+  /** The figures the fight spends where the raw channel cannot say them (defence, medics). */
+  spent?: SpentFigures;
+  /** For the medic card only: the share of a win's dead the points walk home. */
+  medicSharePercent?: number;
+}) {
   const { label, unit } = CHANNEL_LABELS[channel];
-  const shown = channelFigure(channel, amount);
+  const shown = channelFigure(channel, amount, spent);
   const style = GROUP_STYLE[CHANNEL_GROUP[channel]];
 
   return (
@@ -103,6 +115,14 @@ export function ChannelCard({ channel, amount }: { channel: EffectChannel; amoun
           {unit === 'percent' ? '%' : ''}
         </span>
       </div>
+      {channel === 'casualtyRecoveryPercent' && medicSharePercent !== undefined && (
+        <p
+          className="font-body text-[12px] leading-snug text-ink-300"
+          data-testid="channel-medic-share"
+        >
+          {Math.round(medicSharePercent * 10) / 10}% of the dead walk home after a win
+        </p>
+      )}
     </li>
   );
 }

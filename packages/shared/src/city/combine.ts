@@ -126,7 +126,7 @@ export interface CombineLeader {
   /**
    * The power's **name**, which is what a card puts on a chip (maintainer, 2026-09-20).
    *
-   * Every other thing a unit carries into a fight has one: `Shield Line`, `Dug In`, `Urban
+   * Every other thing a unit carries into a fight has one: `Taunt`, `Dug In`, `Urban
    * Bonus`. A legendary's power was the one that did not, so his card printed a sentence where
    * every other card prints a mark, and the two read as different kinds of fact when they are
    * the same kind. Two or three words, the register the rule book already uses.

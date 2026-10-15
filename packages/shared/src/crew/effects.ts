@@ -23,6 +23,7 @@ import {
 import { seatedPassivePercent, type ChairPassive } from './passives.js';
 import { RESOURCE_KEYS, type PartialResources } from '../resources.js';
 import { softCap } from '../battle/soft-cap.js';
+import { vehiclePartsCut } from '../economy/soft-bounds.js';
 
 /**
  * What the people you have actually change (GDD §B, §F2).
@@ -111,7 +112,8 @@ export interface ChannelLabel {
 }
 
 export const CHANNEL_LABELS: Readonly<Record<EffectChannel, ChannelLabel>> = {
-  defensePercent: { label: 'Holding your ground', unit: 'percent' },
+  // The figure the fight spends, Gate included and tapered (`heldDefensePercent`, 2026-10-13).
+  defensePercent: { label: 'Holding your ground (with your Gate, tapers)', unit: 'percent' },
   // Points off the clock, added to the cards' and the Generator's (2026-10-01), and
   // printed as points (maintainer ruling P7-A, 2026-10-02): the sum is joined with the
   // structure's and curved, so "+153% off the research clock" was more than the whole clock.
@@ -140,7 +142,9 @@ export const CHANNEL_LABELS: Readonly<Record<EffectChannel, ChannelLabel>> = {
   // Named as the points the perk cards print, since a perk or a held place is all that pays them.
   intelYieldPercent: { label: 'Spy points on every job', unit: 'flat' },
   intelResistancePercent: { label: 'Points against their spies', unit: 'flat' },
-  casualtyRecoveryPercent: { label: 'Medic points (who walks home)', unit: 'flat' },
+  // Every point a win is recovered on, the Infirmary's included, with the share it walks home
+  // printed under it (`medicPoints`, `medicSharePercent`, maintainer 2026-10-15).
+  casualtyRecoveryPercent: { label: 'Medic points, with your Infirmary', unit: 'flat' },
   cohesionPercent: { label: 'Getting numbers to count', unit: 'percent' },
 };
 
@@ -156,6 +160,17 @@ export interface CrewOnlyEffects {
   wageDiscountPercent: number;
   /** Taken off what the next `Increase Payroll` step costs. */
   payrollStepDiscountPercent: number;
+  /**
+   * The faction table's cards (maintainer, 2026-10-15), paid to every member and to nothing else,
+   * so crew-only. The Ace's damage on the attacking side and the King's vitality on the
+   * defending side (`battle/effects.ts`), the Jack's multiplier on a fight's final infamy
+   * (`battle/resolve.ts`, `missions/resolve.ts`), and the Joker's luck on every page and
+   * component draw (`items/luck.ts`).
+   */
+  tableAttackOffensePercent: number;
+  tableDefenceVitalityPercent: number;
+  tableBattleInfamyPercent: number;
+  dropLuck: number;
   // `missionCapsPercent`, `intelResistancePercent` and `casualtyRecoveryPercent` used to live
   // here. They are `TerritoryEffects` channels now (2026-10-07), because Arca's ground pays
   // each of them and a perk and a location buying the same thing should land in one place, the
@@ -336,6 +351,10 @@ export function noCrewEffects(): CrewEffects {
     buildCostPercent: 0,
     wageDiscountPercent: 0,
     payrollStepDiscountPercent: 0,
+    tableAttackOffensePercent: 0,
+    tableDefenceVitalityPercent: 0,
+    tableBattleInfamyPercent: 0,
+    dropLuck: 0,
     recoveredCarryLoot: false,
     cohesionPercent: 0,
     unitEvasionFlat: 0,
@@ -974,13 +993,34 @@ export function combineEffects(territory: TerritoryEffects, crew: CrewEffects): 
       crew.missionSpeedPercentByDistrict,
       territory.missionSpeedPercentByDistrict,
     ),
+    missionSpoilsPercentByCity: mergeCounts(
+      crew.missionSpoilsPercentByCity,
+      territory.missionSpoilsPercentByCity,
+    ),
+    missionTravelPercentByCity: mergeCounts(
+      crew.missionTravelPercentByCity,
+      territory.missionTravelPercentByCity,
+    ),
+    missionSpeedPercentByCity: mergeCounts(
+      crew.missionSpeedPercentByCity,
+      territory.missionSpeedPercentByCity,
+    ),
     unitTierPercent: mergeTierCounts(crew.unitTierPercent, territory.unitTierPercent),
     unitMarks: mergeMarks(crew.unitMarks, territory.unitMarks),
+    unitModifiers: mergeModifiers(crew.unitModifiers, territory.unitModifiers),
     musterCostByTier: mergeCounts(crew.musterCostByTier, territory.musterCostByTier),
+    musterSpeedByTier: mergeCounts(crew.musterSpeedByTier, territory.musterSpeedByTier),
+    offenseVsTierPercent: mergeCounts(crew.offenseVsTierPercent, territory.offenseVsTierPercent),
+    deathSalvagePerBody: mergeCounts(crew.deathSalvagePerBody, territory.deathSalvagePerBody),
+    labelImmunities: [...new Set([...crew.labelImmunities, ...territory.labelImmunities])],
+    labelImmunitySources: { ...territory.labelImmunitySources, ...crew.labelImmunitySources },
+    unitDamageTypeOffense: mergeCounts(crew.unitDamageTypeOffense, territory.unitDamageTypeOffense),
     // Arca's list and keyed channels (2026-10-07): lists end to end, doors at their highest
     // level, the Bounty Wall's odds added per district.
     unitStatFlats: [...crew.unitStatFlats, ...territory.unitStatFlats],
+    unitStatPercents: [...crew.unitStatPercents, ...territory.unitStatPercents],
     noiseSwitches: [...crew.noiseSwitches, ...territory.noiseSwitches],
+    reactorSheds: [...crew.reactorSheds, ...territory.reactorSheds],
     dailyPages: [...crew.dailyPages, ...territory.dailyPages],
     dailyComponents: [...crew.dailyComponents, ...territory.dailyComponents],
     legendAuras: [...crew.legendAuras, ...territory.legendAuras],
@@ -992,7 +1032,6 @@ export function combineEffects(territory: TerritoryEffects, crew: CrewEffects): 
     // The switches are ORed, not added: ground and people are two ways of buying the same
     // permission, and holding both does not buy it twice. See `applyHoldBonus`.
     carriersFight: crew.carriersFight || territory.carriersFight,
-    anyRide: crew.anyRide || territory.anyRide,
     steadyNerve: crew.steadyNerve || territory.steadyNerve,
     // Holding a Station is ground only: nothing a crew can research or hire puts a platform on the
     // line. Ored beside the others anyway, because this list is what the loop below skips, and a
@@ -1023,20 +1062,31 @@ type RecordChannel =
   | 'officerSkillFlat'
   | 'unitTierMoraleFlat'
   | 'missionSpeedPercentByDistrict'
+  | 'missionSpoilsPercentByCity'
+  | 'missionTravelPercentByCity'
+  | 'missionSpeedPercentByCity'
   | 'unitTierPercent'
   | 'unitMarks'
+  | 'unitModifiers'
   | 'musterCostByTier'
+  | 'musterSpeedByTier'
+  | 'offenseVsTierPercent'
+  | 'deathSalvagePerBody'
+  | 'labelImmunities'
+  | 'labelImmunitySources'
+  | 'unitDamageTypeOffense'
   | 'unitStatFlats'
+  | 'unitStatPercents'
   | 'noiseSwitches'
+  | 'reactorSheds'
   | 'dailyPages'
   | 'dailyComponents'
   | 'legendAuras'
   | 'doorLevels'
   | 'goldenJobsByDistrict'
-  // The four switches are folded above too. They are not records, but they are not summable
+  // The three switches are folded above too. They are not records, but they are not summable
   // either, and this is the one list `combineEffects` narrows against.
   | 'carriersFight'
-  | 'anyRide'
   | 'steadyNerve'
   | 'railLink';
 
@@ -1047,18 +1097,29 @@ const RECORD_CHANNELS = new Set<string>([
   'officerSkillFlat',
   'unitTierMoraleFlat',
   'missionSpeedPercentByDistrict',
+  'missionSpoilsPercentByCity',
+  'missionTravelPercentByCity',
+  'missionSpeedPercentByCity',
   'unitTierPercent',
   'unitMarks',
+  'unitModifiers',
   'musterCostByTier',
+  'musterSpeedByTier',
+  'offenseVsTierPercent',
+  'deathSalvagePerBody',
+  'labelImmunities',
+  'labelImmunitySources',
+  'unitDamageTypeOffense',
   'unitStatFlats',
+  'unitStatPercents',
   'noiseSwitches',
+  'reactorSheds',
   'dailyPages',
   'dailyComponents',
   'legendAuras',
   'doorLevels',
   'goldenJobsByDistrict',
   'carriersFight',
-  'anyRide',
   'steadyNerve',
   'railLink',
 ] satisfies RecordChannel[]);
@@ -1085,6 +1146,22 @@ function mergeMarks(
   const total: TerritoryEffects['unitMarks'] = { ...a };
   for (const [unitId, marks] of Object.entries(b)) {
     total[unitId] = [...new Set([...(total[unitId] ?? []), ...marks])];
+  }
+  return total;
+}
+
+/** Two crews' granted modifiers, each one once per unit (`unit_modifier`). */
+function mergeModifiers(
+  a: TerritoryEffects['unitModifiers'],
+  b: TerritoryEffects['unitModifiers'],
+): TerritoryEffects['unitModifiers'] {
+  const total: TerritoryEffects['unitModifiers'] = { ...a };
+  for (const [unitId, granted] of Object.entries(b)) {
+    const held = total[unitId] ?? [];
+    total[unitId] = [
+      ...held,
+      ...granted.filter((one) => !held.some((had) => had.modifier === one.modifier)),
+    ];
   }
   return total;
 }
@@ -1139,6 +1216,21 @@ export function discounted(
       return [[key, Math.max(1, Math.round(amount * (1 - off)))] as const];
     }),
   );
+}
+
+/**
+ * What a vehicle costs this crew: the parts cut on every line, bent (`vehiclePartsCut`, the Rail
+ * Yard), then the Fuelling Point's share off what is left of the scrap (maintainer, 2026-10-09).
+ * The Garage quotes and charges this one figure, so the card and the bill cannot disagree.
+ */
+export function vehiclePrice(
+  cost: PartialResources,
+  ground: Pick<TerritoryEffects, 'vehiclePartsPercent' | 'vehicleScrapPercent'>,
+): PartialResources {
+  const parts = discounted(cost, vehiclePartsCut(ground.vehiclePartsPercent), 100);
+  if (parts.scrap === undefined || ground.vehicleScrapPercent <= 0) return parts;
+  const scrapOff = Math.min(100, ground.vehicleScrapPercent) / 100;
+  return { ...parts, scrap: Math.max(1, Math.round(parts.scrap * (1 - scrapOff))) };
 }
 
 /**
@@ -1215,8 +1307,9 @@ export function recoverCasualties(
  * `combineEffects` adds ground to people and only walks the ground's channels. Research pays into
  * crew-only channels too (a unit's own kind, a structure's cost, another crew out at once), so it
  * needs a merge that walks the whole crew struct. Numbers add, every record-valued channel is
- * merged key by key, and a rule table (`officerAttributeAtLeast`) is overlaid, since two rules on
- * one attribute do not add.
+ * merged key by key, and the floor rules (`officerAttributeAtLeast`) combine the way the perk
+ * fold combines them: points add and the lower bar is kept, so a second source on one attribute
+ * never raises the price of the first or drops its points.
  */
 export function mergeCrewEffects(into: CrewEffects, extra: CrewEffects): CrewEffects {
   const mine = into as unknown as Record<string, unknown>;
@@ -1228,13 +1321,13 @@ export function mergeCrewEffects(into: CrewEffects, extra: CrewEffects): CrewEff
     if (typeof a === 'number' && typeof b === 'number') {
       total[key] = a + b;
     } else if (typeof a === 'boolean' || typeof b === 'boolean') {
-      // The switch channels (`carriers_fight`, `any_ride`, `steady_nerve`). Ored, the way
+      // The switch channels (`carriers_fight`, `steady_nerve`, `rail_link`). Ored, the way
       // `combineEffects` ors them: two sources of one permission grant it once.
       //
       // This arm is why the fold is written as a chain of shapes rather than a list of names. The
       // `else` below is `mergeCounts`, which reads a boolean as an empty record and hands back
-      // `{}`: truthy, so every crew in the game could seat a Colossus, and no channel list anywhere
-      // would have shown it. `officer-in-battle.test.ts` is what caught it.
+      // `{}`: truthy, so every crew in the game would have its porters in the line, and no channel
+      // list anywhere would have shown it. `officer-in-battle.test.ts` is what caught it.
       total[key] = a === true || b === true;
     } else if (key === 'unitMarks') {
       const marks: Record<string, readonly string[]> = { ...(a as object) };
@@ -1248,7 +1341,10 @@ export function mergeCrewEffects(into: CrewEffects, extra: CrewEffects): CrewEff
         b as TerritoryEffects['unitTierPercent'],
       );
     } else if (key === 'officerAttributeAtLeast') {
-      total[key] = { ...(a as object), ...(b as object) };
+      total[key] = mergeAttributeFloors(a ?? {}, b ?? {});
+    } else if (key === 'labelImmunitySources') {
+      // Names, not counts: the first source of a label keeps it.
+      total[key] = { ...(b ?? {}), ...(a ?? {}) };
     } else if (key === 'doorLevels') {
       total[key] = mergeMaxima(
         (a ?? {}) as Record<string, number>,
@@ -1275,6 +1371,26 @@ export function mergeCrewEffects(into: CrewEffects, extra: CrewEffects): CrewEff
     }
   }
   return total as unknown as CrewEffects;
+}
+
+/**
+ * Two tables of officer floor rules on one: points add and the lower bar is kept per attribute,
+ * which is the `officer_threshold` fold's own rule. It was an overlay, so a rule from the Lab on
+ * an attribute a perk already floored would have replaced the perk's points rather than joined them.
+ */
+export function mergeAttributeFloors(
+  a: CrewEffects['officerAttributeAtLeast'],
+  b: CrewEffects['officerAttributeAtLeast'],
+): CrewEffects['officerAttributeAtLeast'] {
+  const out = { ...a };
+  for (const [name, rule] of Object.entries(b)) {
+    if (!rule) continue;
+    const held = out[name as AttributeName];
+    out[name as AttributeName] = held
+      ? { flat: held.flat + rule.flat, threshold: Math.min(held.threshold, rule.threshold) }
+      : rule;
+  }
+  return out;
 }
 
 /** Two maps of levels, the higher kept per key: a door is as open as the best one held. */

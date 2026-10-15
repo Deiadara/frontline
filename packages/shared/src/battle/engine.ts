@@ -8,6 +8,9 @@ import {
   type TerritoryEffects,
 } from '../city/index.js';
 import {
+  AD_HOC_ARMY_ID,
+  adHocArmyAt,
+  adHocArmyPerRound,
   capRating,
   findUnit,
   findUnitModification,
@@ -19,9 +22,17 @@ import {
   type UnitLoadouts,
   type UnitSpec,
   type UnitStats,
+  type UnitTier,
 } from '../units/index.js';
 import { bareBattlefield, type Battlefield } from './battlefield.js';
-import { bareLineRules, fightingSlots, markedUnit, standsInLine, type LineRules } from './line.js';
+import {
+  bareLineRules,
+  fieldedUnit,
+  fightingSlots,
+  markedUnit,
+  standsInLine,
+  type LineRules,
+} from './line.js';
 import { packBonusPercent } from '../units/collective.js';
 import {
   effectiveStats,
@@ -33,7 +44,7 @@ import { doorLevelOf, doorPerks, NO_DOOR_PERKS, type DoorPerks } from './doors.j
 // Kept exported from here because every caller in the game imports the engine's own names for
 // these, and they are the engine's rules: the module split is about the import graph, not about
 // where they belong.
-export { bareLineRules, fightingSlots, markedUnit, standsInLine, type LineRules };
+export { bareLineRules, fieldedUnit, fightingSlots, markedUnit, standsInLine, type LineRules };
 // Collective moved to a leaf so `raid.ts` can spend the same curve on carry without a cycle.
 // Re-exported here because every caller of the offense half already imports it from the engine.
 export { MAX_PACK_BONUS, PACK_HALF, packBonusPercent } from '../units/collective.js';
@@ -79,8 +90,12 @@ import { mulberry32, seedFrom } from '../rng.js';
  * - **Bounded.** It always terminates, and it always terminates with somebody holding the ground.
  */
 
-/** A fight is decided on the day. Past this, the stronger remaining force takes it. */
-export const MAX_ROUNDS = 12;
+/**
+ * A fight is decided on the day. Past this, the stronger remaining force takes it. 25 since
+ * 2026-10-09 (maintainer), up from 12, so a slow fight between two good lines is fought out
+ * rather than called on power.
+ */
+export const MAX_ROUNDS = 25;
 
 /**
  * Fraction of a defender's health pool one round of a matched attacker's offense removes.
@@ -477,6 +492,17 @@ export interface Stack {
    * a body does not lose health because somebody else fell. Offense and penetration do stop.
    */
   aura?: { offensePercent: number; penetration: number; from: string[] };
+  /**
+   * Set on the Geppetto's robots (`UnitSpec.spawned`): the sheet they formed up with, which every
+   * robot made later in the fight is built off, so a PAPERCUT on the first ones does not reach the
+   * next. They are taken off the side before `simulate` returns (`AdHocArmyTally`).
+   */
+  spawned?: { formed: Effective };
+  /**
+   * Damage percent this stack deals against each tier it shoots at (`offenseVsTierPercent`, the
+   * Holding Pens' Rabble, 2026-10-13). Off the crew's effects at formation; absent for none.
+   */
+  vsTier?: Partial<Record<UnitTier, number>>;
 }
 
 /** A stack's door perks, or none: see {@link Stack.door}. */
@@ -602,6 +628,12 @@ export interface SideState {
    * `effective` once the wire is behind them.
    */
   slowed: number;
+  /**
+   * The Transit Clinic (2026-10-14): the share of a dead body's vitality that heals this side's
+   * most hurt body, per death (`transitClinic`). Optional, so a side built by hand is a side
+   * without one.
+   */
+  deathHealPercent?: number;
 }
 
 const clamp = (value: number, low: number, high: number): number =>
@@ -754,6 +786,61 @@ export function menace(side: SideState): number {
 export const MAX_INTIMIDATED_SHARE = 0.75;
 
 /**
+ * What it costs to silence a unit carrying SAFE DISTANCE, as a multiple of its morale (Box Nine
+ * at level 5, maintainer 2026-10-09): "intimidation is half as effective against them".
+ */
+export const SAFE_DISTANCE_COST = 2;
+
+/** The menace it takes to silence one unit of this stack: its morale, doubled at a safe distance. */
+function silenceCost(stack: Stack): number {
+  const morale = Math.max(0, stack.effective.morale);
+  return stack.unit.safe_distance === true ? morale * SAFE_DISTANCE_COST : morale;
+}
+
+/**
+ * The range an attacker needs to reach a unit at SAFE DISTANCE while it has cover (maintainer,
+ * 2026-10-09): anything shorter cannot target it.
+ */
+export const SAFE_DISTANCE_REACH = 50;
+
+/**
+ * The enemy stacks this attacker may target once SAFE DISTANCE has had its say.
+ *
+ * A shooter with range under {@link SAFE_DISTANCE_REACH} cannot pick a SAFE DISTANCE stack while
+ * any stack without the rule is still in the fight on that side. "Anybody else" is read as anybody
+ * without the rule, so two Sniper stacks do not screen each other into a line nobody can touch,
+ * and as anybody still fighting, so a line that has broken and run leaves them open.
+ */
+function withinReach(attacker: Stack, standing: readonly Stack[]): readonly Stack[] {
+  if (attacker.effective.range >= SAFE_DISTANCE_REACH) return standing;
+  const cover = standing.filter((enemy) => enemy.unit.safe_distance !== true);
+  return cover.length > 0 ? cover : standing;
+}
+
+/** The range below which a shooter meets a ROOFTOP unit's doubled evasion (2026-10-09). */
+export const ROOFTOP_REACH = 30;
+
+/**
+ * ROOFTOP (maintainer, 2026-10-09), its second half: the unit's evasion doubled against a shooter
+ * with range below {@link ROOFTOP_REACH}, held inside the 100 cap like any rating.
+ */
+export function fromTheRoof(sheet: Effective, target: Stack, shooterRange: number): Effective {
+  if (target.unit.rooftop !== true || shooterRange >= ROOFTOP_REACH) return sheet;
+  return { ...sheet, evasion: capRating(sheet.evasion * 2) };
+}
+
+/**
+ * ROOFTOP, its first half: the side the ambush falls on, without anybody it cannot reach. A view
+ * over the same stacks, so the damage it hands back lands on the real side.
+ */
+export function outOfTheAmbush(side: SideState): SideState {
+  return { ...side, stacks: side.stacks.filter((stack) => stack.unit.rooftop !== true) };
+}
+
+/** How much harder a DRUNK unit hits a Rabble-tier one (the Mess Room at level 5, 2026-10-09). */
+export const DRUNK_RABBLE_PERCENT = 10;
+
+/**
  * Who §D3 silences on `side` against this much menace, and how many of each, before it is done.
  *
  * The plan and the doing are split because two callers want the plan and only one wants the
@@ -772,7 +859,7 @@ function intimidatePlan(side: SideState, against: number): Map<Stack, number> {
   // before anything that has to be paid for, and the loop cannot stall on it.
   const order = [...side.stacks]
     .filter((stack) => stack.alive > 0)
-    .sort((a, b) => a.effective.morale - b.effective.morale);
+    .sort((a, b) => silenceCost(a) - silenceCost(b));
 
   /*
    * §D3's ceiling: however loud the other side is, some of this one shoots back (2026-09-17).
@@ -799,7 +886,7 @@ function intimidatePlan(side: SideState, against: number): Map<Stack, number> {
   let silenced = 0;
   for (const stack of order) {
     if (budget <= 0 || silenced >= ceiling) break;
-    const each = Math.max(0, stack.effective.morale);
+    const each = silenceCost(stack);
     const affordable = each === 0 ? stack.alive : Math.floor(budget / each);
     const take = Math.min(stack.alive, affordable, ceiling - silenced);
     if (take <= 0) continue;
@@ -846,6 +933,7 @@ function changeOfHeart(
   const standAt = capRating(morale);
   for (const [stack, take] of intimidatePlan(side, against)) {
     if (stack.officer) continue; // §D1: an officer is one person, and not one who changes sides.
+    if (stack.spawned) continue; // A robot is the Geppetto's, and has no side to change to.
     const vitality = stack.effective.vitality;
     // The whole bodies leave first; the wounded one at the front stays with its own side.
     const whole = Math.min(take, Math.max(0, Math.floor(stack.pool / vitality)));
@@ -1467,9 +1555,14 @@ export function noiseOnEnemy(side: SideState, enemy: SideState): Map<Stack, Fiel
   return out;
 }
 
-/** Whether this stack keeps standing at a morale that would rout anybody else (`stalwart`). */
+/**
+ * Whether this stack's morale is held where it stands (`stalwart`, Holds the Line). Since
+ * 2026-10-13 (maintainer) the rule is "this unit's morale does not drop during the fight": nothing
+ * in the fight takes a point off it, however many of it are left. It was "never breaks while more
+ * than half of it stands".
+ */
 export function holdsTheLine(stack: Stack): boolean {
-  return stack.unit.stalwart === true && stack.alive * 2 > stack.started;
+  return stack.unit.stalwart === true;
 }
 
 /** Whether anything on this side gets a shot away before the lines form (`strikes_first`). */
@@ -1527,8 +1620,10 @@ function buildStacks(
     }
     return aura;
   };
-  for (const [unitId, count] of Object.entries(army)) {
-    const found = findUnit(unitId);
+  const robotLevel = territory.adHocArmyLevel ?? 0;
+  for (const [unitId, count] of Object.entries(withAdHocArmy(army, territory))) {
+    // The robots fight off the sheet the Crate Ring's level makes them (`adHocArmyAt`).
+    const found = unitId === AD_HOC_ARMY_ID ? adHocArmyAt(robotLevel) : findUnit(unitId);
     /*
      * The porters are not in the line, and the rule lives **here** rather than at the doors.
      *
@@ -1546,7 +1641,8 @@ function buildStacks(
      */
     if (!found || count <= 0 || !standsInLine(found, territory)) continue;
     const door = doorOf(unitId);
-    const unit = doorUnit(markedUnit(found, territory), door);
+    // The same fold the roster prints the card through (`fieldedUnit`), so the two cannot differ.
+    const unit = fieldedUnit(found, territory);
     const fitted = fittedFor(upgrades, unitId);
     const fittedSheet = upgradedStats(unit.stats, fitted);
     const aura = auraFor(unitId);
@@ -1634,6 +1730,10 @@ function buildStacks(
       loudTier: unit.loud === true ? loudTierFor(fitted) : 0,
       door,
       aura,
+      ...(unit.spawned === true ? { spawned: { formed: effective } } : {}),
+      ...(Object.keys(territory.offenseVsTierPercent ?? {}).length > 0
+        ? { vsTier: territory.offenseVsTierPercent }
+        : {}),
     });
   }
 
@@ -1671,17 +1771,266 @@ function buildStacks(
       officer,
     });
   }
+  goodBoys(stacks);
+  coldStore(stacks, territory.stitcherVitality ?? 0);
+  // The robots' formed sheet, read after the Cold Store so the ones made later get its points too.
+  for (const stack of stacks) if (stack.spawned) stack.spawned = { formed: { ...stack.effective } };
   return stacks;
 }
 
-/** The unit as its door makes it: Holds the Line at a level-2 Shrine, a taunt at a level-4 Lab. */
-function doorUnit(unit: UnitSpec, door: DoorPerks): UnitSpec {
-  if (!door.stalwart && !door.taunts) return unit;
-  return {
-    ...unit,
-    ...(door.stalwart ? { stalwart: true } : {}),
-    ...(door.taunts ? { taunts: true } : {}),
-  };
+/**
+ * The roster with the Geppetto's opening robots in it (AD HOC ARMY, maintainer 2026-10-09): one
+ * beside him at the start, two at a level-5 Crate Ring. A roster that names the robots itself is
+ * not given more; nothing a player sends can.
+ */
+function withAdHocArmy(army: Army, territory: TerritoryEffects): Army {
+  const roster: Army = Object.fromEntries(
+    Object.entries(army).filter(([unitId]) => unitId !== AD_HOC_ARMY_ID),
+  );
+  const makers = Object.entries(roster).filter(
+    ([unitId, count]) => count > 0 && findUnit(unitId)?.ad_hoc_army === true,
+  ).length;
+  if (makers === 0) return roster;
+  return { ...roster, [AD_HOC_ARMY_ID]: makers * adHocArmyPerRound(territory.adHocArmyLevel ?? 0) };
+}
+
+/**
+ * AD HOC ARMY, round by round: at the start of every round after the first, each maker still in
+ * the fight puts more robots beside him, whether or not the earlier ones are standing. Added to a
+ * robot stack that has not broken, so the new ones share its nerve, or formed up as a fresh stack
+ * off the formed sheet when every robot stack has run.
+ */
+export function makeAdHocArmy(side: SideState, level: number): void {
+  const makers = side.stacks.filter(
+    (stack) => stack.unit.ad_hoc_army === true && stack.alive > 0 && stack.brokeAt === null,
+  );
+  if (makers.length === 0) return;
+  const made = makers.length * adHocArmyPerRound(level);
+  const template = side.stacks.find((stack) => stack.spawned !== undefined);
+  if (!template?.spawned) return;
+  const formed = template.spawned.formed;
+  const holding = side.stacks.find(
+    (stack) => stack.spawned !== undefined && stack.brokeAt === null,
+  );
+  if (holding) {
+    holding.alive += made;
+    holding.started += made;
+    holding.bodies.push(...new Array<number>(made).fill(holding.effective.vitality));
+    holding.pool += made * holding.effective.vitality;
+    return;
+  }
+  side.stacks.push({
+    ...template,
+    effective: { ...formed },
+    alive: made,
+    started: made,
+    pool: made * formed.vitality,
+    bodies: new Array<number>(made).fill(formed.vitality),
+    morale: formed.morale,
+    brokeAt: null,
+    charged: 0,
+    suppressed: 0,
+    dealt: 0,
+    spawned: { formed },
+  });
+}
+
+/**
+ * The Transit Clinic (maintainer, 2026-10-14): every body of this side that died since `before`
+ * heals the side's most hurt living body by `deathHealPercent` of the dead one's vitality, one
+ * death at a time, never past the healed body's own full vitality.
+ *
+ * Health is kept per body (`Stack.bodies`), so "most hurt" is the single body, in any stack still
+ * in the fight, with the most vitality missing. The officer and the Geppetto's robots neither pay
+ * into it nor take from it: neither is a unit the crew fields. Returns the vitality restored.
+ */
+export function transitClinic(side: SideState, before: ReadonlyMap<Stack, number>): number {
+  const percent = side.deathHealPercent ?? 0;
+  if (percent <= 0) return 0;
+  const counts = (stack: Stack): boolean =>
+    stack.officer === undefined && stack.spawned === undefined;
+  let restored = 0;
+  for (const [dead, was] of before) {
+    if (!counts(dead)) continue;
+    const died = Math.max(0, was - dead.alive);
+    for (let death = 0; death < died; death += 1) {
+      let worst: { stack: Stack; body: number; missing: number } | null = null;
+      for (const stack of side.stacks) {
+        if (!counts(stack) || stack.alive <= 0 || stack.brokeAt !== null) continue;
+        for (let body = 0; body < stack.bodies.length; body += 1) {
+          const missing = stack.effective.vitality - (stack.bodies[body] ?? 0);
+          if (missing > 0 && (worst === null || missing > worst.missing)) {
+            worst = { stack, body, missing };
+          }
+        }
+      }
+      if (worst === null) return restored;
+      const { stack, body, missing } = worst;
+      const healed = Math.min(missing, (dead.effective.vitality * percent) / 100);
+      stack.bodies[body] = (stack.bodies[body] ?? 0) + healed;
+      stack.pool += healed;
+      restored += healed;
+    }
+  }
+  return restored;
+}
+
+/**
+ * Who put the most damage on each stack in one volley: the stack RADIOACTIVE burns when one of
+ * them dies (maintainer, 2026-10-14). A volley is split across many shooters, so "the stack that
+ * killed it" is read as the one that put the most on it.
+ */
+export type Killers = Map<Stack, { shooter: Stack; damage: number }>;
+
+/** How many rounds a RADIOACTIVE death burns its killer for, the dead body's vitality spread over them. */
+export const RADIOACTIVE_ROUNDS = 5;
+
+/** One dead body's fallout, still burning: so much a round on one stack, for so many rounds more. */
+export interface Fallout {
+  stack: Stack;
+  perRound: number;
+  left: number;
+}
+
+/**
+ * RADIOACTIVE's deaths this volley: every body of a RADIOACTIVE stack on `victims` that died since
+ * `before` puts its vitality on the stack that killed it, a fifth a round for the next five rounds
+ * (`Fallout`), whether or not its own stack has broken since. Deaths with no shooter on record
+ * (the ambush, a dying strike) burn nobody.
+ */
+export function radioactiveDeaths(
+  victims: SideState,
+  before: ReadonlyMap<Stack, number>,
+  killers: Killers,
+  into: Fallout[],
+): void {
+  for (const stack of victims.stacks) {
+    if (stack.unit.radioactive !== true) continue;
+    const died = Math.max(0, (before.get(stack) ?? stack.alive) - stack.alive);
+    const killer = killers.get(stack)?.shooter;
+    if (died === 0 || killer === undefined) continue;
+    for (let body = 0; body < died; body += 1) {
+      into.push({
+        stack: killer,
+        perRound: stack.effective.vitality / RADIOACTIVE_ROUNDS,
+        left: RADIOACTIVE_ROUNDS,
+      });
+    }
+  }
+}
+
+/** This round's fallout, added to what lands on the burning side and counted off. Not mended. */
+export function burnFallout(fallout: Fallout[], incoming: Map<Stack, number>): void {
+  for (const burn of fallout) {
+    if (burn.left <= 0) continue;
+    incoming.set(burn.stack, (incoming.get(burn.stack) ?? 0) + burn.perRound);
+    burn.left -= 1;
+  }
+}
+
+/** What the Geppetto made in a fight and how many of them were destroyed, per side. */
+export interface AdHocArmyTally {
+  made: number;
+  lost: number;
+}
+
+/**
+ * Takes the robots off a side once the fight is decided, and says how many there were.
+ *
+ * Off the stacks, so nothing that reads a result (casualties, the rout, the perimeter, loot, the
+ * report's unit rows) ever meets a unit nobody mustered; off the kill ledgers, so no infamy is paid
+ * for one; and off the Executioner's ledger, so no robot is "executed" off a roster it was never on.
+ */
+function stripAdHocArmy(
+  side: SideState,
+  kills: KillLedger,
+  executed: Army,
+): AdHocArmyTally & { executed: number } {
+  const robots = side.stacks.filter((stack) => stack.spawned !== undefined);
+  side.stacks = side.stacks.filter((stack) => stack.spawned === undefined);
+  delete kills.intimidated[AD_HOC_ARMY_ID];
+  delete kills.spectacle[AD_HOC_ARMY_ID];
+  const executedRobots = executed[AD_HOC_ARMY_ID] ?? 0;
+  delete executed[AD_HOC_ARMY_ID];
+  const made = robots.reduce((total, stack) => total + stack.started, 0);
+  const standing = robots.reduce((total, stack) => total + stack.alive, 0);
+  return { made, lost: made - standing, executed: executedRobots };
+}
+
+/** The unit whose head count the Cold Store reads (`stitcher_vitality`). */
+export const COLD_STORE_UNIT = 'stitchers';
+
+/**
+ * The Cold Store (maintainer, 2026-10-09): every Stitcher in the line puts `perStitcher` vitality on
+ * every other unit of the side, so a level-2 store and three Stitchers is +6 on each body.
+ *
+ * On the finished sheet, after every percentage, so the figure the card prints is the figure the
+ * body gets. Counted once at formation: a Stitcher who falls later does not take it back. The
+ * officer is a person rather than a unit and is left out, as GOOD BOY leaves them out.
+ */
+function coldStore(stacks: Stack[], perStitcher: number): void {
+  if (perStitcher <= 0) return;
+  const stitchers = stacks
+    .filter((stack) => stack.unit.id === COLD_STORE_UNIT && stack.officer === undefined)
+    .reduce((total, stack) => total + stack.alive, 0);
+  const lift = perStitcher * stitchers;
+  if (lift <= 0) return;
+  for (const stack of stacks) {
+    if (stack.unit.id === COLD_STORE_UNIT || stack.officer !== undefined) continue;
+    const vitality = stack.effective.vitality + lift;
+    stack.effective = {
+      ...stack.effective,
+      vitality,
+      reasons: [...stack.effective.reasons, 'Cold Store'],
+    };
+    stack.bodies = stack.bodies.map(() => vitality);
+    stack.pool = stack.alive * vitality;
+  }
+}
+
+/** The morale a GOOD BOY lends each Rabble unit it covers (the Kennels at level 5, 2026-10-09). */
+export const GOOD_BOY_MORALE = 10;
+
+/**
+ * GOOD BOY: each Cyberhound carrying the rule covers Rabble units whose unit slots add up to its
+ * own, and every covered unit's morale is +10, once (maintainer, 2026-10-09).
+ *
+ * Coverage does not pool: a dog's slots are its own, so two two-slot dogs cannot cover one
+ * four-slot unit, and a Rabble sheet bigger than a dog covers nothing. Assigned the largest units
+ * first, each into the first dog with the room (first fit, decreasing), so the same line always
+ * comes out the same.
+ *
+ * Morale is a stack's, not a body's, so a stack partly covered takes its share: ten covered of
+ * twenty is +5 on the stack. The nerve a side brings (`nerve`) is a sum over bodies, so it moves by
+ * exactly ten for every covered unit either way.
+ */
+function goodBoys(stacks: Stack[]): void {
+  const room = stacks
+    .filter((stack) => stack.unit.good_boy === true && stack.officer === undefined)
+    .flatMap((stack) => Array.from({ length: stack.alive }, () => stack.unit.unitSlots));
+  if (room.length === 0) return;
+  const rabble = stacks
+    .filter((stack) => stack.unit.tier === 'rabble' && stack.officer === undefined)
+    .sort((a, b) => b.unit.unitSlots - a.unit.unitSlots);
+  for (const stack of rabble) {
+    const size = stack.unit.unitSlots;
+    let covered = 0;
+    for (let body = 0; body < stack.alive; body += 1) {
+      const dog = room.findIndex((left) => left >= size);
+      // Every body in a stack is the same size, so one that fits nowhere means none do.
+      if (dog < 0) break;
+      room[dog] = (room[dog] as number) - size;
+      covered += 1;
+    }
+    if (covered === 0) continue;
+    const lift = (GOOD_BOY_MORALE * covered) / stack.alive;
+    stack.morale = capRating(stack.morale + lift);
+    stack.effective = {
+      ...stack.effective,
+      morale: capRating(stack.effective.morale + lift),
+      reasons: [...stack.effective.reasons, UNIT_RULES.good_boy.label],
+    };
+  }
 }
 
 /** A legend's aura on a sheet, added like every other bonus (`legendAuras`). */
@@ -1752,6 +2101,16 @@ export function officerOutcomeOf(side: SideState): OfficerOutcome | null {
  * A smaller wall takes less and a bigger one a little more; see {@link tauntPull}.
  */
 export const TAUNT_PULL = 0.75;
+
+/**
+ * The share of a stack's fire that goes where it does the most harm (maintainer, 2026-10-13); the
+ * rest goes to whoever is in front of it, by bodies. One in two: the counter system still decides
+ * where a line leans, at half its old weight, and nothing on the field is ignored for being a poor
+ * target. A FOCUS sheet aims all of it (`UnitSpec.focus`). The split is a blend of shares, not a
+ * roll, so a fight replays the same from its seed and a lucky side does not pick different
+ * targets: it is the expected outcome of every body flipping the coin.
+ */
+export const AIMED_FIRE_SHARE = 0.5;
 
 /**
  * The taunters' share of their line's unit slots at the knee of the pull (`k` in the ruling).
@@ -1831,10 +2190,18 @@ export function allocate(
    * they disengage, and `routSurvivors` rolls flee-or-die on whoever is left when the fight ends.
    * Only the exchange of fire stops.
    */
-  const live = enemies.filter(
-    (enemy) => enemy.alive > 0 && enemy.pool > 0 && enemy.brokeAt === null,
+  const standing = withinReach(
+    attacker,
+    enemies.filter((enemy) => enemy.alive > 0 && enemy.pool > 0 && enemy.brokeAt === null),
   );
-  if (live.length === 0) return [];
+  if (standing.length === 0) return [];
+  /*
+   * DRUNK (the Mess Room at level 5, maintainer 2026-10-09): the Rabble first, while there is any
+   * Rabble standing. Everything below then weighs and taunts inside that narrower line, so a
+   * Rabble shield wall still pulls its share and nothing else changes.
+   */
+  const rabble = standing.filter((enemy) => enemy.unit.tier === 'rabble');
+  const live = attacker.unit.drunk === true && rabble.length > 0 ? rabble : standing;
 
   /*
    * §D3: an officer is half as likely to be shot at, while there is anybody else to shoot at.
@@ -1855,12 +2222,33 @@ export function allocate(
           (cover && enemy.officer !== undefined ? officerTargetShare(enemy.officer) : 1),
       ),
     );
-  /** Threat weights, normalised to shares of `budget`. Falls back to an even split at zero. */
+  /**
+   * `budget` split two ways and added (maintainer, 2026-10-13): {@link AIMED_FIRE_SHARE} of it by
+   * threat weight, the rest by bodies, so a stack is shot in proportion to how many of it are
+   * standing in front of the line whatever it is worth as a target. A FOCUS sheet (`unit.focus`)
+   * aims the whole of it. Either half falls back to the other when its weights sum to nothing.
+   */
+  const aimed = attacker.unit.focus === true ? 1 : AIMED_FIRE_SHARE;
   const spread = (of: readonly Stack[], budget: number): { target: Stack; share: number }[] => {
-    const weights = weigh(of);
-    const total = weights.reduce((sum, weight) => sum + weight, 0);
-    if (total <= 0) return of.map((target) => ({ target, share: budget / of.length }));
-    return of.map((target, index) => ({ target, share: (budget * weights[index]!) / total }));
+    const byThreat = weigh(of);
+    const byBodies = of.map((enemy) =>
+      Math.max(
+        0,
+        enemy.alive *
+          (cover && enemy.officer !== undefined ? officerTargetShare(enemy.officer) : 1),
+      ),
+    );
+    const threatTotal = byThreat.reduce((sum, weight) => sum + weight, 0);
+    const bodiesTotal = byBodies.reduce((sum, weight) => sum + weight, 0);
+    const shareOf = (weights: number[], total: number, index: number): number =>
+      total <= 0 ? 1 / of.length : weights[index]! / total;
+    return of.map((target, index) => ({
+      target,
+      share:
+        budget *
+        (aimed * shareOf(byThreat, threatTotal, index) +
+          (1 - aimed) * shareOf(byBodies, bodiesTotal, index)),
+    }));
   };
 
   const taunting = live.filter((enemy) => enemy.unit.taunts === true);
@@ -2037,6 +2425,8 @@ function fireRound(
   field: ReadonlyMap<Stack, FieldEffect> = new Map(),
   /** Where the round's door effects are written: see {@link RoundDoors}. */
   doors?: RoundDoors,
+  /** Who put the most damage on each target this volley, for RADIOACTIVE (`Killers`). */
+  killers?: Killers,
 ): Map<Stack, number> {
   const incoming = new Map<Stack, number>();
   const deployed = frontageShare(side, frontage);
@@ -2074,7 +2464,12 @@ function fireRound(
         withField(inTheWire(shooter, side.slowed), field.get(stack)?.percent ?? 0),
         stack.unit.modifiers,
         inTheWire(
-          jammedSheet(target, jam.onTarget, jam.wondersOnTarget.get(target) ?? 0),
+          // ROOFTOP doubles the target's evasion against a short-range shooter (`fromTheRoof`).
+          fromTheRoof(
+            jammedSheet(target, jam.onTarget, jam.wondersOnTarget.get(target) ?? 0),
+            target,
+            shooter.range,
+          ),
           enemy.slowed,
         ),
         target.morale,
@@ -2083,8 +2478,17 @@ function fireRound(
       // Range fires from the second rank: the bodies this stack has queued behind the frontage
       // still contribute, at `SECOND_RANK_FIRE` of their output scaled by how far they can shoot.
       const engaged = deployed + (1 - deployed) * SECOND_RANK_FIRE * (stack.effective.range / 100);
+      // DRUNK hits the Rabble harder (`DRUNK_RABBLE_PERCENT`).
+      const drunk =
+        stack.unit.drunk === true && target.unit.tier === 'rabble'
+          ? 1 + DRUNK_RABBLE_PERCENT / 100
+          : 1;
+      // The Holding Pens: more against the target's tier (`Stack.vsTier`).
+      const vsTier = 1 + (stack.vsTier?.[target.unit.tier] ?? 0) / 100;
       const damage =
         perBody *
+        drunk *
+        vsTier *
         firing *
         engaged *
         share *
@@ -2095,6 +2499,9 @@ function fireRound(
         swing;
       incoming.set(target, (incoming.get(target) ?? 0) + damage);
       stack.dealt += damage;
+      if (killers && damage > (killers.get(target)?.damage ?? 0)) {
+        killers.set(target, { shooter: stack, damage });
+      }
       if (doors && doorOf(stack).spectacle) {
         doors.spectacle.set(target, (doors.spectacle.get(target) ?? 0) + damage);
       }
@@ -2406,6 +2813,7 @@ function moralePhase(
     const deficit = Math.max(0, ownLostSoFar - WINNING_RELIEF * enemyLostSoFar);
     const casualtyFraction = Math.max(0, deficit - stack.charged);
     stack.charged = Math.max(stack.charged, deficit);
+    const held = stack.morale;
     // `enemyCasualtyFraction` is already inside `casualtyFraction`; passed as zero so
     // `moraleDelta` does not net it a second time.
     stack.morale = clamp(
@@ -2413,15 +2821,14 @@ function moralePhase(
       0,
       100,
     );
+    // Holds the Line: the round can lift it and never lower it.
+    if (holdsTheLine(stack)) stack.morale = Math.max(stack.morale, held);
     // Held at wavering beside the Saint: shaken, never running. The Saint himself is not.
     if (steadied && stack.unit.steadies !== true) {
       stack.morale = Math.max(stack.morale, MORALE_THRESHOLDS.wavering);
     }
-    // `stalwart` is checked after the morale is written, not instead of it: the stack still loses
-    // its nerve on the ledger, it simply does not leave. That is what makes the rule bite exactly
-    // once, when the losses finally take it under half and it breaks in the same round it would
-    // have broken in without the check.
-    if (moraleState(stack.morale) === 'routed' && !holdsTheLine(stack)) {
+    // A held stack's morale never fell in the fight, so it breaks only if it formed up routed.
+    if (moraleState(stack.morale) === 'routed') {
       stack.brokeAt = round;
       broke.push(stack);
     }
@@ -2521,6 +2928,12 @@ export interface Simulation {
    * to a SPECTACLE shooter (paid twice). By the unit id of the dead, on the side that lost them.
    */
   kills: { attacker: KillLedger; defender: KillLedger };
+  /**
+   * The Geppetto's robots on each side: how many he made and how many were destroyed. They are
+   * not on the stacks above, which hold only what was mustered (`stripAdHocArmy`). Optional so a
+   * simulation written by hand in a test or a fixture needs none.
+   */
+  adHocArmy?: { attacker: AdHocArmyTally; defender: AdHocArmyTally };
   battlefield: Battlefield;
 }
 
@@ -2595,6 +3008,7 @@ export function simulate(input: SimulateInput): Simulation {
     cohesionPercent: setup.cohesionPercent ?? 0,
     steadyNerve: setup.territory?.steadyNerve ?? false,
     slowed: setup.slowed?.speedCut ?? 0,
+    deathHealPercent: setup.territory?.deathHealPercent ?? 0,
     stacks: buildStacks(
       setup.army,
       ground,
@@ -2715,11 +3129,16 @@ export function simulate(input: SimulateInput): Simulation {
   const wireTook = new Map<Stack, number>();
   if (wire) {
     for (const stack of attacker.stacks) {
-      const took = Math.min(stack.morale, wire.moraleCut);
+      // Holds the Line: the wire takes nothing off a held stack's morale either.
+      const took = holdsTheLine(stack) ? 0 : Math.min(stack.morale, wire.moraleCut);
       stack.morale -= took;
       wireTook.set(stack, took);
     }
   }
+
+  // Who stood before anything was fired, for the Transit Clinic's count of the opening's dead.
+  const formedAttacker = aliveNow(attacker);
+  const formedDefender = aliveNow(defender);
 
   // The opening strike, before either side is in position. Only the attacker can take one: an
   // ambush is something you set, and the side standing on the ground it already holds is not
@@ -2736,7 +3155,8 @@ export function simulate(input: SimulateInput): Simulation {
           // in `ambushShare`. No `only` filter: the one that was here read
           // `marked || STEALTH_UNTAGGED_SHARE > 0`, which is a constant `true` at any share above
           // zero, so it selected the whole force while reading as though it selected a part of it.
-          fireRound(attacker, defender, 1, ambush, battlefield.frontage),
+          // ROOFTOP: nobody up there is in the ambush (`outOfTheAmbush`).
+          fireRound(attacker, outOfTheAmbush(defender), 1, ambush, battlefield.frontage),
         )
       : new Map<Stack, number>();
 
@@ -2749,6 +3169,11 @@ export function simulate(input: SimulateInput): Simulation {
    * short of people when it gets its own shot away, which is the one thing that makes bringing an
    * ambush worth more than bringing this.
    */
+  // RADIOACTIVE's ledgers: who hit whom hardest in a volley, and what each side is burning with.
+  const falloutOnAttacker: Fallout[] = [];
+  const falloutOnDefender: Fallout[] = [];
+  let killersOnDefender: Killers = new Map();
+  let killersOnAttacker: Killers = new Map();
   const openingOnDefender = opensFire(attacker)
     ? fireRound(
         attacker,
@@ -2760,6 +3185,7 @@ export function simulate(input: SimulateInput): Simulation {
         undefined,
         undefined,
         doorsOnDefender,
+        killersOnDefender,
       )
     : new Map<Stack, number>();
   const openingOnAttacker = opensFire(defender)
@@ -2770,6 +3196,10 @@ export function simulate(input: SimulateInput): Simulation {
         FIRST_STRIKE_SHARE,
         battlefield.frontage,
         (stack) => stack.unit.strikes_first === true,
+        undefined,
+        undefined,
+        undefined,
+        killersOnAttacker,
       )
     : new Map<Stack, number>();
   const openedDefender = applyDamage(defender, openingOnDefender, undefined, {
@@ -2783,6 +3213,10 @@ export function simulate(input: SimulateInput): Simulation {
   });
   // PAPERCUT off the opening volley, and the rounds below: her attacks strip for the rest of it.
   stripArmor(defender, doorsOnDefender.papercut);
+  transitClinic(attacker, formedAttacker);
+  transitClinic(defender, formedDefender);
+  radioactiveDeaths(defender, formedDefender, killersOnDefender, falloutOnAttacker);
+  radioactiveDeaths(attacker, formedAttacker, killersOnAttacker, falloutOnDefender);
 
   let attackerCascade = 0;
   let defenderCascade = 0;
@@ -2790,6 +3224,11 @@ export function simulate(input: SimulateInput): Simulation {
 
   while (round < MAX_ROUNDS && fighting(attacker) > 0 && fighting(defender) > 0) {
     round += 1;
+    // AD HOC ARMY: the first robots formed up with the line; every round after, more of them.
+    if (round > 1) {
+      makeAdHocArmy(attacker, input.attacker.territory?.adHocArmyLevel ?? 0);
+      makeAdHocArmy(defender, defenderSetup.territory?.adHocArmyLevel ?? 0);
+    }
 
     const attackerConcentration = concentrationFor(attacker, defender, battlefield.frontage);
     const defenderConcentration = concentrationFor(defender, attacker, battlefield.frontage);
@@ -2827,6 +3266,8 @@ export function simulate(input: SimulateInput): Simulation {
     const noiseOnAttacker = noiseOnEnemy(defender, attacker);
     doorsOnDefender = freshRoundDoors();
     doorsOnAttacker = freshRoundDoors();
+    killersOnDefender = new Map();
+    killersOnAttacker = new Map();
     const attackerAlive = aliveNow(attacker);
     const defenderAlive = aliveNow(defender);
 
@@ -2847,6 +3288,7 @@ export function simulate(input: SimulateInput): Simulation {
         },
         noiseOnAttacker,
         doorsOnDefender,
+        killersOnDefender,
       ),
     );
     const ontoAttacker = mend(
@@ -2866,8 +3308,12 @@ export function simulate(input: SimulateInput): Simulation {
         },
         noiseOnDefender,
         doorsOnAttacker,
+        killersOnAttacker,
       ),
     );
+    // RADIOACTIVE's earlier dead, on top of the volley and past the medics (`burnFallout`).
+    burnFallout(falloutOnDefender, ontoDefender);
+    burnFallout(falloutOnAttacker, ontoAttacker);
     // Round one carries whatever happened before it: the ambush and either side's opening volley.
     // `mergeLosses` composes fractions of different starting numbers, so chaining is exact.
     const defenderLost = mergeLosses(
@@ -2898,6 +3344,12 @@ export function simulate(input: SimulateInput): Simulation {
     stripArmor(attacker, doorsOnAttacker.papercut);
     dyingStrikes(attacker, defender, attackerAlive, next);
     dyingStrikes(defender, attacker, defenderAlive, next);
+    // The Transit Clinic on this round's dead, after the dying strikes have landed too.
+    transitClinic(attacker, attackerAlive);
+    transitClinic(defender, defenderAlive);
+    // RADIOACTIVE: this round's dead start burning their killers from the next round on.
+    radioactiveDeaths(defender, defenderAlive, killersOnDefender, falloutOnAttacker);
+    radioactiveDeaths(attacker, attackerAlive, killersOnAttacker, falloutOnDefender);
 
     // Both tests read the enemy as it stood before either broke: see `moraleOutlook`.
     const attackerOutlook = moraleOutlook(attacker, defender);
@@ -2952,6 +3404,11 @@ export function simulate(input: SimulateInput): Simulation {
           ? 'attacker'
           : 'defender';
 
+  // The robots leave with the fight: see `stripAdHocArmy`.
+  const attackerRobots = stripAdHocArmy(attacker, kills.attacker, executedForce);
+  const defenderRobots = stripAdHocArmy(defender, kills.defender, {});
+  executedUnits -= attackerRobots.executed;
+
   return {
     attacker,
     defender,
@@ -2964,6 +3421,10 @@ export function simulate(input: SimulateInput): Simulation {
     turned: turnedUnits,
     executed: executedUnits,
     executedForce,
+    adHocArmy: {
+      attacker: { made: attackerRobots.made, lost: attackerRobots.lost },
+      defender: { made: defenderRobots.made, lost: defenderRobots.lost },
+    },
     luck: { attacker: attacker.luck, defender: defender.luck },
     intimidated: { attacker: attackerIntimidated, defender: defenderIntimidated },
     kills,
@@ -2985,13 +3446,15 @@ export function ambushShare(side: SideState, enemy: SideState): number {
   let bodies = 0;
   let hidden = 0;
   let stealth = 0;
+  // PERCEPTION on the other side halves the stealth this side hides with (`perceives`).
+  const seen = perceives(enemy) ? PERCEPTION_STEALTH_SHARE : 1;
   for (const stack of side.stacks) {
     if (stack.brokeAt !== null || stack.alive <= 0) continue;
     bodies += stack.alive;
     const weight = stack.unit.modifiers.includes('ambush') ? 1 : STEALTH_UNTAGGED_SHARE;
     if (weight <= 0) continue;
     hidden += stack.alive * weight;
-    stealth += stack.alive * weight * stack.effective.stealth;
+    stealth += stack.alive * weight * stack.effective.stealth * seen;
   }
   if (hidden <= 0 || bodies <= 0) return 0;
 
@@ -3030,6 +3493,18 @@ export function ambushShare(side: SideState, enemy: SideState): number {
    * set an ambush opens at nearly three times what a line that merely happens to be quiet does.
    */
   return softCap(AMBUSH_ROUND_SHARE * edge * (hidden / bodies), AMBUSH_KNEE, AMBUSH_CEILING);
+}
+
+/** What PERCEPTION leaves of an enemy unit's stealth in a fight (maintainer, 2026-10-09). */
+export const PERCEPTION_STEALTH_SHARE = 0.5;
+
+/**
+ * Whether a unit with PERCEPTION is alive on this side (the Cartographer from a level-5 Old Dome).
+ * Read where the enemy's stealth is spent in a fight: the ambush here and the getaway in
+ * `rout.ts`. Spying is not a fight and does not read it.
+ */
+export function perceives(side: SideState): boolean {
+  return side.stacks.some((stack) => stack.unit.perception === true && stack.alive > 0);
 }
 
 /** How hard a side is to sneak up on: its own stealth is what it knows to look for. */

@@ -11,6 +11,19 @@ import {
   type PartialResources,
 } from '@frontline/shared';
 import type { Repositories } from '../db/repos/index.js';
+import { standingEffectsFor } from '../crew/standing.js';
+
+/**
+ * What the burn costs this crew right now: the Generator's price with the ground's cut off it
+ * (Shaft Nine). The one figure the purchase charges, its refusal quotes and `/me` hands the
+ * dialog, so the button, its tooltip and the bill cannot disagree.
+ */
+export function buildBoostOilFor(repos: Repositories, base: Base, now: Date = new Date()): number {
+  return buildBoostOilCost(
+    base.buildings,
+    standingEffectsFor(repos, base, now).buildBoostOilPercent,
+  );
+}
 
 /**
  * Buying the Generator's two-hour burn (§B4).
@@ -36,7 +49,7 @@ export function buyBuildBoost(
   now: Date,
   admin = false,
 ): BoostResult {
-  const oil = buildBoostOilCost(base.buildings);
+  const oil = buildBoostOilFor(repos, base, now);
   if (oil <= 0) return { kind: 'refused', reason: 'no_generator' };
   if (buildBoostActive(base.economy.buildBoostUntil, now)) {
     return { kind: 'refused', reason: 'already_running' };

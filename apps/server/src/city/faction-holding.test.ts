@@ -5,7 +5,6 @@ import {
   NOISE_SWITCH_TIER,
   PAMPHLET_SWAP_CAPS,
   findDistrict,
-  tollingTowerNoise,
   type Base,
   type LocationHolder,
   type ScheduledBattle,
@@ -344,6 +343,18 @@ describe('the Pamphlet Wall', () => {
         new Date(T0.getTime() + 13 * 3_600_000),
       ),
     ).toThrow(/costs/);
+    // Testing mode quotes the swap and takes nothing, as every other price does (bug pass,
+    // 2026-10-11): it was the one bill in the game that still charged there.
+    const waived = swapPamphlet(
+      app.repos,
+      swapped.base,
+      WALL,
+      { from: 'ghosts', to: 'razors' },
+      new Date(T0.getTime() + 13 * 3_600_000),
+      true,
+    );
+    expect(waived.base.resources.caps).toBe(1);
+    expect(waived.control.pamphlets).toContain('razors');
   });
 
   it('comes down with the wall when it changes hands', async () => {
@@ -415,11 +426,9 @@ describe("the fight's ground under the tower", () => {
       scheduledFor: T0.toISOString(),
     } as ScheduledBattle;
     const noisyTier = () =>
-      battlefieldOf(
-        battle,
-        'Bellfounders',
-        tollingTowerNoise(bellfounders, app.repos.city.controls()),
-      ).labels.find((label) => label.id === 'noisy')?.tier ?? 0;
+      battlefieldOf(battle, 'Bellfounders', app.repos.city.controls()).labels.find(
+        (label) => label.id === 'noisy',
+      )?.tier ?? 0;
     // The sky can be noisy too; the ground alone is not.
     const before = noisyTier();
     throwSwitch(app.repos, a, 'bellfounders-tollingtower', true, T0);

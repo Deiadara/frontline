@@ -359,6 +359,29 @@ export function missionWalkMinutes(homeDistrictId: string, areaId: string): numb
 }
 
 /**
+ * The city a job is worked in: its district's, or the crew's own for the misc board, which has no
+ * address and is dealt to a crew where it lives.
+ */
+export function missionCityOf(homeDistrictId: string, areaId: string): string | undefined {
+  return findDistrict(areaId === MISC_AREA_ID ? homeDistrictId : areaId)?.cityId;
+}
+
+/**
+ * What a crew's city-scoped ground adds to one job, off a channel kept by city id: the pay
+ * (`missionSpoilsPercentByCity`, Coldwater Halt held whole) or the road
+ * (`missionTravelPercentByCity`, the Bricked Arches). Whatever pays in the city the job is worked
+ * in, and nothing anywhere else.
+ */
+export function missionCityPercentIn(
+  byCity: Readonly<Record<string, number>>,
+  homeDistrictId: string,
+  areaId: string,
+): number {
+  const cityId = missionCityOf(homeDistrictId, areaId);
+  return cityId === undefined ? 0 : (byCity[cityId] ?? 0);
+}
+
+/**
  * A job's pay with the crew's `missionCapsPercent` on its caps (Cap Counter, 2026-10-01).
  *
  * After `scaledSpoils`, and on the caps alone: the perk is about counting the money, and a crew that

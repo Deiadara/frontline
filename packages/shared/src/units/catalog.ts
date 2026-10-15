@@ -4,7 +4,7 @@ import { BUILDING_KINDS, type BuildingKind } from '../building/kinds.js';
 import { findModification } from '../building/modifications.js';
 import { findVehicle, type ColumnUnit, type RiderGroup } from '../building/vehicles.js';
 import { ENV_LABEL_IDS, type EnvLabelId } from '../city/labels.js';
-import { LOCATION_KINDS, type LocationKind } from '../city/locations.js';
+import { ARCA_TOMB_IDS, findLocation } from '../city/atlas.js';
 import type { PartialResources } from '../resources.js';
 import { effectiveSpeed } from '../time/speed.js';
 import { UNIT_MODIFIERS, type UnitModifierId, type UnitStats } from './stats.js';
@@ -70,15 +70,24 @@ export { UNIT_TIERS, UnitTierSchema, UNIT_TIER_LABELS, type UnitTier } from './t
 export type UnitRequirement =
   | { kind: 'building'; building: BuildingKind; level: number }
   | { kind: 'modification'; modificationId: string }
-  | { kind: 'location'; locationKind: LocationKind }
+  /**
+   * The ground that turns this unit out: any one of these locations held (maintainer, 2026-10-14:
+   * these were location kinds, and each is now the list of places that kind covered). The best
+   * level held among them also cuts the unit's muster (`homeMusterBonus`).
+   */
+  | { kind: 'location'; locationIds: readonly string[] }
   | { kind: 'vehicle'; vehicleId: string }
   /**
-   * A door authored on one location rather than on a kind (Arca, 2026-10-07): the Saint's
-   * Shrine, the Watch Cell, the Crimson Stage, the Reliquary Lab. Met by holding any location
-   * whose `unit_door` names this unit, or, where `orKind` is set, any location of that kind: the
-   * Juggernauts come out of a gene clinic or the Lab.
+   * A door authored on one location (Arca, 2026-10-07): the Saint's Shrine, the Watch Cell, the
+   * Crimson Stage, the Reliquary Lab. Met by holding any location whose `unit_door` names this
+   * unit, or any of `orLocationIds`: the Juggernauts come out of the Lab or a gene clinic.
    */
-  | { kind: 'door'; unitId: string; orKind?: LocationKind };
+  | { kind: 'door'; unitId: string; orLocationIds?: readonly string[] }
+  /**
+   * One named location held (maintainer, 2026-10-09): Box Nine for the Snipers, the Mess Room for
+   * the Breakers. Unlike `location`, holding it cuts nothing off the muster.
+   */
+  | { kind: 'place'; locationId: string };
 
 export interface UnitSpec {
   id: string;
@@ -116,6 +125,14 @@ export interface UnitSpec {
    * shield line is.
    */
   taunts?: boolean;
+  /**
+   * Whether every shot this stack fires goes where it does the most harm (maintainer, 2026-10-13).
+   * The line as a whole aims half its fire and sends the rest at whoever is in front of it
+   * (`AIMED_FIRE_SHARE`, `battle/engine.ts`); a FOCUS sheet aims all of it, which is what makes a
+   * marksman a marksman rather than a rifle with a longer barrel. Said to the player as "makes the
+   * best attack it can", never as a share: the half-and-half behind it is the engine's business.
+   */
+  focus?: boolean;
   /**
    * What each level of this unit's door buys it, levels 2 to 5, in the player's words
    * (Arca, 2026-10-07). Printed on the roster and on the door's own sheet; the engine spends
@@ -157,14 +174,13 @@ export interface UnitSpec {
    */
   strikes_first?: boolean;
   /**
-   * Whether this stack stays in the line after the men beside it have gone.
+   * Whether this stack stays in the line after the men beside it have gone (Holds the Line).
    *
    * Morale is the fastest way to lose a fight in this engine: one stack breaks, the cascade term
    * pushes the next one over, and a force that was winning on casualties walks off the ground. A
    * stalwart sheet is the answer to that and it is deliberately not "high morale", which is a
-   * number the same cascade eats. It cannot rout while over half its units are standing, full
-   * stop, and once it is under half it breaks like anything else: the rule buys a line that holds
-   * long enough to be worth rallying behind, never a stack that cannot be beaten.
+   * number the same cascade eats. Since 2026-10-13 (maintainer) its morale does not drop during
+   * the fight at all (`holdsTheLine`); it used to hold only while over half of it stood.
    */
   stalwart?: boolean;
   /**
@@ -204,11 +220,11 @@ export interface UnitSpec {
    */
   faith?: boolean;
   /**
-   * How many of this unit a crew may keep, per location of one kind it holds: the Death Cloaks'
-   * fifty a Mausoleum. Counted the way a legendary is (`legendaryRoom`): the army, the garrisons,
+   * How many of this unit a crew may keep, per location of a list it holds: the Death Cloaks'
+   * fifty a tomb. Counted the way a legendary is (`legendaryRoom`): the army, the garrisons,
    * everything abroad and the queue. Absent means no ceiling but unit slots.
    */
-  capPerHold?: { locationKind: LocationKind; each: number };
+  capPerHold?: { locationIds: readonly string[]; each: number };
   /**
    * Whether this unit makes the ground it fights on unbearable to be next to (maintainer,
    * 2026-09-19).
@@ -260,6 +276,47 @@ export interface UnitSpec {
    * for Total Intelligence is owed the reason it came back one body short.
    */
   unspyable?: boolean;
+  /**
+   * Intimidation costs twice as much to silence this sheet, and short-range fire cannot reach it
+   * while anybody else on its side is fighting ({@link UNIT_RULES.safe_distance}).
+   */
+  safe_distance?: boolean;
+  /** Prefers Rabble targets and hits them harder ({@link UNIT_RULES.drunk}). */
+  drunk?: boolean;
+  /** Lifts the morale of the Rabble beside it, a dog's slots of them ({@link UNIT_RULES.good_boy}). */
+  good_boy?: boolean;
+  /** Out of the ambush, and twice as hard to hit up close ({@link UNIT_RULES.rooftop}). */
+  rooftop?: boolean;
+  /** Every journey this unit is part of takes half the time ({@link UNIT_RULES.shortcut}). */
+  shortcut?: boolean;
+  /** While it lives, the enemy's stealth in a fight is halved ({@link UNIT_RULES.perception}). */
+  perception?: boolean;
+  /** Its dead burn whoever killed them for five rounds ({@link UNIT_RULES.radioactive}). */
+  radioactive?: boolean;
+  /** Makes robots beside it every round of a fight ({@link UNIT_RULES.ad_hoc_army}). */
+  ad_hoc_army?: boolean;
+  /**
+   * The door rules (2026-10-14): set by `doorUnit` off the door ladder, never on an authored
+   * sheet. The engine reads the ladder's numbers for the rule itself (`DoorPerks`); these flags
+   * are what put the rule on the card, so the roster and the fight read one fold (`fieldedUnit`).
+   */
+  spectacle?: boolean;
+  papercut?: boolean;
+  blowout?: boolean;
+  inspiration?: boolean;
+  last_chance?: boolean;
+  /**
+   * Made in the fight, never mustered (the Geppetto's Ad Hoc Army, 2026-10-09). No roster lists it,
+   * no door musters it, and the engine takes it off both sides before a result leaves `simulate`,
+   * so nothing downstream pays for it, loots with it or counts it as a loss.
+   */
+  spawned?: boolean;
+  /**
+   * Modifiers this sheet carries as its signature, drawn in gold on the card (maintainer,
+   * 2026-10-09: the Breakers' Breaching). Purely how the tag is drawn; the modifier works the
+   * same as anywhere else.
+   */
+  goldenModifiers?: readonly UnitModifierId[];
   /**
    * Who fields this sheet, when it is not the player (maintainer, 2026-09-19).
    *
@@ -357,10 +414,13 @@ const fitted = (modificationId: string): UnitRequirement => ({
   kind: 'modification',
   modificationId,
 });
-const holds = (locationKind: LocationKind): UnitRequirement => ({ kind: 'location', locationKind });
-/** The ground authored as this unit's door, or a kind of place that does as well. */
-const door = (unitId: string, orKind?: LocationKind): UnitRequirement =>
-  orKind === undefined ? { kind: 'door', unitId } : { kind: 'door', unitId, orKind };
+/** Any one of these locations held, and the best of them cuts the muster. */
+const holds = (...locationIds: string[]): UnitRequirement => ({ kind: 'location', locationIds });
+/** One named location on the map, held. */
+const place = (locationId: string): UnitRequirement => ({ kind: 'place', locationId });
+/** The ground authored as this unit's door, or any of these locations as well. */
+const door = (unitId: string, ...orLocationIds: string[]): UnitRequirement =>
+  orLocationIds.length === 0 ? { kind: 'door', unitId } : { kind: 'door', unitId, orLocationIds };
 /** §B6: the Garage can turn this machine out, which is a different claim from owning one. */
 const canBuild = (vehicleId: string): UnitRequirement => ({ kind: 'vehicle', vehicleId });
 
@@ -525,6 +585,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     id: 'scrapers',
     name: 'Scrapers',
     tier: 'rabble',
+    focus: true,
     blurb: 'Scavengers turned fighters. Light armour, quick hands, gone before the answer comes.',
     musteredAt: 'gauntlet',
     unique: false,
@@ -558,18 +619,19 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     blurb: 'Door-kicking close-quarters specialists. Whatever is behind it, they go through it.',
     musteredAt: 'gauntlet',
     unique: false,
-    requires: [gauntlet(4)],
+    // And the Mess Room, where they drink (maintainer, 2026-10-09).
+    requires: [gauntlet(4), place('marshalling-yards-messroom')],
     cost: { caps: 120, supplies: 20, scrap: 60, oil: 15 },
     musterSeconds: 150,
     unitSlots: 2,
     stats: sheet({
       speed: 40,
       /*
-       * 168 and 32 since 2026-10-07, up from 122 and 24. A gate specialist that dies on the way to
-       * the gate sells nothing, and this sheet beat 5 of the 24 on the roster: the worst in its
-       * tier after the Ironsides. The damage is untouched, so what it buys is the time to use it.
+       * 300 since 2026-10-09 (maintainer), from 168, itself up from 122 on 2026-10-07. A gate
+       * specialist that dies on the way to the gate sells nothing. The damage is untouched, so
+       * what it buys is the time to use it.
        */
-      vitality: 168,
+      vitality: 300,
       morale: 60,
       armor: 32,
       resistances: { explosive: 35, energy: -25 },
@@ -583,6 +645,8 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
       intimidation: 30,
     }),
     modifiers: ['close_quarters', 'breaching'],
+    // Breaching is what a Breaker is for, and the card says so in gold (maintainer, 2026-10-09).
+    goldenModifiers: ['breaching'],
   },
   {
     id: 'wardens',
@@ -789,12 +853,14 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     id: 'snipers',
     name: 'Snipers',
     tier: 'specialist',
+    focus: true,
     blurb: 'Long range, one shot, one kill. Everything else is spent waiting for it.',
     musteredAt: 'gauntlet',
     unique: false,
-    // A rifle at 95 range is already firing while everybody else is still crossing the yard.
+    // A rifle at 90 range is already firing while everybody else is still crossing the yard.
     strikes_first: true,
-    requires: [gauntlet(7), structure('gate', 7), fitted('gauntlet_live_fire_range')],
+    // Box Nine's spotters in place of the Live-Fire Range (maintainer, 2026-10-09).
+    requires: [gauntlet(7), structure('gate', 7), place('marshalling-yards-signalbox')],
     cost: { caps: 260, supplies: 40, scrap: 60, highQualityMetal: 12 },
     musterSeconds: 300,
     unitSlots: 2,
@@ -806,7 +872,8 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
       damageType: 'ballistic',
       resistances: { explosive: 15, chemical: -35 },
       penetration: 60,
-      range: 95,
+      // 90 since 2026-10-09, from 95: Box Nine's spotters take a held crew's to 100.
+      range: 90,
       offense: 350,
       evasion: 12,
       stealth: 60,
@@ -821,7 +888,9 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
      * counter: with it, a Sniper beat a Road Reaver in both directions and the whole range/speed
      * axis collapsed. Reach is the Sniper's edge and it is supposed to end when the enemy arrives.
      */
-    modifiers: ['rooftop', 'open_field'],
+    // ROOFTOP is a rule since 2026-10-09 (it was a modifier), and the Snipers keep it on the sheet.
+    rooftop: true,
+    modifiers: ['open_field'],
     // A rifle is a promise about a sightline, and fog, wind and a low ceiling all break it.
     affinities: { elevated: 7, foggy: -7, windy: -5 },
   },
@@ -921,7 +990,13 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     blurb: 'Drone operators working off rooftops. They see the fight before anybody is in it.',
     musteredAt: 'gauntlet',
     unique: false,
-    requires: [gauntlet(8), structure('lab', 5), structure('generator', 8)],
+    // And the Repeater Mast on Telemetry Hill, held (maintainer, 2026-10-09).
+    requires: [
+      gauntlet(8),
+      structure('lab', 5),
+      structure('generator', 8),
+      place('telemetry-hill-repeater'),
+    ],
     cost: { caps: 280, supplies: 40, scrap: 40, highQualityMetal: 18 },
     musterSeconds: 310,
     unitSlots: 2,
@@ -940,7 +1015,8 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
       lootCapacity: 12,
       intimidation: 10,
     }),
-    modifiers: ['rooftop', 'open_field', 'tracking'],
+    // ROOFTOP comes from the Repeater Mast at level 5 now (2026-10-09), not the sheet.
+    modifiers: ['open_field', 'tracking'],
     // Drones. Weather is the whole of their problem and the ground is none of it.
     affinities: { windy: -9, foggy: -6, elevated: 6 },
   },
@@ -1037,7 +1113,8 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     unique: false,
     // They hunt as one animal, and a big pack is not a bigger dog.
     pack: true,
-    requires: [structure('infirmary', 6), holds('doghouse')],
+    // The Kennels in Bonded Row (maintainer, 2026-10-09), or the Steelbelt's.
+    requires: [structure('infirmary', 6), holds('bonded-row-kennels', 'steelbelt-kennels')],
     cost: { caps: 190, supplies: 90, highQualityMetal: 15 },
     musterSeconds: 420,
     /**
@@ -1092,7 +1169,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
       gauntlet(11),
       structure('generator', 10),
       structure('infirmary', 9),
-      door('juggernauts', 'gene_clinic'),
+      door('juggernauts', 'annexes-ward', 'ccs-ascension'),
     ],
     cost: { caps: 700, supplies: 105, scrap: 50, oil: 200, highQualityMetal: 20 },
     musterSeconds: 900,
@@ -1137,13 +1214,17 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     blurb: 'Shock troops with the fear surgically removed. It took the rest of it with it.',
     musteredAt: 'gauntlet',
     unique: false,
+    // Made in Arch Nineteen on the Viaduct (maintainer, 2026-10-13), not in any gene clinic; the
+    // structures stay, and so does their blueprint (`bp_hollow_men`, read off the document).
     requires: [
       gauntlet(12),
       structure('infirmary', 10),
       structure('lab', 13),
-      holds('gene_clinic'),
+      place('viaduct-archnineteen'),
     ],
     cost: { caps: 650, supplies: 200, highQualityMetal: 25 },
+    // Nothing left in them to frighten (2026-10-13): their morale does not drop in a fight.
+    stalwart: true,
     musterSeconds: 840,
     unitSlots: 5,
     stats: sheet({
@@ -1161,7 +1242,8 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
       lootCapacity: 30,
       intimidation: 70,
     }),
-    modifiers: ['close_quarters', 'terror'],
+    // Terror is Arch Nineteen's to hand over at level 5, in gold (2026-10-13), not the sheet's.
+    modifiers: ['close_quarters'],
     // The fear was removed surgically. So was most of the rest of it.
     immuneTo: ['eerie'],
   },
@@ -1179,7 +1261,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
       '+30 damage and +30 vitality.',
       '+60 damage and +60 vitality.',
       '+90 damage and +90 vitality.',
-      '+120 damage and +120 vitality, and LAST CHANCE: one strike more as they die, one time in five.',
+      '+150 damage and +150 vitality, and LAST CHANCE: one strike more as they die, one time in five.',
     ],
     musterSeconds: 600,
     unitSlots: 3,
@@ -1204,6 +1286,12 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
   },
 
   // -------------------------------------------------------------- legendary
+  //
+  // Every legendary a player can hold asks the same three things (maintainer, 2026-10-09): the
+  // Gauntlet at 15, the ground that is its own, and what is named on its own sheet beyond that
+  // (the Colossus a Scrapyard at 18, the Geppetto a Lab at 15). No Garage for any of them, and
+  // every other structure they used to ask for went. The infamy rank every legendary carries is
+  // the tier's (`notorietyToField`) and is unchanged.
   {
     id: 'the_specter',
     name: 'The Specter',
@@ -1212,7 +1300,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
       'Experimental full-spectrum cloak. Invisible until it strikes, and then briefly visible.',
     musteredAt: 'lab',
     unique: true,
-    requires: [structure('lab', 15), fitted('lab_shielded_datacore'), holds('satellite_uplink')],
+    requires: [gauntlet(15), holds('annexes-uplink', 'ccs-uplink')],
     cost: { caps: 1500, supplies: 225, oil: 300, highQualityMetal: 250 },
     musterSeconds: 3600,
     unitSlots: 8,
@@ -1250,7 +1338,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     blurb: 'A failed experiment that became a weapon. Unstable, devastating, and not steerable.',
     musteredAt: 'lab',
     unique: true,
-    requires: [structure('lab', 16), structure('infirmary', 9), holds('mad_scientist_lair')],
+    requires: [gauntlet(15), holds('undergrid-lair')],
     cost: { caps: 1400, supplies: 400, highQualityMetal: 200 },
     musterSeconds: 4200,
     unitSlots: 10,
@@ -1279,7 +1367,8 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     name: 'The Colossus',
     tier: 'legendary',
     blurb: 'A single massive machine that functions like a walking fortress. It arrives slowly.',
-    musteredAt: 'garage',
+    // Built at the Scrapyard now that the Garage is off his sheet (2026-10-09).
+    musteredAt: 'scrapyard',
     unique: true,
     // It does not go round the gate. It goes through, and takes some of the gate with it.
     wall_breaker: true,
@@ -1292,7 +1381,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
      * district anybody takes is a legendary unit nobody ever fields. Sigma is difficulty 6, which
      * puts the Colossus in the same band as the Specter and the Juggernaut.
      */
-    requires: [structure('garage', 10), structure('generator', 14), holds('construction_site')],
+    requires: [gauntlet(15), structure('scrapyard', 18), holds('annexes-scaffold', 'ccs-scaffold')],
     cost: { caps: 2200, supplies: 330, scrap: 900, oil: 600, highQualityMetal: 400 },
     musterSeconds: 5400,
     unitSlots: 12,
@@ -1339,17 +1428,12 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
      * stopped. Five times the old price and fifty unit slots, for a sheet the Shrine's levels
      * build into a line on his own (`doorSteps`).
      */
-    requires: [
-      gauntlet(12),
-      structure('quarters', 12),
-      structure('infirmary', 10),
-      door('the_saint'),
-    ],
+    requires: [gauntlet(15), door('the_saint')],
     cost: { caps: 6000, supplies: 1500, highQualityMetal: 600 },
     musterSeconds: 3000,
     unitSlots: 50,
     doorSteps: [
-      'Holds the Line: never breaks while more than half of him is standing.',
+      'Holds the Line: his morale does not drop during the fight.',
       '+10 evasion, +10 speed and +10 stealth.',
       'INSPIRATION: every ally fighting beside him ignores the ground that is bad for it.',
       '+1 damage and +1 vitality for every unit slot fighting beside him, up to +1,000.',
@@ -1379,12 +1463,17 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     blurb: 'Has walked every street in this city and remembers which ones are still there.',
     musteredAt: 'lab',
     unique: true,
-    requires: [structure('lab', 12), holds('rail_yard'), holds('satellite_uplink')],
+    // Trained under the Old Dome on Telemetry Hill (maintainer, 2026-10-09): her rail yard and
+    // uplink went. More of the legendaries' own areas, one per city, are to come.
+    requires: [gauntlet(15), place('telemetry-hill-dome')],
     cost: { caps: 1000, supplies: 150, oil: 150, highQualityMetal: 100 },
     musterSeconds: 2700,
     unitSlots: 5,
+    // Every journey she is on takes half the time (`units/shortcut.ts`).
+    shortcut: true,
     stats: sheet({
-      speed: 88,
+      // 70 since 2026-10-09 (maintainer), from 88: SHORTCUT is how she gets there now.
+      speed: 70,
       vitality: 270,
       morale: 90,
       armor: 28,
@@ -1433,7 +1522,11 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
      * that is still meat. Two locations rather than one because a unit that survives everything
      * has to cost something on the map rather than only in the stockpile.
      */
-    requires: [structure('lab', 12), holds('mad_scientist_lair'), holds('gene_clinic')],
+    requires: [
+      structure('lab', 12),
+      holds('undergrid-lair'),
+      holds('annexes-ward', 'ccs-ascension'),
+    ],
     cost: { caps: 460, supplies: 75, scrap: 60, oil: 90, highQualityMetal: 15 },
     musterSeconds: 520,
     unitSlots: 4,
@@ -1622,16 +1715,10 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     // She is across the ground and among them before the line has finished forming.
     strikes_first: true,
     /**
-     * Three clauses, as every legendary needs, and each one a different half of what it is: the
-     * Gauntlet at the top for the fighter, a Lab deep enough to have built the legs, and the
-     * Crimson Stage in Bloodstone, which is where she dances (maintainer, 2026-10-06).
+     * The Gauntlet at 15, as every legendary, and the Crimson Stage in Bloodstone, which is where
+     * she dances (maintainer, 2026-10-06; the Lab and the Quarters went on 2026-10-09).
      */
-    requires: [
-      gauntlet(14),
-      structure('lab', 12),
-      structure('quarters', 15),
-      door('the_crimson_dancer'),
-    ],
+    requires: [gauntlet(15), door('the_crimson_dancer')],
     cost: { caps: 1400, supplies: 260, oil: 180, highQualityMetal: 200 },
     doorSteps: [
       '+100 damage and +100 vitality.',
@@ -1722,19 +1809,16 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     id: 'the_loose_end',
     name: 'The Loose End',
     tier: 'legendary',
+    focus: true,
     blurb: 'Walked out of a contract nobody walks out of. The chain-blade was the severance.',
     musteredAt: 'gauntlet',
     unique: true,
     /**
-     * A Gauntlet at the top, a Garage that can keep a powered blade fed, and a rail yard, which is
-     * where somebody who has to keep moving ends up and where the contract finally lapsed.
+     * The Gauntlet at 15, as every legendary, and a rail yard, which is where somebody who has to
+     * keep moving ends up and where the contract finally lapsed. The Garage and the Generator went
+     * on 2026-10-09.
      */
-    requires: [
-      gauntlet(16),
-      structure('garage', 9),
-      structure('generator', 16),
-      holds('rail_yard'),
-    ],
+    requires: [gauntlet(15), holds('glasshouse-fields-haulers')],
     cost: { caps: 1600, supplies: 240, oil: 220, highQualityMetal: 260 },
     musterSeconds: 3600,
     unitSlots: 7,
@@ -2035,8 +2119,8 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     // each for every Mausoleum held. Collective, so a congregation fights harder than a mourner.
     faith: true,
     pack: true,
-    capPerHold: { locationKind: 'mausoleum', each: 50 },
-    requires: [gauntlet(3), holds('mausoleum')],
+    capPerHold: { locationIds: ARCA_TOMB_IDS, each: 50 },
+    requires: [gauntlet(3), holds(...ARCA_TOMB_IDS)],
     cost: { caps: 120, supplies: 30, scrap: 20 },
     musterSeconds: 150,
     unitSlots: 3,
@@ -2166,6 +2250,83 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     // A stone hall he has not left in a decade: indoors, cold, and never crowded enough to hamper him.
     affinities: { cold: 7, eerie: 6, elevated: 5, wet: -5, noisy: -4 },
   },
+
+  // ------------------------------------------------------------------ the Geppetto (2026-10-09)
+  //
+  // Appended after the Combine for the reason that block gives: the art seeds off this index.
+  /**
+   * A very weak body with a very strong rule (maintainer, 2026-10-09). The ten numbers on the sheet
+   * are the maintainer's; the price, the slots, the clock and the damage type are proposals.
+   */
+  {
+    id: 'the_geppetto',
+    name: 'The Geppetto',
+    tier: 'legendary',
+    blurb:
+      'An old toymaker who pours life into whatever is lying around. Alone he is nothing; he is never alone for long.',
+    musteredAt: 'lab',
+    unique: true,
+    requires: [gauntlet(15), structure('lab', 15), place('bonded-row-ring')],
+    cost: { caps: 1800, supplies: 250, scrap: 700, highQualityMetal: 300 },
+    musterSeconds: 3000,
+    unitSlots: 6,
+    ad_hoc_army: true,
+    safe_distance: true,
+    stats: sheet({
+      speed: 10,
+      vitality: 200,
+      morale: 40,
+      armor: 30,
+      damageType: 'blunt',
+      // An old man in a workshop apron behind a bench of tools: the mallets glance off the bench,
+      // and nothing on him stops a blast.
+      resistances: { blunt: 20, explosive: -30, energy: -20 },
+      penetration: 10,
+      range: 10,
+      offense: 50,
+      evasion: 10,
+      stealth: 20,
+      lootCapacity: 10,
+      intimidation: 10,
+    }),
+    modifiers: [],
+  },
+  /**
+   * The Geppetto's robots (`ad_hoc_army`): made in the fight, never mustered (`spawned`). The base
+   * sheet is the Crate Ring at level 1; `adHocArmyAt` lifts it by the ring's level. Speed, slots
+   * and loot are proposals; the rest are the maintainer's.
+   */
+  {
+    id: 'ad_hoc_army',
+    name: 'Ad Hoc Army',
+    tier: 'wonder',
+    blurb: 'Whatever was lying around, given legs and a grudge. It stands in front of him.',
+    musteredAt: 'lab',
+    unique: false,
+    spawned: true,
+    taunts: true,
+    requires: [],
+    cost: {},
+    musterSeconds: 0,
+    unitSlots: 2,
+    stats: sheet({
+      speed: 30,
+      vitality: 200,
+      morale: 80,
+      armor: 40,
+      damageType: 'blunt',
+      // Scrap iron shrugs off a club and shorts out under an energy weapon.
+      resistances: { blunt: 20, energy: -20 },
+      penetration: 10,
+      range: 10,
+      offense: 50,
+      evasion: 10,
+      stealth: 10,
+      lootCapacity: 0,
+      intimidation: 10,
+    }),
+    modifiers: [],
+  },
 ];
 
 const BY_ID = new Map(UNIT_CATALOG.map((unit) => [unit.id, unit]));
@@ -2219,14 +2380,6 @@ export function unitColumnSpeed(
     percent?: number;
     flat?: number;
     fitted?: FittedUpgrades;
-    /**
-     * The crew's `any_ride` holding: the too-big rule is waived and everything gets a seat.
-     *
-     * A flag on the bonus rather than a second function, because the road already asks this one
-     * question through one call. Without it a Colossus holds a whole column to fifteen and there is
-     * no number anywhere that changes that: `columnSpeed` reads `rides` as a yes or a no.
-     */
-    anyRide?: boolean;
   } = {},
 ): ColumnUnit {
   const unit = findUnit(unitId);
@@ -2235,7 +2388,8 @@ export function unitColumnSpeed(
   const sheet = fitted.length === 0 ? printed : upgradedStats(printed, fitted);
   return {
     speed: effectiveSpeed(sheet.speed, bonus),
-    rides: bonus.anyRide === true || unit?.no_ride !== true,
+    // `no_ride` is absolute (maintainer, 2026-10-15): nothing waives it, on any road or rail.
+    rides: unit?.no_ride !== true,
     // What one of these takes off a machine's seats, in the same unit slots the district bills it
     // a bed in. A forgotten sheet still has to sit somewhere: one slot, as `ridingUnitSlots`.
     unitSlots: unit?.unitSlots ?? 1,
@@ -2256,24 +2410,21 @@ export function unitColumnSpeed(
  * believed was carrying somebody is a truck it wrecks on a bad day and pays the enemy its whole
  * capacity in infamy for.
  */
-export function ridingGroups(
-  force: Readonly<Record<string, number>>,
-  anyRide = false,
-): RiderGroup[] {
+export function ridingGroups(force: Readonly<Record<string, number>>): RiderGroup[] {
   const groups: RiderGroup[] = [];
   for (const [unitId, count] of Object.entries(force)) {
     const unit = findUnit(unitId);
-    if (!anyRide && unit?.no_ride === true) continue;
+    if (unit?.no_ride === true) continue;
     if ((count ?? 0) <= 0) continue;
     groups.push({ unitSlots: unit?.unitSlots ?? 1, count });
   }
   return groups;
 }
 
-export function ridingUnitSlots(force: Readonly<Record<string, number>>, anyRide = false): number {
+export function ridingUnitSlots(force: Readonly<Record<string, number>>): number {
   return Object.entries(force).reduce((total, [unitId, count]) => {
     const unit = findUnit(unitId);
-    if (!anyRide && unit?.no_ride === true) return total;
+    if (unit?.no_ride === true) return total;
     // A unit the catalogue has forgotten still has to sit somewhere, and one slot is the floor
     // every other reader of a missing sheet uses (`unitColumnSpeed` walks it, it does not vanish).
     return total + (unit?.unitSlots ?? 1) * count;
@@ -2291,10 +2442,10 @@ export function isCombineUnit(unit: UnitSpec | string | undefined): boolean {
   return spec?.faction === 'combine';
 }
 
-/** ...and its complement: a sheet a player can hold. */
+/** ...and its complement: a sheet a player can hold. A robot made in a fight is neither. */
 export function isPlayerUnit(unit: UnitSpec | string | undefined): boolean {
   const spec = typeof unit === 'string' ? findUnit(unit) : unit;
-  return spec !== undefined && spec.faction === undefined;
+  return spec !== undefined && spec.faction === undefined && spec.spawned !== true;
 }
 
 /**
@@ -2308,6 +2459,11 @@ export function isPlayerUnit(unit: UnitSpec | string | undefined): boolean {
  */
 export const PLAYER_UNITS: readonly UnitSpec[] = UNIT_CATALOG.filter((unit) => isPlayerUnit(unit));
 
+/** The robots made in a fight (`UnitSpec.spawned`), which neither side musters. */
+export const SPAWNED_UNITS: readonly UnitSpec[] = UNIT_CATALOG.filter(
+  (unit) => unit.spawned === true,
+);
+
 /** The Combine's own sheets, in catalogue order. */
 export const COMBINE_UNITS: readonly UnitSpec[] = UNIT_CATALOG.filter((unit) =>
   isCombineUnit(unit),
@@ -2318,29 +2474,33 @@ export function unitsInTier(tier: UnitTier): UnitSpec[] {
   return PLAYER_UNITS.filter((unit) => unit.tier === tier);
 }
 
-/** Which units holding a location of this kind would open up: read back off the requirements. */
-export function unitsUnlockedByLocation(locationKind: LocationKind): UnitSpec[] {
+/** The units holding this one location opens: a `place` naming it, or `location` ground listing it. */
+export function unitsUnlockedByLocation(locationId: string): UnitSpec[] {
   return UNIT_CATALOG.filter((unit) =>
-    unit.requires.some((need) => need.kind === 'location' && need.locationKind === locationKind),
+    unit.requires.some(
+      (need) =>
+        (need.kind === 'place' && need.locationId === locationId) ||
+        (need.kind === 'location' && need.locationIds.includes(locationId)),
+    ),
   );
 }
 
 /**
- * The other direction: the ground that turns this unit out, if any does.
+ * The other direction: the ground that turns this unit out, if any does, by location id.
  *
- * The Doghouse to the Cyberhounds. Read off the same one authored list `unitsUnlockedByLocation`
+ * The Kennels to the Cyberhounds. Read off the same one authored list `unitsUnlockedByLocation`
  * reads, so the gate and the place a unit comes from cannot drift apart. Most units answer with
  * nothing: they come out of a building at home and no location on the map is their home.
  *
- * A list rather than one kind because a unit is allowed more than one location clause, and the
- * caller decides what to do with two (`homeMusterBonus` takes the best held).
+ * Every `location` clause's list together: the caller takes the best held of them
+ * (`homeMusterBonus`), so a unit gated on two pieces of ground is cut by the better.
  */
-export function locationsMustering(unit: UnitSpec): LocationKind[] {
-  return unit.requires.flatMap((need) => (need.kind === 'location' ? [need.locationKind] : []));
+export function locationsMustering(unit: UnitSpec): string[] {
+  return unit.requires.flatMap((need) => (need.kind === 'location' ? [...need.locationIds] : []));
 }
 
 /**
- * §B6: the twenty three the Gauntlet unlocks, and nothing else.
+ * §B6: the twenty eight the Gauntlet unlocks, and nothing else.
  *
  * The maintainer named these by hand, so the list is transcribed by hand and then *asserted* against the
  * catalogue at module load. The alternative, deriving the list from the requirements, would make
@@ -2383,6 +2543,12 @@ export const GAUNTLET_UNLOCKED_UNITS: readonly string[] = [
   'the_loose_end',
   // Arca's rabble (2026-10-06), gated low: the tomb is the real door.
   'death_cloaks',
+  // Every legendary at Gauntlet 15 (maintainer, 2026-10-09), the four that did not ask for one.
+  'the_specter',
+  'the_abomination',
+  'the_colossus',
+  'the_cartographer',
+  'the_geppetto',
 ];
 
 /** The Gauntlet level `unitId` needs, or `null` when the Gauntlet is not one of its gates. */
@@ -2395,10 +2561,24 @@ export function gauntletLevelFor(unitId: string): number | null {
   return null;
 }
 
+/** Every location a clause names, whichever way it names them. */
+function requiredLocationIds(need: UnitRequirement): readonly string[] {
+  switch (need.kind) {
+    case 'location':
+      return need.locationIds;
+    case 'place':
+      return [need.locationId];
+    case 'door':
+      return need.orLocationIds ?? [];
+    default:
+      return [];
+  }
+}
+
 /**
  * Guards the catalogue at module load.
  *
- * A requirement naming a modification or a location kind that does not exist is a unit nobody can
+ * A requirement naming a modification or a location that does not exist is a unit nobody can
  * ever field, and the only symptom would be a permanently greyed row. Cheaper to trip here.
  */
 for (const unit of UNIT_CATALOG) {
@@ -2412,11 +2592,13 @@ for (const unit of UNIT_CATALOG) {
     if (need.kind === 'modification' && !findModification(need.modificationId)) {
       throw new Error(`${unit.id} needs ${need.modificationId}, which is not a modification`);
     }
-    if (need.kind === 'location' && !LOCATION_KINDS.includes(need.locationKind)) {
-      throw new Error(`${unit.id} needs a ${need.locationKind}, which is not a location kind`);
-    }
     if (need.kind === 'building' && !BUILDING_KINDS.includes(need.building)) {
       throw new Error(`${unit.id} needs a ${need.building}, which is not a structure`);
+    }
+    for (const locationId of requiredLocationIds(need)) {
+      if (!findLocation(locationId)) {
+        throw new Error(`${unit.id} needs ${locationId}, which is not a location`);
+      }
     }
   }
   for (const modifier of unit.modifiers) {
@@ -2434,7 +2616,12 @@ for (const unit of UNIT_CATALOG) {
       throw new Error(`${unit.id} is immune to ${id}, which is not an environment label`);
     }
   }
-  if (unit.requires.length === 0 && unit.id !== 'razors' && unit.faction === undefined) {
+  if (
+    unit.requires.length === 0 &&
+    unit.id !== 'razors' &&
+    unit.faction === undefined &&
+    unit.spawned !== true
+  ) {
     // §B6: no unit may end up with no gate at all. Razors are the exception the opening move
     // depends on and they still carry one, so in practice this is a blanket rule. The Combine's
     // sheets are the other way round: no gate because no door, and the same check demands they
@@ -2444,6 +2631,12 @@ for (const unit of UNIT_CATALOG) {
   if (unit.faction !== undefined) {
     if (unit.requires.length > 0 || Object.keys(unit.cost).length > 0 || unit.musterSeconds > 0) {
       throw new Error(`${unit.id} is the Combine's and must carry no gate, price or clock`);
+    }
+  }
+  // A robot made in a fight is held to the Combine's rule, for the same reason: no door musters it.
+  if (unit.spawned === true) {
+    if (unit.requires.length > 0 || Object.keys(unit.cost).length > 0 || unit.musterSeconds > 0) {
+      throw new Error(`${unit.id} is made in a fight and must carry no gate, price or clock`);
     }
   }
   for (const need of unit.requires) {

@@ -4,6 +4,7 @@ import {
   boostedXp,
   earnedInfamy,
   findMissionTemplate,
+  groundStateOf,
   missionInfamyForBattle,
   templateTimings,
   unitSlotsUsed,
@@ -66,6 +67,7 @@ vi.mock('./battle.js', async (importOriginal) => {
     killed: KILLED,
     intimidatedKills: INTIMIDATED,
     spectacleKills: SPECTACLE,
+    robotsMade: 0,
     home: { razors: 17 },
     carrying: { razors: 17 },
     fledEnemy: {},
@@ -130,9 +132,12 @@ const baseOf = (stack: Stack): Base => stack.repos.bases.findById(stack.baseId)!
 async function settledJob(
   username: string,
   ground: Partial<CrewEffects>,
+  /** Anything the crew has to hold or own before the run comes home. */
+  prepare: (stack: Stack) => void = () => {},
 ): Promise<{ stack: Stack; mission: Mission; at: Date; gain: number }> {
   held.ground = ground;
   const stack = await makeStack(username);
+  prepare(stack);
   const template = findMissionTemplate('convoy-ambush')!;
   const base = baseOf(stack);
   const stored = launchMission({
@@ -189,6 +194,31 @@ describe('what the settle pays off a job for the dead', () => {
       ),
     );
     expect(pit.mission.infamyPaid).toBeGreaterThan(bare.mission.infamyPaid!);
+  });
+
+  it('banks the Choir Loft share of a run XP, not only prints it', async () => {
+    const quiet = await settledJob('quiet', {});
+    const choir = await settledJob('choir', { missionXpPercent: 7 });
+    const before = baseOf(quiet.stack);
+    const after = baseOf(choir.stack);
+    expect(after.level).toBe(before.level);
+    // The report quotes the Loft's share; the banked figure moves by exactly that much. It was
+    // passed the Professor alone until 2026-10-11, and the two disagreed by the Loft's share.
+    expect(choir.mission.xpPaid! - quiet.mission.xpPaid!).toBeGreaterThan(0);
+    expect(after.progression.xpIntoLevel - before.progression.xpIntoLevel).toBe(
+      choir.mission.xpPaid! - quiet.mission.xpPaid!,
+    );
+  });
+
+  it('ticks a job kills on a Trophy Hall the crew holds', async () => {
+    const HALL = 'bloodstone-trophyhall';
+    const { stack } = await settledJob('keeper', {}, ({ repos, baseId }) => {
+      const control = repos.city.control(HALL);
+      if (!control) throw new Error(`fixture: no ${HALL}`);
+      repos.city.put({ ...control, holder: { kind: 'crew', baseId }, level: 1, garrison: {} });
+    });
+    // Only the declared-fight settle recorded kills until 2026-10-11; a job's never reached the hall.
+    expect(groundStateOf(stack.repos.city.control(HALL)!).trophies).toEqual(KILLED);
   });
 
   it('pays the Gravefields XP for every unit slot of the crew own dead, as its own award', async () => {

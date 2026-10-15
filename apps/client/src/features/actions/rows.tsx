@@ -46,6 +46,7 @@ export function Row({
   heading,
   status,
   tone = 'plain',
+  cancel,
   children,
 }: {
   testId: string;
@@ -54,31 +55,40 @@ export function Row({
   heading?: ReactNode;
   status: string;
   tone?: 'plain' | 'hot' | 'done';
+  /**
+   * The row's X, in a cell down its right-hand side (maintainer, 2026-10-08). Passed for every row
+   * that can ever be called off, open window or shut, so the cell keeps its room after the X has
+   * faded out of it and the row never changes width.
+   */
+  cancel?: ReactNode;
   children: ReactNode;
 }) {
   return (
     <li
       data-testid={testId}
-      className="flex flex-col gap-2.5 rounded-sm border border-surface-700 bg-surface-950/40 p-3"
+      className="flex items-center gap-3 rounded-sm border border-surface-700 bg-surface-950/40 p-3"
     >
-      <div className="flex items-start justify-between gap-3">
-        <h3 className="min-w-0 break-words font-stamp text-[16px] leading-tight text-ink-100">
-          {heading ?? name}
-        </h3>
-        <span
-          className={cn(
-            'shrink-0 rounded-sm border px-2 py-0.5 font-display text-[10px] uppercase tracking-[0.16em]',
-            tone === 'hot'
-              ? 'border-oxblood-500/60 text-oxblood-300'
-              : tone === 'done'
-                ? 'border-verdigris-300/60 text-verdigris-100'
-                : 'border-surface-600 text-ink-300',
-          )}
-        >
-          {status}
-        </span>
+      <div className="flex min-w-0 flex-1 flex-col gap-2.5">
+        <div className="flex items-start justify-between gap-3">
+          <h3 className="min-w-0 break-words font-stamp text-[16px] leading-tight text-ink-100">
+            {heading ?? name}
+          </h3>
+          <span
+            className={cn(
+              'shrink-0 rounded-sm border px-2 py-0.5 font-display text-[10px] uppercase tracking-[0.16em]',
+              tone === 'hot'
+                ? 'border-oxblood-500/60 text-oxblood-300'
+                : tone === 'done'
+                  ? 'border-verdigris-300/60 text-verdigris-100'
+                  : 'border-surface-600 text-ink-300',
+            )}
+          >
+            {status}
+          </span>
+        </div>
+        {children}
       </div>
-      {children}
+      {cancel}
     </li>
   );
 }

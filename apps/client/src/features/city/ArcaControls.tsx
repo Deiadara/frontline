@@ -1,4 +1,4 @@
-import { PLAYER_UNITS, UNIT_CATALOG, findUnit, type LocationView } from '@frontline/shared';
+import { UNIT_CATALOG, findUnit, type LocationView } from '@frontline/shared';
 import { useState } from 'react';
 import { RewardLine } from '../../components/Resources';
 import { Button } from '../../components/ui/Button';
@@ -62,7 +62,9 @@ export function TollingSwitch({
   );
 }
 
-const PLAYER_UNIT_OPTIONS: DropdownOption<string>[] = PLAYER_UNITS.map((unit) => ({
+// Every sheet in the game, the Combine's included: the wall bites whoever fields a pinned unit,
+// and the server takes any id, so the picker offers them all (maintainer, 2026-10-13).
+const UNIT_OPTIONS: DropdownOption<string>[] = UNIT_CATALOG.map((unit) => ({
   value: unit.id,
   label: unit.name,
 }));
@@ -119,8 +121,8 @@ export function PamphletPicker({
         {wall.unlocked ? '' : ' · locked'}
       </span>
       <p className={NOTE}>
-        A pinned unit fights at -5% offense and -5% vitality against you. The pins lock once set,
-        and come loose again each time the wall is worked up.
+        A pinned unit fights at -5% damage and -5% vitality against you. The pins lock once set, and
+        come loose again each time the wall is worked up.
       </p>
       <div className="flex flex-wrap gap-2">
         {picks.map((value, index) => (
@@ -129,7 +131,7 @@ export function PamphletPicker({
             label={`Pin ${index + 1}`}
             placeholder="Nobody"
             value={value}
-            options={PLAYER_UNIT_OPTIONS}
+            options={UNIT_OPTIONS}
             disabled={!wall.unlocked}
             data-testid={`pamphlet-pin-${index + 1}-${write.locationId}`}
             onChange={(unitId) =>
@@ -163,7 +165,7 @@ export function PamphletPicker({
             label="Put up"
             placeholder="Choose"
             value={to}
-            options={PLAYER_UNIT_OPTIONS.filter((option) => !wall.pins.includes(option.value))}
+            options={UNIT_OPTIONS.filter((option) => !wall.pins.includes(option.value))}
             data-testid={`pamphlet-to-${write.locationId}`}
             onChange={setTo}
           />

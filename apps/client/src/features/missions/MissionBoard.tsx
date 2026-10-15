@@ -19,6 +19,7 @@ import {
   fieldStrength,
   findUnit,
   fleetCapacity,
+  vehicleSeats,
   formatDuration,
   hastenedMinutes,
   hastenedRoadMinutes,
@@ -50,6 +51,7 @@ import {
   type UnitsResponse,
   vehicleNoun,
   HOME_LOCKED_TEXT,
+  shortcutMinutes,
 } from '@frontline/shared';
 import { useEffect, useMemo, useState } from 'react';
 import { RewardLine } from '../../components/Resources';
@@ -319,16 +321,14 @@ export interface MissionBoardProps {
   carrierFlat: number;
   marks: Readonly<Record<string, readonly string[]>>;
   /**
-   * The two crew switches that lift a hard rule off a unit sheet (`UnitsResponse`).
+   * The crew switch that lifts a hard rule off a unit sheet (`UnitsResponse`).
    *
-   * Neither can ride on `effects`, which is a record of numbers, and the picker was drawing both
-   * of them wrong off the catalogue: `carriersFight` is `carriers_fight`, which puts this crew's
-   * porters in a line, and `anyRide` is `any_ride`, which gets a `no_ride` sheet into a truck.
-   * The settle reads both (`missions/resolve.ts` passes the crew's whole fold), so a board that
-   * read neither said "cannot fight" beside a unit that fights and quoted a road hours too long.
+   * It cannot ride on `effects`, which is a record of numbers, and the picker drew it wrong off
+   * the catalogue: `carriersFight` is `carriers_fight`, which puts this crew's porters in a line.
+   * The settle reads it (`missions/resolve.ts` passes the crew's whole fold), so a board that did
+   * not said "cannot fight" beside a unit that fights.
    */
   carriersFight: boolean;
-  anyRide: boolean;
   /**
    * The crew's own cuts off every road it walks (`MissionRoadSchema`), which the launch spends on
    * the run's clock and the card cannot carry. Defaulted to none, the bare road.
@@ -408,7 +408,6 @@ export function MissionBoard({
   carrierFlat,
   marks,
   carriersFight,
-  anyRide,
   road = NO_ROAD,
   roster,
   stores,
@@ -571,7 +570,6 @@ export function MissionBoard({
           carrierFlat={carrierFlat}
           marks={marks}
           carriersFight={carriersFight}
-          anyRide={anyRide}
           road={road}
           roster={roster}
           stores={stores}
@@ -837,7 +835,6 @@ function SendDialog({
   carrierFlat,
   marks,
   carriersFight,
-  anyRide,
   road,
   roster,
   stores,
@@ -868,8 +865,6 @@ function SendDialog({
   marks: Readonly<Record<string, readonly string[]>>;
   /** §E: this crew's porters stand in a line (`carriers_fight`), so "cannot fight" is not true. */
   carriersFight: boolean;
-  /** §C3: this crew's machines seat anything (`any_ride`), so a Colossus does not walk. */
-  anyRide: boolean;
   /** §C3: the crew's own cuts off the road, spent the way the launch spends them. */
   road: MissionRoad;
   /** §A5: the sheets, for the card a unit's name opens. Undefined draws the name bare. */
@@ -957,8 +952,12 @@ function SendDialog({
    * the settle spend, so the window cannot stop a batch the server would take or take one it
    * would refuse.
    */
-  const seats = fleetCapacity(fleetOut);
-  const aboard = ridingUnitSlots(force, anyRide);
+  // The Hump's bigger loads, seated the way the launch counts them (`vehicleSeats`).
+  const capacityPercent = road.vehicleCapacityPercent ?? 0;
+  // ...and the Coaling Stage's pace, which the launch spends on the column (`machineSpeed`).
+  const machines = { capacityPercent, speedPercent: road.vehicleSpeedPercent ?? 0 };
+  const seats = fleetCapacity(fleetOut, capacityPercent);
+  const aboard = ridingUnitSlots(force);
   const capped = seats > 0;
   const overloaded = capped && aboard > seats;
   /*
@@ -970,7 +969,7 @@ function SendDialog({
    * filled: two bikes in front of forty walkers made all forty measurably faster, and they do not.
    * They arrive first and wait.
    */
-  const column = readColumn(fleetOut, force, loadouts, anyRide, road.unitSpeedPercent);
+  const column = readColumn(fleetOut, force, loadouts, road.unitSpeedPercent, machines);
   // The row's own question (`standsInLine`), so a porter the row says can fight counts here too:
   // under `carriers_fight` a party of Haulers is a party that fights, and the launch agrees.
   const fighters = Object.entries(force).some(([unitId, count]) => {
@@ -1093,11 +1092,15 @@ function SendDialog({
    */
   // ...with the crew's own road cuts on the road alone, as the launch spends them: their
   // `travelSpeedPercent` beside the ground's and the officer's, and the shortcut's minutes off.
-  const oneWayMinutes = hastenedRoadMinutes(
-    offer.rawTravelMinutes,
-    column.speed,
-    runSpeedPercent + road.travelSpeedPercent,
-    road.baseCutPercent ?? 0,
+  // ...and SHORTCUT last, as the launch takes it: a party with the Cartographer halves the road.
+  const oneWayMinutes = shortcutMinutes(
+    hastenedRoadMinutes(
+      offer.rawTravelMinutes,
+      column.speed,
+      runSpeedPercent + road.travelSpeedPercent,
+      road.baseCutPercent ?? 0,
+    ),
+    force,
   );
   const walked = missionTimings({
     travelMinutes: oneWayMinutes,
@@ -1146,7 +1149,7 @@ function SendDialog({
   const ceilingFor = (unitId: string, atHome: number): number => {
     if (!capped) return atHome;
     const slots = Math.max(1, findUnit(unitId)?.unitSlots ?? 1);
-    if (ridingUnitSlots({ [unitId]: 1 }, anyRide) === 0) return atHome;
+    if (ridingUnitSlots({ [unitId]: 1 }) === 0) return atHome;
     const others = aboard - (force[unitId] ?? 0) * slots;
     return Math.min(atHome, Math.max(0, Math.floor((seats - others) / slots)));
   };
@@ -1402,7 +1405,7 @@ function SendDialog({
                             {/* §C3: this one is not getting on the truck, so the column waits for it.
                           Only worth saying once something is loaded: with nothing picked everybody
                           walks and the note is noise on every row. */}
-                            {anyRiding && walksAlways(unit.id, anyRide) && (
+                            {anyRiding && walksAlways(unit.id) && (
                               <span className="text-oxblood-300" data-testid={`walks-${unit.id}`}>
                                 {' · '}walks
                               </span>
@@ -1489,7 +1492,7 @@ function SendDialog({
                         <span className="min-w-0 font-display text-[12px] text-ink-200">
                           {spec.name}
                           <span className="ml-1.5 text-[10px] uppercase tracking-[0.12em] text-ink-400">
-                            {spec.capacity} unit slots
+                            {vehicleSeats(spec, capacityPercent)} unit slots
                           </span>
                         </span>
                         <NumberField

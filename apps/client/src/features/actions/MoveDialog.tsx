@@ -1,5 +1,6 @@
 import {
   VEHICLES,
+  vehicleSeats,
   armySize,
   findUnit,
   samePlace,
@@ -254,7 +255,7 @@ export function MoveDialog({
                   <span className="min-w-0 font-display text-[12px] text-ink-200">
                     {spec.name}
                     <span className="ml-1.5 text-[10px] uppercase tracking-[0.12em] text-ink-400">
-                      {spec.capacity} unit slots
+                      {vehicleSeats(spec, roster.vehicleCapacityPercent ?? 0)} unit slots
                     </span>
                   </span>
                   <NumberField

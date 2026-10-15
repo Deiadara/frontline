@@ -27,7 +27,7 @@ import {
   officerLiftRoom,
   type LiftRoom,
 } from './standing.js';
-import { ledgerFor } from '../bar/hire.js';
+import { heldByBidsFor, ledgerFor } from '../bar/hire.js';
 import { researchHead } from '../research/tracks.js';
 import type { Repositories } from '../db/repos/index.js';
 import { districtUnitSlots, type DistrictUnitSlots } from '../district/unit-slots.js';
@@ -133,7 +133,11 @@ export function projectCrew(repos: Repositories, base: Base): CrewResponse {
     level: base.level,
     housing: housingOf(districtUnitSlots(repos, base)),
     // §H7: the book is widened from this screen too (maintainer, 2026-09-30), at the crew's price.
-    payroll: ledgerFor(base, standingEffectsFor(repos, base)),
+    payroll: ledgerFor(
+      base,
+      standingEffectsFor(repos, base),
+      heldByBidsFor(repos, base, new Date(), standingEffectsFor(repos, base)),
+    ),
     overseer: projectCrewOverseer(repos, base, room),
     officers: base.commanders.map((officer) =>
       projectCrewOfficer(officer, liftedOfficerSheet(officer, room), context),

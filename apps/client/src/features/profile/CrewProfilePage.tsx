@@ -374,13 +374,8 @@ function Holdings({ holdings }: { holdings: ProfileHolding[] }) {
                 data-testid={`profile-holding-${hold.locationId}`}
                 className="flex items-center justify-between gap-2 rounded-sm border border-surface-700 bg-surface-950/40 px-2.5 py-1.5"
               >
-                <span className="flex min-w-0 flex-col">
-                  <span className="truncate font-display text-[12px] font-bold tracking-[0.06em] text-ink-100">
-                    {hold.name}
-                  </span>
-                  <span className="truncate font-display text-[10px] uppercase tracking-[0.16em] text-ink-300">
-                    {hold.kind}
-                  </span>
+                <span className="min-w-0 truncate font-display text-[12px] font-bold tracking-[0.06em] text-ink-100">
+                  {hold.name}
                 </span>
                 <span className="shrink-0 font-display text-[10px] uppercase tracking-[0.16em] text-brass-300">
                   Level <span className="tabular-nums">{hold.level}</span>

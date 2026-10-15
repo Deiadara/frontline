@@ -2,6 +2,9 @@ import {
   VEHICLES,
   type Army,
   mergeFleets,
+  fleetCapacity,
+  vehicleSeats,
+  machineSpeed,
   travelMinutes,
   type VehicleId,
   type BattleBoostOption,
@@ -21,6 +24,7 @@ import {
   findUnit,
   type CombinePower,
   dayInZone,
+  shortcutMinutes,
 } from '@frontline/shared';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
@@ -55,7 +59,7 @@ import { useServerClock } from '../missions/useServerClock';
 import { heldToLine, readColumn } from './column';
 import { yourOdds, sideAtTheMark } from './odds';
 import { Characteristics } from '../../components/ui/LabelChip';
-import { locationKindOf, whenItHolds } from '../city/characteristics';
+import { locationOf, whenItHolds } from '../city/characteristics';
 import { BoostStash } from './BoostStash';
 import { PageShell } from '../game/PageShell';
 import { BattleReportModal } from './BattleReportModal';
@@ -685,7 +689,7 @@ function BattleDetail({
             labels={view.battlefield.labels}
             size="md"
             when={whenItHolds(
-              locationKindOf(
+              locationOf(
                 view.battle.target.kind === 'location' ? view.battle.target.locationId : undefined,
               ),
               view.battlefield.weather,
@@ -837,18 +841,13 @@ function VehiclePicker({
   homeDistrictId: string | null;
 }) {
   const take = useTakeVehicles();
-  /*
-   * §C3: whether this crew's machines seat anything at all (`any_ride`, bug pass 2026-09-19).
-   *
-   * The same read the deploy window makes, and for the same reason: `no_ride` is a fact about a
-   * sheet and the waiver is a fact about a crew, so a panel that quotes a road off the catalogue
-   * alone tells a crew holding it that a Colossus walks when the server puts it in a truck. A warm
-   * cache by the time anybody is standing on this page (`usePrefetchScreens`), and `?? false` is
-   * the reading before it lands.
-   */
+  // A warm cache by the time anybody is standing on this page (`usePrefetchScreens`).
   const units = useUnits().data;
-  const anyRide = units?.anyRide ?? false;
   const unitSpeedPercent = units?.unitSpeedPercent ?? 0;
+  // The Hump's bigger loads, seated the way the doors count them (`vehicleSeats`).
+  const capacityPercent = units?.vehicleCapacityPercent ?? 0;
+  // ...and the Coaling Stage's pace (`machineSpeed`).
+  const machines = { capacityPercent, speedPercent: units?.vehicleSpeedPercent ?? 0 };
   const shut = !view.deploymentOpen;
   const owned = mergeFleets(view.yard, view.vehicles);
   /*
@@ -869,15 +868,14 @@ function VehiclePicker({
   // Unit slots rather than heads: a machine's capacity is a slot budget, and an Ironside at two
   // slots takes two of them. Printing it as "seats" read as a head count and was the misreading
   // the currency exists to stop.
-  const unitSlotSeats = VEHICLES.reduce(
-    (total, spec) => total + spec.capacity * (view.vehicles[spec.id] ?? 0),
-    0,
-  );
-  const column = readColumn(view.vehicles, army, loadouts, anyRide, unitSpeedPercent);
-  const minutes =
+  const unitSlotSeats = fleetCapacity(view.vehicles, capacityPercent);
+  const column = readColumn(view.vehicles, army, loadouts, unitSpeedPercent, machines);
+  const march =
     homeDistrictId === null
       ? null
       : travelMinutes(homeDistrictId, view.battle.target.districtId, { speed: column.speed });
+  // SHORTCUT, as the server's `travelMsTo` takes it: the Cartographer halves the march.
+  const minutes = march === null ? null : shortcutMinutes(march, army);
 
   const set = (id: VehicleId, count: number) =>
     take.mutate({
@@ -924,7 +922,8 @@ function VehiclePicker({
                     <span className="min-w-0 truncate font-body text-[12px] text-ink-100">
                       {spec.name}{' '}
                       <span className="text-ink-400">
-                        carries {spec.capacity}, speed {spec.speed}
+                        carries {vehicleSeats(spec, capacityPercent)}, speed{' '}
+                        {machineSpeed(spec, machines)}
                       </span>
                     </span>
                     <span className="flex shrink-0 items-center gap-1.5">
@@ -972,8 +971,9 @@ function VehiclePicker({
  * is a unit worth putting in the line and a Fixer is not.
  *
  * Free, and free to change up to the mark. What it costs is on the card under it, and it is worth
- * spelling out: a fight that goes badly can take an officer out of the crew for a day, and it takes
- * this side's report with them.
+ * spelling out: a fight that goes badly can take an officer out of the crew for twelve hours
+ * (`OFFICER_INJURY_HOURS`). It does not take the report with them: a report is written by whoever
+ * walked back (`reportReaches`, 2026-09-23).
  */
 function LeadPicker({ view, now }: { view: BattleView; now: number }) {
   const lead = useLeadBattle();
@@ -1866,16 +1866,17 @@ function Defences({ structures }: { structures: readonly StructureDefence[] }) {
                   Level <span className="tabular-nums text-brass-300">{gate.level}</span>
                 </span>
               </div>
-              {/* What the level is actually worth, which is the question the section exists to
-                  answer. Both figures are the district's folded totals, so a modification that
-                  lifts either is counted here rather than only in the fight. */}
+              {/* What the level adds, which is the question the section exists to answer: its raw
+                  points of defence (maintainer, 2026-10-15). The fight adds them to the holder's
+                  other defence and curves the sum; only the Crew page prints that curved figure.
+                  The district's folded total, so a modification that lifts it is counted here. */}
               <dl className="grid grid-cols-2 gap-x-4 gap-y-1">
                 <div className="flex items-baseline justify-between gap-2">
                   <dt className="font-display text-[10px] uppercase tracking-[0.16em] text-ink-300">
                     Toughness
                   </dt>
                   <dd className="font-display text-[13px] font-bold tabular-nums text-ink-100">
-                    +{Math.round(gate.defensePercent ?? 0)}%
+                    +{Math.round((gate.defensePercent ?? 0) * 10) / 10} points
                   </dd>
                 </div>
               </dl>

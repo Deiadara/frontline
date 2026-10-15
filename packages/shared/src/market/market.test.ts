@@ -737,6 +737,24 @@ describe('the Broker after the market discount', () => {
   });
 });
 
+describe('ground that makes the Broker pay more (the Halt Market, 2026-10-09)', () => {
+  it('hands back a share more of what he would have paid, after the discount and the Trader', () => {
+    expect(brokerRate(1, 0, null, 10)).toBeCloseTo(BARTER_RATE * 1.1, 9);
+    expect(brokerRate(1, 20, null, 10)).toBeCloseTo(brokerRate(1, 20) * 1.1, 9);
+    // The same ten per cent to a crew with a perfect Trader as to one with none.
+    expect(brokerRate(1, 0, 100, 10)).toBeCloseTo(brokerRate(1, 0, 100) * 1.1, 9);
+    expect(brokerRate(1, 0, null, 0)).toBe(brokerRate(1));
+  });
+
+  it('still never pays over even on goods, nor over the supply run on caps', () => {
+    const rate = brokerRate(60, NEAR_ASYMPTOTE, null, 50);
+    expect(brokerPayoutRate('oil', rate, NEAR_ASYMPTOTE, null, 'scrap')).toBeLessThanOrEqual(1);
+    expect(brokerPayoutRate('caps', rate, NEAR_ASYMPTOTE, null, 'scrap')).toBeLessThanOrEqual(
+      supplyMarkup(NEAR_ASYMPTOTE, null),
+    );
+  });
+});
+
 describe('§I3: the Broker’s cut', () => {
   it('takes half until level 60 and less after it', () => {
     expect(barterRateFor(1)).toBe(BARTER_RATE);

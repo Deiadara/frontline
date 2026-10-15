@@ -146,15 +146,18 @@ describe('a scoped tally is written under the scope the catalogue asks for', () 
    */
   it('spells a mustered sheet the way the catalogue does, and writes no other', () => {
     const sheets = scopesWanted('units_mustered_of');
-    expect(sheets).toEqual(['death_cloaks']);
+    // ...and the Geppetto since 2026-10-09, whose muster is one feat of its own.
+    expect(sheets).toEqual(['death_cloaks', 'the_geppetto']);
     tallyUnitsMustered(repos, BASE_ID, [
       { unitId: 'death_cloaks', count: 3 },
+      { unitId: 'the_geppetto', count: 1 },
       { unitId: 'razors', count: 7 },
     ]);
     const held = tallies();
     expect(held[featMeasureKey('units_mustered_of', 'death_cloaks')]).toBe(3);
+    expect(held[featMeasureKey('units_mustered_of', 'the_geppetto')]).toBe(1);
     expect(held[featMeasureKey('units_mustered_of', 'razors')]).toBeUndefined();
-    expect(held[featMeasureKey('units_mustered')]).toBe(10);
+    expect(held[featMeasureKey('units_mustered')]).toBe(11);
   });
 
   it('spells a fight category the way the catalogue does, and counts a won fight only', () => {

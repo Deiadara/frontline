@@ -70,7 +70,9 @@ function groundJson(control: LocationControl): string | null {
     state.pamphletsSwappedAt === null &&
     Object.keys(state.trophies).length === 0 &&
     state.trophiesSince === null &&
-    state.heldSince === null;
+    state.heldSince === null &&
+    state.reactorUnit === null &&
+    state.reactorChosenAt === null;
   return bare ? null : JSON.stringify(state);
 }
 

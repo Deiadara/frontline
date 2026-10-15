@@ -29,7 +29,7 @@
  */
 import {
   DISTRICT_NAME_MAX,
-  LOCATION_CATALOG,
+  EVERY_LOCATION,
   RESOURCE_KEYS,
   isPlainDay,
   weatherAt,
@@ -147,9 +147,9 @@ const HUGE: Resources = Object.fromEntries(
   RESOURCE_KEYS.map((key) => [key, 9_999_999]),
 ) as unknown as Resources;
 
-/** The wordiest label in the catalogue, found rather than typed so a retune cannot outdate it. */
+/** The wordiest label on the map, found rather than typed so a retune cannot outdate it. */
 const WORST_LABEL: EnvLabel = (() => {
-  const all = Object.values(LOCATION_CATALOG).flatMap((spec) => spec.labels);
+  const all = EVERY_LOCATION.flatMap((location) => location.labels);
   return all.reduce((worst, label) =>
     labelText(label).length > labelText(worst).length ? label : worst,
   );
@@ -227,7 +227,7 @@ const CASES: readonly { name: string; render: () => RenderResult }[] = [
   {
     name: 'a full row of ground labels',
     render: () =>
-      render(<LabelRow labels={Object.values(LOCATION_CATALOG).flatMap((s) => s.labels)} />),
+      render(<LabelRow labels={EVERY_LOCATION.flatMap((location) => location.labels)} />),
   },
   {
     name: 'a progress bar with the longest rank as its remaining text',

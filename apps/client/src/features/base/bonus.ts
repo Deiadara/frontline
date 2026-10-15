@@ -4,9 +4,7 @@ import {
   basePayrollCapacity,
   buildingProduction,
   structureProductionRates,
-  casualtyRecoveryShare,
   gateDefensePercent,
-  heldDefense,
   generatorTimeDiscount,
   infirmaryRecoveryPercent,
   payrollBonusPercent,
@@ -14,9 +12,6 @@ import {
   labResearchCostCut,
   storageCapacity,
   storageCapacityFor,
-  timeSavingPercent,
-  suppliesOnlyCut,
-  musterSpeedAfterTaper,
   musterSuppliesReduction,
   musterTimeReduction,
   type Building,
@@ -65,6 +60,8 @@ export function districtWith(
 }
 
 const round = (value: number): string => Math.round(value).toLocaleString('en-US');
+/** To a tenth, for the structures that move in halves: a Gate at 7 is 17.5 points. */
+const tenth = (value: number): string => String(Math.round(value * 10) / 10);
 
 /**
  * What a structure makes an hour: its share of the settle's rates when the crew's yield is known,
@@ -124,11 +121,11 @@ const LINES: Record<
     value: `${round(unitSlotCapacity(buildings))} unit slots · +${round(payrollBonusPercent(buildings) + crewPayrollPercent)}% payroll`,
   }),
   greenhouse: (buildings, _level, _storage, crew) => ({
-    label: 'Grows, and off the supplies a recruit eats',
-    // As the bench takes it: `musterCost` tapers the Greenhouse and its cards toward 70% off the
-    // line (`suppliesLineCut`, maintainer 2026-10-01). Read with no cost cut beside it, which this
-    // dialog does not know; beside one, the Units chip prints the same or a fraction less.
-    value: `${perHour(made('greenhouse', buildings, crew))} · -${round(suppliesOnlyCut(0, musterSuppliesReduction(buildings)))}%`,
+    label: 'Grows, and points off the supplies a recruit eats, added to your crew’s',
+    // Its raw points (maintainer, 2026-10-15): `musterCost` adds them to the crew's and tapers the
+    // sum toward 70% off the line (`suppliesLineCut`), so a share of the taper on its own is not a
+    // figure the bench spends. The Units chip prints the spent one.
+    value: `${perHour(made('greenhouse', buildings, crew))} · ${tenth(musterSuppliesReduction(buildings))} points`,
   }),
   scrapyard: (buildings, _level, _storage, crew) => ({
     label: 'Salvages',
@@ -185,14 +182,17 @@ const LINES: Record<
     label: 'Refines, and off every other structure’s build clock, added to your crew’s',
     // The discount is quoted against a structure that is not the Generator: it never discounts its
     // own next level.
-    value: `${perHour(made('generator', buildings, crew))} · ${round(generatorTimeDiscount('quarters', buildings))}%`,
+    // Its raw points (maintainer, 2026-10-15): the sum is tapered with the crew's, and only the
+    // Crew page prints the curved figure a build spends.
+    value: `${perHour(made('generator', buildings, crew))} · ${round(generatorTimeDiscount('quarters', buildings))} points`,
   }),
   gate: (buildings) => ({
     label: 'A raider has to beat, and a spy has to see past',
-    // What the fight reads: `gateDefensePercent` through the held-ground curve. `districtDefense` is
-    // only asked whether a Gate stands (wiring audit, 2026-10-01). Its points against spies are not
-    // printed: spy strength is not public (maintainer, 2026-10-01).
-    value: `+${round(heldDefense(gateDefensePercent(buildings)))}% defence`,
+    // Its raw points (maintainer, 2026-10-15): the fight adds them to the holder's other defence
+    // and puts the sum through the held-ground curve, so a share of the curve on its own is a
+    // figure no fight spends. The Crew page's defence card prints the spent one. Its points
+    // against spies are not printed: spy strength is not public (maintainer, 2026-10-01).
+    value: `+${tenth(gateDefensePercent(buildings))} points of defence`,
   }),
   // The Lab's level cuts the price and opens a tier every two levels; its cards still cut the
   // clock (maintainer ruling P7-C, 2026-10-02).
@@ -202,16 +202,18 @@ const LINES: Record<
     value: `${Math.round(labResearchCostCut(buildings) * 10) / 10}%`,
   }),
   gauntlet: (buildings) => ({
-    label: 'Off every unit’s muster clock',
-    // The Gauntlet's figure is a speed, which `musterSecondsFor` tapers and divides the clock by, so
-    // 40 of it is 29% off the clock (bug pass and taper, 2026-10-01).
-    value: `${timeSavingPercent(musterSpeedAfterTaper(musterTimeReduction(buildings)))}%`,
+    label: 'Points of muster speed on every unit, added to your crew’s',
+    // Its raw points (maintainer, 2026-10-15): `musterSecondsFor` adds them to the crew's speed,
+    // tapers the sum and divides the clock by it, so a share of the taper on its own (40 points
+    // read as 29% off) is not what a muster spends. The Crew page prints the spent figure.
+    value: `+${round(musterTimeReduction(buildings))} points`,
   }),
   infirmary: (buildings) => ({
-    label: 'Of the fallen back on their feet after a win',
-    // Its four a level are medic points, and the share they walk home is the curve's (wiring audit,
-    // 2026-10-01): a level 10 Infirmary is 40 points and 28%.
-    value: `${round(casualtyRecoveryShare(infirmaryRecoveryPercent(buildings)))}%`,
+    label: 'Medic points on every win, added to your crew’s',
+    // Its four a level are medic points (maintainer, 2026-10-15). They join the crew's and the sum
+    // goes through the recovery curve, so the share they would walk home alone is not what a win
+    // spends: the Crew page's medic card prints the combined points and that share.
+    value: `+${round(infirmaryRecoveryPercent(buildings))} medic points`,
   }),
 };
 

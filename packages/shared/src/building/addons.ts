@@ -18,7 +18,7 @@ import {
 import type { BuildingKind } from './kinds.js';
 import { findBuilding, type Building } from './state.js';
 import type { UnitModificationSpec } from '../units/modifications.js';
-import { timeSavingPercent, musterSpeedAfterTaper } from '../time/speed.js';
+import { UNIT_STAT_LABELS } from '../units/stats.js';
 
 /**
  * The Scrapyard's add-ons (§B9) and the slots they go in (§E).
@@ -407,7 +407,7 @@ const ADDON_EFFECT_LABELS: Readonly<Record<ModificationEffect, string>> = {
   build_time_reduction: 'off how long a build takes',
   storage_percent: 'room in the stockpile',
   // `gatePercent`, not `defensePercent`: see `gateDefensePercent` (wiring audit, 2026-10-01).
-  defense_percent: 'Gate defense (tapers)',
+  defense_percent: 'points of Gate defense (tapers)',
   // The crew's own experience (`awardPlayerXp`). A faction has none.
   faction_xp_percent: 'experience',
   research_time_reduction: 'off how long research takes',
@@ -416,10 +416,11 @@ const ADDON_EFFECT_LABELS: Readonly<Record<ModificationEffect, string>> = {
   // The bag (`lootCapacityPercent`), which a job's haul is carried home in as well as a raid's.
   raid_loot_percent: 'loot capacity',
   // Both bench channels taper rather than stop (`musterSpeedAfterTaper`, `suppliesLineCut`,
-  // maintainer 2026-10-01), and the card says so, as defence does. The time card's number is a
-  // speed and is printed as the time it takes off: see `describeMagnitude`.
-  muster_time_reduction: 'muster time (tapers)',
-  muster_supplies_reduction: 'off the supplies a unit costs (tapers)',
+  // maintainer 2026-10-01), and the card says so, as defence does. Printed as the card's raw
+  // points (maintainer, 2026-10-15): the curve bends the sum, so a card's share of it on its own
+  // is not what a muster spends; the Units page prints the spent figure.
+  muster_time_reduction: 'points of muster speed (tapers)',
+  muster_supplies_reduction: 'points off the supplies a unit costs (tapers)',
   counter_intel_points: 'points against spies',
 };
 
@@ -439,16 +440,20 @@ export function describeSetBonus(family: ModificationFamily): string {
   return `${describeMagnitude(bonus.effect, bonus.magnitude)}${where}`;
 }
 
-/** Channels counted in points rather than percent. Printed without a percent sign. */
-const POINT_EFFECTS: readonly ModificationEffect[] = ['counter_intel_points'];
+/**
+ * Channels counted in points rather than percent. Printed without a percent sign.
+ *
+ * The three that feed a curve are here since 2026-10-15 (maintainer): a structure line prints the
+ * raw points it adds, and only the Crew and Units pages print the curved figure that is spent.
+ */
+const POINT_EFFECTS: readonly ModificationEffect[] = [
+  'counter_intel_points',
+  'defense_percent',
+  'muster_time_reduction',
+  'muster_supplies_reduction',
+];
 
 function describeMagnitude(effect: ModificationEffect, magnitude: number): string {
-  // A muster card adds speed and the clock is divided by it (`musterSecondsFor`), so a 16 is 13.8%
-  // off on its own. It printed "+16% off how long training takes" (maintainer, 2026-10-01); it now
-  // prints that card's own cut, the way the Gauntlet's line and every muster rung and place do.
-  if (effect === 'muster_time_reduction') {
-    return `-${timeSavingPercent(musterSpeedAfterTaper(magnitude))}% ${ADDON_EFFECT_LABELS[effect]}`;
-  }
   const unit = POINT_EFFECTS.includes(effect) ? '' : '%';
   return `+${magnitude}${unit} ${ADDON_EFFECT_LABELS[effect]}`;
 }
@@ -458,9 +463,17 @@ export function describeAddonEffect(spec: ModificationSpec | UnitModificationSpe
   if ('magnitude' in spec) return describeMagnitude(spec.effect, spec.magnitude);
   // `UnitStats` carries a `damageType` and a `resistances` map alongside the numbers, and neither
   // reads as "+3 something": only the numeric lines make a sentence.
+  // The sheet's own words for each rating (`UNIT_STAT_LABELS`), lowered to sit in a sentence: the
+  // raw key printed "+5 lootCapacity" and "+16 offense" on the Units page hover, beside a bench
+  // that calls the same numbers Loot and Damage.
   return Object.entries(spec.effect)
     .flatMap(([stat, amount]) =>
-      typeof amount === 'number' ? [`${amount > 0 ? '+' : ''}${amount} ${stat}`] : [],
+      typeof amount === 'number' ? [`${amount > 0 ? '+' : ''}${amount} ${statWord(stat)}`] : [],
     )
     .join(', ');
+}
+
+function statWord(stat: string): string {
+  const label = (UNIT_STAT_LABELS as Record<string, string | undefined>)[stat];
+  return label === undefined ? stat : label.toLowerCase();
 }

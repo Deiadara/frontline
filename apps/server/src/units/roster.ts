@@ -1,11 +1,18 @@
 import {
+  doorLabelLevels,
+  doorLevelOf,
+  doorsOn,
+  findLocation,
   findUnit,
   fittedOn,
+  statFlatReasons,
   EVERY_LOCATION,
   COMBAT_CONTEXT_LABELS,
   PLAYER_UNITS,
   UNIT_MODIFIERS,
   unitRules,
+  adHocArmyLabel,
+  fieldedUnit,
   markedUnit,
   addToArmy,
   describeRequirement,
@@ -15,6 +22,8 @@ import {
   type Army,
   type Base,
   type BonusLine,
+  type CrewEffects,
+  type EnvLabelId,
   type UnitOption,
   type UnitsResponse,
   upgradedStats,
@@ -25,7 +34,6 @@ import {
   findUnitModification,
   modificationsForUnit,
   homeMusterSource,
-  theLocation,
   slotsFor,
   ENV_LABEL_CATALOG,
   ENV_LABEL_IDS,
@@ -91,7 +99,45 @@ export function garrisonedUnits(repos: Repositories, base: Base): Army {
  * thirteen rows of them would make the one line that matters unfindable. What a card shows is what
  * its *sheet does not already say*, and the sheet is right there under it.
  */
-function groundAffinities(unit: UnitSpec): UnitOption['affinities'] {
+/**
+ * What stops each ground label biting this crew's unit, by name (maintainer, 2026-10-15).
+ *
+ * The three sources the engine reads (`battle/effects.ts`), named the way a hover says them: a held
+ * place that makes the crew immune (the Frontier Chapel's Eerie), a Tolling Tower whose switch is
+ * on (Noisy, while the bells ring), and the unit's own door from the level that cancels the label.
+ */
+function labelCancellations(
+  repos: Repositories,
+  unit: UnitSpec,
+  effects: CrewEffects,
+): Partial<Record<EnvLabelId, string>> {
+  const cancelled: Partial<Record<EnvLabelId, string>> = {};
+  const controls = repos.city.controls();
+  const tower = effects.noiseSwitches.find(
+    (locationId) => controls.get(locationId)?.switchedOn === true,
+  );
+  for (const label of effects.ignoredLabels) {
+    const immunity = effects.labelImmunitySources[label];
+    if (immunity !== undefined) cancelled[label] = immunity;
+    else if (label === 'noisy' && tower !== undefined) {
+      cancelled[label] =
+        `${findLocation(tower)?.name ?? 'your Tolling Tower'}, while the bells ring`;
+    }
+  }
+  const level = doorLevelOf(effects.doorLevels, unit.id);
+  const door = EVERY_LOCATION.find((location) => doorsOn(location.bonuses).includes(unit.id));
+  for (const [label, from] of Object.entries(doorLabelLevels(unit.id)) as [EnvLabelId, number][]) {
+    if (level >= from && cancelled[label] === undefined) {
+      cancelled[label] = `${door?.name ?? 'their door'} at level ${from}`;
+    }
+  }
+  return cancelled;
+}
+
+function groundAffinities(
+  unit: UnitSpec,
+  cancelled: Partial<Record<EnvLabelId, string>> = {},
+): UnitOption['affinities'] {
   const rows: UnitOption['affinities'] = [];
   for (const id of ENV_LABEL_IDS) {
     const immune = unit.immuneTo?.includes(id) ?? false;
@@ -118,29 +164,28 @@ function groundAffinities(unit: UnitSpec): UnitOption['affinities'] {
       // The affinity decides the colour whenever there is one: a unit that shrugs off the
       // baseline and is still worse for being there has not been handed a good place to stand.
       good: per === 0 ? immune : per > 0,
+      // Only a weakness can be cancelled: a label a unit is good on is not bitten by.
+      cancelledBy: per < 0 ? (cancelled[id] ?? null) : null,
     });
   }
   return rows;
 }
 
 /**
- * The marks this crew's sheet actually carries: granted ones in, waived ones out.
- *
- * `markedUnit` only ever *adds* (`unit_mark`), which was the whole story until `any_ride`: that
- * holding takes a rule **off** a sheet, and there is no channel for a revoked mark because the
- * engine has no use for one. `no_ride` is a travel rule rather than a battle rule, so the two
- * readers that care take the flag as an argument (`ridingGroups`, `unitColumnSpeed`) and
- * `markedUnit` never sees it.
- *
- * The card did not, so a crew that had spent a location, a research rung or a perk on getting
- * the Colossus into a truck was still shown "Too big to ride: there is no seat in this city that
- * takes one" on the sheet of a unit that now rides. That is the defect this function's neighbour
- * already argues against in as many words: a card showing a rule the engine is not using is
- * worse than showing neither.
+ * The marks this crew's sheet actually carries: the granted ones in (`fieldedUnit`), and AD HOC
+ * ARMY named at the level the crew's Crate Ring stands at.
  */
 function rulesThisCrewCarries(unit: UnitSpec, effects: TerritoryEffects): UnitOption['rules'] {
-  const rules = unitRules(markedUnit(unit, effects));
-  return effects.anyRide ? rules.filter((rule) => rule.id !== 'no_ride') : rules;
+  return unitRules(fieldedUnit(unit, effects)).map((rule) =>
+    // AD HOC ARMY reads the crew's Crate Ring: its name at level 5, and the robot the card draws.
+    rule.id === 'ad_hoc_army'
+      ? {
+          ...rule,
+          label: adHocArmyLabel(effects.adHocArmyLevel),
+          level: effects.adHocArmyLevel,
+        }
+      : rule,
+  );
 }
 
 /** One bracket, as the card draws it: what is in it, or the fact that nothing is. */
@@ -209,12 +254,12 @@ export function projectUnits(repos: Repositories, base: Base, now: Date): UnitsR
         ? null
         : {
             cost: homeOnTopOf('cost', crewCost, {
-              source: theLocation(source.kind),
+              source: findLocation(source.locationId)?.name ?? source.locationId,
               note: `Level ${source.level}, its own ground`,
               percent: source.costPercent,
             }),
             speed: homeOnTopOf('speed', crewSpeed, {
-              source: theLocation(source.kind),
+              source: findLocation(source.locationId)?.name ?? source.locationId,
               note: `Level ${source.level}, its own ground`,
               percent: source.speedPercent,
             }),
@@ -234,7 +279,9 @@ export function projectUnits(repos: Repositories, base: Base, now: Date): UnitsR
       // the units mustered last week as well as the ones mustered tomorrow, which is what "the yard
       // refits everybody" has to mean for a player not to find it maddening.
       stats: upgradedStats(unit.stats, fittedFor(base.unitLoadouts, unit.id)),
-      modifiers: unit.modifiers.map((id) => ({
+      // Off the sheet this crew fields, so a modifier its ground hands over is on the card too
+      // (Arch Nineteen's golden Terror, `unit_modifier`, 2026-10-13).
+      modifiers: markedUnit(unit, effects).modifiers.map((id) => ({
         label: UNIT_MODIFIERS[id].label,
         description: UNIT_MODIFIERS[id].description,
         // The context's clause unless the entry overrides it: one modifier does two things and
@@ -242,22 +289,28 @@ export function projectUnits(repos: Repositories, base: Base, now: Date): UnitsR
         when:
           (UNIT_MODIFIERS[id] as UnitModifierSpec).when ??
           COMBAT_CONTEXT_LABELS[UNIT_MODIFIERS[id].context].when,
+        // The sheet's signature, drawn in gold (the Breakers' Breaching, 2026-10-09).
+        ...(markedUnit(unit, effects).goldenModifiers?.includes(id) ? { golden: true } : {}),
       })),
       /*
-       * The marks this crew's sheet actually carries, granted ones included (`unit_mark`).
+       * The marks this crew's sheet actually carries, granted ones included (`unit_mark`), and
+       * the rules its door pays at the level held (`doorUnit`).
        *
-       * Read through `markedUnit`, which is the same helper the engine builds a stack with, so the
+       * Read through `fieldedUnit`, which is the same helper the engine builds a stack with, so the
        * card and the fight cannot disagree about whether these Ironsides hold the line. A card that
        * printed only the catalogue's marks would be showing a rule the engine is not using and
        * hiding one it is, which is worse than showing neither.
        */
       rules: rulesThisCrewCarries(unit, effects),
-      affinities: groundAffinities(unit),
+      affinities: groundAffinities(unit, labelCancellations(repos, unit, effects)),
       cost: unit.cost,
       musterSeconds: unit.musterSeconds,
       unitSlots: unit.unitSlots,
-      homeCostReduction: home?.cost.percent ?? 0,
-      homeSpeedBonus: home?.speed.percent ?? 0,
+      // ...and the Hiring Hall's cut on its tier, which the route charges through `ratesForUnit`
+      // and the page quoted without until 2026-10-11, so Max offered rabble at the wrong price.
+      homeCostReduction: (home?.cost.percent ?? 0) + (rates.costPercentByTier[unit.tier] ?? 0),
+      // ...and Telemetry Hill's on its tier's clock, the same way (2026-10-09).
+      homeSpeedBonus: (home?.speed.percent ?? 0) + (rates.speedPercentByTier[unit.tier] ?? 0),
       /*
        * The same two figures as named lines, for this unit's own Bonuses page.
        *
@@ -268,6 +321,8 @@ export function projectUnits(repos: Repositories, base: Base, now: Date): UnitsR
       ...(home === null
         ? {}
         : { homeBonus: homeBonusLines(home, crewCost, rates.suppliesPercent) }),
+      // The held ground's flat points on this sheet, each naming its plot (2026-10-13).
+      groundStats: statFlatReasons(unit, effects.unitStatFlats),
       unlocked: isUnitUnlocked(unit, context),
       ...(room === null ? {} : { room }),
       missing: missingRequirements(unit, context).map(describeRequirement),
@@ -285,8 +340,8 @@ export function projectUnits(repos: Repositories, base: Base, now: Date): UnitsR
     serverNow: now.toISOString(),
     units,
     // The labels the crew's units shrug off: Noisy while a held Tolling Tower is on (2026-10-07).
-    ignoredLabels: effects.ignoredLabels,
     antiCombineLevels: effects.antiCombineLevels,
+    reactorHeld: effects.reactorSheds.length > 0,
     army: base.army,
     gateArmy: base.gateArmy ?? {},
     moveDestinations: moveDestinationsFor(repos, base),
@@ -345,10 +400,9 @@ export function projectUnits(repos: Repositories, base: Base, now: Date): UnitsR
     musterSpeedBonus: crewSpeed,
     // §A5's one exception, so a screen can ask whether this crew's porters may be sent.
     carriersFight: effects.carriersFight,
-    // ...and the other switch that lifts a rule off a unit sheet (`any_ride`). Both doors that
-    // spend seats already read it; until now no screen that quotes seats could.
-    anyRide: effects.anyRide,
     unitSpeedPercent: effects.unitSpeedPercent,
+    vehicleCapacityPercent: effects.vehicleCapacityPercent,
+    vehicleSpeedPercent: effects.vehicleSpeedPercent,
     // The same three figures again, as the lines that make them up, for the chips' hover pages.
     musterBreakdown: musterBreakdownFor(repos, base, now),
   };

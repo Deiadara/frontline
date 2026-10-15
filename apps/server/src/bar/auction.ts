@@ -30,6 +30,7 @@ import {
   assessAgainst,
   factionInfamyOf,
   ledgerFor,
+  wagesHeldByBids,
   recruitSlotsFor,
   signRecruit,
   type HireRefusal,
@@ -206,37 +207,6 @@ function payrollRefuses(
   const wage = committedWage(amount, effects.wageDiscountPercent);
   const reserved = wagesHeldByBids(repos, userId, day, recruit.id, effects.wageDiscountPercent);
   return !payrollFits(ledger, wage + reserved) && !adminWaives('no_payroll', admin);
-}
-
-/**
- * The wages this crew's other bids tonight hold against its payroll book (maintainer, 2026-10-04).
- *
- * Every bid holds its wage for the day, won or lost: "if you have bid, that is temporarily taken
- * out of payroll whether you win or not, and bids cannot be taken back. At the end of the day you
- * get back the payroll you did not end up using." One table counts once, at the crew's highest bid
- * there, open or sealed: raising a bid replaces the lower one rather than adding to it. Counted at
- * the talked-down wage, the figure the close commits, across every city: the book is one book.
- *
- * Only tonight's tables, so the hold lifts at the close by itself: the winner's wage becomes a
- * commitment on the book, and what the crew did not win is free again the next day. Because every
- * bid was checked against the book with all the others held, every table the crew wins at midnight
- * fits, whichever order the tables settle in and whichever bidder a table falls back to.
- *
- * It held only the tables the crew led or had sealed until then (2026-10-02), so a crew second at
- * one table could still sign it at the close after the leader was refused and leave its payroll
- * short for a table it was leading.
- */
-export function wagesHeldByBids(
-  repos: Repositories,
-  userId: string,
-  day: string,
-  exceptRecruitId: string | null,
-  wageDiscountPercent: number,
-): number {
-  return repos.bar
-    .bidsBy(userId, day)
-    .filter((bid) => bid.recruitId !== exceptRecruitId)
-    .reduce((held, bid) => held + committedWage(finalValue(bid), wageDiscountPercent), 0);
 }
 
 /**

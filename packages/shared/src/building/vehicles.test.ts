@@ -16,6 +16,9 @@ import {
   removeFleet,
   vehicleInfamy,
   vehicleRefusal,
+  vehicleSeats,
+  machineSpeed,
+  machinesOf,
   vehiclesOfClass,
   wrecked,
   type ColumnUnit,
@@ -403,7 +406,8 @@ describe('units against machines', () => {
       'kite_crews',
       'the_loose_end',
       'the_crimson_dancer',
-      'the_cartographer',
+      // Not the Cartographer since 2026-10-09: the maintainer set her at 70, and SHORTCUT is how
+      // she gets anywhere quickly now.
       'the_specter',
     ]) {
       expect(speedOf(unitId), unitId).toBeGreaterThan(topOfTheYard);
@@ -642,5 +646,67 @@ describe('what a machine is called', () => {
     for (const vehicle of VEHICLES) {
       expect(vehicle.name.slice(4).trim().length, vehicle.id).toBeGreaterThan(0);
     }
+  });
+});
+
+/**
+ * The Hump (maintainer, 2026-10-09): more unit slots on every machine, rounded up per machine,
+ * counted through one function so every door seats the same people.
+ */
+describe('bigger loads', () => {
+  const bike = findVehicle('motorcycle')!;
+  const wagon = findVehicle('armoured_car')!;
+
+  it('rounds each machine up, and never past what the percentage asks', () => {
+    expect([bike.capacity, wagon.capacity]).toEqual([2, 30]);
+    expect(vehicleSeats(wagon)).toBe(30);
+    // 30 x 1.1 is 33 exactly, not the 34 a float's 33.000000000000004 would round up to.
+    expect(vehicleSeats(wagon, 10)).toBe(33);
+    expect(vehicleSeats(wagon, 12)).toBe(34);
+    expect(vehicleSeats(wagon, 20)).toBe(36);
+    // A bike at 2 slots: 2.2 rounds up to 3.
+    expect(vehicleSeats(bike, 10)).toBe(3);
+  });
+
+  it('is what the fleet, the column and the loader all count', () => {
+    const fleet = { motorcycle: 2, armoured_car: 1 } as const;
+    expect(fleetCapacity(fleet)).toBe(34);
+    expect(fleetCapacity(fleet, 10)).toBe(3 * 2 + 33);
+
+    // Three slow walkers at one slot each: a bike seats two of them bare and three at +10%.
+    const walker = (): ColumnUnit => ({ speed: 10, rides: true, unitSlots: 1 });
+    const bare = columnSpeed({ motorcycle: 1 }, { slow: 3 }, walker);
+    const loaded = columnSpeed({ motorcycle: 1 }, { slow: 3 }, walker, { capacityPercent: 10 });
+    expect(bare).toBe(10);
+    expect(loaded).toBe(bike.speed);
+
+    const riders = [{ unitSlots: 1, count: 3 }];
+    expect(loadable({ motorcycle: 2 }, riders)).toEqual({ motorcycle: 2 });
+    expect(loadable({ motorcycle: 2 }, riders, 10)).toEqual({ motorcycle: 1 });
+  });
+});
+
+/** The Coaling Stage (maintainer, 2026-10-09): every machine faster, and every column with it. */
+describe('faster machines', () => {
+  const bike = findVehicle('motorcycle')!;
+
+  it('raises a machine`s own pace, never past the top of the scale', () => {
+    expect(machineSpeed(bike)).toBe(bike.speed);
+    expect(machineSpeed(bike, { speedPercent: 10 })).toBeGreaterThan(bike.speed);
+    expect(machineSpeed(findVehicle('heli_porter')!, { speedPercent: 1_000 })).toBeLessThanOrEqual(
+      100,
+    );
+  });
+
+  it('carries the column at the faster pace, through the same function the doors use', () => {
+    const walker = (): ColumnUnit => ({ speed: 10, rides: true, unitSlots: 1 });
+    expect(columnSpeed({ motorcycle: 1 }, { slow: 2 }, walker)).toBe(bike.speed);
+    expect(columnSpeed({ motorcycle: 1 }, { slow: 2 }, walker, { speedPercent: 10 })).toBe(
+      machineSpeed(bike, { speedPercent: 10 }),
+    );
+    expect(machinesOf({ vehicleCapacityPercent: 12, vehicleSpeedPercent: 6 })).toEqual({
+      capacityPercent: 12,
+      speedPercent: 6,
+    });
   });
 });

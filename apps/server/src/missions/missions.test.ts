@@ -714,8 +714,8 @@ describe('mission payout (§E1, §E5)', () => {
   /**
    * The fight the settler is about to run for a battle job, replayed off the same row.
    *
-   * `planted` sends the Overseer to lead and a fresh crew has nothing that seats anybody, so the
-   * two inputs the settler adds (`leaderOf`, `anyRide`) are read the way it reads them; the seed
+   * `planted` sends the Overseer to lead, so the input the settler adds (`leaderOf`) is read the
+   * way it reads it; the seed
    * and the grade are the row's own. What comes back is what the job killed, which is what it pays for.
    */
   /** The crew's own Overseer, the way `leaderOf` puts them in the line of an Overseer-led row. */
@@ -743,7 +743,6 @@ describe('mission payout (§E1, §E5)', () => {
       vehicles: {},
       grade: template.grades[0],
       leader: overseerInLine(stack),
-      anyRide: crew.anyRide,
       loadouts: stack.base.unitLoadouts,
       territory: crew,
       recoveryPercent:
@@ -813,7 +812,6 @@ describe('mission payout (§E1, §E5)', () => {
             vehicles: {},
             grade: strike.grades[0],
             leader: overseerInLine(stack),
-            anyRide: false,
           });
           if (fought.outcome === 'failure' && total(fought.killed) > 0 && total(fought.home) > 0) {
             return { outmatched: force, losing: seed };
@@ -886,7 +884,7 @@ describe('mission payout (§E1, §E5)', () => {
     const edge: Army = { razors: 9 };
     const settledAt = after(templateTimings(strike).totalMinutes);
     // The same fight the settle runs (`missions/resolve.ts`): the crew's standing effects as the
-    // ground and its recovery, not only its `anyRide`. Without them the replay is a different
+    // ground and its recovery. Without them the replay is a different
     // fight, and on most seeds it happens to land on the bare figure, which reads as the settle
     // having dropped the card.
     const crew = standingEffectsFor(stack.repos, fitted, settledAt);
@@ -898,7 +896,6 @@ describe('mission payout (§E1, §E5)', () => {
         vehicles: {},
         grade: strike.grades[0],
         leader: overseerInLine(stack),
-        anyRide: crew.anyRide,
         loadouts,
         territory: crew,
         recoveryPercent: crew.casualtyRecoveryPercent + infirmaryRecoveryPercent(fitted.buildings),
@@ -2167,7 +2164,7 @@ describe('vehicles on a mission (§C3)', () => {
     // Every board, so this crew's own deal (2026-10-08) carries a long road somewhere.
     holdEveryBoard(stack.repos, stack.base.id);
     pastTheOpening(stack);
-    const skate = CITY_LOCATIONS.find((location) => location.kind === 'skate_ground');
+    const skate = CITY_LOCATIONS.find((location) => location.id === 'steelbelt-ramp');
     if (!skate) throw new Error('no Skate Ground on the map');
     const control = stack.repos.city.control(skate.id);
     if (!control) throw new Error(`no control row for ${skate.id}`);
@@ -2335,7 +2332,7 @@ describe('the board a recall answers with', () => {
   it('is priced the way the read prices it, standing effects included', async () => {
     const stack = await makeStack('recaller');
     // A hold that moves the clock on every card, so a board without the fold reads differently.
-    const tunnel = CITY_LOCATIONS.find((location) => location.kind === 'smugglers_tunnel');
+    const tunnel = CITY_LOCATIONS.find((location) => location.id === 'neon-docks-runners');
     if (!tunnel) throw new Error('fixture: no tunnel in the catalogue');
     stack.repos.city.put({
       locationId: tunnel.id,
@@ -2670,7 +2667,7 @@ describe('§D5: a leader shortens the road and not the cheque', () => {
  * and with the same clamps, so the dialog's round trip is the run's.
  */
 describe('§C3: the road the send dialog is handed', () => {
-  it('is the launch’s own three road figures', async () => {
+  it('is the launch’s own road figures', async () => {
     const stack = await makeStack('road_on_the_wire');
     // A Cartographer in the chair, so the base cut is a figure and not a nought on both sides.
     const seated = stack.repos.bases.findById(stack.base.id)!;
@@ -2691,6 +2688,9 @@ describe('§C3: the road the send dialog is handed', () => {
       unitSpeedPercent: effects.unitSpeedPercent,
       // The Cartographer's cut off the road's base (2026-10-04).
       baseCutPercent: chairPassiveOf(effects, 'cartographer', 'travel_time'),
+      // The Hump's seats, which the launch spends on the column (2026-10-09).
+      vehicleCapacityPercent: effects.vehicleCapacityPercent,
+      vehicleSpeedPercent: effects.vehicleSpeedPercent,
     });
     // At least what the officer's own sheet is worth in the chair: the lifts only add.
     expect(board.json<MissionsResponse>().road?.baseCutPercent ?? 0).toBeGreaterThanOrEqual(

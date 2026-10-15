@@ -13,6 +13,7 @@ import {
   type OfficerRole,
   type ResearchResponse,
   type TrainingResponse,
+  trainingGainFor,
 } from '@frontline/shared';
 import type { Harness, Player } from './playthrough-harness.js';
 import { player, type Cast } from './playthrough-cast.js';
@@ -374,8 +375,10 @@ async function drills(h: Harness, a: Player, b: Player): Promise<void> {
     route: '/api/overseer/me',
   });
   const now = standing?.overseer.attributes[attribute] ?? was;
+  // Two points under the halfway mark and one at or over it (`trainingGainFor`): the figure the
+  // drill button printed, now that the response carries no crew-wide gain.
   h.check(
-    now === was + (second?.gainPerSession ?? 0),
-    `an hour of ${attribute} took the Overseer from ${was} to ${now}, the floor promised +${second?.gainPerSession}`,
+    now === was + trainingGainFor(was),
+    `an hour of ${attribute} took the Overseer from ${was} to ${now}, the floor promised +${trainingGainFor(was)}`,
   );
 }

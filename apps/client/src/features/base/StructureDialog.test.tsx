@@ -99,6 +99,9 @@ const crewStanding = (): CrewStandingResponse => {
     haulPercent: 0,
     carrierFlat: 0,
     missionCapsPercent: 0,
+    heldDefensePercent: 0,
+    medicPoints: 0,
+    medicSharePercent: 0,
   };
 };
 
@@ -192,33 +195,29 @@ describe('the plot window is in the same house as the feats board', () => {
   });
 
   /**
-   * One template for every plot (maintainer, 2026-09-28): the order and what the level gives down
-   * the left, the brackets on the right, and the two columns the same height so the rack's top
-   * and bottom sit level with the panels beside it. The multi-column deck this replaced packed
-   * panels wherever they fitted, which is why no two windows had the same shape.
+   * One template for every plot (maintainer, 2026-10-08): the order top left and what the level
+   * gives top right, at one fixed height, and the brackets across the whole window under them, three
+   * cards abreast. Fixed sizes rather than content-sized ones, so every plot's window is one shape.
    */
-  it('lays the panels on the one template, two columns of one height', async () => {
+  it('lays the order and the gift side by side over a full-width rack of three', async () => {
     const dialog = await openNexus();
-    const deck = within(dialog).getByTestId('structure-deck');
-    const marks = deck.className.split(/\s+/);
-    expect(marks).toContain('sm:grid-cols-2');
-    expect(marks).toContain('sm:items-stretch');
-    expect(marks.some((mark) => mark.includes('columns'))).toBe(false);
-
-    // The left column: the order, then the gift. The right: the brackets, and nothing else.
-    const left = within(dialog).getByTestId('structure-left');
-    const leftTitles = [...left.querySelectorAll('h3')].map((h) => h.textContent);
-    expect(leftTitles).toEqual(['Upgrade to level 14', 'What it gives']);
-    const titles = [...deck.querySelectorAll('h3')].map((h) => h.textContent);
-    expect(titles).toEqual(['Upgrade to level 14', 'What it gives', 'Modifications: 0 of 3 slots']);
-    // The gift and the rack grow to the row, so their bottoms meet the rule together.
-    const grown = [...deck.querySelectorAll('section')].filter((panel) =>
-      panel.className.split(/\s+/).includes('flex-1'),
+    const top = within(dialog).getByTestId('structure-top');
+    expect(top.className.split(/\s+/)).toEqual(
+      expect.arrayContaining(['grid-cols-2', 'h-[14rem]']),
     );
-    expect(grown.map((panel) => panel.querySelector('h3')?.textContent)).toEqual([
+    expect([...top.querySelectorAll('h3')].map((h) => h.textContent)).toEqual([
+      'Upgrade to level 14',
+      'What it gives',
+    ]);
+    const deck = within(dialog).getByTestId('structure-deck');
+    expect([...deck.querySelectorAll('h3')].map((h) => h.textContent)).toEqual([
+      'Upgrade to level 14',
       'What it gives',
       'Modifications: 0 of 3 slots',
     ]);
+    const rack = within(dialog).getByTestId('slots-nexus');
+    expect(rack.className.split(/\s+/)).toContain('grid-cols-3');
+    expect(rack.children).toHaveLength(3);
   });
 
   /**
@@ -252,11 +251,11 @@ describe('the plot window is in the same house as the feats board', () => {
     expect(within(dialog).queryByTestId('set-readout')).toBeNull();
   });
 
-  it('opens at the broad width, which is what the two columns are for', async () => {
+  it('opens at the plot width, which puts a whole price on one line', async () => {
     const dialog = await openNexus();
-    // `Modal`'s `broad`: 60rem. At 52 the played Nexus window is 705px tall, 17 more than a
-    // 1280x720 frame has. See the note on `broad` for the rest of the measurements.
-    expect(dialog.className).toContain('max-w-[60rem]');
+    // `Modal`'s `plot`: 64rem (maintainer, 2026-10-08), a step past `broad`'s 60. See the notes on
+    // both for the measurements.
+    expect(dialog.className).toContain('max-w-[64rem]');
   });
 
   /*
@@ -469,12 +468,13 @@ describe('a ten-rung structure at its ceiling', () => {
     return screen.findByRole('dialog');
   }
 
+  // Each locked card says its own level (maintainer, 2026-10-08), so the sentence under the rack
+  // that said it again went.
   it('says both of its last two slots open at level 10', async () => {
     const dialog = await openGarage(garageAt(7));
-    expect(dialog).toHaveTextContent('The next two slots open at level 10.');
     for (const index of [1, 2]) {
       expect(within(dialog).getByTestId(`slot-garage-${index}`)).toHaveTextContent(
-        'LockedLevel 10',
+        /Locked.*Opens at level 10/,
       );
     }
   });
@@ -535,6 +535,53 @@ describe('a burn priced past the stores', () => {
     expect(within(dialog).getByTestId('build-boost-buy')).toHaveTextContent('Stores too small');
     expect(within(dialog).getByTestId('build-boost').getAttribute('data-tip')).toContain(
       `hold at most ${ceilings.oil.toLocaleString()} oil`,
+    );
+  });
+
+  /*
+   * Shaft Nine (maintainer, 2026-10-09): the ground takes oil off the burn, and only the server
+   * knows the ground. The button, its tooltip and the stores check read `/me`'s `buildBoostOil`.
+   */
+  it('quotes the server`s price for the burn, which the ground may have cut under the stores', async () => {
+    const outgrown: Base = {
+      ...base,
+      buildings: [
+        { id: 'b-nexus', kind: 'nexus', level: 12, modifications: [] },
+        { id: 'b-generator', kind: 'generator', level: 12, modifications: [] },
+        { id: 'b-apothecary', kind: 'apothecary', level: 1, modifications: [] },
+      ],
+    };
+    const ceilings = storeCeilings(outgrown.buildings);
+    const cut = ceilings.oil - 1;
+    expect(cut, 'fixture: the list price must not fit').toBeLessThan(
+      buildBoostOilCost(outgrown.buildings),
+    );
+    const full: Base = { ...outgrown, resources: { ...outgrown.resources, oil: ceilings.oil } };
+    const reply = (body: unknown) =>
+      Promise.resolve({
+        headers: new Headers(),
+        ok: true,
+        status: 200,
+        statusText: '',
+        json: () => Promise.resolve(body),
+      } as Response);
+    fetchMock.mockImplementation((path: string) => {
+      if (path.endsWith('/overseer/me')) return reply(crewStanding());
+      if (path.endsWith('/me')) return reply({ ...me, base: full, buildBoostOil: cut });
+      if (path.includes('/base/')) return reply({ base: full });
+      throw new Error(`unstubbed request: ${path}`);
+    });
+    renderDistrict();
+    await waitFor(() => expect(plot('The Generator')).toBeInTheDocument());
+    fireEvent.click(plot('The Generator'));
+    const dialog = await screen.findByRole('dialog');
+
+    await waitFor(() =>
+      expect(within(dialog).getByTestId('build-boost-buy')).toHaveTextContent(`Burn ${cut} oil`),
+    );
+    expect(within(dialog).getByTestId('build-boost-buy')).toBeEnabled();
+    expect(within(dialog).getByTestId('build-boost').getAttribute('data-tip')).toMatch(
+      new RegExp(`^${cut} oil takes`),
     );
   });
 });

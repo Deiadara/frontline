@@ -5,7 +5,14 @@ import { COMBINE_LEADERS, combineGarrison } from '../city/combine.js';
 import { startingGarrison, startingHolder } from '../city/control.js';
 import { FEATS } from '../feats/catalog.js';
 import { MISSION_TEMPLATES } from '../missions.js';
-import { COMBINE_UNITS, PLAYER_UNITS, UNIT_CATALOG, UNIT_TIERS, unitsInTier } from './catalog.js';
+import {
+  COMBINE_UNITS,
+  PLAYER_UNITS,
+  SPAWNED_UNITS,
+  UNIT_CATALOG,
+  UNIT_TIERS,
+  unitsInTier,
+} from './catalog.js';
 import { modificationsForUnit } from './modifications.js';
 import { unlockedUnits } from './unlocks.js';
 
@@ -54,7 +61,9 @@ describe('the wall around the Combine roster', () => {
     expect(COMBINE_IDS.size).toBe(10);
     expect(FEATS.length).toBeGreaterThan(400);
     expect(PLAYER_UNITS.length).toBeGreaterThan(20);
-    expect(PLAYER_UNITS.length + COMBINE_UNITS.length).toBe(UNIT_CATALOG.length);
+    expect(PLAYER_UNITS.length + COMBINE_UNITS.length + SPAWNED_UNITS.length).toBe(
+      UNIT_CATALOG.length,
+    );
     // The sweep below can actually see a Combine id when one is there.
     expect([...unitIdsIn({ reward: { units: { suppressor: 1 } } })]).toEqual(['suppressor']);
   });
@@ -83,8 +92,8 @@ describe('the wall around the Combine roster', () => {
     expect(
       unlockedUnits({
         buildings: [],
-        heldPlaceKinds: new Set(),
         heldDoors: new Set<string>(),
+        heldPlaces: new Set<string>(),
         buildableVehicles: new Set(),
         inventory: {},
         notoriety: 0,

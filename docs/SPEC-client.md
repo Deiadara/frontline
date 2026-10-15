@@ -529,23 +529,31 @@ The crew effects page (`features/crew/CrewEffectsPage.tsx`) never draws the two 
 or not, and has no "Nothing there yet" list (maintainer, 2026-10-01: "these are not public
 values"). How hard a crew is to read, and the officers' Signals and Cryptography modifier, are
 printed nowhere; the attribute hovers are the only nudge. No spy figure of any kind is on a public
-screen: the plot dialog's Gate line reads `+N% defence`, the captured-gate panel on the city map
-`+N% holding it.`, and the battles board's gate block its Toughness alone. Perk cards describing
+screen: the plot dialog's Gate line reads `+N points of defence`, the captured-gate panel on the
+city map `+N points of defence holding it.`, and the battles board's gate block its Toughness alone,
+in points. Every structure line that feeds a curve prints the raw points it adds (maintainer,
+2026-10-15); only the Crew page's channel cards print the curved figure a fight or a bench spends. The medic card is one of those: it prints every medic point a won fight
+is recovered on (the people's, the held ground's and the Infirmary's, `medicPoints`) and the share
+they walk home (`medicSharePercent`), off the same sum the fights read (`medicPointsOf`).
+
+A unit card strikes a ground-label weakness through in blue when something cancels it for the
+crew's unit, and the hover names what: each affinity row carries `cancelledBy` (the Tolling Tower
+while its bells ring, the held place that makes the crew immune, or the unit's door from the level
+that cancels it, "The Crimson Stage at level 4"), built on the server beside the door rules. Perk cards describing
 their own bonus are the one exception. The building dialog's Nexus
 line quotes the payroll book its levels add beside the level it authorises, `Nexus 8 · +200 caps
 payroll` (`basePayrollCapacity` over the bare book, 25 caps a level).
 
 ## Muster clocks
 
-The Units page chips and the building dialog's Gauntlet and Greenhouse lines print the tapered
-figure: `musterSpeedAfterTaper` of the raw speed, and `suppliesOnlyCut` of the raw supplies beside
-the cost cut, so the cost chip and the supplies chip add up to the supplies line. The building
-dialog does not know the crew's cost cut and reads the Greenhouse beside none. The breakdown pages
+The Units page chips print the tapered figure: `musterSpeedAfterTaper` of the raw speed, and
+`suppliesOnlyCut` of the raw supplies beside the cost cut, so the cost chip and the supplies chip
+add up to the supplies line. The building dialog's Gauntlet and Greenhouse lines print the raw
+points they add (maintainer, 2026-10-15), as the Gate's and the Infirmary's do. The breakdown pages
 end on the server's `Tapering` line, so their totals are the same figures, and a unit's Bonuses page
-adds its own `homeBonus.supplies` line to the crew's. A Scrapyard card on the muster clock prints
-its own cut of the clock, `timeSavingPercent(musterSpeedAfterTaper(n))` ("-14% muster time (tapers)"
-for Night Course's 16), the same reading the Gauntlet's line takes; the card's number is a speed,
-and printed bare it read as time off.
+adds its own `homeBonus.supplies` line to the crew's. A Scrapyard card that feeds a curve prints
+its raw points ("+16 points of muster speed (tapers)" for Night Course's 16), the same reading the
+Gauntlet's line takes (maintainer, 2026-10-15).
 
 ## Spying
 

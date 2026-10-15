@@ -201,9 +201,34 @@ const KIND_FAMILY: Readonly<Record<ResearchBonus['kind'], PayoutFamily>> = {
   wage_discount: 'thrift',
   payroll_step_discount: 'thrift',
   market_discount: 'thrift',
+  broker_rate: 'thrift',
   black_market_discount: 'thrift',
   refit_discount: 'thrift',
   vehicle_parts: 'thrift',
+  vehicle_scrap: 'thrift',
+  boost_oil: 'thrift',
+  supply_discount: 'thrift',
+  tier_strength: 'battle',
+  vehicle_capacity: 'travel',
+  vehicle_speed: 'travel',
+  gate_fight: 'battle',
+  stitcher_vitality: 'battle',
+  ad_hoc_army: 'battle',
+  damage_type_offense: 'battle',
+  tier_muster: 'thrift',
+  drill_bonus: 'command',
+  unit_stat_percent: 'battle',
+  unit_modifier: 'battle',
+  modification_vitality: 'battle',
+  offense_vs_tier: 'battle',
+  death_heal: 'battle',
+  death_salvage: 'battle',
+  battle_infamy: 'battle',
+  ignore_label: 'battle',
+  location_upgrade_discount: 'thrift',
+  reactor_choice: 'battle',
+  lamps_switch: 'battle',
+  scrapyard_xp: 'yield',
   building_cost: 'thrift',
   building_credit: 'thrift',
 
@@ -247,6 +272,7 @@ const KIND_FAMILY: Readonly<Record<ResearchBonus['kind'], PayoutFamily>> = {
 
   travel_speed: 'travel',
   mission_speed: 'travel',
+  mission_travel: 'travel',
 
   officer_group: 'people',
   officer_attribute: 'people',
@@ -264,7 +290,6 @@ const KIND_FAMILY: Readonly<Record<ResearchBonus['kind'], PayoutFamily>> = {
   // whether it is bought in minutes or in percent, and a mark on a sheet is `battle`.
   rail_link: 'travel',
   carriers_fight: 'battle',
-  any_ride: 'travel',
   unit_mark: 'battle',
   steady_nerve: 'battle',
   // Arca's (2026-10-06): a tomb is where the Death Cloaks are raised, and a skill is a skill.
@@ -598,7 +623,7 @@ const CATALOGUE: readonly ResearchItemSpec[] = [
       // Off the Fabricator's track, whose chair left the game (maintainer, 2026-10-04). The door it
       // opens is the Engineer's trade, so the rung moved with its id and saves keep it.
       bonus: { kind: 'build_speed', percent: 6 },
-      unlocks: 'two more build slots, taking the queue from four to six',
+      unlocks: 'one more build slot, taking the queue from four to five',
     },
     {
       name: 'Bracing Standards',
@@ -1094,12 +1119,10 @@ const CATALOGUE: readonly ResearchItemSpec[] = [
     },
     {
       name: 'Load Plans',
-      blurb: 'Somebody has worked out how the thing that does not fit goes on the thing that does.',
-      // The ninth rung of the track about crossing the city, and the one thing crossing it could
-      // not do. Waives `no_ride` (`any_ride`): a Colossus takes a seat, and the column stops being
-      // held to its 15. Deep on purpose, because it is the whole answer to a rule rather than a
-      // share of one.
-      bonus: { kind: 'any_ride' },
+      blurb: 'Somebody has worked out how to load a machine so it runs like an empty one.',
+      // Machines 10% faster (maintainer, 2026-10-15), the Coaling Stage's channel. It waived
+      // `no_ride` until the maintainer took that waiver out of the game: the Colossus never rides.
+      bonus: { kind: 'vehicle_speed', percent: 10 },
     },
     {
       name: 'The Whole City',

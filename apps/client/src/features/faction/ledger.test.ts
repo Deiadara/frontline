@@ -48,6 +48,7 @@ const member = (username: string, joinedAt: string) => ({
   isBot: false,
   card: 'joker' as const,
   cardMark: 'F' as const,
+  onboardingUntil: null,
   // Nobody in this fixture has a face: the ledger is about when things happened, and a portrait
   // is a detail it never reads.
   portraitId: null,

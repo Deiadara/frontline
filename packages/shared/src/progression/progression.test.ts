@@ -321,6 +321,7 @@ describe('XP awards (§I1)', () => {
       'unitMustered',
       'officerHired',
       'pagesReimagined',
+      'scrapyardBuild',
     ]);
     for (const source of XP_SOURCES) {
       expect(PLAYER_XP_AWARDS[source]).toBeGreaterThan(0);

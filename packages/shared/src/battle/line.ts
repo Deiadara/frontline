@@ -1,4 +1,5 @@
 import type { TerritoryEffects } from '../city/locations.js';
+import { doorLevelOf, doorPerks, doorUnit } from './doors.js';
 import {
   findUnit,
   isCombatUnit,
@@ -24,7 +25,8 @@ import {
  * from a test or from `breaksWalls` with a two-field literal instead of a fold nobody in that
  * context has. Every real caller passes a `CrewEffects`, which satisfies it.
  */
-export type LineRules = Pick<TerritoryEffects, 'carriersFight' | 'unitMarks'>;
+export type LineRules = Pick<TerritoryEffects, 'carriersFight' | 'unitMarks'> &
+  Partial<Pick<TerritoryEffects, 'unitModifiers' | 'doorLevels'>>;
 
 /** Nothing granted and nobody promoted: what a fight with no holdings behind it reads. */
 export const bareLineRules = (): LineRules => ({ carriersFight: false, unitMarks: {} });
@@ -49,11 +51,38 @@ export function standsInLine(unit: UnitSpec, rules: LineRules): boolean {
  * targeting split, the medics and the report at once, and a mark added to `units/rules.ts` tomorrow
  * is grantable with no change to this function.
  */
+/**
+ * The sheet this crew fields, with every rule its holdings hand over: the marks its ground and
+ * people grant (`markedUnit`) and the ones its door pays by level (`doorUnit`).
+ *
+ * The engine builds every stack through this and the roster prints every card through it, which
+ * is the whole point: a rule the fight runs and the card does not show, or the other way round,
+ * can only come from a third reader. Until 2026-10-14 the door half lived in the engine alone, so
+ * a Dancer fought with PAPERCUT at a level-5 Stage and her card never said so.
+ */
+export function fieldedUnit(unit: UnitSpec, rules: LineRules): UnitSpec {
+  return doorUnit(
+    markedUnit(unit, rules),
+    doorPerks(unit.id, doorLevelOf(rules.doorLevels, unit.id)),
+  );
+}
+
 export function markedUnit(unit: UnitSpec, rules: LineRules): UnitSpec {
-  const granted = rules.unitMarks[unit.id];
-  if (granted === undefined || granted.length === 0) return unit;
+  const granted = rules.unitMarks[unit.id] ?? [];
+  // Modifiers a location hands over (`unit_modifier`), the gold ones drawn in gold.
+  const handed = (rules.unitModifiers?.[unit.id] ?? []).filter(
+    (one) => !unit.modifiers.includes(one.modifier),
+  );
+  if (granted.length === 0 && handed.length === 0) return unit;
   const marks = Object.fromEntries(granted.map((mark: UnitRuleId) => [mark, true]));
-  return { ...unit, ...marks };
+  if (handed.length === 0) return { ...unit, ...marks };
+  const golden = handed.filter((one) => one.golden === true).map((one) => one.modifier);
+  return {
+    ...unit,
+    ...marks,
+    modifiers: [...unit.modifiers, ...handed.map((one) => one.modifier)],
+    ...(golden.length > 0 ? { goldenModifiers: [...(unit.goldenModifiers ?? []), ...golden] } : {}),
+  };
 }
 
 /**

@@ -6,6 +6,7 @@ import {
   DeployRequestSchema,
   type DeployQuoteResponse,
   LayTrapRequestSchema,
+  shortcutMinutes,
   BuyBattleBoostRequestSchema,
   LEADER_HOLD_MESSAGES,
   LeadBattleRequestSchema,
@@ -780,7 +781,9 @@ export function registerBattleRoutes(app: FastifyInstance): void {
               minutes: moveMinutes(app.repos, base, body.from, body.to, riding, true) ?? minutes,
               boardAt: offer.boardAt.name,
               alightAt: offer.alightAt.name,
-              walkMinutes: offer.toPlatform + offer.fromPlatform,
+              // Halved with the Cartographer as `moveMinutes` halves the whole journey, so the
+              // "on foot at the ends" line never prints more than the ride it is part of.
+              walkMinutes: shortcutMinutes(offer.toPlatform + offer.fromPlatform, riding.army),
             };
       return { minutes, rail };
     },

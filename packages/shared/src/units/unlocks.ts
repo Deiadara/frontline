@@ -5,7 +5,7 @@ import { BUILDING_CATALOG } from '../building/kinds.js';
 import { buildingLevel, type Building } from '../building/state.js';
 import { findModification } from '../building/modifications.js';
 import { findVehicle, vehicleNoun } from '../building/vehicles.js';
-import { LOCATION_CATALOG, type LocationKind } from '../city/locations.js';
+import { findDistrict, findLocation } from '../city/atlas.js';
 import { notorietyToField } from '../economy/infamy.js';
 import { meetsNotoriety, notorietyTier } from '../economy/notoriety.js';
 import type { Inventory } from '../items/inventory.js';
@@ -60,14 +60,14 @@ export type UnitUnlockClause = UnitRequirement | BlueprintRequirement | Notoriet
 export interface UnlockContext {
   /** The crew's own structures. */
   buildings: readonly Building[];
-  /** Location kinds this crew currently holds, anywhere in the city. */
-  heldPlaceKinds: ReadonlySet<LocationKind>;
   /**
    * Units whose authored door this crew holds (a location carrying `unit_door` for them). Required
    * like `buildableVehicles`, and for the same reason: a default of "none" would lock the Saint for
    * ever for a caller that forgot to fill it in, with no error anywhere.
    */
   heldDoors: ReadonlySet<string>;
+  /** The locations this crew holds, by id, for a clause that names them (`place`, `location`). */
+  heldPlaces: ReadonlySet<string>;
   /**
    * §B6: machines the Garage could turn out today, by vehicle id.
    *
@@ -92,12 +92,14 @@ export function requirementMet(need: UnitUnlockClause, context: UnlockContext): 
         building.modifications.includes(need.modificationId),
       );
     case 'location':
-      return context.heldPlaceKinds.has(need.locationKind);
+      return need.locationIds.some((id) => context.heldPlaces.has(id));
     case 'door':
       return (
         context.heldDoors.has(need.unitId) ||
-        (need.orKind !== undefined && context.heldPlaceKinds.has(need.orKind))
+        (need.orLocationIds ?? []).some((id) => context.heldPlaces.has(id))
       );
+    case 'place':
+      return context.heldPlaces.has(need.locationId);
     case 'vehicle':
       return context.buildableVehicles.has(need.vehicleId);
     case 'blueprint':
@@ -144,6 +146,8 @@ export function isUnitUnlocked(unit: UnitSpec, context: UnlockContext): boolean 
   // is refused here by name rather than given an impossible requirement, so nothing can ever
   // describe to a player what would unlock one: nothing would.
   if (isCombineUnit(unit)) return false;
+  // The same for a robot made in a fight (`UnitSpec.spawned`): nobody musters one.
+  if (unit.spawned === true) return false;
   return unitUnlockClauses(unit).every((need) => requirementMet(need, context));
 }
 
@@ -159,11 +163,14 @@ export function describeRequirement(need: UnitUnlockClause): string {
     case 'modification':
       return findModification(need.modificationId)?.name ?? need.modificationId;
     case 'location':
-      return `Hold ${theLocation(need.locationKind)}`;
+      return `Hold ${anyOf(need.locationIds)}`;
     case 'door':
-      return need.orKind === undefined
-        ? `Hold ${DOOR_NAMES[need.unitId] ?? 'the ground that musters them'}`
-        : `Hold ${DOOR_NAMES[need.unitId] ?? 'the ground that musters them'} or ${theLocation(need.orKind)}`;
+      return `Hold ${[
+        DOOR_NAMES[need.unitId] ?? 'the ground that musters them',
+        ...(need.orLocationIds ?? []).map(placeAndDistrict),
+      ].join(', or ')}`;
+    case 'place':
+      return `Hold ${placeAndDistrict(need.locationId)}`;
     case 'vehicle':
       /*
        * "A Scrappy buildable in the Garage", not "The Scrappys".
@@ -183,39 +190,33 @@ export function describeRequirement(need: UnitUnlockClause): string {
   }
 }
 
+/** How many places a clause names in full before it counts the rest. */
+export const PLACES_NAMED_IN_A_CLAUSE = 3;
+
 /**
- * A location, with its article, for a sentence that names one.
- *
- * Always **The**, never "a", and that is a decision about what these places are rather than a
- * grammar preference. Five of the labels carry the article already ("The Doghouse", "The Bone
- * Market") and the rest do not, so a template that prepended one produced "hold a The Doghouse".
- * Prepending nothing would have produced "hold Doghouse".
- *
- * "The" for all of them, including the kinds a city has several of: a clause that says *hold a*
- * Mad Scientist's Lair reads as a shopping list, and what a crew is actually being told is to go
- * and take **the** one on the map in front of them. The definite article is the one that says a
- * place rather than a category.
+ * Any one of a list of locations, for a clause: "the Kennels in Bonded Row, or the Doghouse in
+ * Steelbelt". Past three it names two and counts the rest, so the Death Cloaks' eight tombs fit
+ * the locked box on a card.
  */
-export function theLocation(kind: LocationKind): string {
-  const label = LOCATION_CATALOG[kind].label;
-  return /^The /.test(label) ? label : `The ${label}`;
+function anyOf(locationIds: readonly string[]): string {
+  if (locationIds.length <= PLACES_NAMED_IN_A_CLAUSE) {
+    return locationIds.map(placeAndDistrict).join(', or ');
+  }
+  const named = locationIds.slice(0, PLACES_NAMED_IN_A_CLAUSE - 1).map(placeAndDistrict);
+  return `${named.join(', or ')}, or one of ${locationIds.length - named.length} other places`;
 }
 
-/** The location kinds a crew holds, from its control rows: the other half of {@link UnlockContext}. */
-export function heldPlaceKindsOf(
-  locations: readonly { id: string; kind: LocationKind }[],
-  isHeld: (locationId: string) => boolean,
-): Set<LocationKind> {
-  const kinds = new Set<LocationKind>();
-  for (const location of locations) {
-    if (isHeld(location.id)) kinds.add(location.kind);
-  }
-  return kinds;
+/** A location as a clause names it: "the Kennels in Bonded Row". */
+export function placeAndDistrict(locationId: string): string {
+  const location = findLocation(locationId);
+  if (!location) return locationId;
+  const district = findDistrict(location.districtId);
+  return `${location.name}${district ? ` in ${district.name}` : ''}`;
 }
 
 /**
- * The doors by name, for the clause a locked card prints. Authored on the map rather than on a
- * kind (`unit_door`, Arca 2026-10-07), so the sentence names the place and the district.
+ * The doors by name, for the clause a locked card prints. Authored on the map (`unit_door`, Arca
+ * 2026-10-07), so the sentence names the place and the district.
  */
 export const DOOR_NAMES: Readonly<Record<string, string>> = {
   the_saint: "the Saint's Shrine in Saint's Rest",
@@ -224,7 +225,7 @@ export const DOOR_NAMES: Readonly<Record<string, string>> = {
   juggernauts: 'the Reliquary Lab in the Cloisters',
 };
 
-/** The units a location opens: by its kind, and by any door authored on it. */
+/** The units a location's own doors open (`unit_door`). */
 export function doorsOn(bonuses: readonly { kind: string; unitId?: string }[]): string[] {
   return bonuses.flatMap((bonus) =>
     bonus.kind === 'unit_door' && bonus.unitId !== undefined ? [bonus.unitId] : [],

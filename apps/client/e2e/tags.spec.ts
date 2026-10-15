@@ -37,7 +37,9 @@ async function openRoster(page: Page, tier: string): Promise<void> {
 /** The floating card, whichever tag opened it. */
 const CARD = '[role="tooltip"]';
 
-test('a modifier answers with its name and one line, and keeps the condition', async ({ page }) => {
+test('a modifier answers with its name and its one line, and nothing grey after it', async ({
+  page,
+}) => {
   await openRoster(page, 'heavy');
   // GUARD since 2026-10-07, when it replaced Dug In and Bulwark: one modifier on the defending
   // context, paying damage and vitality rather than two tags paying one each.
@@ -55,13 +57,10 @@ test('a modifier answers with its name and one line, and keeps the condition', a
   await expect(card).not.toContainText('What it does');
 
   /*
-   * The condition survived the trim.
-   *
-   * Reading the ask as "delete everything but the description" would have been the easy version
-   * and the wrong one: GUARD without "when holding ground" is a flat bonus, and the whole point
-   * of a modifier is that it is not one.
+   * And the grey "Counts ..." clause after it is gone too (maintainer, 2026-10-13): the description
+   * is the whole of a unit tag's hover. It was kept on 2026-09-08 and taken off on this ruling.
    */
-  await expect(card).toContainText('when holding ground');
+  await expect(card).not.toContainText('Counts when holding ground');
 
   // A torn scrap, not the window it replaced: the frame is the card's own, with no header bar.
   await expect(card.locator('.scrap')).toHaveCount(0);
@@ -180,6 +179,12 @@ test('gives every unit a Bonuses tag carrying the crew-wide lines and its own', 
   await expect(hounds.getByText('The Doghouse').first()).toBeVisible();
   // 10 crew-wide off the bill plus the Doghouse's own 10.
   await expect(page.getByTestId('unit-bonuses-total-cost')).toHaveText('20%');
+  // ...and the held ground's flat points on the sheet, each naming its plot (2026-10-13).
+  await expect(page.getByTestId('unit-ground-stats-cyber_dogs')).toContainText(
+    '+10 range (The Cloister Wall)',
+  );
+  await settleFonts(page);
+  await page.screenshot({ path: 'screenshots/unit-bonuses-ground.png' });
   await page.mouse.move(2, 2);
 
   await openRoster(page, 'rabble');

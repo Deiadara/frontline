@@ -43,7 +43,6 @@ import { blueprintForUnit } from '../blueprints/requirements.js';
 import { NOTORIETY_TO_FIELD } from '../economy/infamy.js';
 import { findUnit, isCombatUnit } from '../units/index.js';
 import { isUnitUnlocked } from '../units/unlocks.js';
-import type { LocationKind } from '../city/locations.js';
 import { FEATS, findFeat } from './catalog.js';
 import { MODIFICATIONS } from '../building/modifications.js';
 import { PAYROLL_PERCENT_PER_QUARTERS_LEVEL } from '../building/standing.js';
@@ -905,8 +904,8 @@ describe('the opening', () => {
       level: 5,
       modifications: [],
     })),
-    heldPlaceKinds: new Set<LocationKind>(),
     heldDoors: new Set<string>(),
+    heldPlaces: new Set<string>(),
     buildableVehicles: new Set<string>(),
     inventory: {},
     notoriety: 0,

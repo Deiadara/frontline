@@ -310,6 +310,17 @@ describe('the research tracks', () => {
     ).toBeInTheDocument();
   });
 
+  it('says the chair is settling in, not that research is 0.0% faster', async () => {
+    const head = F.research.head;
+    if (!head) throw new Error('the fixture has no Researcher');
+    stub({ ...F.research, head: { ...head, timeCutPercent: 0, addsPercent: 0, settled: false } });
+    await openTracks();
+    expect(
+      await screen.findByText('Settling in: takes nothing off the clock yet.'),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/0\.0% faster/)).toBeNull();
+  });
+
   it("prints the track officer's chair passive in the server's own words", async () => {
     const held = F.research.tracks.find((track) => track.passive !== null);
     if (!held?.passive) throw new Error('the fixture has no seated track officer');

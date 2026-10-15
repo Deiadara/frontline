@@ -1,13 +1,17 @@
 import {
+  LAMPS_COOLDOWN_MS,
   MAX_LOCATION_LEVEL,
   NOISE_SWITCH_COOLDOWN_MS,
   PAMPHLET_SWAP_CAPS,
   PAMPHLET_SWAP_COOLDOWN_MS,
-  baseBonusesOf,
   findLocation,
   findUnit,
   groundStateOf,
   isHeldBy,
+  lampsLit,
+  isCombatUnit,
+  isUnitUnlocked,
+  reactorChangesAt,
   spendResources,
   type Base,
   type GroundState,
@@ -15,7 +19,10 @@ import {
   type LocationControl,
 } from '@frontline/shared';
 import type { Repositories } from '../db/repos/index.js';
+import { adminCaps, adminWaives } from '../admin/mode.js';
 import { AppError } from '../errors.js';
+import { tallyLampsThrown, tallyReactorChosen } from '../feats/tally.js';
+import { unlockContextFor } from '../units/muster.js';
 
 /**
  * Arca's switches and pins (maintainer, 2026-10-06): what a holder does on a location's own
@@ -41,10 +48,18 @@ export function pamphletsUnlocked(control: LocationControl): boolean {
   return groundStateOf(control).pamphletsPinnedAt < control.level;
 }
 
-/** When the tower's switch may next be thrown, or null when it may be thrown now. */
-export function switchChangesAt(state: GroundState, now: Date): string | null {
+/**
+ * When a switch may next be thrown, or null when it may be thrown now: the Tolling Tower's, or
+ * Lampman's Row's at its own cooldown (`LAMPS_COOLDOWN_MS`), which keeps its state in the same
+ * fields.
+ */
+export function switchChangesAt(
+  state: GroundState,
+  now: Date,
+  cooldownMs: number = NOISE_SWITCH_COOLDOWN_MS,
+): string | null {
   if (state.switchedAt === null) return null;
-  const at = Date.parse(state.switchedAt) + NOISE_SWITCH_COOLDOWN_MS;
+  const at = Date.parse(state.switchedAt) + cooldownMs;
   return at > now.getTime() ? new Date(at).toISOString() : null;
 }
 
@@ -64,7 +79,7 @@ export function swappable(control: LocationControl): boolean {
 }
 
 function hasBonus(location: Location, kind: string): boolean {
-  return baseBonusesOf(location).some((bonus) => bonus.kind === kind);
+  return location.bonuses.some((bonus) => bonus.kind === kind);
 }
 
 /** The location and its row, for a holder doing something on its sheet. Refused in the player's words. */
@@ -72,7 +87,7 @@ function heldGround(
   repos: Repositories,
   base: Base,
   locationId: string,
-  kind: 'noise_switch' | 'pamphlets',
+  kind: 'noise_switch' | 'pamphlets' | 'lamps_switch' | 'reactor_choice',
   what: string,
 ): { location: Location; control: LocationControl } {
   const location = findLocation(locationId);
@@ -123,6 +138,78 @@ export function throwSwitch(
   }
   const next: LocationControl = { ...control, switchedOn: on, switchedAt: now.toISOString() };
   repos.city.put(next);
+  return next;
+}
+
+/**
+ * Lights or puts out Lampman's Row's lamps (`POST /city/lamps`, maintainer 2026-10-09). Holder
+ * only, and not within `LAMPS_COOLDOWN_MS` of the last throw. Asking for the state the lamps are
+ * already in is refused, since it would spend the cooldown on nothing. Out is the switch thrown
+ * (`lampsLit`), so a capture, which clears the switch, hands the lamps over lit.
+ */
+export function throwLamps(
+  repos: Repositories,
+  base: Base,
+  locationId: string,
+  lit: boolean,
+  now: Date,
+): LocationControl {
+  const { location, control } = heldGround(repos, base, locationId, 'lamps_switch', 'lamps');
+  if (lampsLit(control) === lit) {
+    throw new AppError(
+      'PLACE_UNAVAILABLE',
+      `The lamps on ${location.name} are already ${lit ? 'lit' : 'out'}`,
+    );
+  }
+  const changesAt = switchChangesAt(groundStateOf(control), now, LAMPS_COOLDOWN_MS);
+  if (changesAt !== null) {
+    throw new AppError(
+      'PLACE_UNAVAILABLE',
+      `The lamps were changed recently. They can be changed again in ${timeLeft(changesAt, now)}`,
+    );
+  }
+  const next: LocationControl = { ...control, switchedOn: !lit, switchedAt: now.toISOString() };
+  repos.city.put(next);
+  tallyLampsThrown(repos, base.id);
+  return next;
+}
+
+/**
+ * Names the Reactor Shed's RADIOACTIVE unit (`POST /city/reactor`, maintainer 2026-10-14). Holder
+ * only; a unit type the crew can field (unlocked, and one that fights); and not within
+ * `REACTOR_LOCK_MS` of the last choice. Naming the unit already chosen is refused, since it would
+ * spend the lock on nothing.
+ */
+export function chooseReactor(
+  repos: Repositories,
+  base: Base,
+  locationId: string,
+  unitId: string,
+  now: Date,
+): LocationControl {
+  const { location, control } = heldGround(repos, base, locationId, 'reactor_choice', 'reactor');
+  const unit = findUnit(unitId);
+  if (!unit || !isCombatUnit(unit) || !isUnitUnlocked(unit, unlockContextFor(repos, base))) {
+    throw new AppError('PLACE_UNAVAILABLE', 'You cannot field that unit');
+  }
+  const state = groundStateOf(control);
+  if (state.reactorUnit === unitId) {
+    throw new AppError('PLACE_UNAVAILABLE', `${unit.name} are already Radioactive`);
+  }
+  const changesAt = reactorChangesAt(state.reactorChosenAt, now);
+  if (changesAt !== null) {
+    throw new AppError(
+      'PLACE_UNAVAILABLE',
+      `${location.name}'s choice is locked. It can be changed again in ${timeLeft(changesAt, now)}`,
+    );
+  }
+  const next: LocationControl = {
+    ...control,
+    reactorUnit: unitId,
+    reactorChosenAt: now.toISOString(),
+  };
+  repos.city.put(next);
+  tallyReactorChosen(repos, base.id);
   return next;
 }
 
@@ -189,6 +276,8 @@ export function swapPamphlet(
   locationId: string,
   swap: { from: string; to: string },
   now: Date,
+  /** Testing mode: the swap is quoted and not charged (`admin/mode.ts`), like every other price. */
+  admin = false,
 ): { control: LocationControl; base: Base } {
   const { location, control } = heldGround(repos, base, locationId, 'pamphlets', 'wall');
   const state = groundStateOf(control);
@@ -210,12 +299,13 @@ export function swapPamphlet(
   }
   const pins = state.pamphlets.map((unitId) => (unitId === swap.from ? swap.to : unitId));
   checkPins(pins, pamphletCapacity(control));
-  if (base.resources.caps < PAMPHLET_SWAP_CAPS) {
+  // The one price in the game that still charged in testing mode (bug pass, 2026-10-11).
+  if (base.resources.caps < PAMPHLET_SWAP_CAPS && !adminWaives('cannot_afford', admin)) {
     throw new AppError('INSUFFICIENT_RESOURCES', `A swap costs ${PAMPHLET_SWAP_CAPS} caps`);
   }
   const paid: Base = {
     ...base,
-    resources: spendResources(base.resources, { caps: PAMPHLET_SWAP_CAPS }),
+    resources: spendResources(base.resources, { caps: adminCaps(PAMPHLET_SWAP_CAPS, admin) }),
   };
   const next: LocationControl = {
     ...control,

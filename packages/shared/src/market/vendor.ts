@@ -461,16 +461,23 @@ export function barterRateFor(level: number): number {
  * stays under 60, so the cut never falls below 40% of what it was.
  *
  * `discountPercent` is the raw sum of the crew's sources; the curve is applied here.
+ *
+ * `bonusPercent` is ground that makes him pay more (the Halt Market's `broker_rate`, maintainer
+ * 2026-10-09): a share more of whatever he would have handed back, after the Trader, so it is
+ * worth the same ten per cent to a crew with a perfect Trader as to one with none.
+ * `brokerPayoutRate` still holds the result under even on goods and under the supply run on caps.
  */
 export function brokerRate(
   level: number,
   discountPercent = 0,
   /** The working Trader's seat points, or null with the chair empty (`traderRates`). */
   traderPoints: number | null = null,
+  bonusPercent = 0,
 ): number {
   const cut = 1 - barterRateFor(level);
   const plain = 1 - cut * (1 - effectiveMarketDiscount(discountPercent) / 100);
-  return withoutFloatNoise(traderRates(traderPoints, plain, SUPPLY_MARKUP).worth);
+  const worth = traderRates(traderPoints, plain, SUPPLY_MARKUP).worth;
+  return withoutFloatNoise(worth * (1 + Math.max(0, bonusPercent) / 100));
 }
 
 /**
@@ -494,6 +501,11 @@ export function brokerPayoutRate(
   traderPoints: number | null = null,
   /** What the crew hands over. Caps in are priced against what caps out pay (see below). */
   give: ResourceKey | null = null,
+  /**
+   * The ground's cut off the supply run (the Long Bond): a cheaper run lowers the ceiling a sale
+   * for caps is held under, or buying there and selling here would come back ahead.
+   */
+  supplyCutPercent = 0,
 ): number {
   /*
    * A Trader past C+ pays over value (maintainer, 2026-10-04: "you start gaining resources ... and
@@ -508,11 +520,20 @@ export function brokerPayoutRate(
   if (want !== 'caps') {
     const into = Math.min(rate, 1);
     if (give !== 'caps') return into;
-    const out = brokerPayoutRate('caps', rate, discountPercent, traderPoints);
+    const out = brokerPayoutRate(
+      'caps',
+      rate,
+      discountPercent,
+      traderPoints,
+      null,
+      supplyCutPercent,
+    );
     return withoutFloatNoise(Math.min(into, 1 / out));
   }
   if (traderPoints !== null && traderPoints >= TRADER_EVEN_POINTS) return rate;
-  return withoutFloatNoise(Math.min(rate, supplyMarkup(discountPercent, traderPoints)));
+  return withoutFloatNoise(
+    Math.min(rate, supplyMarkup(discountPercent, traderPoints, supplyCutPercent)),
+  );
 }
 
 /**

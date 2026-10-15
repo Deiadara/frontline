@@ -19,13 +19,12 @@ import {
   liftedSheet,
   rightHandLift,
   MAX_RIGHT_HAND_LIFT,
-  MAX_OVERSEER_LIFT,
   peerLift,
   officerIsWorking,
   chairIsSettled,
   chairSettlesAt,
   FACTION_CARD_SPECS,
-  cardBonusPercent,
+  cardValue,
   type AttributeLift,
   type Attributes,
   type Commander,
@@ -44,6 +43,7 @@ import {
 } from '@frontline/shared';
 import type { Repositories } from '../db/repos/index.js';
 import { cardsAtTable } from '../factions/cards.js';
+import { overseerReceiptLiftedBy, seatedRightHand } from './overseer-lift.js';
 import { alliesOf } from '../city/holding.js';
 import { overseerMember, seatedMember } from '../roles/duties.js';
 
@@ -88,11 +88,31 @@ export function standingEffectsFor(
    * where the fight, the roster and the city view all take their standing from, so a switch
    * thrown on the tower's sheet reaches every one of them at once.
    */
-  total.ignoredLabels = territory.noiseSwitches.some(
-    (locationId) => controls.get(locationId)?.switchedOn === true,
-  )
-    ? ['noisy']
-    : [];
+  // ...and the labels its ground makes it immune to outright (the Frontier Chapel's Eerie).
+  total.ignoredLabels = [
+    ...new Set([
+      ...(territory.noiseSwitches.some(
+        (locationId) => controls.get(locationId)?.switchedOn === true,
+      )
+        ? (['noisy'] as const)
+        : []),
+      ...territory.labelImmunities,
+    ]),
+  ];
+  /*
+   * The Reactor Shed (2026-10-14): the unit type each held shed names is RADIOACTIVE, a mark the
+   * engine and the roster both read through `markedUnit`, the way a ground-granted mark is.
+   */
+  for (const locationId of territory.reactorSheds) {
+    const control = controls.get(locationId);
+    const unitId =
+      control && isHeldBy(control, base.id) ? groundStateOf(control).reactorUnit : null;
+    if (unitId === null) continue;
+    const held = total.unitMarks[unitId] ?? [];
+    if (!held.includes('radioactive')) {
+      total.unitMarks = { ...total.unitMarks, [unitId]: [...held, 'radioactive'] };
+    }
+  }
   total.pamphletUnits = [
     ...new Set(
       [...controls.values()]
@@ -115,12 +135,15 @@ export function standingEffectsFor(
   Object.assign(total, mergeCrewEffects(total, researchEffects(base.research.technologies)));
   /*
    * The table's cards (§L, `factions/cards.ts`). Each seat at the faction's table is a card
-   * responsible for one aspect of the faction, read off its holder's own sheet, and every member
+   * responsible for one aspect of the faction, read off its holder's Overseer as their Right Hand
+   * lifts them (2026-10-15), and every member
    * is paid on it: the leader's ace is what the whole table hits for. Folded here because here is
    * the one place every consumer of a crew's standing reads from, so a card that paid out
    * anywhere else would be a bonus some fights saw and others did not.
    */
-  for (const [channel, percent] of factionCardBonuses(repos, base)) total[channel] += percent;
+  for (const [channel, percent] of factionCardBonuses(repos, base, now)) {
+    total[channel] += percent;
+  }
   /*
    * §B7: the Gate, folded here because here is the only way into a fight.
    *
@@ -198,9 +221,9 @@ export function officerLiftRoom(repos: Repositories, base: Base, now: Date = new
    * built would make the answer depend on the order the officers were walked in.
    */
   // Settled in, too: a Right Hand seated in the last few hours lifts nobody yet (`chairSettlesAt`).
-  const rightHand =
-    fit.find((officer) => officer.role === 'right_hand' && chairIsSettled(officer, now)) ?? null;
-  const rightHandPoints = rightHand ? seatPoints(rightHand.attributes, 'right_hand') : null;
+  const seated = seatedRightHand(base.commanders, now);
+  const rightHand = seated?.officer ?? null;
+  const rightHandPoints = seated?.points ?? null;
   const ground = territoryEffectsFor(
     base.id,
     EVERY_LOCATION,
@@ -276,17 +299,6 @@ export function liftedOverseerReceipt(
 
 function overseerSheetLiftedBy(own: Attributes, from: string, rightHandPoints: number): Attributes {
   return overseerReceiptLiftedBy(own, from, rightHandPoints).attributes;
-}
-
-function overseerReceiptLiftedBy(
-  own: Attributes,
-  from: string,
-  rightHandPoints: number,
-): { attributes: Attributes; lift: AttributeLift[] } {
-  const flat = rightHandLift(rightHandPoints, MAX_OVERSEER_LIFT);
-  return liftedSheet(own, [
-    { from, groupFlat: { physical: flat, mental: flat, social: flat, technical: flat } },
-  ]);
 }
 
 /**
@@ -604,19 +616,23 @@ export function crewRoomFor(repos: Repositories, base: Base, now: Date = new Dat
 /**
  * What the crew's faction pays it, channel by channel, off the cards at its table.
  *
- * Nothing for a crew at no table. A seat is worth `cardBonusPercent` of its holder's mark on the
- * card's own channel; five seats can push five different channels, or an empty table none.
+ * Nothing for a crew at no table. A seat is worth `cardValue` of its holder's mark on each of the
+ * card's channels (maintainer, 2026-10-15), and nothing while the seat is in Onboarding.
  */
 export function factionCardBonuses(
   repos: Repositories,
   base: Base,
+  now: Date = new Date(),
 ): [NumericEffectChannel, number][] {
   const membership = repos.factions.membershipOf(base.ownerId);
   if (!membership) return [];
-  return [...cardsAtTable(repos, membership.factionId).values()].map((held) => [
-    FACTION_CARD_SPECS[held.card].channel,
-    cardBonusPercent(held.mark),
-  ]);
+  return [...cardsAtTable(repos, membership.factionId, now).values()]
+    .filter((held) => held.onboardingUntil === null)
+    .flatMap((held) =>
+      FACTION_CARD_SPECS[held.card].channels.map(
+        (channel) => [channel, cardValue(held.card, held.mark)] as [NumericEffectChannel, number],
+      ),
+    );
 }
 
 /**

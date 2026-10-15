@@ -50,7 +50,8 @@ describe('what the picker says the force can carry', () => {
  * the odds of the line they did not build. Measured on the shared engine on 2026-09-25: forty
  * Razors against the eighteen Wardens this screen estimates forecast at 0% bare and 77% with three
  * common cards fitted, which is the difference between "this is not a fight, it is a delivery" and
- * "the odds are with you" on the very same plan.
+ * "the odds are with you" on the very same plan. Sixteen Wardens since 2026-10-13, when Holds the
+ * Line stopped their morale dropping at all: eighteen read 0% and 2%, sixteen 0% and 68%.
  *
  * Asserted as a difference between two readings rather than against a recomputed number: working
  * the expected band out here with the same function the component calls would pass whether or not
@@ -63,7 +64,7 @@ describe('what the picker says the odds are', () => {
         title="Raid the Press"
         blurb="Who goes."
         army={{ razors: 40 }}
-        facingSize={18}
+        facingSize={16}
         {...(loadouts === undefined ? {} : { loadouts })}
         pending={false}
         error={null}

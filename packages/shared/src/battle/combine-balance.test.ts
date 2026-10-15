@@ -263,9 +263,12 @@ describe('the Combine ladder, at equal unit slots', () => {
     });
     // Within two since 2026-10-07: measured Suppressor 19, Juggernaut 17 at the Lab's top and 6 on
     // the bare ten-slot sheet. The regime's heavy is a shade ahead of the player's best, which is
-    // the ruling (ten slots, no Last Stand) rather than a drift to hide.
+    // the ruling (ten slots, no Last Stand) rather than a drift to hide. Within three since
+    // 2026-10-13: the Hollow Men took Holds the Line (maintainer), and a line whose morale never
+    // drops now walks through the Juggernauts (0 of 32 held) where the Suppressors still hold it
+    // (32 of 32), which is Suppressor 19, Juggernaut 16. One rival moved, by name, by a ruling.
     expect(player, `Suppressor ${combine}, Juggernaut ${player}`).toBeGreaterThanOrEqual(
-      combine - 2,
+      combine - 3,
     );
     expect(
       Math.abs(combine - player),
@@ -346,7 +349,7 @@ describe('the leaders, in and out of the fight', () => {
   it('is beaten by nobody in the CCS until he is off his plot', () => {
     const ccs = findDistrict('ccs');
     if (!ccs) throw new Error('no CCS');
-    const chapel = ccs.locations.find((one) => one.kind === 'combine_chapel');
+    const chapel = ccs.locations.find((one) => one.id === 'ccs-chapel');
     if (!chapel) throw new Error('no chapel');
     const garrison = startingGarrison(chapel, ccs);
     // He is standing in it, once, and he is the reason it is the last plot in the game.
@@ -354,7 +357,7 @@ describe('the leaders, in and out of the fight', () => {
     const crew = { razors: 70, juggernauts: 10 };
     const ground = battlefieldFor({
       locationName: chapel.name,
-      kind: chapel.kind,
+      ground: chapel,
       at: new Date('2026-09-20T12:00:00Z'),
     });
     const wins = Array.from({ length: 12 }, (_, seed) =>

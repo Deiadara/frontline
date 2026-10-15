@@ -21,7 +21,7 @@ import { PortraitFrame } from '../../components/ui/PortraitFrame';
 import { cn } from '../../lib/cn';
 import { useAnnouncedMarks, useDeltaMarks, xpBehind } from '../../lib/deltas';
 import type { LiveStatus } from '../../lib/live';
-import { useCrewStanding } from '../../lib/queries';
+import { useMe } from '../../lib/queries';
 import { badgeCount, type UnreadCounts } from '@frontline/shared';
 
 /**
@@ -163,8 +163,8 @@ export function TopHud({
   unread,
   live,
 }: TopHudProps) {
-  const standing = useCrewStanding();
-  const storagePercent = standing.data?.effects['storageCapacityPercent'] ?? 0;
+  const me = useMe();
+  const storagePercent = me.data?.productionYield?.storageCapacityPercent ?? 0;
   /*
    * Three shelves, not one, and caps are on none of them.
    *
@@ -176,7 +176,8 @@ export function TopHud({
   // §F2: with the crew's own storage bonus on top of the structure, which is how the settle fills it
   // (`accrueProduction`). Without it the bar read 112% full for a crew that had finished the
   // storage research, and the market refused to sell them anything into the space it did not know
-  // about. Its own query because the fold is not on the session payload.
+  // about. Off `/me`'s yield rather than the crew standing (2026-10-11): the standing is the
+  // people's fold alone, and the Undercroft Stores pay the ground's share into the yield.
   const bulk = storageCapacity(buildings, storagePercent);
   const ceiling = (kind: ResourceKey): number | 'uncapped' => {
     const room = storageCapacityFor(buildings, kind, bulk);

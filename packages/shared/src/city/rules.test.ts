@@ -6,9 +6,12 @@ import {
   type HoldBonus,
   type TerritoryEffects,
 } from './locations.js';
-import { combineEffects, mergeCrewEffects, noCrewEffects } from '../crew/effects.js';
+import { combineEffects, mergeCrewEffects, noCrewEffects, peerLift } from '../crew/effects.js';
+import { findPerk } from '../crew/perks.js';
+import { researchEffects } from '../research/tracks.js';
+import { findLocation } from './atlas.js';
 import { creditedLevel, buildingCost } from '../building/cost.js';
-import { ridingUnitSlots, unitColumnSpeed } from '../units/catalog.js';
+import { ridingGroups, ridingUnitSlots, unitColumnSpeed } from '../units/catalog.js';
 import { bareBattlefield } from '../battle/battlefield.js';
 import { markedUnit, simulate, standsInLine, type Simulation } from '../battle/engine.js';
 import { findUnit, type Army, type UnitSpec } from '../units/index.js';
@@ -58,9 +61,8 @@ const fight = (
 describe('every new kind says what it is in one line', () => {
   const LINES: readonly [HoldBonus, string][] = [
     [{ kind: 'carriers_fight' }, 'porters fight'],
-    [{ kind: 'any_ride' }, 'anything can be put on a machine'],
     [{ kind: 'steady_nerve' }, 'a stack that breaks shakes nobody'],
-    [{ kind: 'unit_mark', unitId: 'ironsides', mark: 'stalwart' }, 'Holds the Line for one unit'],
+    [{ kind: 'unit_mark', unitId: 'ironsides', mark: 'stalwart' }, 'Holds the Line for Ironsides'],
   ];
 
   it('prints the catalogue label rather than the field name', () => {
@@ -73,7 +75,6 @@ describe('the switches are permissions, not amounts', () => {
     expect(noTerritoryEffects().carriersFight).toBe(false);
     expect(fold({ kind: 'carriers_fight' }).carriersFight).toBe(true);
     expect(fold({ kind: 'carriers_fight' }, { kind: 'carriers_fight' }).carriersFight).toBe(true);
-    expect(fold({ kind: 'any_ride' }).anyRide).toBe(true);
     expect(fold({ kind: 'steady_nerve' }).steadyNerve).toBe(true);
   });
 
@@ -161,19 +162,59 @@ describe('a mark granted to a unit that was not written with one', () => {
   });
 });
 
-describe('a machine for the things there is no seat for', () => {
-  it('turns a walking sheet into a riding one', () => {
+describe('a sheet that never rides', () => {
+  /*
+   * `no_ride` is absolute (maintainer, 2026-10-15): the ride waiver left the game with every one of
+   * its four sources, and nothing puts the Colossus on a machine, on any road or rail.
+   */
+  it('walks the Colossus whatever the crew holds, and seats nobody in its place', () => {
     expect(unitColumnSpeed('the_colossus').rides).toBe(false);
-    expect(unitColumnSpeed('the_colossus', { anyRide: true }).rides).toBe(true);
-  });
-
-  it('counts the unit slots that now fill a seat, not the heads', () => {
-    const colossus = findUnit('the_colossus')?.unitSlots ?? 0;
-    expect(colossus).toBeGreaterThan(1);
+    expect(findUnit('the_colossus')?.unitSlots ?? 0).toBeGreaterThan(1);
     // Walking, the Colossus fills nothing: five Razors at a slot each is the whole of it.
     expect(ridingUnitSlots({ the_colossus: 1, razors: 5 })).toBe(5);
-    // Riding, it fills what it costs to house, which is the point of the currency.
-    expect(ridingUnitSlots({ the_colossus: 1, razors: 5 }, true)).toBe(5 + colossus);
+    expect(ridingGroups({ the_colossus: 1, razors: 5 })).toEqual([{ unitSlots: 1, count: 5 }]);
+  });
+});
+
+describe('what the waiver`s sources pay instead (maintainer, 2026-10-15)', () => {
+  it('makes Load Plans 10% faster machines and Crane Hand 10% more seats', () => {
+    expect(researchEffects(['tech_load_plans']).vehicleSpeedPercent).toBe(10);
+    expect(findPerk('crane_hand')?.bonus).toEqual({ kind: 'vehicle_capacity', percent: 10 });
+    expect(peerLift(['crane_hand']).vehicleCapacityPercent).toBe(10);
+  });
+
+  it('leaves the two yards their vitality and nothing else', () => {
+    for (const id of ['steelbelt-bonefield', 'blacksite-motorpool']) {
+      expect(findLocation(id)?.bonuses, id).toEqual([{ kind: 'unit_vitality', percent: 10 }]);
+    }
+  });
+});
+
+describe('the two folds agree about an officer floor', () => {
+  /*
+   * The perk fold keeps the lower bar and adds the points when two sources floor one attribute.
+   * The Lab's merge overlaid the table instead, so a second rule on strategy replaced the first
+   * rather than joining it: eight points bought and gone, with no channel readout to show it.
+   */
+  it('adds the points and keeps the lower bar rather than overlaying the rule', () => {
+    const perk = {
+      ...noCrewEffects(),
+      officerAttributeAtLeast: { strategy: { flat: 8, threshold: 50 } },
+    };
+    const lab = {
+      ...noCrewEffects(),
+      officerAttributeAtLeast: {
+        strategy: { flat: 5, threshold: 60 },
+        medicine: { flat: 3, threshold: 40 },
+      },
+    };
+    for (const merged of [mergeCrewEffects(perk, lab), mergeCrewEffects(lab, perk)]) {
+      expect(merged.officerAttributeAtLeast.strategy).toEqual({ flat: 13, threshold: 50 });
+      expect(merged.officerAttributeAtLeast.medicine).toEqual({ flat: 3, threshold: 40 });
+    }
+    expect(mergeCrewEffects(perk, noCrewEffects()).officerAttributeAtLeast).toEqual(
+      perk.officerAttributeAtLeast,
+    );
   });
 });
 
@@ -186,14 +227,13 @@ describe('the two folds agree about a switch', () => {
    */
   it('ors them rather than turning them into an empty record', () => {
     const off = noCrewEffects();
-    const on = { ...noCrewEffects(), anyRide: true, carriersFight: true, steadyNerve: true };
+    const on = { ...noCrewEffects(), carriersFight: true, steadyNerve: true };
 
     for (const merged of [mergeCrewEffects(off, off), combineEffects(noTerritoryEffects(), off)]) {
-      expect(merged.anyRide).toBe(false);
       expect(merged.carriersFight).toBe(false);
       expect(merged.steadyNerve).toBe(false);
     }
-    expect(mergeCrewEffects(off, on).anyRide).toBe(true);
+    expect(mergeCrewEffects(off, on).steadyNerve).toBe(true);
     expect(mergeCrewEffects(on, off).carriersFight).toBe(true);
     expect(combineEffects({ ...noTerritoryEffects(), steadyNerve: true }, off).steadyNerve).toBe(
       true,

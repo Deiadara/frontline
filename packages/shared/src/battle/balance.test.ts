@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { PLAYER_UNITS, type UnitSpec } from '../units/index.js';
 import { bareBattlefield, battlefieldFor, type Battlefield } from './battlefield.js';
 import { simulate } from './engine.js';
-import { noTerritoryEffects } from '../city/index.js';
+import { findLocation, noTerritoryEffects } from '../city/index.js';
 
 /**
  * Whether the roster is a **web** or a **ladder**.
@@ -46,25 +46,26 @@ const RUNS = 3;
  */
 const GROUNDS: Battlefield[] = [
   bareBattlefield(),
-  ...(
-    [
-      'sewer_junction',
-      'foundry',
-      'barricade',
-      'high_ground',
-      'tavern',
-      'war_machine_graveyard',
-      'black_clinic',
-      'rail_yard',
-    ] as const
-  ).map((kind) =>
-    battlefieldFor({
-      locationName: kind,
-      kind,
+  // A sewer, a foundry, a barricade, high ground, a tavern, a war machine graveyard, a black
+  // clinic and a rail yard.
+  ...[
+    'undergrid-junction',
+    'annexes-coldrow',
+    'blacksite-outer',
+    'chrome-row-overlook',
+    'chrome-row-anvil',
+    'steelbelt-bonefield',
+    'blacksite-blackward',
+    'glasshouse-fields-haulers',
+  ].map((id) => {
+    const location = findLocation(id)!;
+    return battlefieldFor({
+      locationName: location.name,
+      ground: location,
       at: new Date('2026-08-20T12:00:00.000Z'),
       weather: 'normal',
-    }),
-  ),
+    });
+  }),
 ];
 
 // The player's roster. A Combine sheet has no gate, so its depth is nothing and the question

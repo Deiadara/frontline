@@ -145,7 +145,7 @@ function PayrollBook({ base }: { base: Base }) {
       buildingLevel(base.buildings, CENTRAL_BUILDING),
       // The Quarters' own book plus what the crew's ground adds (the Printworks held whole,
       // 2026-10-07): `payrollPercent` is the territory's share of the same channel.
-      payrollBonusPercent(base.buildings) + (effects?.['payrollPercent'] ?? 0),
+      payrollBonusPercent(base.buildings) + (standing?.payrollPercent ?? 0),
       effects?.['payrollStepDiscountPercent'],
     );
 
@@ -158,6 +158,18 @@ function PayrollBook({ base }: { base: Base }) {
             caps
           </span>
         </Figure>
+        {/* Every bid holds its wage until the close, won or lost (maintainer, 2026-10-04), and the
+            figure below has it taken off: said here so the two do not look like a sum gone wrong. */}
+        {ledger.heldByBids > 0 && (
+          <Figure label="Held by tonight's bids">
+            <span
+              className="font-display text-sm font-semibold tabular-nums text-ink-200"
+              data-testid="payroll-held"
+            >
+              {ledger.heldByBids.toLocaleString('en-US')}
+            </span>
+          </Figure>
+        )}
         <Figure label="Left to promise">
           <span className="font-display text-sm font-semibold tabular-nums text-brass-300">
             {ledger.available.toLocaleString('en-US')}

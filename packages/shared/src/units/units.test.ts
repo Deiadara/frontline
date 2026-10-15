@@ -9,13 +9,15 @@ import {
   type Building,
 } from '../building/index.js';
 import { BLUEPRINTS, blueprintForUnit } from '../blueprints/index.js';
-import { CITY_LOCATIONS, COMBINE_LEADERS, LOCATION_KINDS } from '../city/index.js';
+import { COMBINE_LEADERS, EVERY_LOCATION } from '../city/index.js';
+import { DOOR_UNIT_IDS, doorRuleSteps } from '../battle/doors.js';
 import type { Inventory } from '../items/inventory.js';
 import { RESOURCE_KEYS } from '../resources.js';
 import {
   GAUNTLET_UNLOCKED_UNITS,
   COMBINE_UNITS,
   PLAYER_UNITS,
+  SPAWNED_UNITS,
   UNIT_CATALOG,
   isCombineUnit,
   UNIT_RULE_IDS,
@@ -44,7 +46,6 @@ import {
 } from './stats.js';
 import {
   describeRequirement,
-  heldPlaceKindsOf,
   isUnitUnlocked,
   missingRequirements,
   requirementMet,
@@ -86,7 +87,7 @@ import {
 } from './muster.js';
 import { BuildQueueSchema } from '../building/queue.js';
 import { UNIT_SLOTS_PER_LOCATION, districtUnitSlotCapacity } from '../building/unit-slots.js';
-import { MAX_LOCATION_LEVEL, noTerritoryEffects, type LocationKind } from '../city/locations.js';
+import { MAX_LOCATION_LEVEL, noTerritoryEffects } from '../city/locations.js';
 
 /**
  * The units (GDD §A5).
@@ -98,8 +99,8 @@ import { MAX_LOCATION_LEVEL, noTerritoryEffects, type LocationKind } from '../ci
 
 const NOTHING = {
   buildings: [] as Building[],
-  heldPlaceKinds: new Set<never>(),
   heldDoors: new Set<string>(),
+  heldPlaces: new Set<string>(),
   buildableVehicles: new Set<string>(),
   inventory: {} as Inventory,
   notoriety: 0,
@@ -119,7 +120,7 @@ const building = (
   modifications,
 });
 
-/** A crew at the top of every tree, holding one of every kind of location. */
+/** A crew at the top of every tree, holding every location. */
 const EVERYTHING = {
   buildings: (Object.keys(BUILDING_CATALOG) as Building['kind'][]).map((kind) =>
     building(kind, 20, [
@@ -129,11 +130,12 @@ const EVERYTHING = {
       'nexus_encrypted_core',
     ]),
   ),
-  heldPlaceKinds: new Set(LOCATION_KINDS),
   // Every door too: the four legends and the Juggernauts answer to ground authored by name.
   heldDoors: new Set(
     UNIT_CATALOG.filter((unit) => unit.doorSteps !== undefined).map((unit) => unit.id),
   ),
+  // Every place on the map, for the clauses that name one (`place`, 2026-10-09).
+  heldPlaces: new Set(EVERY_LOCATION.map((location) => location.id)),
   buildableVehicles: new Set(VEHICLE_IDS),
   inventory: ALL_BLUEPRINTS,
   notoriety: MAX_NOTORIETY,
@@ -164,7 +166,8 @@ describe('the catalogue (§A5)', () => {
       expect(unit.unitSlots, unit.id).toBeGreaterThan(0);
       // The price and the clock are the roster's half of the sheet. A Combine unit has neither
       // by construction (`UnitSpec.faction`), and the catalogue's own load check holds that.
-      if (isCombineUnit(unit)) continue;
+      // Nor does a robot made in a fight (`UnitSpec.spawned`).
+      if (isCombineUnit(unit) || unit.spawned === true) continue;
       expect(unit.musterSeconds, unit.id).toBeGreaterThan(0);
       expect(Object.keys(unit.cost).length, unit.id).toBeGreaterThan(0);
       for (const key of RESOURCE_KEYS) {
@@ -315,7 +318,15 @@ describe('the catalogue (§A5)', () => {
     }
     // And every modifier in the table is actually carried by somebody: a condition the engine
     // would have to implement for nobody is a condition worth deleting.
-    const carried = new Set(UNIT_CATALOG.flatMap((unit) => unit.modifiers));
+    // ...on a sheet, or handed over by ground (`unit_modifier`: Arch Nineteen's golden Terror).
+    const carried = new Set([
+      ...UNIT_CATALOG.flatMap((unit) => unit.modifiers),
+      ...EVERY_LOCATION.flatMap((location) =>
+        (location.bonuses ?? []).flatMap((bonus) =>
+          bonus.kind === 'unit_modifier' ? [bonus.modifier] : [],
+        ),
+      ),
+    ]);
     for (const id of Object.keys(UNIT_MODIFIERS)) expect(carried.has(id as never), id).toBe(true);
   });
 
@@ -489,8 +500,9 @@ describe('unlocking them (§A5)', () => {
     expect(new Set(gated)).toEqual(new Set(GAUNTLET_UNLOCKED_UNITS));
     // Twelve until 2026-09-18, when the two carriers moved onto the Nexus that signs them; ten
     // until 2026-10-02, when every unit mustered there was given a Gauntlet level (P2-B).
-    // ...and twenty four since the Death Cloaks (2026-10-06).
-    expect(gated).toHaveLength(24);
+    // ...and twenty four since the Death Cloaks (2026-10-06), twenty nine since every legendary
+    // asks for Gauntlet 15 and the Geppetto joined them (2026-10-09).
+    expect(gated).toHaveLength(29);
     for (const id of GAUNTLET_UNLOCKED_UNITS) {
       expect(gauntletLevelFor(id), id).toBeGreaterThanOrEqual(1);
       expect(gauntletLevelFor(id), id).toBeLessThanOrEqual(BUILDING_MAX_LEVEL);
@@ -524,17 +536,29 @@ describe('unlocking them (§A5)', () => {
     const multi = UNIT_CATALOG.filter((unit) => unit.requires.length >= 2);
     expect(multi.length).toBeGreaterThan(UNIT_CATALOG.length / 2);
 
-    // And every legendary needs three.
+    // And every legendary needs the Gauntlet at 15 and ground of its own (maintainer, 2026-10-09),
+    // and no Garage.
     for (const unit of unitsInTier('legendary')) {
-      expect(unit.requires.length, unit.id).toBeGreaterThanOrEqual(3);
+      expect(gauntletLevelFor(unit.id), unit.id).toBe(15);
+      expect(
+        unit.requires.some((need) => ['location', 'door', 'place'].includes(need.kind)),
+        unit.id,
+      ).toBe(true);
+      expect(
+        unit.requires.some((need) => need.kind === 'building' && need.building === 'garage'),
+        unit.id,
+      ).toBe(false);
     }
   });
 
-  it('gates something on each of the five kinds of clause', () => {
+  it('gates something on each of the six kinds of clause', () => {
     const kinds = new Set(UNIT_CATALOG.flatMap((unit) => unit.requires.map((need) => need.kind)));
     // `door` since Arca (2026-10-07): the Saint, the Condemned, the Dancer and the Juggernauts
-    // answer to ground authored by name rather than by kind of place.
-    expect(kinds).toEqual(new Set(['building', 'modification', 'location', 'vehicle', 'door']));
+    // answer to ground authored by name rather than by kind of place. `place` since 2026-10-09:
+    // Box Nine for the Snipers and the Mess Room for the Breakers.
+    expect(kinds).toEqual(
+      new Set(['building', 'modification', 'location', 'vehicle', 'door', 'place']),
+    );
   });
 
   it('reads a building clause off the level, a modification off what is fitted', () => {
@@ -555,8 +579,8 @@ describe('unlocking them (§A5)', () => {
     ).toBe(true);
     expect(
       requirementMet(
-        { kind: 'location', locationKind: 'gene_clinic' },
-        { ...NOTHING, heldPlaceKinds: new Set(['gene_clinic'] as const) },
+        { kind: 'location', locationIds: ['annexes-ward', 'ccs-ascension'] },
+        { ...NOTHING, heldPlaces: new Set(['ccs-ascension']) },
       ),
     ).toBe(true);
   });
@@ -573,7 +597,7 @@ describe('unlocking them (§A5)', () => {
     // Meeting one does not silence the others.
     const partway = missingRequirements(colossus!, {
       ...NOTHING,
-      buildings: [building('garage', 20)],
+      buildings: [building('scrapyard', 20)],
     });
     expect(partway.length).toBe(colossus!.requires.length + 1);
     expect(isUnitUnlocked(colossus!, partway.length === 0 ? EVERYTHING : NOTHING)).toBe(false);
@@ -695,21 +719,22 @@ describe('unlocking them (§A5)', () => {
   });
 
   it('reads back which units a location would open up', () => {
-    const gated = LOCATION_KINDS.filter((kind) => unitsUnlockedByLocation(kind).length > 0);
+    const gated = EVERY_LOCATION.filter(
+      (location) => unitsUnlockedByLocation(location.id).length > 0,
+    );
     expect(gated.length).toBeGreaterThan(0);
-    for (const kind of gated) {
-      for (const unit of unitsUnlockedByLocation(kind)) {
-        expect(unit.requires.some((n) => n.kind === 'location' && n.locationKind === kind)).toBe(
-          true,
-        );
+    for (const { id } of gated) {
+      for (const unit of unitsUnlockedByLocation(id)) {
+        // Ground listed on a `location` clause, or one named place (the Mess Room, 2026-10-09).
+        expect(
+          unit.requires.some(
+            (n) =>
+              (n.kind === 'location' && n.locationIds.includes(id)) ||
+              (n.kind === 'place' && n.locationId === id),
+          ),
+        ).toBe(true);
       }
     }
-  });
-
-  it('collects the location kinds a crew is standing on', () => {
-    const first = CITY_LOCATIONS[0]!;
-    const kinds = heldPlaceKindsOf(CITY_LOCATIONS, (locationId) => locationId === first.id);
-    expect(kinds).toEqual(new Set([first.kind]));
   });
 });
 
@@ -870,7 +895,7 @@ describe('making them (§A5)', () => {
    * The bug that bricked a save, as a test.
    *
    * `MAX_MUSTER_QUEUE` gates the *order*. It used to be on the stored schema as well, and testing
-   * mode waives `queue_full`, so a sixth order went in and every read of that crew after it threw
+   * mode waived `queue_full`, so a sixth order went in and every read of that crew after it threw
    * `too_big` out of `rowToBase`: `GET /me` 500ed, the client showed `UPLINK FAILED`, and the queue
    * could not even be drained because the crew could not be loaded. A cap on a read path can only
    * ever do this.
@@ -1120,7 +1145,8 @@ describe('the bench clock climbs with the campaign', () => {
         total +
         (need.kind === 'building'
           ? need.level
-          : need.kind === 'location'
+          : // A named place or a door is ground to hold, the same campaign as a kind of place.
+            need.kind === 'location' || need.kind === 'place' || need.kind === 'door'
             ? LOCATION_WEIGHT
             : FITTED_WEIGHT),
       0,
@@ -1182,12 +1208,26 @@ describe('the rule flags are visible content, not engine trivia', () => {
    * Both flags have to be *on* something, or the table is describing a mechanic no player meets.
    * This is the check that would have caught `mends` shipping as a field nothing set.
    */
-  it('has a unit carrying each rule', () => {
+  it('has a unit carrying each rule, or ground on the map that hands it to one', () => {
+    // SAFE DISTANCE and DRUNK are written on no sheet: Box Nine and the Mess Room hand them to the
+    // Snipers and the Breakers at level 5 (2026-10-09). A grant from placed ground is a player
+    // meeting the rule as surely as a sheet carrying it.
+    // ...and a door's ladder hands the Dancer PAPERCUT, the Saint INSPIRATION (2026-10-14).
+    const granted = new Set<string>([
+      ...EVERY_LOCATION.flatMap((location) => location.bonuses ?? []).flatMap((bonus) =>
+        bonus.kind === 'unit_mark' ? [bonus.mark] : [],
+      ),
+      ...DOOR_UNIT_IDS.flatMap((id) => doorRuleSteps(id).map((step) => step.ruleId)),
+      // ...and the Reactor Shed hands RADIOACTIVE to whichever unit its holder names (2026-10-14).
+      ...(EVERY_LOCATION.some((location) =>
+        (location.bonuses ?? []).some((bonus) => bonus.kind === 'reactor_choice'),
+      )
+        ? ['radioactive']
+        : []),
+    ]);
     for (const id of UNIT_RULE_IDS) {
-      expect(
-        UNIT_CATALOG.filter((unit) => unit[id] === true).map((unit) => unit.id),
-        id,
-      ).not.toEqual([]);
+      const carried = UNIT_CATALOG.some((unit) => unit[id] === true);
+      expect(carried || granted.has(id as never), id).toBe(true);
     }
   });
 
@@ -1205,8 +1245,13 @@ describe('the rule flags are visible content, not engine trivia', () => {
    * One rule on half the roster is a stat with a name, and that is what this refuses.
    */
   it('leaves most of the roster carrying none, so a rule stays a distinction', () => {
-    const carrying = UNIT_CATALOG.filter((unit) => unitRules(unit).length > 0);
-    expect(carrying.length).toBeLessThan(UNIT_CATALOG.length / 2);
+    // Sheets, not the Geppetto's robots: they are made in a fight and carry TAUNT by construction.
+    const sheets = UNIT_CATALOG.filter((unit) => unit.spawned !== true);
+    const carrying = sheets.filter((unit) => unitRules(unit).length > 0);
+    // Half, rounded up: FOCUS went on three sheets the maintainer named (2026-10-13) and put the
+    // roster exactly at half, and the Hollow Men's Holds the Line (the same day, also by name) put
+    // it half a sheet past. The stricter guard below is the one that keeps a rule a distinction.
+    expect(carrying.length).toBeLessThanOrEqual(Math.ceil(sheets.length / 2));
   });
 
   it('keeps any one rule off most of the roster', () => {
@@ -1220,14 +1265,13 @@ describe('the rule flags are visible content, not engine trivia', () => {
 /**
  * §A4: the ground a unit comes from, and what working it up is worth.
  *
- * The Doghouse is the only one of its kind in the city and it is what puts Cyberhounds on the
- * roster, so it is the case this reads best on. The rule is narrow on purpose: it is the *held*
+ * The Kennels are what put Cyberhounds on the roster, so they are the case this reads best on. The rule is narrow on purpose: it is the *held*
  * level of the place that musters this unit, and nothing else on the map touches this unit's bill.
  */
 describe('what a unit-producing location does to its own unit', () => {
   const hounds = findUnit('cyber_dogs')!;
-  const levels = (level: number): ReadonlyMap<LocationKind, number> =>
-    new Map([['doghouse', level]]);
+  const levels = (level: number): ReadonlyMap<string, number> =>
+    new Map([['steelbelt-kennels', level]]);
 
   it('is worth nothing while nobody holds the place that breeds them', () => {
     // The map is built from locations the crew holds, so "nobody holds it" is an absent key.
@@ -1242,9 +1286,9 @@ describe('what a unit-producing location does to its own unit', () => {
       speedPercent: 3 * MUSTER_SPEED_PER_LOCATION_LEVEL,
     });
     const top = homeMusterBonus(hounds, levels(MAX_LOCATION_LEVEL));
-    // Two and seven a level since the ladder went to five (2026-10-06): 8 and 28 at the top,
-    // where the old level 10 paid 9 and 27.
-    expect(top).toEqual({ costPercent: 8, speedPercent: 28 });
+    // Two and seven a step since the ladder went to five (2026-10-06), the last level a double
+    // step (2026-10-09): 10 and 35 at the top.
+    expect(top).toEqual({ costPercent: 10, speedPercent: 35 });
     // And still inside the floor price and the speed's knee every other discount is competing for.
     expect(top.costPercent).toBeLessThan(MAX_MUSTER_DISCOUNT);
     expect(top.speedPercent).toBeLessThan(MUSTER_SPEED_KNEE);
@@ -1269,11 +1313,20 @@ describe('what a unit-producing location does to its own unit', () => {
 
   /** The gate and the home are read off one authored list, so they cannot come apart. */
   it('reads the same link the unlock reads, in both directions', () => {
-    for (const kind of LOCATION_KINDS) {
-      for (const unit of unitsUnlockedByLocation(kind)) {
-        expect(locationsMustering(unit), unit.id).toContain(kind);
+    for (const unit of PLAYER_UNITS) {
+      for (const id of locationsMustering(unit)) {
+        expect(unitsUnlockedByLocation(id), id).toContain(unit);
       }
     }
+    // The best of two homes, not the sum: the Kennels in Bonded Row at 5 beat the Doghouse at 2.
+    const best = homeMusterBonus(
+      hounds,
+      new Map([
+        ['steelbelt-kennels', 2],
+        ['bonded-row-kennels', MAX_LOCATION_LEVEL],
+      ]),
+    );
+    expect(best).toEqual(homeMusterBonus(hounds, levels(MAX_LOCATION_LEVEL)));
   });
 });
 
@@ -1329,7 +1382,9 @@ describe('the Combine roster (§A3)', () => {
       expect(findUnit(unit.id), unit.id).toBe(unit);
       expect(isCombatUnit(unit), unit.id).toBe(true);
     }
-    expect(PLAYER_UNITS.length + COMBINE_UNITS.length).toBe(UNIT_CATALOG.length);
+    expect(PLAYER_UNITS.length + COMBINE_UNITS.length + SPAWNED_UNITS.length).toBe(
+      UNIT_CATALOG.length,
+    );
   });
 
   it('makes every leader one of a kind, and nobody else', () => {

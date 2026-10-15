@@ -14,12 +14,10 @@ import { UNIT_SLOTS_PER_LOCATION, UNIT_SLOTS_PER_LOCATION_LEVEL } from '../build
 import type { District } from './districts.js';
 import { findDistrict, unifiedBonusFor } from './atlas.js';
 import {
-  LOCATION_CATALOG,
   MAX_LOCATION_LEVEL,
   applyHoldBonus,
-  baseBonusesOf,
   bonusesAt,
-  clampLevel,
+  levelSteps,
   noTerritoryEffects,
   type Location,
   type TerritoryEffects,
@@ -118,6 +116,12 @@ export const LocationControlSchema = z.object({
    * named defender moved to somebody else because of a fight in another district.
    */
   heldSince: IsoDateTimeSchema.nullable().optional(),
+  /**
+   * The Reactor Shed (2026-10-14): the unit type the holder made RADIOACTIVE, and when, for the
+   * lock on changing it (`REACTOR_LOCK_MS`). Cleared with the rest when the ground changes hands.
+   */
+  reactorUnit: z.string().min(1).nullable().optional(),
+  reactorChosenAt: IsoDateTimeSchema.nullable().optional(),
 });
 export type LocationControl = z.infer<typeof LocationControlSchema>;
 
@@ -131,6 +135,8 @@ export interface GroundState {
   trophies: Record<string, number>;
   trophiesSince: string | null;
   heldSince: string | null;
+  reactorUnit: string | null;
+  reactorChosenAt: string | null;
 }
 
 export function groundStateOf(control: LocationControl): GroundState {
@@ -143,6 +149,8 @@ export function groundStateOf(control: LocationControl): GroundState {
     trophies: control.trophies ?? {},
     trophiesSince: control.trophiesSince ?? null,
     heldSince: control.heldSince ?? null,
+    reactorUnit: control.reactorUnit ?? null,
+    reactorChosenAt: control.reactorChosenAt ?? null,
   };
 }
 
@@ -157,6 +165,8 @@ export function clearedGroundState(now: Date): GroundState {
     trophies: {},
     trophiesSince: now.toISOString(),
     heldSince: now.toISOString(),
+    reactorUnit: null,
+    reactorChosenAt: null,
   };
 }
 
@@ -179,7 +189,7 @@ export function garrisonSize(control: LocationControl): number {
 /**
  * What a raider has to beat to take this location.
  *
- * Two terms, and each is something somebody chose: the ground itself (the catalogue's
+ * Two terms, and each is something somebody chose: the ground itself (the location's
  * `baseDefense`) and how many of them are standing on it. Held by nobody, it is the ground alone,
  * which is why an unoccupied location is worth walking into early. Dug-in fortification was a
  * third until it left the game (maintainer, 2026-09-26).
@@ -187,7 +197,7 @@ export function garrisonSize(control: LocationControl): number {
 export const DEFENSE_PER_GARRISON_UNIT = 0.4;
 
 export function locationDefense(location: Location, control: LocationControl): number {
-  const ground = LOCATION_CATALOG[location.kind].baseDefense;
+  const ground = location.baseDefense;
   const standing = garrisonSize(control) * DEFENSE_PER_GARRISON_UNIT;
   return Math.round((ground + standing) * 10) / 10;
 }
@@ -306,7 +316,7 @@ export function tollingTowerNoise(
       control !== undefined &&
       control.holder.kind === 'crew' &&
       groundStateOf(control).switchedOn &&
-      baseBonusesOf(location).some((bonus) => bonus.kind === 'noise_switch')
+      location.bonuses.some((bonus) => bonus.kind === 'noise_switch')
     );
   });
   return on ? [envLabel('noisy', NOISE_SWITCH_TIER)] : [];
@@ -373,14 +383,19 @@ export function territoryEffectsFor(
     // catalogue's own `unit_slots` bonuses are a third that scales like everything else. See
     // `building/unit-slots.ts` for why the three are kept apart.
     effects.unitSlotBonus +=
-      UNIT_SLOTS_PER_LOCATION + UNIT_SLOTS_PER_LOCATION_LEVEL * (clampLevel(control.level) - 1);
+      UNIT_SLOTS_PER_LOCATION + UNIT_SLOTS_PER_LOCATION_LEVEL * levelSteps(control.level);
     // At the level it has been worked up to (§A4): the whole reason to pour resources into
     // ground you might lose. `bonusesAt` is the only reader of `LEVEL_SCALE`, so a location's
     // worth and the number on its card cannot disagree.
     for (const bonus of bonusesAt(location, control.level)) {
       // Paid only while the district is whole (the Saint's Inn's doubling), by faction.
       if (bonus.whenDistrictWhole && !isWhole(location.districtId)) continue;
-      applyHoldBonus(effects, bonus, { districtId: location.districtId, locationId: location.id });
+      applyHoldBonus(effects, bonus, {
+        districtId: location.districtId,
+        locationId: location.id,
+        cityId: findDistrict(location.districtId)?.cityId,
+        locationName: location.name,
+      });
     }
   }
 
@@ -404,7 +419,12 @@ export function territoryEffectsFor(
   for (const districtId of payable) {
     if (!isWhole(districtId)) continue;
     const unified = unifiedBonusFor(districtId);
-    if (unified) applyHoldBonus(effects, unified.bonus, { districtId });
+    if (unified) {
+      applyHoldBonus(effects, unified.bonus, {
+        districtId,
+        cityId: findDistrict(districtId)?.cityId,
+      });
+    }
   }
 
   return effects;
@@ -412,15 +432,26 @@ export function territoryEffectsFor(
 
 /**
  * What a crew's mission speed comes to on a job in `areaId`: the figure that pays everywhere, plus
- * whatever pays on this one district's board alone (the Printworks' tunnels). The misc board
- * belongs to no district, so it gets the first alone.
+ * whatever pays on this one district's board alone (the Printworks' tunnels), plus whatever pays on
+ * every job in its city (the Gantry Walk). The misc board belongs to no district, so it gets no
+ * district's cut, and it is worked in the home city, so it gets that city's.
  */
 export function missionSpeedPercentIn(
-  effects: Pick<TerritoryEffects, 'missionSpeedPercent' | 'missionSpeedPercentByDistrict'>,
+  effects: Pick<TerritoryEffects, 'missionSpeedPercent' | 'missionSpeedPercentByDistrict'> &
+    Partial<Pick<TerritoryEffects, 'missionSpeedPercentByCity'>>,
   areaId: string,
+  /**
+   * The crew's home, for the city-scoped cut (the Gantry Walk, 2026-10-13): a job's city is its
+   * district's, and the misc board, which is no district, is the home city's.
+   */
+  homeDistrictId?: string,
 ): number {
   const here = effects.missionSpeedPercentByDistrict[areaId] ?? 0;
-  return effects.missionSpeedPercent + here;
+  const cityId =
+    findDistrict(areaId)?.cityId ??
+    (homeDistrictId === undefined ? undefined : findDistrict(homeDistrictId)?.cityId);
+  const city = cityId === undefined ? 0 : (effects.missionSpeedPercentByCity?.[cityId] ?? 0);
+  return effects.missionSpeedPercent + here + city;
 }
 
 /**
@@ -452,7 +483,7 @@ export function startingGarrison(
   // a garrison by. Said here so the compiler can see it too.
   if (district.kind !== 'contested') return {};
 
-  const slots = combineSlotBudget(district.difficulty, LOCATION_CATALOG[location.kind].baseDefense);
+  const slots = combineSlotBudget(district.difficulty, location.baseDefense);
   if (holder.kind === 'government') {
     /*
      * Combine ground: the regime's own units, by the district's difficulty (`city/combine.ts`),
@@ -571,7 +602,7 @@ export function startingHolder(location: Location, district: District): Location
 function squattedIn(district: District): readonly string[] {
   return [...district.locations]
     .sort((a, b) => {
-      const byDefense = LOCATION_CATALOG[b.kind].baseDefense - LOCATION_CATALOG[a.kind].baseDefense;
+      const byDefense = b.baseDefense - a.baseDefense;
       return byDefense !== 0 ? byDefense : a.id.localeCompare(b.id);
     })
     .slice(0, SQUATTED_PLACES[district.id] ?? SQUATTED_PLACES_PER_OPEN_DISTRICT)

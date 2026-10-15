@@ -16,6 +16,7 @@ import {
   type Base,
   type Grade,
   areaPayPercent,
+  missionCityPercentIn,
   missionTimings,
   missionXp,
   templateTimings,
@@ -23,6 +24,7 @@ import {
   type MissionTemplate,
   hastenedMinutes,
   hastenedRoadMinutes,
+  shortcutMinutes,
 } from '@frontline/shared';
 import { adminMinutes } from '../admin/mode.js';
 import type { StoredMission } from '../db/repos/missions.js';
@@ -153,15 +155,10 @@ export function launchMission(args: {
    * all, and a crew whose people move faster to a fight moves faster to a job on the same streets.
    */
   unitSpeedPercent?: number;
-  /**
-   * §A4: the crew's `any_ride` holding, which is the Tram Depot's whole reason to exist.
-   *
-   * `battle/movement.ts` has read this since the column had a speed, and this module did not, so
-   * the same crew's Colossus took a seat on the march to a fight and held the column to fifteen on
-   * the road to a job. The holding is bought once and paid for once; it cannot be true on one road
-   * and false on the other.
-   */
-  anyRide?: boolean;
+  /** The crew's `vehicleCapacityPercent` (the Hump): more seats on every machine taken. */
+  vehicleCapacityPercent?: number;
+  /** The crew's `vehicleSpeedPercent` (the Coaling Stage): more pace on every machine taken. */
+  vehicleSpeedPercent?: number;
   /**
    * §E: what the crew's own people add to the run's pay (`TerritoryEffects.missionSpoilsPercent`).
    *
@@ -169,6 +166,19 @@ export function launchMission(args: {
    * business knowing what a crew or a perk is.
    */
   missionSpoilsPercent?: number;
+  /**
+   * Pay that is the crew's only on jobs worked in one city, by city id (Coldwater Halt held whole,
+   * `missionSpoilsPercentByCity`). Read against this job's city here, so every launch path pays it
+   * the same way.
+   */
+  missionSpoilsPercentByCity?: Readonly<Record<string, number>>;
+  /**
+   * Points off the road legs of jobs worked in one city, by city id (the Bricked Arches,
+   * `missionTravelPercentByCity`). Read against this job's city here and summed with the road's
+   * other cuts, never the time on site. Like `travelSpeedPercent` it is spent on the running clock
+   * and not the priced one, so a faster road does not pay less.
+   */
+  missionTravelPercentByCity?: Readonly<Record<string, number>>;
   /** The Bounty Wall's premium on this card (`golden.ts`), frozen on the row; 0 for a plain job. */
   goldenPercent?: number;
   /** Which board it came off (`missions.areas.ts`). The area is locked until this crew is home. */
@@ -199,9 +209,12 @@ export function launchMission(args: {
     ramp = null,
     leadSpeedPercent = 0,
     missionSpoilsPercent = 0,
+    missionSpoilsPercentByCity = {},
+    missionTravelPercentByCity = {},
     goldenPercent = 0,
     unitSpeedPercent = 0,
-    anyRide = false,
+    vehicleCapacityPercent = 0,
+    vehicleSpeedPercent = 0,
     areaId,
     force,
     vehicles = {},
@@ -220,12 +233,15 @@ export function launchMission(args: {
    * added into it: `roadMinutes` divides by the speed and then takes the percentage off what is
    * left. It stays a divisor on the job leg, where there is no column to have a speed.
    */
-  const pace = columnSpeed(vehicles, force, (unitId) =>
-    unitColumnSpeed(unitId, {
-      percent: unitSpeedPercent,
-      fitted: fittedFor(base.unitLoadouts, unitId),
-      anyRide,
-    }),
+  const pace = columnSpeed(
+    vehicles,
+    force,
+    (unitId) =>
+      unitColumnSpeed(unitId, {
+        percent: unitSpeedPercent,
+        fitted: fittedFor(base.unitLoadouts, unitId),
+      }),
+    { capacityPercent: vehicleCapacityPercent, speedPercent: vehicleSpeedPercent },
   );
   // The job's own clock: the ground's cut and nothing else. Short Way is "off the road", and the
   // maintainer's ruling (2026-10-01) is that it is spent on the road alone, as it is on a march.
@@ -238,14 +254,21 @@ export function launchMission(args: {
   const walked = missionTimings({
     travelMinutes: admin
       ? 0
-      : hastenedRoadMinutes(
-          TRAVEL_BAND_MINUTES[template.travelBand] + walk,
-          pace,
-          // The road's own cuts, summed the way every other road in the game sums them: the
-          // leader's Short Way and the crew's own pace off `travelSpeedPercent`. `roadMinutes`
-          // bends the total under `TRAVEL_SPEED_CEILING`, so this cannot run away.
-          missionSpeedPercent + Math.max(0, leadSpeedPercent) + Math.max(0, travelSpeedPercent),
-          roadBaseCutPercent,
+      : // SHORTCUT: a party with the Cartographer in it takes half the road, after every cut.
+        shortcutMinutes(
+          hastenedRoadMinutes(
+            TRAVEL_BAND_MINUTES[template.travelBand] + walk,
+            pace,
+            // The road's own cuts, summed the way every other road in the game sums them: the
+            // leader's Short Way and the crew's own pace off `travelSpeedPercent`. `roadMinutes`
+            // bends the total under `TRAVEL_SPEED_CEILING`, so this cannot run away.
+            missionSpeedPercent +
+              Math.max(0, leadSpeedPercent) +
+              Math.max(0, travelSpeedPercent) +
+              missionCityPercentIn(missionTravelPercentByCity, base.districtId, areaId),
+            roadBaseCutPercent,
+          ),
+          force,
         ),
     durationMinutes,
   });
@@ -294,6 +317,7 @@ export function launchMission(args: {
       payPercent:
         areaPayPercent(areaId) +
         missionSpoilsPercent +
+        missionCityPercentIn(missionSpoilsPercentByCity, base.districtId, areaId) +
         // The opening band's premium, the same figure the card printed (`missions.ramp.ts`).
         (ramp?.payPercent ?? 0),
       xp: missionXp(template, priced.totalMinutes, grade),

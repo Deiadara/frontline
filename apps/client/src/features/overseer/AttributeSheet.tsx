@@ -286,9 +286,10 @@ export function AttributeSheet({
    */
   paper?: boolean;
   /**
-   * Tighter rows and frames on a screen under 1000px tall, for a sheet inside a window that must
-   * not scroll (the crew's officer and Overseer windows, maintainer 2026-10-08). Taller screens
-   * draw the sheet exactly as `roomy` always has. Only meaningful with `roomy` and without `paper`.
+   * Tighter rows, frames and headings on a screen under 1000px tall, for a sheet inside a window
+   * that must not scroll (the crew's officer and Overseer windows, maintainer 2026-10-08). Taller
+   * screens draw the sheet exactly as `roomy` always has. Only meaningful with `roomy` and without
+   * `paper`.
    */
   fitShort?: boolean;
 }) {
@@ -335,6 +336,13 @@ export function AttributeSheet({
                 : 'border-b border-surface-600/80 font-display font-bold uppercase tracking-[0.18em] text-brass-300',
               !paper && (bars ? 'mb-1.5 pb-1' : 'mb-0.5 pb-0.5 text-[8px]'),
               !paper && bars && (roomy ? 'text-[11px]' : 'text-[10px]'),
+              // The heading's air closes up with the rows on a short screen: 4px a group, and 8px
+              // over the two rows of them was what stood between the officer's file and the
+              // backdrop's cap at 1280x720.
+              roomy &&
+                !paper &&
+                fitShort &&
+                '[@media(max-height:999px)]:mb-1 [@media(max-height:999px)]:pb-0.5',
             )}
           >
             {GROUP_LABELS[group]}

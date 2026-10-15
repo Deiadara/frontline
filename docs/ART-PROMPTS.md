@@ -2221,6 +2221,8 @@ Ids are the kebab-cased `UnitSpec.id` in `@frontline/shared` (`road_reavers` →
 | `unit-curate`             | The Curate         | Legendary              | `145040` |
 | `unit-blood-priest`       | The Blood Priest   | Legendary              | `145041` |
 | `unit-hierarch`           | The Hierarch       | Legendary              | `145042` |
+| `unit-the-geppetto`       | The Geppetto       | Legendary              | `145043` |
+| `unit-ad-hoc-army`        | Ad Hoc Army        | Wonders of Engineering | `145044` |
 
 ### 7.1 `unit-razors`
 
@@ -2472,6 +2474,18 @@ SUBJECT: A heavy-shouldered priest in a black cassock stiff to the elbow with dr
 
 ```
 SUBJECT: An old bald man in a plain white robe barefoot on the stone floor of a vast nave, caught mid-step in a martial stance with open hands, no weapon anywhere. Ranks of Combine soldiers stand at the edges copying him. Cold white light down the columns, warm candle glow at the floor, dust in the air.
+```
+
+### 7.43 `unit-the-geppetto`
+
+```
+SUBJECT: A frail old toymaker in a leather workshop apron and half-moon spectacles, kneeling among crates in a ring of shipping containers, one hand on the chest of a half-built robot made of scrap, a thin thread of light running from his fingers into it. Warm lamp key from below, cold rim from the crates.
+```
+
+### 7.44 `unit-ad-hoc-army`
+
+```
+SUBJECT: A clumsy robot built from whatever was lying around: a stove for a chest, a pram's wheels, a mannequin's arm on one side and a pipe wrench on the other, a painted toy face. It stands square with its arms out as if shielding someone behind it. Dusty light in a crate yard.
 ```
 
 ## 8. Consistency protocol

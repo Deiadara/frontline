@@ -30,4 +30,26 @@ describe('a channel card', () => {
       `+${MAX_WAGE_DISCOUNT}%`,
     );
   });
+
+  /*
+   * The medic card prints every point a win is recovered on and the share the fight spends
+   * (maintainer, 2026-10-15): the people's 12 and a level 10 Infirmary's 40 are 52 points.
+   */
+  it('prints the combined medic points and the share they walk home', () => {
+    render(
+      <ul>
+        <ChannelCard
+          channel="casualtyRecoveryPercent"
+          amount={12}
+          spent={{ medicPoints: 52 }}
+          medicSharePercent={32.3}
+        />
+      </ul>,
+    );
+    const card = screen.getByTestId('channel-casualtyRecoveryPercent');
+    expect(card).toHaveTextContent('+52');
+    expect(screen.getByTestId('channel-medic-share')).toHaveTextContent(
+      '32.3% of the dead walk home after a win',
+    );
+  });
 });

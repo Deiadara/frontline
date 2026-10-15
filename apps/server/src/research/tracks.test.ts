@@ -342,8 +342,20 @@ describe('§C3a: the Researcher shortens every clock', () => {
       mark: 'C+',
       timeCutPercent: 27.5,
       addsPercent: 27.5,
+      settled: true,
     });
     expect(researchHead(fakeRepos().repos, makeBase([]), fitFor(makeBase([])))).toBeNull();
+  });
+
+  it('says the chair is still settling rather than that research is 0.0% faster', () => {
+    // Seated an hour ago: the chair gives nothing for five more (`CHAIR_SETTLE_HOURS`).
+    const seated = {
+      ...officerAt('h', 'researcher', 55),
+      seatedAt: new Date(NOW.getTime() - 3_600_000).toISOString(),
+    };
+    const base = makeBase([seated]);
+    const head = researchHead(fakeRepos().repos, base, fitFor(base));
+    expect(head).toMatchObject({ timeCutPercent: 0, addsPercent: 0, settled: false });
   });
 });
 

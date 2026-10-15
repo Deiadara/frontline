@@ -11,7 +11,7 @@ import {
   type CombinePower,
 } from '../city/combine.js';
 import { findDistrict } from '../city/atlas.js';
-import { LOCATION_CATALOG, noTerritoryEffects } from '../city/locations.js';
+import { noTerritoryEffects } from '../city/locations.js';
 import type { TerritoryEffects } from '../city/index.js';
 import { findUnit } from '../units/catalog.js';
 import { MAX_RATING, capRating } from '../units/stats.js';
@@ -668,8 +668,7 @@ describe('8. the ceiling, and whether it is ever reached', () => {
     let heaviestArmor = 0;
     let heaviestPenetration = 0;
     for (const location of district.locations) {
-      const baseDefense = LOCATION_CATALOG[location.kind].baseDefense;
-      const budget = combineSlotBudget(district.difficulty, baseDefense);
+      const budget = combineSlotBudget(district.difficulty, location.baseDefense);
       const standing = Object.keys(combineGarrison(district.difficulty, budget));
       // The leader himself is on the field for a fight on his own plot, and he is the top sheet.
       if (location.id === leader.locationId) standing.push(leader.unitId);
@@ -678,7 +677,7 @@ describe('8. the ceiling, and whether it is ever reached', () => {
         if (!unit) throw new Error(`${unitId} is not in the catalogue`);
         heaviestArmor = Math.max(
           heaviestArmor,
-          capRating(unit.stats.armor + baseDefense) + SYNDIC_ARMOR,
+          capRating(unit.stats.armor + location.baseDefense) + SYNDIC_ARMOR,
         );
         heaviestPenetration = Math.max(
           heaviestPenetration,

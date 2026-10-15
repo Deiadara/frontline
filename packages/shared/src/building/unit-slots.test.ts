@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
   CITY_LOCATIONS,
-  LOCATION_CATALOG,
   MAX_LOCATION_LEVEL,
   bonusesAt,
   noTerritoryEffects,
@@ -71,45 +70,46 @@ describe('what a district can house (§A1)', () => {
    * per-level beds were folded into the twenty, forty fresh locations would house as many people
    * as one worked one. Written as literals so a retune of either constant has to come past here.
    */
-  it('adds seven beds a level on top of the flat twenty, and nothing at level one', () => {
-    // Seven since the ladder went to five levels (2026-10-06): 48 at the top, where 47 stood.
+  it('adds seven beds a step on top of the flat twenty, and nothing at level one', () => {
+    // Seven since the ladder went to five levels (2026-10-06); the last level is a double step
+    // (2026-10-09), so 55 at the top where it was 48.
     expect(UNIT_SLOTS_PER_LOCATION_LEVEL).toBe(7);
     expect(held(PLAIN.id, 1)).toBe(20);
     expect(held(PLAIN.id, 2)).toBe(27);
     expect(held(PLAIN.id, 4)).toBe(41);
-    expect(held(PLAIN.id, MAX_LOCATION_LEVEL)).toBe(48);
+    expect(held(PLAIN.id, MAX_LOCATION_LEVEL)).toBe(55);
   });
 
   /**
    * §A4: a location that houses people scales *that* separately, on the ordinary bonus curve.
    *
    * The Fence Camp's own 50 is a hold bonus like any other and goes up with `LEVEL_SCALE`, so at
-   * the ceiling it is 250. The flat 20 underneath it does not move, and the per-level beds are the
+   * the ceiling, six times over with the double last step, it is 300. The flat 20 underneath it does not move, and the per-level beds are the
    * same seven a Scrap Press gets. Three terms, three curves, and the sum is checked against the
    * parts so a change to any one of them cannot hide inside the total.
    */
   it('scales a housing location on its own curve, over and above the other two terms', () => {
     const own = (level: number): number =>
-      bonusesAt('refugee_camp', level).reduce(
+      bonusesAt(CAMP, level).reduce(
         (sum, bonus) => sum + (bonus.kind === 'unit_slots' ? bonus.flat : 0),
         0,
       );
-    expect([own(1), own(4), own(MAX_LOCATION_LEVEL)]).toEqual([50, 200, 250]);
+    expect([own(1), own(4), own(MAX_LOCATION_LEVEL)]).toEqual([50, 200, 300]);
 
     expect(held(CAMP.id, 1)).toBe(70);
     expect(held(CAMP.id, 4)).toBe(241);
-    expect(held(CAMP.id, MAX_LOCATION_LEVEL)).toBe(298);
+    expect(held(CAMP.id, MAX_LOCATION_LEVEL)).toBe(355);
     for (const level of [1, 4, MAX_LOCATION_LEVEL]) {
       expect(held(CAMP.id, level), `level ${level}`).toBe(held(PLAIN.id, level) + own(level));
     }
   });
 });
 
-const CAMP = CITY_LOCATIONS.find((location) => location.kind === 'refugee_camp')!;
-/** A location the catalogue gives no beds of its own, so only the two flat terms are in play. */
+/** The Moored Barges, a camp that houses people. */
+const CAMP = CITY_LOCATIONS.find((location) => location.id === 'neon-docks-barges')!;
+/** A location with no beds of its own, so only the two flat terms are in play. */
 const PLAIN = CITY_LOCATIONS.find(
-  (location) =>
-    !LOCATION_CATALOG[location.kind].bonuses.some((bonus) => bonus.kind === 'unit_slots'),
+  (location) => !location.bonuses.some((bonus) => bonus.kind === 'unit_slots'),
 )!;
 
 /** What one location held at `level`, and nothing else, is worth in beds. */

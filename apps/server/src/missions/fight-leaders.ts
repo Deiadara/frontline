@@ -1,5 +1,5 @@
 import {
-  infirmaryRecoveryPercent,
+  medicPointsOf,
   leadingAs,
   officerSheetBonusFor,
   seedFrom,
@@ -123,13 +123,11 @@ export function rankFightLeaders(args: RankFightLeadersArgs): FightLeaderRating[
         vehicles: args.vehicles,
         grade: args.grade,
         leader: combatantFor(args.base, candidate, args.effects, 'mission'),
-        anyRide: args.effects.anyRide,
         loadouts: args.base.unitLoadouts,
         territory: bookUnder(args.base, candidate, args.effects, 'mission'),
         // The medics, as the real fight has them: recovery comes after the outcome, so it moves
         // `kept` rather than `wins`, and a leader who wins more gets more of it back.
-        recoveryPercent:
-          args.effects.casualtyRecoveryPercent + infirmaryRecoveryPercent(args.base.buildings),
+        recoveryPercent: medicPointsOf(args.effects.casualtyRecoveryPercent, args.base.buildings),
       });
       if (fought.outcome === 'success') wins += 1;
       const home = Object.values(fought.home).reduce((total, count) => total + count, 0);

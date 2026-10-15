@@ -27,6 +27,7 @@ const ledgerWith = (nextStepCost: number, purchasedSteps: number): PayrollLedger
   purchasedSteps,
   nextStepCost,
   stepSize: PAYROLL_STEP,
+  heldByBids: 0,
 });
 
 function draw(ledger: PayrollLedger, caps: number) {

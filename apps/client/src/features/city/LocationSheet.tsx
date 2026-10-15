@@ -1,6 +1,5 @@
 import {
   COMBAT_CONTEXT_LABELS,
-  LOCATION_CATALOG,
   MAX_LOCATION_LEVEL,
   UNIT_MODIFIERS,
   battlefieldFor,
@@ -19,7 +18,7 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { CostLine } from '../../components/Resources';
 import { Button } from '../../components/ui/Button';
-import { CancelMark } from '../../components/ui/CancelMark';
+import { CancelCell } from '../../components/ui/CancelMark';
 import { Icon, type IconName } from '../../components/ui/Icon';
 import { Insignia, hasInsignia } from '../../components/ui/Insignia';
 import { Characteristics } from '../../components/ui/LabelChip';
@@ -40,6 +39,8 @@ import { MoveDialog } from '../actions/MoveDialog';
 import { SpyDialog, spyStandingFigure, type SpyingProps } from './SpyPanel';
 import { PressError } from '../../components/ui/PressError';
 import { DoorLadder, PamphletPicker, TollingSwitch, TrophyList } from './ArcaControls';
+import { LampsSwitch } from './LampsSwitch';
+import { ReactorPicker } from './ReactorPicker';
 
 /**
  * One location, on one sheet, laid out the same way for every location in the city (board
@@ -54,7 +55,7 @@ import { DoorLadder, PamphletPicker, TollingSwitch, TrophyList } from './ArcaCon
  *
  * ## The head
  *
- * A nameplate: where you are, what kind of place this is, what it is called, and how far it has
+ * A nameplate: where you are, what it is called, and how far it has
  * been worked up. It used to be the district painting blown up three times and cropped around the
  * sign, which cost roughly 250px at the top of every sheet and pushed "Taking it" off the bottom
  * of the window (maintainer request, 2026-09-15). The painting is already on the screen behind the
@@ -128,7 +129,6 @@ export function LocationSheet({
   onCall,
   spying,
 }: LocationSheetProps) {
-  const spec = LOCATION_CATALOG[view.location.kind];
   // The roster the Move dialog reads its places and counts off, for the Garrison control.
   const roster = useUnits();
   const upgrade = useUpgradeLocation(baseId, districtId);
@@ -189,7 +189,7 @@ export function LocationSheet({
       >
         <div className="flex min-w-0 flex-1 flex-col">
           <p className="font-display text-[10px] uppercase tracking-[0.2em] text-brass-300">
-            {district === undefined ? spec.label : `${district.name} · ${spec.label}`}
+            {district?.name}
           </p>
           <h3
             id={cardHeadingId(view.location.id)}
@@ -234,11 +234,8 @@ export function LocationSheet({
       <HolderPlate view={view} mine={mine} />
 
       <Sheet label="What it is">
-        {/* This place's own line where it has one, else its kind's: two rail yards used to read
-            the same sentence. */}
-        <p className="font-body text-[12px] leading-relaxed text-ink-200">
-          {view.location.blurb ?? spec.blurb}
-        </p>
+        {/* This place's own line: two rail yards used to read the same sentence. */}
+        <p className="font-body text-[12px] leading-relaxed text-ink-200">{view.location.blurb}</p>
       </Sheet>
 
       <Sheet label="What holding it pays" icon="loot">
@@ -272,7 +269,7 @@ export function LocationSheet({
       <Sheet label="On the ground" icon="eye">
         <Characteristics
           labels={view.labels}
-          when={whenItHolds(view.location.kind, weatherAt(now))}
+          when={whenItHolds(view.location, weatherAt(now))}
           noisyFromTower={view.noisyFromTower}
           data-testid={`characteristics-${view.location.id}`}
         />
@@ -305,7 +302,7 @@ export function LocationSheet({
         <SpyDialog
           target={{ kind: 'location', locationId: view.location.id }}
           title={`Spy on ${view.location.name}`}
-          eyebrow={district?.name ?? spec.label}
+          eyebrow={district?.name ?? view.location.name}
           placeName={view.location.name}
           districtId={districtId}
           baseId={baseId}
@@ -332,7 +329,7 @@ export function LocationSheet({
            * a number going up.
            */}
           {upgrading ? (
-            <div className="flex flex-wrap items-center gap-3">
+            <div className="flex items-center justify-between gap-3">
               <p
                 className="font-display text-[11px] uppercase tracking-[0.16em] text-brass-300"
                 data-testid={`upgrading-${view.location.id}`}
@@ -340,7 +337,7 @@ export function LocationSheet({
                 Work under way,{' '}
                 {formatRemaining(Date.parse(view.upgradingUntil ?? '') - now.getTime())} left
               </p>
-              <CancelMark
+              <CancelCell
                 windowMs={workWindowMs(view.upgradingSince, view.upgradingUntil, now)}
                 label={`Call off the work on ${view.location.name}`}
                 pending={cancelUpgrade.isPending}
@@ -365,6 +362,22 @@ export function LocationSheet({
               <p className="font-body text-[12px] leading-relaxed text-ink-200">
                 {view.upgrade.note}
               </p>
+              {/* What the step pays, in the card's own words (2026-10-13). */}
+              {view.upgrade.pays.length > 0 && (
+                <ul
+                  className="flex flex-wrap gap-1.5"
+                  data-testid={`pays-next-${view.location.id}`}
+                >
+                  {view.upgrade.pays.map((bonus) => (
+                    <li
+                      key={bonus}
+                      className="rounded-sm border border-brass-500/40 bg-brass-300/10 px-2 py-0.5 font-display text-[11px] tabular-nums tracking-[0.06em] text-brass-100"
+                    >
+                      {bonus}
+                    </li>
+                  ))}
+                </ul>
+              )}
               <CostLine cost={view.upgrade.cost} stock={resources} />
               <div>
                 <Button
@@ -384,6 +397,25 @@ export function LocationSheet({
           {view.switch !== null && (
             <TollingSwitch
               state={view.switch}
+              now={now}
+              baseId={baseId}
+              districtId={districtId}
+              locationId={view.location.id}
+            />
+          )}
+          {view.lamps !== null && (
+            <LampsSwitch
+              lamps={view.lamps}
+              now={now}
+              baseId={baseId}
+              districtId={districtId}
+              locationId={view.location.id}
+            />
+          )}
+          {view.reactor !== null && (
+            <ReactorPicker
+              reactor={view.reactor}
+              mine={view.holderSide === 'mine'}
               now={now}
               baseId={baseId}
               districtId={districtId}
@@ -730,16 +762,19 @@ function Figure({ label, value }: { label: string; value: string }) {
  * above says what the place is *like*; this one says what it *counts as*, which is the half that
  * decides who to bring.
  *
- * Read out of `battlefieldFor` rather than off `LOCATION_CONTEXTS` directly, so the chips are the
+ * Read out of `battlefieldFor` rather than off `Location.contexts` directly, so the chips are the
  * list the fight will actually use: a dark sky adds Unlit. A row
- * derived from the catalogue alone would tell a player their Tunnel Rats were no use on ground
+ * derived from the location alone would tell a player their Tunnel Rats were no use on ground
  * the settler was about to call Underground.
  */
 function FightsAs({ view, now }: { view: LocationView; now: Date }) {
+  // On the server's labels, which carry the holders' and the lamps' (`locationGroundLabels`), so
+  // the dark this row names is the dark the fight will be had in.
   const ground = battlefieldFor({
     locationName: view.location.name,
-    kind: view.location.kind,
+    ground: view.location,
     at: now,
+    labels: view.labels,
   });
 
   return (

@@ -50,10 +50,22 @@ export function missionXpBonusPercent(
   base: Base,
   now: Date = new Date(),
 ): number {
+  return playerXpBonusPercent(repos, base, now) + missionXpExtraPercent(repos, base, now);
+}
+
+/**
+ * The part of that bonus `awardPlayerXp` does not add on its own: the Professor's and the
+ * ground's. The settle passes this as the award's `extraPercent`, so what is banked is what the
+ * report quotes. It passed the Professor alone until 2026-10-11, so the Choir Loft's share was
+ * printed on every run and credited on none.
+ */
+export function missionXpExtraPercent(
+  repos: Repositories,
+  base: Base,
+  now: Date = new Date(),
+): number {
   return (
-    playerXpBonusPercent(repos, base, now) +
-    professorXpPercent(repos, base, now) +
-    standingEffectsFor(repos, base, now).missionXpPercent
+    professorXpPercent(repos, base, now) + standingEffectsFor(repos, base, now).missionXpPercent
   );
 }
 

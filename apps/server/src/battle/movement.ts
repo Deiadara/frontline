@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import {
+  machinesOf,
   chairPassiveOf,
   columnSpeed,
   emptyDeployment,
@@ -24,6 +25,7 @@ import {
   type Movement,
   type RailwayOffer,
   type ScheduledBattle,
+  withShortcut,
 } from '@frontline/shared';
 import type { Repositories } from '../db/repos/index.js';
 import { liftedOfficerSheet, standingEffectsFor, type LiftRoom } from '../crew/standing.js';
@@ -82,19 +84,23 @@ export function travelMsTo(
 ): number | null {
   const standing = standingEffectsFor(repos, base);
   const effects = led ? leading(standing) : standing;
-  const speed = columnSpeed(riding.vehicles, riding.force, (unitId) =>
-    unitColumnSpeed(unitId, {
-      percent: effects.unitSpeedPercent,
-      // The same sheet the fight will read (`battle/effects.ts`). A Neural Lace is twelve points
-      // of speed and the workshop fits it to a unit type, so the road has to fold it the way the
-      // engine does or the same unit is quicker in the fight than on the way to it.
-      fitted: fittedFor(base.unitLoadouts, unitId),
-      // The crew's `any_ride` holding, so the Colossus that used to hold the whole column to 15
-      // takes a seat like everybody else (`city/locations.ts`).
-      anyRide: effects.anyRide,
-    }),
+  const speed = columnSpeed(
+    riding.vehicles,
+    riding.force,
+    (unitId) =>
+      unitColumnSpeed(unitId, {
+        percent: effects.unitSpeedPercent,
+        // The same sheet the fight will read (`battle/effects.ts`). A Neural Lace is twelve points
+        // of speed and the workshop fits it to a unit type, so the road has to fold it the way the
+        // engine does or the same unit is quicker in the fight than on the way to it.
+        fitted: fittedFor(base.unitLoadouts, unitId),
+      }),
+    // The Hump's bigger loads and the Coaling Stage's pace (`vehicleSeats`, `machineSpeed`).
+    machinesOf(effects),
   );
-  return roadMs(base, districtId, speed, effects);
+  const road = roadMs(base, districtId, speed, effects);
+  // SHORTCUT: a column with the Cartographer in it takes half of whatever that came to.
+  return road === null ? null : withShortcut(road, riding.force);
 }
 
 /**
@@ -108,12 +114,15 @@ export function columnSpeedFor(
   riding: { vehicles: Fleet; force: Army },
 ): number {
   const effects = standingEffectsFor(repos, base);
-  return columnSpeed(riding.vehicles, riding.force, (unitId) =>
-    unitColumnSpeed(unitId, {
-      percent: effects.unitSpeedPercent,
-      fitted: fittedFor(base.unitLoadouts, unitId),
-      anyRide: effects.anyRide,
-    }),
+  return columnSpeed(
+    riding.vehicles,
+    riding.force,
+    (unitId) =>
+      unitColumnSpeed(unitId, {
+        percent: effects.unitSpeedPercent,
+        fitted: fittedFor(base.unitLoadouts, unitId),
+      }),
+    machinesOf(effects),
   );
 }
 
@@ -162,12 +171,15 @@ export function railColumnOffer(
   // not, which tilted every ride-or-march comparison towards marching for the crews that had an
   // officer on the job.
   const effects = led ? leading(standing) : standing;
-  const speed = columnSpeed(riding.vehicles, riding.army, (unitId) =>
-    unitColumnSpeed(unitId, {
-      percent: effects.unitSpeedPercent,
-      fitted: fittedFor(base.unitLoadouts, unitId),
-      anyRide: effects.anyRide,
-    }),
+  const speed = columnSpeed(
+    riding.vehicles,
+    riding.army,
+    (unitId) =>
+      unitColumnSpeed(unitId, {
+        percent: effects.unitSpeedPercent,
+        fitted: fittedFor(base.unitLoadouts, unitId),
+      }),
+    machinesOf(effects),
   );
   return railRideBetween(
     repos,
@@ -267,11 +279,12 @@ export function officerTravelMinutesTo(
 ): number | null {
   const effects = standingEffectsFor(repos, base);
   const onFoot = officerBattleStats(liftedOfficerSheet(officer, room).attributes).speed;
-  const speed = columnSpeed(vehicles, { officer: 1 }, () => ({
-    speed: onFoot,
-    rides: true,
-    unitSlots: 1,
-  }));
+  const speed = columnSpeed(
+    vehicles,
+    { officer: 1 },
+    () => ({ speed: onFoot, rides: true, unitSlots: 1 }),
+    machinesOf(effects),
+  );
   const road = roadMs(base, districtId, speed, effects);
   // The officer walks the same road the column does, so they refuse together. A leader who
   // arrived instantly at ground nothing can price was the same defect wearing a different hat.
@@ -433,10 +446,10 @@ export function oversellsSeats(
   vehicles: Fleet,
   now: Date,
 ): boolean {
-  const seats = fleetCapacity(vehicles);
+  const { vehicleCapacityPercent } = standingEffectsFor(repos, base, now);
+  const seats = fleetCapacity(vehicles, vehicleCapacityPercent);
   if (seats === 0) return false;
-  const { anyRide } = standingEffectsFor(repos, base, now);
-  return seatsAsked(repos, { baseId: base.id, battleId, side, now, anyRide, seats }) > seats;
+  return seatsAsked(repos, { baseId: base.id, battleId, side, now, seats }) > seats;
 }
 
 /**
@@ -459,14 +472,12 @@ export function seatsAsked(
     battleId: string;
     side: BattleSide;
     now: Date;
-    anyRide: boolean;
     /** The seats the machines have: no column books more than all of them. */
     seats: number;
     sending?: Army;
   },
 ): number {
-  const booked = (force: Army): number =>
-    Math.min(input.seats, ridingUnitSlots(force, input.anyRide));
+  const booked = (force: Army): number => Math.min(input.seats, ridingUnitSlots(force));
   return repos.movements
     .forBattle(input.battleId)
     .filter(
@@ -478,7 +489,7 @@ export function seatsAsked(
     )
     .reduce(
       (total, movement) => total + booked(movementForce(movement)),
-      ridingUnitSlots(input.sending ?? {}, input.anyRide),
+      ridingUnitSlots(input.sending ?? {}),
     );
 }
 

@@ -11,14 +11,7 @@ import { ROLE_IMPORTANCE } from './crew/importance.js';
 import { PERK_IDS, findPerk } from './crew/perks.js';
 import { RESEARCH_ITEMS } from './research/tracks.js';
 import { TRAINING_DRILLS } from './crew/training.js';
-import {
-  CITY_DISTRICTS,
-  CITY_LOCATIONS,
-  ENV_LABEL_IDS,
-  EVERY_LOCATION,
-  LOCATION_CATALOG,
-  baseBonusesOf,
-} from './city/index.js';
+import { CITY_DISTRICTS, CITY_LOCATIONS, ENV_LABEL_IDS, EVERY_LOCATION } from './city/index.js';
 import { NOTORIETY_TO_FIELD } from './economy/infamy.js';
 import { ITEM_CATALOG } from './items/catalog.js';
 import { OFFICER_PORTRAIT_IDS, OFFICER_ROLES, OFFICER_ROLE_LABELS } from './roles.js';
@@ -89,24 +82,31 @@ describe('every id points at something that exists', () => {
     it('leaves no damage type and no modifier with nobody carrying it', () => {
       const dealt = new Set(UNIT_CATALOG.map((u) => u.stats.damageType));
       expect(DAMAGE_TYPES.filter((t) => !dealt.has(t))).toEqual([]);
-      const carried = new Set(UNIT_CATALOG.flatMap((u) => u.modifiers));
+      // On a sheet, or handed over by ground (`unit_modifier`, Arch Nineteen's golden Terror).
+      const carried = new Set([
+        ...UNIT_CATALOG.flatMap((u) => u.modifiers),
+        ...EVERY_LOCATION.flatMap((l) =>
+          l.bonuses.flatMap((b) => (b.kind === 'unit_modifier' ? [b.modifier] : [])),
+        ),
+      ]);
       expect(Object.keys(UNIT_MODIFIERS).filter((m) => !carried.has(m as never))).toEqual([]);
     });
 
     /**
-     * A unit gated on ground the city does not contain can never be built by anybody. The Doghouse
-     * is the live example: one location in the whole city, and it is what unlocks the Cyberhounds.
+     * A unit gated on ground the city does not contain can never be built by anybody. The Kennels
+     * are the live example: two locations in the world, and they are what unlock the Cyberhounds.
      */
     it('gates every unit on ground the city actually has', () => {
       // The world's ground, not Ashfall's: the Death Cloaks are raised in Arca's tombs and
       // nowhere else (2026-10-06).
-      const kinds = new Set(EVERY_LOCATION.map((l) => l.kind));
+      const places = new Set(EVERY_LOCATION.map((l) => l.id));
       for (const unit of UNIT_CATALOG) {
         for (const need of unit.requires) {
           if (need.kind === 'location') {
-            expect(kinds.has(need.locationKind), `${unit.id} needs a ${need.locationKind}`).toBe(
-              true,
-            );
+            expect(need.locationIds.length, unit.id).toBeGreaterThan(0);
+            for (const id of need.locationIds) {
+              expect(places.has(id), `${unit.id} needs ${id}, which is on no map`).toBe(true);
+            }
           } else if (need.kind === 'building') {
             expect(BUILDING_CATALOG[need.building], unit.id).toBeDefined();
           } else if (need.kind === 'vehicle') {
@@ -115,12 +115,18 @@ describe('every id points at something that exists', () => {
             // A door authored on the ground itself (Arca, 2026-10-07): some location on the
             // map has to name this unit, or the unit can never be mustered anywhere.
             expect(
-              EVERY_LOCATION.some((l) => doorsOn(baseBonusesOf(l)).includes(need.unitId)),
+              EVERY_LOCATION.some((l) => doorsOn(l.bonuses).includes(need.unitId)),
               `${unit.id} has no door on the map`,
             ).toBe(true);
-            if (need.orKind !== undefined) {
-              expect(kinds.has(need.orKind), `${unit.id} needs a ${need.orKind}`).toBe(true);
+            for (const id of need.orLocationIds ?? []) {
+              expect(places.has(id), `${unit.id} needs ${id}, which is on no map`).toBe(true);
             }
+          } else if (need.kind === 'place') {
+            // A named place has to be on the map (2026-10-09), or the clause can never be met.
+            expect(
+              EVERY_LOCATION.some((l) => l.id === need.locationId),
+              `${unit.id} needs ${need.locationId}, which is on no map`,
+            ).toBe(true);
           } else {
             expect(findModification(need.modificationId), unit.id).toBeDefined();
           }
@@ -156,17 +162,16 @@ describe('every id points at something that exists', () => {
       expect(new Set(CITY_LOCATIONS.map((l) => l.id)).size).toBe(CITY_LOCATIONS.length);
     });
 
-    it('puts every location in a real district, on a kind the catalogue knows', () => {
+    it('puts every location in a real district', () => {
       const districts = new Set(CITY_DISTRICTS.map((d) => d.id));
       for (const location of CITY_LOCATIONS) {
         expect(districts.has(location.districtId), location.id).toBe(true);
-        expect(LOCATION_CATALOG[location.kind], location.id).toBeDefined();
       }
     });
 
     it('describes every location with environment labels that exist', () => {
-      for (const [kind, spec] of Object.entries(LOCATION_CATALOG)) {
-        for (const label of spec.labels ?? []) expect(ENV_LABEL_IDS, kind).toContain(label.id);
+      for (const location of EVERY_LOCATION) {
+        for (const label of location.labels) expect(ENV_LABEL_IDS, location.id).toContain(label.id);
       }
     });
   });
@@ -294,8 +299,8 @@ describe('every id points at something that exists', () => {
         what: `${item.id} rung ${item.step}`,
         bonus: item.payout.bonus,
       })),
-      ...Object.entries(LOCATION_CATALOG).flatMap(([kind, spec]) =>
-        (spec.bonuses ?? []).map((bonus) => ({ what: `location ${kind}`, bonus })),
+      ...EVERY_LOCATION.flatMap((location) =>
+        location.bonuses.map((bonus) => ({ what: `location ${location.id}`, bonus })),
       ),
     ];
 

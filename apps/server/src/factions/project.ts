@@ -37,7 +37,7 @@ function projectMember(
   rank: FactionMember['rank'],
   joinedAt: string,
   infamyEarned: number,
-): Omit<FactionMember, 'card' | 'cardMark'> | null {
+): Omit<FactionMember, 'card' | 'cardMark' | 'onboardingUntil'> | null {
   const user = repos.users.findById(userId);
   const base = repos.bases.findByOwnerId(userId);
   // A member with no district cannot happen in play (an Overseer is chosen before anything else),
@@ -74,7 +74,14 @@ export function membersOf(repos: Repositories, factionId: string): FactionMember
     const member = projectMember(repos, row.userId, row.rank, row.joinedAt, row.infamyEarned);
     const held = dealt.get(row.userId);
     if (!member || !held) return [];
-    return [{ ...member, card: held.card, cardMark: held.mark }];
+    return [
+      {
+        ...member,
+        card: held.card,
+        cardMark: held.mark,
+        onboardingUntil: held.onboardingUntil,
+      },
+    ];
   });
 }
 

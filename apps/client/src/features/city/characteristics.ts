@@ -1,10 +1,9 @@
 import {
   findLocation,
-  LOCATION_CATALOG,
   weatherLabels,
   type EnvLabel,
   type EnvLabelId,
-  type LocationKind,
+  type Location,
   type WeatherKind,
 } from '@frontline/shared';
 import type { LabelWhen } from '../../components/ui/LabelChip';
@@ -13,7 +12,7 @@ import type { LabelWhen } from '../../components/ui/LabelChip';
  * Which of a place's characteristics are only true today (GDD §A4).
  *
  * Two things put characteristics on a location and they compose (`city/labels.ts`): the location
- * itself, authored in the catalogue, and the day's sky. A smuggler's tunnel is Crammed and Dark
+ * itself, authored in the atlas, and the day's sky. A smuggler's tunnel is Crammed and Dark
  * whatever is happening outside; the same tunnel is Wet because it rained this morning, and it will
  * not be tomorrow. Both draw as the identical chip, so a player planning tomorrow's push reads a
  * temporary problem as a permanent one and brings the wrong people.
@@ -38,19 +37,17 @@ const SKY_PHRASE: Readonly<Record<WeatherKind, string>> = {
 /**
  * A `LabelWhen` for one place under one sky.
  *
- * `kind` is the location's own kind, or null for ground the catalogue does not describe: a home
- * district under raid, a gate. Ground like that has no characteristics of its own, so everything on
- * it came out of the sky.
+ * `ground` is the location, or null for ground no location describes: a home district under raid,
+ * a gate. Ground like that has no characteristics of its own, so everything on it came out of the
+ * sky.
  */
-export function whenItHolds(kind: LocationKind | null, weather: string): LabelWhen {
+export function whenItHolds(ground: Pick<Location, 'labels'> | null, weather: string): LabelWhen {
   const sky = weather as WeatherKind;
   const phrase = SKY_PHRASE[sky] ?? '';
   if (phrase === '') return () => undefined;
 
   const fromSky = new Set<EnvLabelId>(weatherLabels(sky).map((label) => label.id));
-  const ownGround = new Set<EnvLabelId>(
-    (kind === null ? [] : LOCATION_CATALOG[kind].labels).map((label) => label.id),
-  );
+  const ownGround = new Set<EnvLabelId>((ground?.labels ?? []).map((label) => label.id));
 
   // Only the ones the ground would not carry on its own. A tunnel that is Wet in the dry is Wet
   // for good, and telling a player it lifts with the rain would be the opposite of the truth.
@@ -61,15 +58,15 @@ export function whenItHolds(kind: LocationKind | null, weather: string): LabelWh
 }
 
 /**
- * The kind of location a fight is over, or null when it is a gate, a building or a home district.
+ * The location a fight is over, or null when it is a gate, a building or a home district.
  *
  * `findLocation` and not a walk of `CITY_DISTRICTS`, which is Ashfall's twelve rather than the
  * world's (`atlas.ts`). A fight over ground in the second city answered null, and null is how this
- * module says "the catalogue describes nothing here": every characteristic the weather also puts
- * on a place was then noted as the sky's, so a Terminus sewer that is Wet in the dry was advertised
+ * module says "no location describes this ground": every characteristic the weather also puts on
+ * a place was then noted as the sky's, so a Terminus sewer that is Wet in the dry was advertised
  * as Wet until the rain stops. That is the misreading `whenItHolds` exists to prevent.
  */
-export function locationKindOf(locationId: string | undefined): LocationKind | null {
+export function locationOf(locationId: string | undefined): Location | null {
   if (locationId === undefined) return null;
-  return findLocation(locationId)?.kind ?? null;
+  return findLocation(locationId) ?? null;
 }

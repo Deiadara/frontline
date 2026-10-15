@@ -335,6 +335,20 @@ describe('getting in', () => {
 });
 
 describe('rank', () => {
+  /**
+   * Every seat at the leader's table as though its Onboarding were long over (2026-10-15), so a
+   * test about who swaps with whom can seat twice in a row.
+   */
+  function settleSeats(userId: string): void {
+    const factionId = app.repos.factions.membershipOf(userId)!.factionId;
+    for (const [card, holder] of app.repos.factions.cardHolders(factionId)) {
+      app.repos.factions.setCardHolder(factionId, card, {
+        userId: holder.userId,
+        since: '2020-01-01T00:00:00.000Z',
+      });
+    }
+  }
+
   async function table() {
     const leader = await player(app, 'leader');
     const member = await player(app, 'member');
@@ -400,13 +414,16 @@ describe('rank', () => {
    */
   it('lets the leader seat a member at a card, swapping with whoever held it', async () => {
     const { leader, member } = await table();
-    const seat = (token: string, userId: string, card: string | null) =>
-      app.inject({
+    const seat = async (token: string, userId: string, card: string | null) => {
+      await faction(app, leader.token);
+      settleSeats(leader.id);
+      return app.inject({
         method: 'POST',
         url: '/api/factions/seat',
         headers: auth(token),
         payload: { userId, card },
       });
+    };
     const cardOf = async (userId: string) =>
       (await faction(app, leader.token)).members.find((one) => one.userId === userId)?.card;
 
@@ -453,6 +470,7 @@ describe('rank', () => {
       (card) => ![...before.values()].includes(card as never),
     )!;
 
+    settleSeats(leader.id);
     const moved = await app.inject({
       method: 'POST',
       url: '/api/factions/seat',

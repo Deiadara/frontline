@@ -183,6 +183,11 @@ test.describe('a district full of locations', () => {
     const note = districtDetail.locations[0]?.upgrade?.note ?? '';
     expect(note.length).toBeGreaterThan(20);
     await expect(card.getByText(note)).toBeVisible();
+    // ...and what the step pays, line by line, so a ladder is not bought blind (2026-10-13).
+    const pays = districtDetail.locations[0]?.upgrade?.pays ?? [];
+    expect(pays.length).toBeGreaterThan(0);
+    await expect(card.getByTestId(`pays-next-${MINE.id}`)).toContainText(pays[0] ?? '');
+    await page.screenshot({ path: 'screenshots/location-upgrade.png' });
 
     const sent: string[] = [];
     page.on('request', (request) => {

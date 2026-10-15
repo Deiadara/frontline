@@ -177,8 +177,8 @@ describe('the locations inside a district (§A4)', () => {
   });
 
   it('spreads the city across enough kinds of place to make holdings differ', () => {
-    const kinds = new Set(CITY_LOCATIONS.map((place) => place.kind));
-    expect(kinds.size).toBeGreaterThanOrEqual(15);
+    const icons = new Set(CITY_LOCATIONS.map((place) => place.icon));
+    expect(icons.size).toBeGreaterThanOrEqual(15);
     expect(CITY_LOCATIONS.length).toBeGreaterThanOrEqual(25);
   });
 });

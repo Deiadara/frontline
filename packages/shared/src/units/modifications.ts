@@ -754,6 +754,8 @@ export function modificationFitsUnit(spec: UnitModificationSpec, unitId: string)
   if (unit.tier === 'legendary') return false;
   // The Combine's sheets never see the inside of a Scrapyard (`UnitSpec.faction`).
   if (unit.faction !== undefined) return false;
+  // Nor does a robot made in a fight, which is nobody's to fit (`UnitSpec.spawned`).
+  if (unit.spawned === true) return false;
   if (unit.jammer === true && isGunOnly(spec)) return false;
   return spec.fits === undefined || spec.fits.includes(unitId);
 }

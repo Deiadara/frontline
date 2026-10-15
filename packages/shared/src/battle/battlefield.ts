@@ -1,13 +1,12 @@
 import { z } from 'zod';
 import {
   ENV_LABEL_IDS,
-  LOCATION_CATALOG,
   frontageFactor,
   mergeLabels,
   weatherAt,
   weatherLabels,
   type EnvLabel,
-  type LocationKind,
+  type Location,
   type WeatherKind,
 } from '../city/index.js';
 import { COMBAT_CONTEXTS, type CombatContext } from '../units/stats.js';
@@ -21,9 +20,8 @@ import { COMBAT_CONTEXTS, type CombatContext } from '../units/stats.js';
  * shrugs off. A sewer junction makes Tunnel Rats worth bringing whether or not anybody dug in; a
  * level-5 barricade is worth the same to a Warden as to a Razor.
  *
- * Contexts come off the *kind* of location rather than the individual location, so a chemical plant
- * fights like a chemical plant wherever it is on the map, and a unit sheet that says "at its best
- * indoors" means something a player can plan around.
+ * Contexts are authored on each location (`Location.contexts`), so a unit sheet that says "at its
+ * best indoors" means something a player can plan around.
  */
 
 export const BattlefieldSchema = z.object({
@@ -43,85 +41,6 @@ export const BattlefieldSchema = z.object({
   frontage: z.number().positive(),
 });
 export type Battlefield = z.infer<typeof BattlefieldSchema>;
-
-/**
- * What each kind of location fights like.
- *
- * Hand-authored rather than derived from the blurb: a `CombatContext` is a promise to the player
- * that a modifier on a unit sheet will fire, so it has to be a decision somebody made and can
- * defend, not a keyword match. Every kind names at least one, or holding it would say nothing
- * about how to take it.
- */
-export const LOCATION_CONTEXTS: Record<LocationKind, readonly CombatContext[]> = {
-  // industry and supply
-  scrap_press: ['urban', 'indoor'],
-  chemical_plant: ['indoor', 'urban'],
-  power_station: ['urban'],
-  water_works: ['indoor'],
-  foundry: ['indoor', 'urban'],
-  gas_station: ['open_ground', 'urban'],
-  nuclear_plant: ['indoor', 'underground'],
-  soup_kitchen: ['indoor', 'urban'],
-  refugee_camp: ['open_ground', 'urban'],
-  // money and trade
-  market: ['urban'],
-  downtown_market: ['indoor', 'urban'],
-  pawn_shop: ['indoor', 'urban'],
-  bone_market: ['urban', 'indoor'],
-  revolutionist_statue: ['open_ground', 'urban'],
-  // ground and defence
-  high_ground: ['open_ground'],
-  barricade: ['urban'],
-  watchtower: ['open_ground', 'urban'],
-  sewer_junction: ['underground'],
-  smugglers_tunnel: ['underground'],
-  // war
-  armory: ['indoor'],
-  war_machine_graveyard: ['open_ground'],
-  construction_site: ['open_ground', 'urban'],
-  fight_pit: ['indoor', 'urban'],
-  gym: ['indoor', 'urban'],
-  doghouse: ['urban', 'indoor'],
-  rail_yard: ['open_ground'],
-  tram_depot: ['indoor', 'urban'],
-  // knowledge and signal
-  university: ['indoor', 'urban'],
-  planetarium: ['indoor'],
-  satellite_uplink: ['open_ground'],
-  broadcast_tower: ['open_ground'],
-  broadcast_station: ['indoor', 'urban'],
-  pirate_radio: ['indoor', 'urban'],
-  // flesh
-  gene_clinic: ['indoor'],
-  hospital: ['indoor', 'urban'],
-  black_clinic: ['indoor', 'underground'],
-  mad_scientist_lair: ['underground', 'indoor'],
-  // people
-  tavern: ['indoor', 'urban'],
-  cinema: ['indoor'],
-  arcade: ['indoor', 'urban'],
-  skate_ground: ['open_ground'],
-  chapel: ['indoor'],
-  graveyard: ['open_ground'],
-  revolutionary_statue: ['open_ground', 'urban'],
-  // Glass walls and one-unit aisles between the beds: a room, with the sky showing through it.
-  glasshouse: ['indoor'],
-  // A room at the top of a tower in the middle of a city: a corridor into it, streets around it.
-  combine_chapel: ['indoor', 'urban'],
-  // the railway. A platform is a long open strip with a canopy over part of it and nothing to
-  // take cover behind, which is why taking one is loud and holding one is hard.
-  rail_station: ['open_ground', 'urban'],
-  // A stone room full of niches, down a few steps from a street of them.
-  mausoleum: ['indoor', 'urban'],
-  // Arca's own kinds (2026-10-07): a loft, a hilltop shrine, a wall in a street, a hall.
-  workshop: ['indoor', 'urban'],
-  shrine: ['open_ground', 'urban'],
-  bounty_wall: ['urban'],
-  stage: ['indoor', 'urban'],
-  trophy_hall: ['indoor', 'urban'],
-  laboratory: ['indoor'],
-  stores: ['indoor'],
-};
 
 /**
  * How many units a side can bring to bear at once, by what the ground is like.
@@ -181,7 +100,8 @@ function isDarkGround(labels: readonly EnvLabel[]): boolean {
 
 export interface BattlefieldInput {
   locationName: string;
-  kind: LocationKind;
+  /** The location's own contexts, ground labels and defence. */
+  ground: Pick<Location, 'contexts' | 'labels' | 'baseDefense'>;
   at: Date;
   /**
    * Override the sky. Only tests and the forecast pass this: everything real reads the day out of
@@ -189,6 +109,12 @@ export interface BattlefieldInput {
    * would be a caller that could choose the fight.
    */
   weather?: WeatherKind;
+  /**
+   * The ground's labels when the caller has already worked them out (`locationGroundLabels`, sky
+   * included), so the dark, the frontage and the chips read the same ground the holders and the
+   * lamps left. Absent, the location's own labels and the sky's.
+   */
+  labels?: readonly EnvLabel[];
 }
 
 /**
@@ -200,10 +126,12 @@ export interface BattlefieldInput {
  * ground's, so it arrives with their territory.
  */
 export function battlefieldFor(input: BattlefieldInput): Battlefield {
-  const contexts: CombatContext[] = [...LOCATION_CONTEXTS[input.kind]];
+  const contexts: CombatContext[] = [...input.ground.contexts];
 
   const weather = input.weather ?? weatherAt(input.at);
-  const labels = mergeLabels(LOCATION_CATALOG[input.kind].labels, weatherLabels(weather));
+  const labels = input.labels
+    ? [...input.labels]
+    : mergeLabels(input.ground.labels, weatherLabels(weather));
   if (isDarkGround(labels)) contexts.push('dark');
 
   return {
@@ -211,13 +139,13 @@ export function battlefieldFor(input: BattlefieldInput): Battlefield {
     contexts,
     labels,
     weather,
-    baseDefense: LOCATION_CATALOG[input.kind].baseDefense,
+    baseDefense: input.ground.baseDefense,
     frontage: frontageFor(contexts, labels),
   };
 }
 
 /**
- * A crew's own district under raid (GDD §A4). There is no location kind: a home district is streets and structures, so it fights urban.
+ * A crew's own district under raid (GDD §A4). There is no location: a home district is streets and structures, so it fights urban.
  */
 export function homeBattlefield(locationName: string, at: Date): Battlefield {
   const contexts: CombatContext[] = ['urban'];

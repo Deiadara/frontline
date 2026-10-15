@@ -18,7 +18,7 @@ import {
   drillProgressAt,
   drillRemainingMs,
   drillUnderway,
-  drillWaitMs,
+  drillClockMs,
   trainingGainFor,
   type AttributeGroup,
   type AttributeName,
@@ -26,13 +26,15 @@ import {
   type TrainingSession,
   type TrainingSubject,
 } from '@frontline/shared';
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useLayoutEffect, useRef, useState } from 'react';
 import { Button } from '../../components/ui/Button';
-import { CancelMark } from '../../components/ui/CancelMark';
+import { CancelCell, CancelMark } from '../../components/ui/CancelMark';
+import { EmptyQueueSlot, QueueSlot } from '../../components/ui/QueueSlot';
 import { HoverCard } from '../../components/ui/HoverCard';
 import { Modal } from '../../components/ui/Modal';
 import { Panel } from '../../components/ui/Panel';
 import { cn } from '../../lib/cn';
+import { useFadingValue } from '../../lib/useFadingValue';
 import { RATING_FILL, RATING_TEXT, ratingBand, ratingPercent } from '../../lib/rating';
 import { useCancelDrill, useStartTraining, useTraining } from '../../lib/queries';
 import { formatDuration, formatRemaining } from '../base/format';
@@ -418,9 +420,11 @@ export function TrainingPage() {
                         {TRAINING_DRILLS[subject.session.attribute].title}
                       </span>
                       <span className="shrink-0 font-display text-base font-bold tabular-nums text-brass-300">
+                        {/* Only the drill being worked counts down (maintainer, 2026-10-08); one
+                            waiting its turn shows its whole hour and holds it. */}
                         {drillUnderway(subject.session, now)
                           ? formatRemaining(drillRemainingMs(subject.session, now))
-                          : `Starts in ${formatRemaining(drillWaitMs(subject.session, now))}`}
+                          : `Queued · ${formatRemaining(drillClockMs(subject.session, now))}`}
                       </span>
                     </div>
                   ) : (
@@ -511,7 +515,13 @@ export function TrainingPage() {
                   </p>
                 )}
               </div>
-              <Underway subjects={data.subjects} now={now} />
+              <Underway
+                subjects={data.subjects}
+                now={now}
+                slots={data.queueSlots}
+                pending={cancel.isPending}
+                onCancel={(sessionId) => cancel.mutate({ sessionId })}
+              />
             </section>
           </div>
         )}
@@ -562,7 +572,20 @@ export function TrainingPage() {
  * Idle officers are not here. A list of everybody with "idle" against most of them is the roster
  * on the left with a worse layout; what belongs at the foot of the sheet is the work.
  */
-function Underway({ subjects, now }: { subjects: readonly TrainingSubject[]; now: number }) {
+function Underway({
+  subjects,
+  now,
+  slots,
+  pending,
+  onCancel,
+}: {
+  subjects: readonly TrainingSubject[];
+  now: number;
+  /** Places on the floor, the running drill's included: `TrainingResponse.queueSlots`. */
+  slots: number;
+  pending: boolean;
+  onCancel: (sessionId: string) => void;
+}) {
   const working = subjects
     .filter((one): one is TrainingSubject & { session: TrainingSession } => one.session !== null)
     .sort((a, b) => Date.parse(a.session.startedAt) - Date.parse(b.session.startedAt));
@@ -586,71 +609,102 @@ function Underway({ subjects, now }: { subjects: readonly TrainingSubject[]; now
         </span>
       </div>
 
-      {working.length === 0 ? (
-        <p className="px-0.5 font-body text-[12px] italic leading-snug text-ink-400">
-          The floor is empty. Pick a drill off the sheet and somebody will be on it within the hour.
-        </p>
-      ) : (
-        // A grid rather than a wrapping flex row: with one person on the floor, `flex-1` stretched
-        // the single chip across the whole sheet and left a hand's width of nothing between the
-        // name and the bar. Columns keep a lone chip the size a chip is.
-        <ul className="grid gap-1.5 sm:grid-cols-2 xl:grid-cols-3">
-          {working.map((one) => (
-            <li key={one.id} className="min-w-0">
-              <UnderwayRow subject={one} now={now} />
-            </li>
-          ))}
-        </ul>
-      )}
+      {/* Every place the floor has, taken or free (maintainer, 2026-10-08), so starting a drill
+          fills a box that was already there instead of the strip growing a row and the sheet
+          above it losing one. A grid rather than a wrapping flex row: with one person on the
+          floor, `flex-1` stretched the single chip across the whole sheet. */}
+      <ol className="grid gap-1.5 sm:grid-cols-2 xl:grid-cols-3">
+        {Array.from({ length: Math.max(slots, working.length) }, (_, place) => {
+          const one = working[place];
+          return one ? (
+            <UnderwayRow
+              key={one.id}
+              subject={one}
+              now={now}
+              head={place === 0}
+              pending={pending}
+              onCancel={onCancel}
+            />
+          ) : (
+            <EmptyQueueSlot
+              key={`free-${place}`}
+              place={place + 1}
+              className={FLOOR_SLOT}
+              data-testid={`training-free-${place + 1}`}
+            />
+          );
+        })}
+      </ol>
     </div>
   );
 }
 
+/** One place on the floor, taken or free: a fixed height, so the strip never changes size. */
+const FLOOR_SLOT = 'h-9';
+
 /**
- * One person on the floor: who, how far in, and how long is left.
+ * One person on the floor: who, how far in, how long is left, and the X while it can still be
+ * called off.
  *
  * What the drill actually is sits on the hover. Putting it in the row meant either two lines per
  * person, which costs the sheet above a row of drills, or a title cut off mid-word, which is the
  * one thing this project's bar rules out outright: "Cipher hou" is worse than no title at all.
- * The name wraps rather than truncating for the same reason.
+ * The name wraps rather than truncating for the same reason, inside a box tall enough for two lines.
  */
 function UnderwayRow({
   subject,
   now,
+  head,
+  pending,
+  onCancel,
 }: {
   subject: TrainingSubject & { session: TrainingSession };
   now: number;
+  /** The drill being worked; the rest wait behind it. */
+  head: boolean;
+  pending: boolean;
+  onCancel: (sessionId: string) => void;
 }) {
   const drill = TRAINING_DRILLS[subject.session.attribute];
   const underway = drillUnderway(subject.session, now);
+  const at = new Date(now).toISOString();
   return (
-    <div
-      className="flex items-center gap-2 rounded-sm border border-surface-600/60 bg-surface-900/50 px-1.5 py-1"
+    <QueueSlot
+      head={head}
+      className={cn(FLOOR_SLOT, 'pl-1.5 pr-1')}
       data-testid={`training-underway-${subject.id}`}
       data-queued={underway ? undefined : true}
       data-tip={`${subject.name}: ${drill.title}${underway ? '' : ', next in the queue'}`}
     >
       {/* No mark at this size: twenty pixels of face has no room for a stamp on it. */}
       <TrainingPortrait subject={subject} className="w-5 shrink-0" />
-      <span className="min-w-0 break-words font-display text-[10px] font-bold uppercase leading-tight tracking-[0.08em] text-ink-100">
+      <span className="line-clamp-2 min-w-0 break-words font-display text-[10px] font-bold uppercase leading-tight tracking-[0.08em] text-ink-100">
         {subject.name}
       </span>
       {/* The bar takes the slack rather than the name doing it: a short name left a hand's width
           of nothing in the middle of the chip, and a longer bar is the half of this row that is
           worth more space. */}
-      <span className="paint-track ml-auto block h-1.5 min-w-12 flex-1 rounded-sm">
+      <span className="paint-track ml-auto block h-1 min-w-10 flex-1 rounded-sm">
         <span
           className="paint-fill block h-full bg-brass-300"
           style={{ width: `${drillProgressAt(subject.session, now) * 100}%` }}
         />
       </span>
-      {/* A waiting drill's bar stands empty and its figure counts down to its start, not its end. */}
+      {/* A waiting drill's bar stands empty and its figure is its whole hour, held until its turn
+          (maintainer, 2026-10-08): only the drill being worked counts down. */}
       <span className="shrink-0 font-display text-[10px] tabular-nums text-brass-300">
-        {underway
-          ? formatRemaining(drillRemainingMs(subject.session, now))
-          : `in ${formatRemaining(drillWaitMs(subject.session, now))}`}
+        {formatRemaining(drillClockMs(subject.session, now))}
       </span>
-    </div>
+      <CancelCell
+        size="sm"
+        windowMs={drillCancelWindowMs(subject.session, at)}
+        queued={!underway}
+        label={`Call off ${subject.name}'s ${drill.title}`}
+        pending={pending}
+        onCancel={() => onCancel(subject.session.id)}
+        data-testid={`cancel-floor-${subject.session.id}`}
+      />
+    </QueueSlot>
   );
 }
 
@@ -1039,6 +1093,7 @@ function CancelLine({
           <CancelMark
             // A floor of a millisecond while it fades, or the mark would draw nothing to fade.
             windowMs={Math.max(1, drillCancelWindowMs(held, at))}
+            queued={!drillUnderway(held, now)}
             label={`Call off ${TRAINING_DRILLS[held.attribute].title}`}
             pending={pending || live === null}
             onCancel={() => onCancel(held.id)}
@@ -1048,37 +1103,6 @@ function CancelLine({
       )}
     </div>
   );
-}
-
-/**
- * A value that fades in and out rather than snapping.
- *
- * `held` is the value while it is there and the last one it had for `ms` after it goes, so there
- * is something on screen to fade; `lit` is whether to draw it at full opacity. Coming in, `lit`
- * waits two frames so the browser paints it at zero first and has an opacity to run from. A value
- * that is there on the first render is lit at once: a page opening is not something appearing.
- */
-function useFadingValue<T>(value: T | null, ms: number): { held: T | null; lit: boolean } {
-  const [held, setHeld] = useState<T | null>(value);
-  const [lit, setLit] = useState(value !== null);
-  const present = value !== null;
-  // Follows the value while it is there, in render rather than in an effect, so a held value is
-  // never a frame behind the live one.
-  if (present && held !== value) setHeld(value);
-
-  useEffect(() => {
-    if (present) {
-      let frame = requestAnimationFrame(() => {
-        frame = requestAnimationFrame(() => setLit(true));
-      });
-      return () => cancelAnimationFrame(frame);
-    }
-    setLit(false);
-    const timer = setTimeout(() => setHeld(null), ms);
-    return () => clearTimeout(timer);
-  }, [present, ms]);
-
-  return { held: present ? value : held, lit: present && lit };
 }
 
 /** Why this hour cannot be spent on this attribute for this person, or `null`. */
@@ -1139,8 +1163,8 @@ function drillFeeds(subject: TrainingSubject, name: AttributeName): string {
  * The button carries what it costs and what it gives, because "Train" on its own is a word and
  * "One hour, +2 Cryptography" is a decision.
  *
- * What it gives is `trainingGainFor(rating)`, not `TrainingResponse.gainPerSession`. That field is
- * the flat `TRAINING_GAIN`, sent with no attribute in scope, and the back half of a skill is worth
+ * What it gives is `trainingGainFor(rating)`. The response used to carry a flat crew-wide gain as
+ * well (dropped 2026-10-13), sent with no attribute in scope, and the back half of a skill is worth
  * half as much: `applyGain` is the only place a session's value is decided and it decides it
  * against the sheet in front of it (`crew/training.ts`). Printing the crew-wide figure promised
  * +2 on every skill at 50 or over, on a button that spends one of five hours a day and cannot be

@@ -70,7 +70,7 @@ export const BaseSchema = z.object({
   /** The research project in flight and what it has taught this crew (GDD §B9). Owner-only. */
   research: ResearchStateSchema,
   buildings: z.array(BuildingSchema),
-  /** Up to six orders in flight (§A1). Owner-only, and settled lazily like everything else. */
+  /** Up to five orders in flight (§A1). Owner-only, and settled lazily like everything else. */
   buildQueue: BuildQueueSchema,
   /**
    * Units standing at home and available to send (§A5).

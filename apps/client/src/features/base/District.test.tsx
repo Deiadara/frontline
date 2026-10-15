@@ -133,6 +133,9 @@ const crewStanding = (effects: Record<string, number>): CrewStandingResponse => 
     haulPercent: 0,
     carrierFlat: 0,
     missionCapsPercent: 0,
+    heldDefensePercent: 0,
+    medicPoints: 0,
+    medicSharePercent: 0,
   };
 };
 

@@ -68,7 +68,10 @@ import {
   sendMessage,
   setNotificationSettings,
   upgradeLocation,
+  throwLamps,
+  chooseReactor,
   throwSwitch,
+  breakDownComponent,
   pinPamphlets,
   swapPamphlet,
   getDistrict,
@@ -957,6 +960,17 @@ export const useUpgradeLocation = (baseId: string | undefined, districtId: strin
 export const useThrowSwitch = (baseId: string | undefined, districtId: string | undefined) =>
   useCityWrite(throwSwitch, baseId, () => districtId ?? null, [queryKeys.me]);
 
+/*
+ * Lampman's Row (2026-10-09). Every district's chips, not only the row's own: at level 5 the lamps
+ * reach the whole city, so every district read is stale after a throw.
+ */
+export const useThrowLamps = (baseId: string | undefined, districtId: string | undefined) =>
+  useCityWrite(throwLamps, baseId, () => districtId ?? null, [['district']]);
+
+/** The Reactor Shed (2026-10-14): the roster's cards carry the mark, so they are re-read too. */
+export const useChooseReactor = (baseId: string | undefined, districtId: string | undefined) =>
+  useCityWrite(chooseReactor, baseId, () => districtId ?? null, [queryKeys.units]);
+
 export const usePinPamphlets = (baseId: string | undefined, districtId: string | undefined) =>
   useCityWrite(pinPamphlets, baseId, () => districtId ?? null, [queryKeys.me]);
 
@@ -1722,6 +1736,27 @@ export function useBuildAddon() {
       void queryClient.invalidateQueries({ queryKey: queryKeys.market });
       // The district that was just written, against a poll already in flight (see `setBase`).
       // Prefix-matched: the id is only on the success payload.
+      void queryClient.invalidateQueries({ queryKey: ['base'] });
+    },
+  });
+}
+
+/**
+ * Breaking a component down at the yard (2026-10-09): the same reads go stale as after a build,
+ * since the bin and the stores both moved.
+ */
+export function useBreakDownComponent() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: breakDownComponent,
+    onSuccess: (response) => {
+      queryClient.setQueryData(queryKeys.scrapyard, response.scrapyard);
+      setBase(queryClient, response.base.id, response.base);
+    },
+    onSettled: () => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.me });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.scrapyard });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.market });
       void queryClient.invalidateQueries({ queryKey: ['base'] });
     },
   });

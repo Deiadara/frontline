@@ -40,4 +40,30 @@ describe('a member’s seat', () => {
     open('member');
     expect(screen.queryByTestId('member-seat')).toBeNull();
   });
+
+  /*
+   * Onboarding (maintainer, 2026-10-15): a seat whose holder changed in the last twelve hours is
+   * locked, greyed with the time left, and a card held by somebody still onboarding is not offered.
+   */
+  it('locks a seat in Onboarding and says how long is left', () => {
+    const until = new Date(Date.now() + 5 * 3_600_000 - 60_000).toISOString();
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <MemberWindow
+          member={{ ...member, onboardingUntil: until }}
+          data={{ ...factionScreen, rank: 'leader' }}
+          isSelf={false}
+          pending={false}
+          onAction={vi.fn()}
+          onSeat={vi.fn()}
+          onLeave={vi.fn()}
+          onClose={vi.fn()}
+        />
+      </QueryClientProvider>,
+    );
+    expect(screen.getByTestId(`seat-reason-${member.username}`)).toHaveTextContent(
+      'Onboarding, 5h left: this seat is locked',
+    );
+    expect(screen.getByTestId(`seat-${member.username}`)).toBeDisabled();
+  });
 });

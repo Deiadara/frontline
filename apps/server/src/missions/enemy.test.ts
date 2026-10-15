@@ -123,7 +123,6 @@ describe('a crew in a battle job', () => {
       force: bigCrew,
       vehicles: {},
       grade: 'F-',
-      anyRide: false,
     });
     expect(fought.outcome).toBe('success');
     expect(total(fought.home)).toBeGreaterThan(0);
@@ -149,7 +148,6 @@ describe('a crew in a battle job', () => {
       force: wardens,
       vehicles: {},
       grade: 'F-',
-      anyRide: false,
     });
     expect(total(fought.killed)).toBeGreaterThan(0);
     expect(fought.killed.wardens).toBeUndefined();
@@ -166,7 +164,6 @@ describe('a crew in a battle job', () => {
       force: { razors: 4 },
       vehicles: {},
       grade: 'B+',
-      anyRide: false,
     });
     expect(fought.outcome).toBe('failure');
     expect(total(fought.lost)).toBeGreaterThan(0);
@@ -188,7 +185,6 @@ describe('a crew in a battle job', () => {
       force,
       vehicles: {},
       grade: 'F-' as const,
-      anyRide: false,
     };
     const alone = fightMissionBattle(args);
     const led = fightMissionBattle({
@@ -226,7 +222,6 @@ describe('a crew in a battle job', () => {
         force,
         vehicles: {},
         grade: 'F' as const,
-        anyRide: false,
       };
       const bare = fightMissionBattle(args);
       const fitted = fightMissionBattle({ ...args, loadouts: { razors: ['taped_grips'] } });
@@ -249,7 +244,6 @@ describe('a crew in a battle job', () => {
       force: bigCrew,
       vehicles: {},
       grade: 'D+' as const,
-      anyRide: false,
     };
     expect(fightMissionBattle(args)).toEqual(fightMissionBattle(args));
   });
@@ -271,7 +265,6 @@ describe('a crew in a battle job', () => {
       force,
       vehicles: {},
       grade: 'D',
-      anyRide: false,
     });
     expect(fought.outcome).toBe('failure');
     expect(total(fought.home), 'nobody got clear, so this measures nothing').toBeGreaterThan(0);
@@ -308,7 +301,6 @@ describe('a crew in a battle job', () => {
           force,
           vehicles: {},
           grade,
-          anyRide: false,
         });
         expect(fought.lost.scavengers ?? 0, `${grade}/${seed}`).toBe(0);
         expect(fought.home.scavengers, `${grade}/${seed}`).toBe(7);
@@ -327,7 +319,6 @@ describe('a crew in a battle job', () => {
       force: doomedCrew,
       vehicles: { motorcycle: 2 },
       grade: 'B+',
-      anyRide: false,
     });
     expect(total(fought.home)).toBe(0);
     expect(fought.wreckedVehicles).toEqual({ motorcycle: 1 });

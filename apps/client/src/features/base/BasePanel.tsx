@@ -8,9 +8,10 @@ import {
   unitSlotDraw,
   playerLevelGrants,
   playerXpToNextLevel,
-  buildCancelWindowMs,
+  queueCancelWindowMs,
+  queueClockMs,
+  queueWaiting,
   queueProgressAt,
-  queueRemainingMs,
   storageCapacity,
   storageCapacityFor,
   payrollLedger,
@@ -36,7 +37,8 @@ import { LevelUpBanner } from '../../components/LevelUp';
 import { StandingReadout } from '../../components/Meters';
 import { RESOURCE_META, ResourceGrid } from '../../components/Resources';
 import { Button } from '../../components/ui/Button';
-import { CancelMark } from '../../components/ui/CancelMark';
+import { CancelCell } from '../../components/ui/CancelMark';
+import { BuildOrderPlate, alsoCalledOff, withTip } from './BuildOrderPlate';
 import { Modal } from '../../components/ui/Modal';
 import { Panel } from '../../components/ui/Panel';
 import { ApiRequestError } from '../../lib/api';
@@ -78,7 +80,8 @@ export function BasePanel() {
   // §F2: the store is filled to the structure plus the crew's storage bonus, so the shelves quoted
   // here are computed the way `accrueProduction` fills them rather than off the buildings alone.
   const crewStanding = useCrewStanding().data;
-  const crewStorage = crewStanding?.effects['storageCapacityPercent'] ?? 0;
+  // The people's and the ground's (the Undercroft Stores), as the settle fills the shelves.
+  const crewStorage = me.data?.productionYield?.storageCapacityPercent ?? 0;
   const spyPoints = crewStanding?.spyPoints;
   const baseId = me.data?.base?.id;
   const baseQuery = useBase(baseId);
@@ -317,6 +320,7 @@ export function BasePanel() {
           // The server's own price for every plot, off the call the shell polls. See the prop.
           quotes={me.data?.buildQuotes}
           clocks={me.data?.buildClocks}
+          boostOil={me.data?.buildBoostOil}
           serverNow={baseQuery.data?.serverNow}
           receivedAt={baseQuery.dataUpdatedAt}
           pending={build.isPending}
@@ -403,27 +407,35 @@ function BuildQueue({ base, serverNow, receivedAt }: BuildQueueProps) {
       <ol className="flex flex-col divide-y divide-surface-700" data-testid="build-queue">
         {base.buildQueue.map((entry, index) => {
           const progress = queueProgressAt(entry, now);
-          const remaining = queueRemainingMs(entry, now);
+          // Only the order being worked counts down; one waiting shows its whole clock.
+          const remaining = queueClockMs(entry, now);
           return (
-            <li key={entry.id} className="flex flex-col gap-1.5 px-4 py-3">
-              <div className="flex items-baseline justify-between gap-4">
-                <span className="truncate font-display text-[12px] uppercase tracking-[0.18em] text-ink-200">
-                  {index + 1}. {BUILDING_CATALOG[entry.kind].name} → Lv {entry.level}
-                </span>
-                <span className="shrink-0 font-display text-sm font-semibold tabular-nums text-brass-300">
-                  {formatRemaining(remaining)}
+            <li key={entry.id} className="flex items-center gap-4 px-4 py-2">
+              <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+                <div className="flex items-baseline justify-between gap-4">
+                  <span className="truncate font-display text-[12px] uppercase tracking-[0.18em] text-ink-200">
+                    {index + 1}. {BUILDING_CATALOG[entry.kind].name} → Lv {entry.level}
+                  </span>
+                  <span className="shrink-0 font-display text-sm font-semibold tabular-nums text-brass-300">
+                    {formatRemaining(remaining)}
+                  </span>
+                </div>
+                <span className="paint-track block h-1.5 w-full rounded-[1px]">
+                  <span
+                    className={cn(
+                      'paint-fill block h-full',
+                      index === 0 ? 'bg-brass-300' : 'bg-surface-600',
+                    )}
+                    style={{ width: `${progress * 100}%` }}
+                  />
                 </span>
               </div>
-              <span className="block h-1.5 w-full bg-surface-700">
-                <span
-                  className={cn('block h-full', index === 0 ? 'bg-brass-300' : 'bg-surface-600')}
-                  style={{ width: `${progress * 100}%` }}
-                />
-              </span>
-              {/* Inside the first tenth, or before the clock has started at all: the order can
+              {/* Inside the first tenth, or any time before the clock has started: the order can
                   still be called off, and ninety percent of what it took comes back. */}
-              <CancelMark
-                windowMs={buildCancelWindowMs(entry, base, now)}
+              <CancelCell
+                windowMs={queueCancelWindowMs(entry, now)}
+                queued={queueWaiting(entry, now)}
+                {...withTip(alsoCalledOff(entry, base))}
                 label={`Call off ${BUILDING_CATALOG[entry.kind].name} level ${entry.level}`}
                 pending={cancel.isPending}
                 onCancel={() => cancel.mutate({ orderId: entry.id })}
@@ -704,53 +716,27 @@ function BuildQueueRail({ base, serverNow, receivedAt, room, onStripHeight }: Bu
           data-testid="build-rail-orders"
         >
           {base.buildQueue.map((entry, index) => (
-            <div
+            <BuildOrderPlate
               key={entry.id}
+              entry={entry}
+              base={base}
+              now={now}
+              worked={index === 0}
+              pending={cancel.isPending}
+              onCancel={() => cancel.mutate({ orderId: entry.id })}
+              cancelTestId={`cancel-build-${entry.id}`}
               data-testid={`build-rail-${entry.kind}`}
               className={cn(
-                'glass edge-lit pointer-events-auto flex flex-col gap-1 rounded-sm border px-3 py-2',
+                'pointer-events-auto',
                 // Never squashed to fit: inside a scroller a flex child gives up its own height
-                // first, which would have compressed six orders into the room for four instead of
-                // letting them scroll.
+                // first, which would have compressed a full queue into the room for four instead
+                // of letting it scroll.
                 'shrink-0',
                 // Across the top, each plate keeps the width the column gave it, so an order reads
                 // the same whichever way the rail is running.
                 !column && 'w-[13.5rem]',
-                // The one being worked reads differently from the ones waiting behind it: a queue
-                // where every plate looks the same does not say which is moving.
-                index === 0 ? 'border-brass-300/60' : 'border-surface-600/80 opacity-80',
               )}
-            >
-              <div className="flex items-baseline justify-between gap-2">
-                <span className="truncate font-display text-[11px] uppercase tracking-[0.14em] text-ink-200">
-                  {BUILDING_CATALOG[entry.kind].name}
-                </span>
-                <span className="shrink-0 font-display text-[12px] font-bold tabular-nums text-brass-300">
-                  {formatRemaining(queueRemainingMs(entry, now))}
-                </span>
-              </div>
-              <div className="flex items-baseline justify-between gap-2">
-                <span className="font-display text-[10px] uppercase tracking-[0.14em] text-ink-400">
-                  to level {entry.level}
-                </span>
-              </div>
-              <span className="block h-1 w-full bg-surface-700">
-                <span
-                  className={cn('block h-full', index === 0 ? 'bg-brass-300' : 'bg-surface-600')}
-                  style={{ width: `${queueProgressAt(entry, now) * 100}%` }}
-                />
-              </span>
-              {/* On its own row rather than beside "to level N": the plate is 13.5rem wide and the
-                X with its countdown is most of that. */}
-              <CancelMark
-                className="mt-0.5"
-                windowMs={buildCancelWindowMs(entry, base, now)}
-                label={`Call off ${BUILDING_CATALOG[entry.kind].name} level ${entry.level}`}
-                pending={cancel.isPending}
-                onCancel={() => cancel.mutate({ orderId: entry.id })}
-                data-testid={`cancel-build-${entry.id}`}
-              />
-            </div>
+            />
           ))}
           {cancel.error && <PressError>{cancel.error.message}</PressError>}
         </div>
@@ -951,7 +937,7 @@ function PayrollRows({ base }: { base: Base }) {
       base.economy.payroll,
       buildingLevel(base.buildings, 'nexus'),
       // Plus the ground's share of the channel (the Printworks, 2026-10-07), as `Payroll.tsx`.
-      payrollBonusPercent(base.buildings) + (standing?.effects['payrollPercent'] ?? 0),
+      payrollBonusPercent(base.buildings) + (standing?.payrollPercent ?? 0),
     );
 
   return (
@@ -964,6 +950,12 @@ function PayrollRows({ base }: { base: Base }) {
         label="Payroll committed"
         value={`${committedPayroll(base.economy.payroll.commitments).toLocaleString('en-US')} / ${ledger.capacity.toLocaleString('en-US')} caps`}
       />
+      {ledger.heldByBids > 0 && (
+        <StatRow
+          label="Held by tonight's bids"
+          value={`${ledger.heldByBids.toLocaleString('en-US')} caps`}
+        />
+      )}
       <StatRow label="Payroll left" value={`${ledger.available.toLocaleString('en-US')} caps`} />
     </dl>
   );

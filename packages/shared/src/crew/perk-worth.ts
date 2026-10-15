@@ -95,6 +95,7 @@ export const PERK_BREADTH_BY_KIND: Readonly<Record<string, PerkBreadth>> = {
   refit_discount: 'wide',
   salvage_refund: 'wide',
   vehicle_parts: 'wide',
+  vehicle_capacity: 'wide',
   wage_discount: 'wide',
   payroll_step_discount: 'wide',
   intel: 'wide',
@@ -121,7 +122,6 @@ export const PERK_BREADTH_BY_KIND: Readonly<Record<string, PerkBreadth>> = {
   // Switches.
   carriers_fight: 'rule',
   steady_nerve: 'rule',
-  any_ride: 'rule',
   // Ground only, never a perk: listed so a table that wants every hold kind has it.
   faith: 'rule',
 };
@@ -129,8 +129,8 @@ export const PERK_BREADTH_BY_KIND: Readonly<Record<string, PerkBreadth>> = {
 /**
  * What a switch is worth, in the same points a percentage is measured in.
  *
- * Ten, because the three of them change what a force *can do* rather than how well it does it:
- * porters that fight, a line that ignores the panic beside it, everybody on a seat. Priced at a
+ * Ten, because they change what a force *can do* rather than how well it does it: porters that
+ * fight, a line that ignores the panic beside it. Priced at a
  * good ordinary percentage rather than at a great one, since none of them is worth anything to a
  * crew that was not going to be in that situation anyway.
  */

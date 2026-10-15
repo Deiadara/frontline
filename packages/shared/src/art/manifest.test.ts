@@ -307,6 +307,9 @@ const EXPECTED: readonly (readonly [key: string, file: string, seed: number])[] 
   ['unit-curate', 'unit-curate.webp', 145040],
   ['unit-blood-priest', 'unit-blood-priest.webp', 145041],
   ['unit-hierarch', 'unit-hierarch.webp', 145042],
+  // The Geppetto and his robots (2026-10-09), last so no seed above moves.
+  ['unit-the-geppetto', 'unit-the-geppetto.webp', 145043],
+  ['unit-ad-hoc-army', 'unit-ad-hoc-army.webp', 145044],
   ['ui-frame-panel', 'ui-frame-panel.png', 150001],
   ['ui-frame-modal', 'ui-frame-modal.png', 150002],
   ['ui-frame-hud', 'ui-frame-hud.png', 150003],
@@ -470,7 +473,8 @@ describe('ART_MANIFEST', () => {
     // 351: the seven location icons the rest of Arca needed (2026-10-07).
     // 354: the Curate, the Blood Priest and the Hierarch, Arca's Combine command (2026-10-07).
     // 355: Arca's own map, the day the city opened (2026-10-07).
-    expect(ART_MANIFEST).toHaveLength(355);
+    // 357: the Geppetto and his Ad Hoc Army (2026-10-09).
+    expect(ART_MANIFEST).toHaveLength(357);
   });
 
   it.each(ART_MANIFEST.map((spec) => [spec.key, spec] as const))(

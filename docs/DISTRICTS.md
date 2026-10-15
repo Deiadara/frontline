@@ -69,13 +69,25 @@ crew, another faction, the looters or the Combine) wears a red tag and their mar
 whole stays grey and bare. Location tags read the same way for their holder.
 
 **Five levels** (maintainer, 2026-10-06). Every location outside a crew's own district is worked up
-from 1 to 5, not 10: each level is worth a whole multiple of the first (a Market pays 30, 60, 90,
-120, 150 caps an hour), the kinds whose figure is a share of a fight climb a gentler ladder to four
-times (`COMBAT_LEVEL_SCALE`), and Arca's authored figures carry their own written ladder. The
-upgrade to level n costs and takes what the old upgrade to 2n did, so the last one is still 33.7
-times the kind's figure. Captured gates outside the home district cap at 5 too, each level priced
+from 1 to 5, not 10: each level is a step up from the first, and the last level is a **double
+step** (maintainer, 2026-10-09: `LEVEL_STEPS` is 0, 1, 2, 3, 5). So a Market pays 30, 60, 90, 120,
+180 caps an hour; the locations whose figure is a share of a fight climb a gentler ladder to 4.75 times
+(`COMBAT_LEVEL_SCALE` 1, 1.75, 2.5, 3.25, 4.75); an officer skill lift doubles, a +5 climbing 5,
+6, 7, 8, 10 (`OFFICER_LEVEL_SCALE`, maintainer 2026-10-11); the per-level beds every held location gives are seven a step; and a
+figure the maintainer gives as "X scaling up to Y" is six even steps from X to Y with level 5 on
+the last (`fiveLevelLadder`). Arca's authored ladders keep levels 1 to 4 and pay level 5 at level
+4 plus twice the step from 3 to 4 (2026-10-09), and so do the Condemned's door points; counts of
+whole things, the pamphlet pins and the rarity odds keep their shape, and the two daily chances (the
+Dispensary's stim, the Bounty Wall's golden jobs) take the double step under a 100% top
+(2026-10-13). The upgrade to level n costs and takes what the old upgrade to 2n did, so the last one is still 33.7
+times the location's own figure. Captured gates outside the home district cap at 5 too, each level priced
 and timed as two of the home Gate's and worth 5% of defence; the home district's own structures
 keep their 20 levels.
+
+A unit tag a location grants from a level (SAFE DISTANCE, DRUNK, GOOD BOY, ROOFTOP, PERCEPTION,
+AD HOC ARMY II) is on the unit card before the crew has it, greyed out with a cross, and its hover
+says what it does and how to get it ("Hold Box Nine at level 5"); granted, it draws as any other
+rule (maintainer, 2026-10-09; `city/level-tags.ts`).
 
 Every unified bonus is deliberately something _other_ than what its own locations give, so a
 district is worth finishing rather than worth farming its best hold. `city.test.ts` fails the suite
@@ -221,15 +233,15 @@ Garrison before anybody takes it: a thin line of Civic Levy with surplus blades.
 
 **Unified bonus, The Whole Waterfront:** 12% off market prices, for holding every location in the district.
 
-| Location            | Kind              | What holding it pays                                                                                                 |
-| ------------------- | ----------------- | -------------------------------------------------------------------------------------------------------------------- |
-| The Tideline Market | Market            | A cut of everything that changes hands.                                                                              |
-| Dockside Pumphouse  | Water Works       | Supplies, because clean water is most of what growing it takes.                                                      |
-| Runners' Tunnel     | Smuggler's Tunnel | Every crew you send anywhere is back sooner. There is a shorter way and you own it.                                  |
-| The Wet Galley      | Soup Kitchen      | Supplies off the ration line, and a crew that has eaten fights like one.                                             |
-| The Moored Barges   | Fence Camp        | More people than any building in your district could house, and every one of them looking for a reason to be useful. |
-| Crane Site          | Watchtower        | Everything your spies do, they do better: everywhere in the city, not just here.                                     |
-| The Chandlery       | Pawn Shop         | A smaller cut, and a fence who moves what a raid brings back.                                                        |
+| Location            | Ground                        | What holding it pays                                                                                                 |
+| ------------------- | ----------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| The Tideline Market | Crammed II, Noisy II, Wet I   | A cut of everything that changes hands.                                                                              |
+| Dockside Pumphouse  | Wet II, Noisy I, Crammed I    | Supplies, because clean water is most of what growing it takes.                                                      |
+| Runners' Tunnel     | Crammed II, Dark II, Eerie I  | Every crew you send anywhere is back sooner. There is a shorter way and you own it.                                  |
+| The Wet Galley      | Crammed II, Noisy II          | Supplies off the ration line, and a crew that has eaten fights like one.                                             |
+| The Moored Barges   | Crammed II, Wet I, Noisy I    | More people than any building in your district could house, and every one of them looking for a reason to be useful. |
+| Crane Site          | Elevated II, Windy II, Open I | Everything your spies do, they do better: everywhere in the city, not just here.                                     |
+| The Chandlery       | Crammed II, Dark I, Wet I     | A smaller cut, and a fence who moves what a raid brings back.                                                        |
 
 ### Steelbelt
 
@@ -243,15 +255,15 @@ Garrison before anybody takes it: Civic Levy with a squad of Greycoats behind th
 
 **Unified bonus, Run of the Belt:** 2% off what mustering units costs, for holding every location in the district (it was 10 until the general muster cuts were cut, 2026-10-01).
 
-| Location           | Kind                  | What holding it pays                                                                                                   |
-| ------------------ | --------------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| No. 4 Press House  | Scrap Press           | Scrap, steadily, for as long as you hold it.                                                                           |
-| The Breaker's Yard | War Machine Graveyard | Hulls, plate and running gear, a gantry that will lift anything, and troops that come back from more than they should. |
-| Toolhouse Pawn     | Pawn Shop             | A smaller cut, and a fence who moves what a raid brings back.                                                          |
-| The Slag Bowl      | Skate Ground          | Everything you field moves faster.                                                                                     |
-| Furnace Row Pumps  | Gas Station           | Oil out of the ground, and the scrap off everything anybody abandoned on the forecourt.                                |
-| The Doghouse       | The Doghouse          | Working dogs, augmented, and handlers who have done this before.                                                       |
-| The Shift Canteen  | Soup Kitchen          | Supplies off the ration line, and a crew that has eaten fights like one. The Bone Market went to Arca (2026-10-06).    |
+| Location           | Ground                       | What holding it pays                                                                                                   |
+| ------------------ | ---------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| No. 4 Press House  | Noisy III, Crammed II        | Scrap, steadily, for as long as you hold it.                                                                           |
+| The Breaker's Yard | Open II, Eerie II, Toxic I   | Hulls, plate and running gear, a gantry that will lift anything, and troops that come back from more than they should. |
+| Toolhouse Pawn     | Crammed III, Dark I          | A smaller cut, and a fence who moves what a raid brings back.                                                          |
+| The Slag Bowl      | Open III, Hot I              | Everything you field moves faster.                                                                                     |
+| Furnace Row Pumps  | Open II, Toxic II            | Oil out of the ground, and the scrap off everything anybody abandoned on the forecourt.                                |
+| The Doghouse       | Noisy III, Crammed I, Dark I | Working dogs, augmented, and handlers who have done this before.                                                       |
+| The Shift Canteen  | Crammed II, Noisy II, Hot I  | Supplies off the ration line, and a crew that has eaten fights like one. The Bone Market went to Arca (2026-10-06).    |
 
 ### Chrome Row
 
@@ -266,16 +278,16 @@ them rather than promising a sentence (maintainer, 2026-09-30).
 
 **Unified bonus, The Row Runs For You:** missions run 10% faster, for holding every location in the district.
 
-| Location                    | Kind              | What holding it pays                                                                          |
-| --------------------------- | ----------------- | --------------------------------------------------------------------------------------------- |
-| The Exchange                | Downtown Market   | Every trade in the city is quoted to you at a better number than to anybody else.             |
-| Cathode Tower               | Broadcast Tower   | Your name arrives before your people do.                                                      |
-| The Overlook                | High Ground       | Everything you hold in this city is harder to take off you.                                   |
-| Saint Ferrous               | Hospital          | What comes back from a fight comes back in better shape.                                      |
-| Statue of the Revolutionary | Statue in a Plaza | It is what they are fighting for. A crew that holds it walks into a fight harder to frighten. |
-| The Regal                   | Cinema            | Two hours somewhere else. A crew that gets that fights differently the next day.              |
-| The Cracked Anvil           | Downtown Tavern   | A room where the city’s hardest people drink, and somebody who can introduce you.             |
-| Coin-Op Row                 | The Arcade        | Reflex work disguised as an evening off. Recruits come off the bench quicker.                 |
+| Location                    | Ground                         | What holding it pays                                                                          |
+| --------------------------- | ------------------------------ | --------------------------------------------------------------------------------------------- |
+| The Exchange                | Noisy III, Crammed II, Open I  | Every trade in the city is quoted to you at a better number than to anybody else.             |
+| Cathode Tower               | Elevated III, Windy II, Open I | Your name arrives before your people do.                                                      |
+| The Overlook                | Open III, Elevated II, Windy I | Everything you hold in this city is harder to take off you.                                   |
+| Saint Ferrous               | Crammed II, Noisy II, Eerie I  | What comes back from a fight comes back in better shape.                                      |
+| Statue of the Revolutionary | Open IV, Elevated I            | It is what they are fighting for. A crew that holds it walks into a fight harder to frighten. |
+| The Regal                   | Dark III, Crammed II, Eerie I  | Two hours somewhere else. A crew that gets that fights differently the next day.              |
+| The Cracked Anvil           | Crammed III, Noisy II, Dark I  | A room where the city’s hardest people drink, and somebody who can introduce you.             |
+| Coin-Op Row                 | Noisy III, Dark II, Crammed I  | Reflex work disguised as an evening off. Recruits come off the bench quicker.                 |
 
 ### The Undergrid
 
@@ -290,15 +302,15 @@ them rather than promising a sentence (maintainer, 2026-09-30).
 
 **Unified bonus, Hand on the Power Spine:** building runs 12% faster, for holding every location in the district.
 
-| Location             | Kind                 | What holding it pays                                                                     |
-| -------------------- | -------------------- | ---------------------------------------------------------------------------------------- |
-| Undergrid Substation | Substation           | Fuel by the drum, off the standby tanks nobody has come back to meter.                   |
-| Transformer Vault 9  | Substation           | Fuel by the drum, off the standby tanks nobody has come back to meter.                   |
-| The Weeping Junction | Sewer Junction       | Your people can get places without being seen getting there.                             |
-| Reagent Works        | Chemical Plant       | Oil, cracked on site.                                                                    |
-| The Old Customs Run  | Smuggler's Tunnel    | Every crew you send anywhere is back sooner. There is a shorter way and you own it.      |
-| Lamplight Depot      | Tram Depot           | The city gets smaller. Everything you send anywhere leaves sooner and arrives faster.    |
-| The Laundry Stair    | Mad Scientist's Lair | Everything needed to make something that should not exist, and the notes explaining how. |
+| Location             | Ground                                | What holding it pays                                                                     |
+| -------------------- | ------------------------------------- | ---------------------------------------------------------------------------------------- |
+| Undergrid Substation | Noisy II, Toxic II, Crammed I         | Fuel by the drum, off the standby tanks nobody has come back to meter.                   |
+| Transformer Vault 9  | Dark II, Hot II, Noisy II             | Fuel by the drum, off the standby tanks nobody has come back to meter.                   |
+| The Weeping Junction | Crammed II, Dark II, Wet II           | Your people can get places without being seen getting there.                             |
+| Reagent Works        | Toxic III, Noisy II, Crammed I        | Oil, cracked on site.                                                                    |
+| The Old Customs Run  | Crammed III, Dark II, Eerie I         | Every crew you send anywhere is back sooner. There is a shorter way and you own it.      |
+| Lamplight Depot      | Dark II, Crammed II, Noisy I          | The city gets smaller. Everything you send anywhere leaves sooner and arrives faster.    |
+| The Laundry Stair    | Toxic II, Eerie II, Dark I, Crammed I | Everything needed to make something that should not exist, and the notes explaining how. |
 
 ### The Annexes
 
@@ -312,15 +324,15 @@ Garrison before anybody takes it: Greycoats with Street Enforcers on the corners
 
 **Unified bonus, The Faculty Answers To You:** +20% unit stealth, for holding every location in the district.
 
-| Location               | Kind              | What holding it pays                                                                       |
-| ---------------------- | ----------------- | ------------------------------------------------------------------------------------------ |
-| The Faculty Annexe     | University        | Every research project finishes sooner.                                                    |
-| Annexe Uplink          | Satellite Uplink  | What goes over the air in this city, your spies have already read.                         |
-| The Quiet Ward         | Gene Clinic       | Work can be done on people here that cannot be done anywhere else.                         |
-| Cold Row               | Foundry           | High-quality metal. Nothing else in the city makes it in quantity.                         |
-| The Orrery             | Planetarium       | A room built for thinking in, and an optical bench worth more than the building around it. |
-| Nine Roofs             | Pirate Radio      | You hear what the city is saying, and some of what it would rather not.                    |
-| The Unfinished Faculty | Construction Site | Lifting gear nothing else in the city has. Some things can only be assembled standing up.  |
+| Location               | Ground                            | What holding it pays                                                                       |
+| ---------------------- | --------------------------------- | ------------------------------------------------------------------------------------------ |
+| The Faculty Annexe     | Crammed III, Dark II, Noisy I     | Every research project finishes sooner.                                                    |
+| Annexe Uplink          | Elevated III, Windy III, Open I   | What goes over the air in this city, your spies have already read.                         |
+| The Quiet Ward         | Cold III, Eerie III, Crammed I    | Work can be done on people here that cannot be done anywhere else.                         |
+| Cold Row               | Hot III, Noisy III, Crammed I     | High-quality metal. Nothing else in the city makes it in quantity.                         |
+| The Orrery             | Dark IV, Eerie II, Crammed I      | A room built for thinking in, and an optical bench worth more than the building around it. |
+| Nine Roofs             | Crammed III, Dark II, Elevated II | You hear what the city is saying, and some of what it would rather not.                    |
+| The Unfinished Faculty | Elevated III, Open II, Windy II   | Lifting gear nothing else in the city has. Some things can only be assembled standing up.  |
 
 ### Glasshouse Fields
 
@@ -334,16 +346,16 @@ Garrison before anybody takes it: Civic Levy with a squad of Greycoats behind th
 
 **Unified bonus, The Green Belt Is Fed:** mustering runs 15% faster, for holding every location in the district.
 
-| Location             | Kind         | What holding it pays                                                                                                             |
-| -------------------- | ------------ | -------------------------------------------------------------------------------------------------------------------------------- |
-| Glasshouse Intake    | Water Works  | Supplies, because clean water is most of what growing it takes.                                                                  |
-| Fieldgate Market     | Market       | A cut of everything that changes hands.                                                                                          |
-| The Berm             | High Ground  | Everything you hold in this city is harder to take off you.                                                                      |
-| Hauler Yard          | Rail Yard    | Bogies, axles and drive parts by the wagonload: everything the garage has been improvising.                                      |
-| The Long Ladle       | Soup Kitchen | Supplies off the ration line, and a crew that has eaten fights like one.                                                         |
-| Chapel of the Furrow | The Chapel   | Everyone on your books holds together better under things that break people, and nobody runs because the person beside them did. |
-| The Fence Camp       | Fence Camp   | More people than any building in your district could house, and every one of them looking for a reason to be useful.             |
-| The Glasshouses      | Hydroponics  | Supplies straight off the beds, picked before they ever see a market.                                                            |
+| Location             | Ground                              | What holding it pays                                                                                                             |
+| -------------------- | ----------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| Glasshouse Intake    | Wet III, Noisy I, Crammed I         | Supplies, because clean water is most of what growing it takes.                                                                  |
+| Fieldgate Market     | Crammed II, Noisy II, Open I        | A cut of everything that changes hands.                                                                                          |
+| The Berm             | Elevated II, Open II, Windy II      | Everything you hold in this city is harder to take off you.                                                                      |
+| Hauler Yard          | Open III, Noisy I, Windy I          | Bogies, axles and drive parts by the wagonload: everything the garage has been improvising.                                      |
+| The Long Ladle       | Crammed III, Noisy I, Hot I         | Supplies off the ration line, and a crew that has eaten fights like one.                                                         |
+| Chapel of the Furrow | Eerie II, Dark II, Cold I           | Everyone on your books holds together better under things that break people, and nobody runs because the person beside them did. |
+| The Fence Camp       | Crammed II, Open I, Noisy I, Cold I | More people than any building in your district could house, and every one of them looking for a reason to be useful.             |
+| The Glasshouses      | Hot III, Wet II, Crammed I          | Supplies straight off the beds, picked before they ever see a market.                                                            |
 
 ### Blacksite
 
@@ -357,16 +369,16 @@ Garrison before anybody takes it: Street Enforcers behind Suppressor positions.
 
 **Unified bonus, The Garrison Is Yours:** +15% unit offense, for holding every location in the district.
 
-| Location         | Kind                    | What holding it pays                                                                                                   |
-| ---------------- | ----------------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| Blacksite Armory | Armory                  | Cheaper units, and a bench that will fit anything you can find a part for.                                             |
-| Outer Berm       | Barricade               | A harder approach to everything behind it, held by people who will not leave it.                                       |
-| The Watchtower   | Watchtower              | Everything your spies do, they do better: everywhere in the city, not just here.                                       |
-| Robot Pit        | Fight Pit               | Your people are harder to frighten, and everybody on the books can hold a line, porters included.                      |
-| Motor Pool       | War Machine Graveyard   | Hulls, plate and running gear, a gantry that will lift anything, and troops that come back from more than they should. |
-| The Drill Hall   | The Gym                 | One more session in the day than the day has room for.                                                                 |
-| Psychic Ward     | Black Clinic            | Syringes. Handed out before a fight, they bring somebody back to strength who had no right to be.                      |
-| The Pile         | Abandoned Nuclear Plant | High-quality metal out of the turbine hall, and a fuelling crew who make every barrel of oil you burn go further.      |
+| Location         | Ground                              | What holding it pays                                                                                                   |
+| ---------------- | ----------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| Blacksite Armory | Crammed IV, Dark II, Cold I         | Cheaper units, and a bench that will fit anything you can find a part for.                                             |
+| Outer Berm       | Crammed III, Elevated III, Windy I  | A harder approach to everything behind it, held by people who will not leave it.                                       |
+| The Watchtower   | Elevated IV, Windy III, Open I      | Everything your spies do, they do better: everywhere in the city, not just here.                                       |
+| Robot Pit        | Noisy IV, Crammed III, Hot I        | Your people are harder to frighten, and everybody on the books can hold a line, porters included.                      |
+| Motor Pool       | Open III, Toxic II, Noisy II        | Hulls, plate and running gear, a gantry that will lift anything, and troops that come back from more than they should. |
+| The Drill Hall   | Noisy III, Crammed II, Hot II       | One more session in the day than the day has room for.                                                                 |
+| Psychic Ward     | Eerie IV, Crammed III, Toxic I      | Syringes. Handed out before a fight, they bring somebody back to strength who had no right to be.                      |
+| The Pile         | Toxic IV, Hot II, Eerie II, Foggy I | High-quality metal out of the turbine hall, and a fuelling crew who make every barrel of oil you burn go further.      |
 
 ### CCS (Civic Command Sector)
 
@@ -378,18 +390,18 @@ The last district in the game. The other seat of power, difficulty 10, at the to
 
 Garrison before anybody takes it: Suppressors, Enforcers and Greycoats, and whatever the spire can wake.
 
-**Unified bonus, The Spire Is Taken:** one level of **ANTI-COMBINE** (+10% damage and vitality against the Combine) for holding every location in the district (maintainer, 2026-10-07: every city's last district pays this, and the levels stack to +30%). It was 20% off market prices until then.
+**Unified bonus, The Spire Is Taken:** one level of **ANTI-COMBINE** (+10% damage and vitality against the Combine in declared battles) for holding every location in the district (maintainer, 2026-10-07: every city's last district pays this, and the levels stack to +30%). It was 20% off market prices until then.
 
-| Location                | Kind              | What holding it pays                                                                                               |
-| ----------------------- | ----------------- | ------------------------------------------------------------------------------------------------------------------ |
-| Command Uplink          | Satellite Uplink  | What goes over the air in this city, your spies have already read.                                                 |
-| Combine Armory          | Armory            | Cheaper units, and a bench that will fit anything you can find a part for.                                         |
-| The Household Barricade | Barricade         | A harder approach to everything behind it, held by people who will not leave it.                                   |
-| Command Broadcast       | Broadcast Station | Everyone on your books gets better at the half of the job that is talking to people.                               |
-| The Ascension Clinic    | Gene Clinic       | Work can be done on people here that cannot be done anywhere else.                                                 |
-| The Unfinished Wing     | Construction Site | Lifting gear nothing else in the city has. Some things can only be assembled standing up.                          |
-| The Martyrs’ Ground     | Graveyard         | Holding this ground says something the city does not forget, and what is buried here was buried with its rings on. |
-| The Chosen Chapel       | The Chosen Chapel | Your name walks in ahead of your people, and nobody you send out is frightened of anything that lives here.        |
+| Location                | Ground                                      | What holding it pays                                                                                               |
+| ----------------------- | ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| Command Uplink          | Elevated IV, Windy III, Open II             | What goes over the air in this city, your spies have already read.                                                 |
+| Combine Armory          | Crammed IV, Dark III, Cold II               | Cheaper units, and a bench that will fit anything you can find a part for.                                         |
+| The Household Barricade | Crammed IV, Elevated III, Cold I            | A harder approach to everything behind it, held by people who will not leave it.                                   |
+| Command Broadcast       | Crammed III, Dark III, Eerie II             | Everyone on your books gets better at the half of the job that is talking to people.                               |
+| The Ascension Clinic    | Cold IV, Eerie III, Crammed II, Toxic I     | Work can be done on people here that cannot be done anywhere else.                                                 |
+| The Unfinished Wing     | Elevated IV, Windy III, Open II, Noisy I    | Lifting gear nothing else in the city has. Some things can only be assembled standing up.                          |
+| The Martyrs’ Ground     | Eerie IV, Dark II, Open II, Cold II         | Holding this ground says something the city does not forget, and what is buried here was buried with its rings on. |
+| The Chosen Chapel       | Elevated III, Eerie III, Dark II, Crammed I | Your name walks in ahead of your people, and nobody you send out is frightened of anything that lives here.        |
 
 ## Residential districts
 
@@ -440,35 +452,53 @@ the rival would be the player's landlord.
 
 ## Locations that gate units
 
-A location kind can be the requirement on a unit, authored on the unit rather than on the map
-(`units/catalog.ts`). This is the main reason a specific hold is worth taking rather than any hold of
-similar value, and why renaming ground has to leave its `kind` alone.
+A unit's requirement can name the ground it comes from, authored on the unit rather than on the map
+(`units/catalog.ts`). Since 2026-10-14 there are no location types: a clause names the locations
+that satisfy it, by id, so renaming a place cannot move a gate and a new place opens nothing until
+a unit's list names it. A `location` clause (any one of a list held) also cuts the unit's muster by
+the best level held among them; a `place` clause names one location and cuts nothing; a door is a
+`unit_door` bonus on the ground itself, with any other locations that do as well listed on the
+clause. The card reads "Hold X in Y, or Z in W".
 
-| Unit                              | Needs a hold of kind                 | Where that kind exists                                        |
-| --------------------------------- | ------------------------------------ | ------------------------------------------------------------- |
-| Cyberhounds                       | `doghouse`                           | The Doghouse, Steelbelt (the only one in the city)            |
-| Juggernauts, Hollow Men           | `gene_clinic`                        | The Quiet Ward (Annexes), The Ascension Clinic (Spire)        |
-| The Condemned, The Crimson Dancer | `fight_pit`                          | Robot Pit, Blacksite                                          |
-| The Specter                       | `satellite_uplink`                   | Annexe Uplink, Command Uplink                                 |
-| The Abomination                   | `mad_scientist_lair`                 | The Laundry Stair, Undergrid                                  |
-| The Colossus                      | `construction_site`                  | The Unfinished Faculty (Annexes), The Unfinished Wing (Spire) |
-| The Saint                         | `tavern`                             | The Cracked Anvil, Chrome Row; the Wake House, Gravefields    |
-| Death Cloaks                      | `mausoleum`                          | One in every Arca district                                    |
-| The Loose End                     | `rail_yard`                          | Hauler Yard, Glasshouse Fields                                |
-| The Cartographer                  | `rail_yard` + `satellite_uplink`     | Glasshouse Fields plus the Annexes or the Spire               |
-| Twins                             | `mad_scientist_lair` + `gene_clinic` | The Undergrid plus the Annexes or the Spire                   |
+| Unit               | Needs one of these held                                          | Where                                        |
+| ------------------ | ---------------------------------------------------------------- | -------------------------------------------- |
+| Cyberhounds        | The Kennels, the Doghouse                                        | Bonded Row (Terminus), Steelbelt             |
+| Juggernauts        | the Reliquary Lab (a door), The Quiet Ward, the Ascension Clinic | The Cloisters (Arca), the Annexes, the Spire |
+| Hollow Men         | Arch Nineteen, by name                                           | The Viaduct, Terminus                        |
+| The Condemned      | the Watch Cell, by name (a door)                                 | Saint's Rest, Arca                           |
+| The Crimson Dancer | the Crimson Stage, by name (a door)                              | Bloodstone, Arca                             |
+| The Specter        | Annexe Uplink, Command Uplink                                    | The Annexes, the Spire                       |
+| The Abomination    | The Laundry Stair                                                | The Undergrid                                |
+| The Colossus       | The Unfinished Faculty, The Unfinished Wing                      | The Annexes, the Spire                       |
+| The Saint          | the Saint's Shrine, by name (a door)                             | Saint's Rest, Arca                           |
+| The Geppetto       | the Crate Ring, by name                                          | Bonded Row, Terminus                         |
+| Kite Crews         | the Repeater Mast, by name                                       | Telemetry Hill, Terminus                     |
+| Death Cloaks       | any of the eight tombs (`ARCA_TOMB_IDS`)                         | One in every Arca district                   |
+| The Loose End      | Hauler Yard                                                      | Glasshouse Fields                            |
+| The Cartographer   | the Old Dome, by name                                            | Telemetry Hill, Terminus                     |
+| Twins              | The Laundry Stair, and the Quiet Ward or the Ascension Clinic    | The Undergrid, plus the Annexes or the Spire |
+
+Every legendary a player can hold asks for the same things since 2026-10-09 (maintainer): the
+Gauntlet at 15, the ground in this table, and nothing else but what the ruling names on its own
+sheet. The Colossus also needs a Scrapyard at 18 (it is built there now, not at the Garage) and the
+Geppetto a Lab at 15. No legendary needs a Garage, and every other structure they asked for went:
+the Specter's Lab and its Shielded Datacore, the Abomination's Lab and Infirmary, the Colossus's
+Garage and Generator, the Saint's Quarters and Infirmary, the Cartographer's Lab, the Dancer's Lab
+and Quarters, and the Loose End's Garage and Generator. The infamy rank every legendary carries is
+the tier's own and did not change.
 
 ## Where this comes from
 
-| What                                              | File                                    |
-| ------------------------------------------------- | --------------------------------------- |
-| The district list, unified bonuses, display names | `packages/shared/src/city/districts.ts` |
-| Location kinds, hold bonuses, upgrade ladders     | `packages/shared/src/city/locations.ts` |
-| Travel time                                       | `packages/shared/src/city/geography.ts` |
-| The city list                                     | `packages/shared/src/city/cities.ts`    |
-| Environment labels per location kind              | `packages/shared/src/city/labels.ts`    |
-| Mission boards per district                       | `packages/shared/src/missions.areas.ts` |
-| The gradient, spacing and naming tests            | `packages/shared/src/city/city.test.ts` |
+| What                                              | File                                                |
+| ------------------------------------------------- | --------------------------------------------------- |
+| The district list, unified bonuses, display names | `packages/shared/src/city/districts.ts`             |
+| Hold bonuses, upgrade ladders                     | `packages/shared/src/city/locations.ts`             |
+| Travel time                                       | `packages/shared/src/city/geography.ts`             |
+| The city list                                     | `packages/shared/src/city/cities.ts`                |
+| Every location's pay, ground and upgrades         | `packages/shared/src/city/districts.ts`, `atlas.ts` |
+| Environment labels                                | `packages/shared/src/city/labels.ts`                |
+| Mission boards per district                       | `packages/shared/src/missions.areas.ts`             |
+| The gradient, spacing and naming tests            | `packages/shared/src/city/city.test.ts`             |
 
 ---
 
@@ -503,10 +533,35 @@ The city's one trait, and the reason to live here rather than in Ashfall.
 kind. Telemetry Hill does not: the line does not climb the ridge, which is the whole point of the
 Hill being the odd district out.
 
-**The link.** Hold the Station in two districts and you **may choose** to put a journey between them
-on the train: a flat **15 minutes** on the rails, whatever the map says the distance is. It is a
-rule rather than a slider: `travel_speed` bonuses are a percentage of a clock, and this replaces the
-clock, so a Rail Yard cannot make a linked run faster and nothing can make it slower.
+**The link.** Hold the Station in two districts, yourself or through a mate at your faction's table
+(maintainer, 2026-10-13), and you **may choose** to put a journey between them
+on the train, whatever the map says the distance is. The rails take a time set by the level of the
+Station the train **leaves** from (maintainer, 2026-10-09):
+
+| Departure Station level | 1   | 2   | 3   | 4   | 5   |
+| ----------------------- | --- | --- | --- | --- | --- |
+| Minutes on the rails    | 15  | 13  | 11  | 9   | 5   |
+
+So it is directional: from a level 2 Station to a level 1 one is 13 minutes, and the way back is 15.
+It is a rule rather than a slider: `travel_speed` bonuses are a percentage of a clock, and this
+replaces the clock, so a Rail Yard cannot make a linked run faster; only working the departure
+platform up does (`RAIL_LINK_MINUTES` and `railLinkMinutes` in `city/locations.ts`).
+
+**The ticket office.** Every Station also pays caps an hour. Coldwater Platform pays 20 at level 1;
+every other Station pays ten per point of its district's difficulty. Each step adds half the
+level 1 figure again, the last level two steps (`stationCapsLadder`, one line to change):
+
+| Station            | District              | Difficulty | Caps/h at levels 1 to 5 |
+| ------------------ | --------------------- | ---------- | ----------------------- |
+| Coldwater Platform | Coldwater Halt        | 1          | 20, 30, 40, 50, 70      |
+| Ironmouth Halt     | Ironmouth             | 2          | 20, 30, 40, 50, 70      |
+| Platform Four      | The Marshalling Yards | 3          | 30, 45, 60, 75, 105     |
+| Bond Street Halt   | Bonded Row            | 4          | 40, 60, 80, 100, 140    |
+| Viaduct Halt       | The Viaduct           | 7          | 70, 105, 140, 175, 245  |
+| Platform One       | The Last Platform     | 9          | 90, 135, 180, 225, 315  |
+| The Officers’ Halt | The Blockhouse        | 10         | 100, 150, 200, 250, 350 |
+
+A Station pays no beds of its own any more, past the ones every held location gives.
 
 **What rides, and what does not** (maintainer, 2026-09-24). The railway carries **unit moves and
 battle columns**, and nothing else. Both halves are built: a move between the crew's own places
@@ -518,21 +573,21 @@ mission board priced off a railway would be pricing the wrong thing. **Vehicles 
 cannot board.** There is no flat bed on this line, so a column taking its machines is a column
 walking, and that is a refusal rather than a penalty.
 
-**The two ends are walked.** The fifteen minutes buys the middle leg only. A journey is the road
-from where the units are to the platform they board at, plus fifteen, plus the road from the
-platform they get off at to where they are going. Board at home and get off at your destination and
+**The two ends are walked.** The rails buy the middle leg only. A journey is the road from where
+the units are to the platform they board at, plus the rails out of that platform, plus the road
+from the platform they get off at to where they are going. Board at home and get off at your destination and
 those two legs are nothing, which is the common case and the reason a Station is worth taking in the
 district you actually work in. Telemetry Hill has no platform, so a journey that ends there always
-pays a walk off the far platform, and that walk is what stops the Hill being fifteen minutes from
-anywhere.
+pays a walk off the far platform, and that walk is what stops the Hill being a quarter of an hour
+from anywhere.
 
 For scale, `geography.ts` charges 85 minutes per map unit, so the corner to corner walk across
-Terminus is about two hours. Two held Stations turn that into fifteen minutes plus whatever the two
-walks come to.
+Terminus is about two hours. Two held Stations turn that into fifteen minutes or less plus whatever
+the two walks come to.
 
-**The network.** Any two Stations you hold are linked, not only neighbouring ones, because a train
+**The network.** Any two Stations you or your table hold are linked, not only neighbouring ones, because a train
 runs the whole line. A crew holding Coldwater, Bonded Row and Platform One moves between all three
-at fifteen minutes. Lose one and that node drops out; the others still link to each other.
+at fifteen minutes or less, each leg timed off the platform it leaves. Lose one and that node drops out; the others still link to each other.
 
 **The counterplay.** A Station is one location, not a district. A rival does not have to break your city to break your railway, only to
 take one platform, which is what makes the line the thing Terminus crews actually fight over.
@@ -576,19 +631,23 @@ crew's first campaign is a fight against whoever else wants it rather than again
 Garrison before anybody takes it: nobody official. A stationmaster with a shotgun and whoever owes
 him.
 
-**Unified bonus, Everything Off the Train:** +15% loot capacity, for holding every location in the
-district. Whoever owns the platform decides what comes off it, so every crew you send anywhere
-comes back carrying more.
+**Unified bonus, Everything Off the Train:** +5% pay on every mission worked in Terminus, for holding
+every location in the district (maintainer, 2026-10-09; it was +15% loot capacity). Whoever owns the
+platform decides what comes off it, so every job your crews work in this city pays more. Scoped to
+the city the job is worked in: a district board counts as its district's city, and the misc board as
+the crew's own. Work in any other city is paid as before. It lands on `mission_spoils` with
+`inCity`, read through `missionCityPercentIn` (`missions.areas.ts`) by the board, the launch and the
+automations alike.
 
-| Location           | Kind         | What holding it pays                                                                                                 |
-| ------------------ | ------------ | -------------------------------------------------------------------------------------------------------------------- |
-| Coldwater Platform | Station      | The first stop on the line. Linked to any other Station you hold, at fifteen minutes flat.                           |
-| The Halt Market    | Market       | A cut of everything that changes hands.                                                                              |
-| The Standpipe      | Water Works  | Supplies, because clean water is most of what growing it takes.                                                      |
-| Trackside Kitchens | Soup Kitchen | Supplies off the ration line, and a crew that has eaten fights like one.                                             |
-| The Fuelling Point | Gas Station  | Oil out of the ground, and the scrap off everything anybody abandoned on the forecourt.                              |
-| Tent Row           | Fence Camp   | More people than any building in your district could house, and every one of them looking for a reason to be useful. |
-| The Distant Signal | Watchtower   | Everything your spies do, they do better: everywhere in the city, not just here.                                     |
+| Location           | Ground                       | What holding it pays                                                                                         |
+| ------------------ | ---------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| Coldwater Platform | Open II, Windy II            | The first stop on the line. On the line (15 to 5 minutes out by level), and 20, 30, 40, 50, 70 caps/h.       |
+| The Halt Market    | Crammed II, Noisy III        | A better number at the Broker: +10% worth back on every trade, scaling 10, 15, 20, 25, 35%. No caps/h.       |
+| The Standpipe      | Wet II, Crammed I, Noisy I   | Supplies: 35, 50, 65, 80, 110 an hour at levels 1 to 5.                                                      |
+| Trackside Kitchens | Crammed II, Noisy II, Hot I  | Rabble units only: +10 vitality, rising 10, 12, 14, 16, 20. No supplies, morale or beds.                     |
+| The Fuelling Point | Open II, Toxic I, Windy I    | Oil: 25, 35, 45, 55, 75 an hour. Vehicles cost 5, 6, 7, 8, 10% less scrap, quoted and charged at the Garage. |
+| Tent Row           | Crammed II, Cold II, Noisy I | Unit slots only: 50, 75, 100, 125, 175. No caps.                                                             |
+| The Distant Signal | Elevated III, Windy II       | Spy points: 40, 60, 80, 100, 140.                                                                            |
 
 ### Ironmouth
 
@@ -603,19 +662,21 @@ and the Combine decided a long time ago that it was not worth the company it wou
 Garrison before anybody takes it: the looters on the plots they squat. The district screen counts
 them rather than promising a sentence (maintainer, 2026-09-30).
 
-**Unified bonus, Nobody Digs You Out:** +10% defence wherever you are the one defending, your own
-district and every location you hold in any city, for holding every location in the district. Deliberately not more stealth: the shafts already pay that, and a
-crew that has taken a hill should be harder to shift everywhere, not sneakier in one place.
+**Unified bonus, Nobody Digs You Out:** +5% damage and +5% vitality for units defending at a gate,
+for holding every location in the district (maintainer, 2026-10-09; it was +10% defence
+everywhere). "At a gate" is a fight at the crew's own gate or at a captured gate it holds, where
+the units are the gate's garrison; a fight over a plot pays nothing extra. Folded in `withGate`
+(`battle/resolve.ts`) beside the gate's own defence.
 
-| Location               | Kind              | What holding it pays                                                                                                             |
-| ---------------------- | ----------------- | -------------------------------------------------------------------------------------------------------------------------------- |
-| Ironmouth Halt         | Station           | The last stop before the tunnel. Linked to any other Station you hold, at fifteen minutes flat.                                  |
-| The Ventilation Shafts | Sewer Junction    | Your people can get places without being seen getting there.                                                                     |
-| The Bricked Arches     | Smuggler's Tunnel | Every crew you send anywhere is back sooner. There is a shorter way and you own it.                                              |
-| Shaft Nine             | Chemical Plant    | Oil, cracked on site.                                                                                                            |
-| The Spoil Heap         | Scrap Press       | Scrap, steadily, for as long as you hold it.                                                                                     |
-| The Tunnel Chapel      | The Chapel        | Everyone on your books holds together better under things that break people, and nobody runs because the person beside them did. |
-| Lampman’s Row          | Pawn Shop         | A smaller cut, and a fence who moves what a raid brings back.                                                                    |
+| Location               | Ground                          | What holding it pays                                                                                                                                                                                                                                                                                           |
+| ---------------------- | ------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Ironmouth Halt         | Open II, Foggy I, Noisy I       | The last stop before the tunnel. On the line (15 to 5 minutes out by level), and 20 caps/h rising to 70.                                                                                                                                                                                                       |
+| The Ventilation Shafts | Crammed II, Dark II, Wet I      | Flat stealth on every unit you field: +5, 6, 7, 8, 10. Counts in a fight, against a spy and against a ring.                                                                                                                                                                                                    |
+| The Bricked Arches     | Crammed II, Dark II, Eerie I    | -10% mission travel time in this city, rising 10, 12, 14, 16, 20%: the road legs of Terminus jobs only, not the time on site.                                                                                                                                                                                  |
+| Shaft Nine             | Toxic II, Noisy II, Crammed I   | Oil: 30, 40, 50, 60, 80 an hour. The Generator's burn costs 10, 12, 14, 16, 20% less oil, quoted and charged.                                                                                                                                                                                                  |
+| The Spoil Heap         | Noisy II, Elevated I, Crammed I | Player XP for every press that builds at the Scrapyard (a structure card, a unit card or a trap): 200, 360, 520, 680, 1000. No scrap or planks.                                                                                                                                                                |
+| The Tunnel Chapel      | Eerie II, Dark I, Cold I        | Every officer gets Craft, Resolve and Navigation: +5, 6, 7, 8, 10 each. No mental group lift and no steady nerve; the Chapel of the Furrow and the Veteran's research rung Standing Orders Under Fire still pay that rule.                                                                                     |
+| Lampman’s Row          | Crammed II, Dark II             | The lamps, a switch the holder throws. Lit: Dark and Foggy fall a tier per level on every location in the district (gone at nothing). Out: they rise as far, arriving at that tier where absent, up to IV. At level 5 it reaches every location in Terminus, four tiers. Taken lit; six hours between changes. |
 
 ### The Marshalling Yards
 
@@ -629,18 +690,29 @@ Four, because the working heart of the railway could not be the one part of it w
 
 Garrison before anybody takes it: yard crews who have sorted out worse than you.
 
-**Unified bonus, You Sort the Yard:** missions run 12% faster, for holding every location in the
-district.
+**Unified bonus, Built in the Yards:** every Heavy-tier unit you field is 10% stronger, +10% damage
+and +10% vitality, for holding every location in the district (maintainer, 2026-10-09; it was "You
+Sort the Yard", missions 12% faster).
 
-| Location           | Kind            | What holding it pays                                                                        |
-| ------------------ | --------------- | ------------------------------------------------------------------------------------------- |
-| The Hump           | Rail Yard       | Bogies, axles and drive parts by the wagonload: everything the garage has been improvising. |
-| Platform Four      | Station         | Four boards and a lamp. Linked to any other Station you hold, at fifteen minutes flat.      |
-| The Coaling Stage  | Gas Station     | Oil out of the ground, and the scrap off everything anybody abandoned on the forecourt.     |
-| The Wagon Breakers | Scrap Press     | Scrap, steadily, for as long as you hold it.                                                |
-| Box Nine           | Watchtower      | Everything your spies do, they do better: everywhere in the city, not just here.            |
-| The Mess Room      | Downtown Tavern | A room where the city’s hardest people drink, and somebody who can introduce you.           |
-| The Running Sheds  | Foundry         | High-quality metal. Nothing else in the city makes it in quantity.                          |
+Box Nine and the Mess Room came with two changes to the sheets themselves (maintainer, 2026-10-09),
+for every crew whether it holds them or not: Snipers' range is 90 (it was 95), and Breakers'
+vitality is 300 (it was 168), with Breaching drawn as their gold tag. Holding Box Nine is now what
+lets a crew train Snipers (with the Gauntlet and the Gate at 7; the Live-Fire Range card no longer
+does), and holding the Mess Room what lets it train Breakers (with the Gauntlet at 4), each named
+on the unit card's requirement. SAFE DISTANCE and DRUNK are unit rules (`units/rules.ts`) granted
+at level 5, so they show on the unit cards while the ground is held. Since 2026-10-09 SAFE DISTANCE
+is one rule with two halves: intimidation is half as effective against the unit, and while anybody
+without the rule is still fighting on its side, enemy units with range below 50 cannot target it.
+
+| Location           | Ground                         | What holding it pays                                                                                                                                                                                                                                                                                            |
+| ------------------ | ------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| The Hump           | Open III, Noisy I, Windy I     | Every machine seats 10, 12, 14, 16, 20% more unit slots, each rounded up. Nothing else: it no longer opens the Rail Yard's units.                                                                                                                                                                               |
+| Platform Four      | Open II, Windy II, Noisy I     | Four boards and a lamp. On the line (15 to 5 minutes out by level), and 30 caps/h to 105.                                                                                                                                                                                                                       |
+| The Coaling Stage  | Open II, Toxic II, Foggy I     | Every machine 5, 6, 7, 8, 10% faster, so every column a machine carries moves faster; and oil, 40, 60, 80, 100, 140 an hour.                                                                                                                                                                                    |
+| The Wagon Breakers | Noisy III, Crammed II          | Components each morning, of a rarity the level fixes: 1 basic, 1 intricate, 2 intricate, 2 advanced, 3 advanced. No scrap or planks.                                                                                                                                                                            |
+| Box Nine           | Elevated III, Windy II, Open I | Opens Snipers to the crew. Your Snipers: +0, 2, 4, 6, 10 range and +0, 20, 40, 60, 100 damage by level (range 90 to 100), and SAFE DISTANCE at level 5: intimidation is half as effective against them, and nothing with range below 50 can target them while anybody else on their side fights. No spy points. |
+| The Mess Room      | Crammed III, Noisy II, Dark I  | Opens Breakers to the crew. Your Breakers: +0, 20, 40, 60, 100 damage and +0, 30, 60, 90, 150 vitality by level, and DRUNK at level 5: they go for the Rabble first and hit it 10% harder. No morale. It no longer opens the units a tavern opens.                                                              |
+| The Running Sheds  | Hot II, Noisy II, Foggy I      | Every Heavy-tier unit you field: +5, 6, 7, 8, 10 armour. Nothing else.                                                                                                                                                                                                                                          |
 
 ### Bonded Row
 
@@ -655,20 +727,24 @@ in Terminus, and the district a crew usually takes second.
 Garrison before anybody takes it: the looters on the plots they squat. The district screen counts
 them rather than promising a sentence (maintainer, 2026-09-30).
 
-**Unified bonus, The Bond Is Open:** 15% off what the black market charges in infamy, for holding
-every location in the district. Not another discount on the ordinary market, which the Long Bond
-already pays: what the whole district buys is the other counter.
+**Unified bonus, Out of Bond:** every Wonders of Engineering unit is 10% stronger, +10% damage and
++10% vitality, for holding every location in the district, and nothing else (maintainer,
+2026-10-09). It was 15% off the black market, under "The Bond Is Open". The Geppetto's robots
+are Wonders of Engineering, so it reaches them too.
 
-| Location                | Kind              | What holding it pays                                                                              |
-| ----------------------- | ----------------- | ------------------------------------------------------------------------------------------------- |
-| Bond Street Halt        | Station           | The goods platform. Linked to any other Station you hold, at fifteen minutes flat.                |
-| The Long Bond           | Downtown Market   | Every trade in the city is quoted to you at a better number than to anybody else.                 |
-| The Seized Goods Office | Pawn Shop         | A smaller cut, and a fence who moves what a raid brings back.                                     |
-| The Rendering Shed      | The Bone Market   | What you lose in a fight comes back as caps instead of coming back as nothing.                    |
-| The Crated Yard         | Construction Site | Lifting gear nothing else in the city has. Some things can only be assembled standing up.         |
-| The Kennels             | The Doghouse      | Working dogs, augmented, and handlers who have done this before.                                  |
-| The Cold Store          | Black Clinic      | Syringes. Handed out before a fight, they bring somebody back to strength who had no right to be. |
-| The Crate Ring          | Fight Pit         | Your people are harder to frighten, and everybody on the books can hold a line, porters included. |
+Its gate has a sign on the painting since 2026-10-13 (maintainer), on the red warehouse wall above
+the train; Bond Street Halt's sign moved to the brick building at the top middle of the painting.
+
+| Location                | Ground                         | What holding it pays                                                                                                                                                                                                                                                                                                             |
+| ----------------------- | ------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Bond Street Halt        | Open II, Noisy II, Windy I     | The goods platform. On the line (15 to 5 minutes out by level), and 40 caps/h to 140.                                                                                                                                                                                                                                            |
+| The Long Bond           | Crammed II, Noisy III          | Resources bought on the supply run cost 10, 12, 14, 16, 20% less, quoted and charged. Nothing else.                                                                                                                                                                                                                              |
+| The Seized Goods Office | Crammed III, Dark II           | Blueprint pages each morning, never one you hold: 1, 1, 2, 2, 3 a day, with better odds of a rare page at levels 2 and 4. Nothing else.                                                                                                                                                                                          |
+| The Rendering Shed      | Eerie II, Toxic II, Crammed I  | What you lose in a fight comes back as caps instead of coming back as nothing.                                                                                                                                                                                                                                                   |
+| The Crated Yard         | Open II, Elevated II, Windy II | Planks 30, 55, 80, 105, 155 and supplies 20, 35, 50, 65, 95 an hour. Nothing else: no build clock, and it no longer opens the Colossus.                                                                                                                                                                                          |
+| The Kennels             | Noisy III, Crammed I, Dark I   | Opens Cyberhounds to the crew. Your Cyberhounds: +5, 10, 15, 20, 30 armour and +30, 60, 90, 120, 180 vitality and damage, and GOOD BOY at level 5: each lifts the morale of your Rabble by +10, as many as fit in its own unit slots. No intimidation.                                                                           |
+| The Cold Store          | Cold II, Crammed II, Toxic I   | For every one of your Stitchers in a fight, every other unit on your side gets +1, 2, 3, 4, 5 vitality by level (not doubled at the top): three Stitchers at level 2 are +6 on everybody else. At level 5 your Stitchers have SAFE DISTANCE. No battle stims.                                                                    |
+| The Crate Ring          | Crammed III, Noisy III         | Opens The Geppetto to the crew (named in his requirements), and its level is his robots' (AD HOC ARMY): level 1 the base robot, +100 vitality and +20 damage a level to level 4, and at level 5 two robots a round (AD HOC ARMY II). Nothing else: no infamy for the intimidated, and it no longer opens what a Fight Pit opens. |
 
 ### Telemetry Hill
 
@@ -683,18 +759,29 @@ city is the ground the railway will not take you to.
 
 Garrison before anybody takes it: Greycoats, with Street Enforcers on the gate.
 
-**Unified bonus, The Hill Listens For You:** +18% unit stealth, for holding every location in the
-district.
+**Unified bonus, Engineered on the Hill:** every Wonders of Engineering unit musters 10% faster and
+costs 10% less, for holding every location in the district, and nothing else (maintainer,
+2026-10-09). It was +18% unit stealth, under "The Hill Listens For You".
 
-| Location                  | Kind             | What holding it pays                                                                                                 |
-| ------------------------- | ---------------- | -------------------------------------------------------------------------------------------------------------------- |
-| The Uplink Farm           | Satellite Uplink | What goes over the air in this city, your spies have already read.                                                   |
-| The Repeater Mast         | Broadcast Tower  | Your name arrives before your people do.                                                                             |
-| The Quiet Room            | University       | Every research project finishes sooner.                                                                              |
-| Somebody’s Transmitter    | Pirate Radio     | You hear what the city is saying, and some of what it would rather not.                                              |
-| The Old Dome              | Planetarium      | A room built for thinking in, and an optical bench worth more than the building around it.                           |
-| The Ground Array          | Substation       | Fuel by the drum, off the standby tanks nobody has come back to meter.                                               |
-| The Technicians’ Bunkroom | Fence Camp       | More people than any building in your district could house, and every one of them looking for a reason to be useful. |
+Every location on the Hill was reworked on 2026-10-09 (maintainer), and each does only what is
+written below. The Uplink Farm does not open the Specter, who comes off another city's uplink. The Cartographer is trained under the Old Dome
+alone: Gauntlet 15 and the Dome, her rail yard and uplink gone, speed 70 (from 88), and SHORTCUT on
+her sheet: any journey she is part of, a move, a column to a fight or a party on a job, rail
+included, takes half its final time. Somebody’s Transmitter is Hilltop Lodge now, id
+`telemetry-hill-lodge` (it was `telemetry-hill-pirate`; a save holding the old id drops it, as
+pre-launch renames do). ROOFTOP became a unit rule that day: they cannot be ambushed, and have
+double evasion against units with range below 30. The Snipers keep it on their sheet; the Kite Crews
+have it only from the Repeater Mast at level 5.
+
+| Location                  | Ground                                  | What holding it pays                                                                                                                                                                                                                                                                           |
+| ------------------------- | --------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| The Uplink Farm           | Elevated III, Windy III, Cold I         | +5 Signals, Cryptography, Cybernetics and Navigation on every officer, rising 5, 6, 7, 8, 10 by level. No spy points.                                                                                                                                                                          |
+| The Repeater Mast         | Elevated III, Foggy II, Windy II        | Needed to muster Kite Crews, beside their structures. Your Kite Crews: +30, 60, 90, 120, 180 damage and vitality by level, and ROOFTOP at level 5. The highest place in the city, perfect for paragliding.                                                                                     |
+| The Quiet Room            | Crammed II, Dark II, Eerie II           | Drills take 2.5, 5, 7.5, 10% less time at levels 1 to 4; level 5 keeps 10% and adds one training session a day. Nothing else.                                                                                                                                                                  |
+| Hilltop Lodge             | Crammed II, Elevated II, Cold I, Dark I | +80, 110, 140, 170, 230 unit slots by level. No spy points, no intimidation.                                                                                                                                                                                                                   |
+| The Old Dome              | Dark IV, Eerie II, Crammed I            | Where the Cartographer is trained (named in her requirements). Your Cartographer: +5, 10, 15, 20, 30 speed and +100, 200, 300, 400, 600 vitality by level, and PERCEPTION at level 5: while she is alive in a battle, every enemy unit's stealth is halved (at the ambush and on the way out). |
+| The Ground Array          | Noisy III, Toxic II, Open I             | +10, 12, 14, 16, 20% damage for your units that deal Energy damage. Nothing else.                                                                                                                                                                                                              |
+| The Technicians’ Bunkroom | Crammed III, Cold II, Noisy II          | Each finished drill has a 10, 20, 30, 40, 50% chance by level of one point more in the attribute it trained, rolled once per session; at level 5 also one training session a day more. The drill's receipt says when it paid.                                                                  |
 
 ### The Viaduct
 
@@ -708,20 +795,28 @@ The last Combine ground before the Terminus itself.
 
 Garrison before anybody takes it: Street Enforcers behind Suppressor positions on the parapet.
 
-**Unified bonus, They Watched You Take the Arches:** +15% infamy on everything that earns any, for
-holding every location in the district, in every city. Taking the viaduct is the most visible
-thing anybody can do in this city, and the whole world prices you differently afterwards.
+**Unified bonus, Everything Crosses the Arches:** every mission, in every city, pays 10% more
+resources, for holding every location in the district, and nothing else (maintainer, 2026-10-13).
+It was +15% infamy gain, under "They Watched You Take the Arches".
 
-| Location           | Kind                 | What holding it pays                                                                       |
-| ------------------ | -------------------- | ------------------------------------------------------------------------------------------ |
-| Viaduct Halt       | Station              | The halt on the gorge side. Linked to any other Station you hold, at fifteen minutes flat. |
-| The Arch Battery   | Barricade            | A harder approach to everything behind it, held by people who will not leave it.           |
-| The Parapet        | High Ground          | Everything you hold in this city is harder to take off you.                                |
-| The Gantry Walk    | Tram Depot           | The city gets smaller. Everything you send anywhere leaves sooner and arrives faster.      |
-| Arch Nineteen      | Mad Scientist's Lair | Everything needed to make something that should not exist, and the notes explaining how.   |
-| The Pier Works     | Foundry              | High-quality metal. Nothing else in the city makes it in quantity.                         |
-| The Sappers’ Store | Armory               | Cheaper units, and a bench that will fit anything you can find a part for.                 |
-| The Undercroft     | Gene Clinic          | Work can be done on people here that cannot be done anywhere else.                         |
+Its gate has a sign on the painting since 2026-10-13 (maintainer), on the bridge deck's stone
+below the train where the Parapet's stood; the Parapet's moved onto the wall over the great arch.
+Every location but the Halt was reworked on 2026-10-13 and each does only what is written below.
+The Undercroft is Refugee's Camp now, id `viaduct-camp` (it was `viaduct-undercroft`; a save
+holding the old id drops it, as pre-launch renames do), its sign moved onto the second arch right
+of the Parapet's. Neither Arch Nineteen nor the Camp is on the Twins' lists, so Twins need
+another city's lair and clinic.
+
+| Location           | Ground                                    | What holding it pays                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| ------------------ | ----------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Viaduct Halt       | Elevated III, Windy III, Open I           | The halt on the gorge side. On the line (15 to 5 minutes out by level), and 70 caps/h to 245.                                                                                                                                                                                                                                                                                                                                                                                       |
+| The Arch Battery   | Crammed III, Elevated II, Windy I         | Units with TAUNT get +10, 12, 14, 16, 20% vitality by level. Nothing else: no defence, and it no longer gives the Ironsides Holds the Line.                                                                                                                                                                                                                                                                                                                                         |
+| The Parapet        | Elevated IV, Open II, Windy II            | Units with range above 50 deal +10, 12, 14, 16, 20% damage by level. No defence.                                                                                                                                                                                                                                                                                                                                                                                                    |
+| The Gantry Walk    | Elevated II, Crammed II, Dark II, Noisy I | Every mission in Terminus runs 10, 12, 14, 16, 20% faster by level, the whole clock (the misc board counts when home is in Terminus). No road cut.                                                                                                                                                                                                                                                                                                                                  |
+| Arch Nineteen      | Crammed II, Toxic II, Dark II, Eerie II   | Where Hollow Men are mustered (named in their requirements, beside their structures and their blueprint). Your Hollow Men: +50, 100, 150, 200 vitality and +30, 60, 90, 120 damage at levels 1 to 4; level 5 keeps level 4's and adds Terror in gold, stronger than anybody else's (40% at a wavering target where it is 35, 16% at a shaken one where it is 14). Hollow Men hold the line on their sheet and carry no Terror of their own. No research, no damage for anyone else. |
+| The Pier Works     | Hot III, Noisy III, Crammed I             | Scrap 30, 50, 70, 90, 130 and HQ metal 15, 25, 35, 45, 65 an hour. Nothing else.                                                                                                                                                                                                                                                                                                                                                                                                    |
+| The Sappers’ Store | Crammed III, Dark II, Toxic I             | Each of your units gets +1, 1.8, 2.6, 3.4, 5% vitality by level for every modification fitted to it. No discounts.                                                                                                                                                                                                                                                                                                                                                                  |
+| Refugee's Camp     | Crammed III, Cold III, Eerie I            | +70, 95, 120, 145, 195 unit slots by level. Nothing else.                                                                                                                                                                                                                                                                                                                                                                                                                           |
 
 ### The Last Platform
 
@@ -738,19 +833,26 @@ line. A seat of Combine power, so taking it counts as replacing the Combine rath
 Garrison before anybody takes it: Suppressors on the concourse, Enforcers on the gates, and a
 Greycoat company that lives on the platform.
 
-**Unified bonus, The Last Platform Is Shut:** +14% unit offense, for holding every location in the
-district.
+**Unified bonus, Talked About Down the Line:** +25% infamy from fights, declared fights and battle
+missions alike, for holding every location in the district, and nothing else (maintainer,
+2026-10-14). It was +14% unit offense, under "The Last Platform Is Shut".
 
-| Location                   | Kind                        | What holding it pays                                                                                                      |
-| -------------------------- | --------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| Platform One               | Station                     | The end of the line. Linked to any other Station you hold, at fifteen minutes flat.                                       |
-| The Customs Hall           | Downtown Market             | Every trade in the city is quoted to you at a better number than to anybody else.                                         |
-| The Holding Pens           | Barricade                   | A harder approach to everything behind it, held by people who will not leave it.                                          |
-| The Transit Clinic         | Hospital                    | What comes back from a fight comes back in better shape.                                                                  |
-| The Platform Armoury       | Armory                      | Cheaper units, and a bench that will fit anything you can find a part for.                                                |
-| The Stationmaster’s Office | Statue of the Revolutionist | Standing under it costs you less with the people who deal in the dark, and taking it is a statement the whole city hears. |
-| The Cold Sidings           | War Machine Graveyard       | Hulls, plate and running gear, a gantry that will lift anything, and troops that come back from more than they should.    |
-| The Iron Footbridge        | Smuggler's Tunnel           | Every crew you send anywhere is back sooner. There is a shorter way and you own it.                                       |
+Every location but Platform One was reworked on 2026-10-13 and 2026-10-14 (maintainer), and each
+does only what is written below. The Cold Sidings seat nothing on a machine, and since 2026-10-15
+nothing anywhere does: the ride waiver (`any_ride`) left the game with all four of its sources,
+and the Colossus never rides, on any road or rail. The Breaker's Yard and the Motor Pool keep their
++10% vitality and nothing else; Load Plans pays machines 10% faster and Crane Hand 10% more seats.
+
+| Location                   | Ground                                  | What holding it pays                                                                                                                                                                                                              |
+| -------------------------- | --------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Platform One               | Open III, Windy III, Cold II            | The end of the line. On the line (15 to 5 minutes out by level), and 90 caps/h to 315.                                                                                                                                            |
+| The Customs Hall           | Crammed III, Noisy III, Eerie II        | Planks 40, 60, 80, 100, 140; scrap 20, 30, 40, 50, 70; supplies 20, 30, 40, 50, 70; HQ metal 10, 15, 20, 25, 35 an hour. No price cut, no caps.                                                                                   |
+| The Holding Pens           | Crammed III, Cold II, Eerie II          | Your units deal +10, 12, 14, 16, 20% damage to Rabble-tier units. No defence, no Holds the Line.                                                                                                                                  |
+| The Transit Clinic         | Toxic III, Crammed II, Eerie II         | Whenever one of your units dies in a fight, your most hurt living unit (the one body, in any stack still fighting, with the most vitality missing) is healed by 10, 12, 14, 16, 20% of the dead one's vitality, never past full.  |
+| The Platform Armoury       | Crammed III, Dark III, Cold I           | Your legendary units get +25, 30, 35, 40, 50 armour.                                                                                                                                                                              |
+| The Stationmaster’s Office | Open II, Elevated II, Windy II, Cold II | +5 Organization, Analysis, Logic, Diplomacy and Authority on every officer, rising 5, 6, 7, 8, 10 by level.                                                                                                                       |
+| The Cold Sidings           | Open III, Eerie III, Toxic II, Cold I   | For each of your units that dies in a fight, +5, 9, 13, 17, 25 scrap and +1, 1.8, 2.6, 3.4, 5 HQ metal (totals rounded down), credited after the fight through the stores and named in the report. No vitality, no seats for all. |
+| The Iron Footbridge        | Crammed III, Dark III, Elevated II      | Every mission, in every city, runs 15, 17, 19, 21, 25% faster by level, on the whole clock. Nothing else.                                                                                                                         |
 
 ### The Blockhouse
 
@@ -767,22 +869,29 @@ Garrison before anybody takes it: Suppressors, Enforcers and Greycoats, and what
 call down the line.
 
 **Unified bonus, The Blockhouse Is Taken:** one level of **ANTI-COMBINE** (+10% damage and
-vitality against the Combine) for holding every location in the district (maintainer, 2026-10-07:
+vitality against the Combine in declared battles) for holding every location in the district (maintainer, 2026-10-07:
 every city's last district pays this, and the three levels stack to +30%). It replaced "Everything
 Leaves Through You", twenty per cent off the time every job in Terminus took; that by-city scope
-on `mission_speed` went with it, since nothing else paid it. The Marshalling Yards go on paying
-mission speed at 12, everywhere.
+on `mission_speed` went with it, since nothing else paid it. The Marshalling Yards paid mission
+speed at 12 until 2026-10-09, when they turned to the Heavies; no unified bonus in Terminus pays
+on the mission clock now.
 
-| Location            | Kind                    | What holding it pays                                                                                              |
-| ------------------- | ----------------------- | ----------------------------------------------------------------------------------------------------------------- |
-| The Officers’ Halt  | Station                 | The private platform the Combine's own trains use. Linked to any other Station you hold, at fifteen minutes flat. |
-| The Panel           | Broadcast Station       | Everyone on your books gets better at the half of the job that is talking to people.                              |
-| The Frontier Chapel | The Chosen Chapel       | Your name walks in ahead of your people, and nobody you send out is frightened of anything that lives here.       |
-| The Interlocking    | Substation              | Fuel by the drum, off the standby tanks nobody has come back to meter.                                            |
-| The Records Office  | University              | Every research project finishes sooner.                                                                           |
-| The Parade Ground   | The Gym                 | One more session in the day than the day has room for.                                                            |
-| The Reactor Shed    | Abandoned Nuclear Plant | High-quality metal out of the turbine hall, and a fuelling crew who make every barrel of oil you burn go further. |
-| The Tower Box       | Watchtower              | Everything your spies do, they do better: everywhere in the city, not just here.                                  |
+Every location but the Officers' Halt was reworked on 2026-10-14 (maintainer), and each does only
+what is written below. The Blockhouse's, the Spire's and the Nave's whole-district bonus is the same
+one, a level of ANTI-COMBINE; on 2026-10-14 Arca's three top Combine districts (the Nave, the
+Cloisters, the Printworks) had their location figures lifted to sit beside the Blockhouse's, the
+Last Platform's and the Viaduct's, each noted in its row.
+
+| Location            | Ground                                     | What holding it pays                                                                                                                                                                                                                                                                                |
+| ------------------- | ------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| The Officers’ Halt  | Open III, Windy III, Cold II, Noisy I      | The private platform the Combine's own trains use. On the line (15 to 5 minutes out by level), and 100 caps/h to 350.                                                                                                                                                                               |
+| The Panel           | Crammed III, Dark III, Eerie III           | +5 Engineering, Signals, Cybernetics and Chemistry on every officer, rising 5, 6, 7, 8, 10 by level; and blueprint pages each morning, never one you hold, the Seized Goods Office's way: 1, 1, 1, 2, 2 a day at the odds rows 1, 2, 3, 3, 5 (`RARITY_ODDS_BY_LEVEL`).                              |
+| The Frontier Chapel | Elevated II, Crammed II, Eerie III, Dark I | Your units are immune to Eerie ground in a fight, and +5, 6, 7, 8, 10 morale on all your units. Still counts for the chapel feats.                                                                                                                                                                  |
+| The Interlocking    | Noisy IV, Toxic III, Open II               | +50, 55, 60, 65, 75 defensive spy points and 50, 60, 70, 80, 100 oil an hour. Nothing else.                                                                                                                                                                                                         |
+| The Records Office  | Crammed III, Dark III, Cold II             | Every location upgrade costs 15, 17, 19, 21, 25% less, quoted and charged (after the Engineer's cut). Captured gates are priced on their own and are not cut. Nothing else.                                                                                                                         |
+| The Parade Ground   | Open III, Hot III, Noisy III               | +1, 1, 1, 1, 2 training sessions a day and +1, 2, 3, 3, 5 on every Physical attribute of every officer.                                                                                                                                                                                             |
+| The Reactor Shed    | Toxic IV, Dark III, Eerie III, Crammed I   | The holder names one unit type it can field to carry RADIOACTIVE (whenever one of them dies, it deals its vitality as damage to the stack that hit it hardest, a fifth a round over the next 5 rounds); the choice is locked for 12 hours once made. The same at every level for now. Nothing else. |
+| The Tower Box       | Elevated IV, Windy III, Cold III           | Your units with range 50 or more deal +20, 24, 28, 32, 40% damage (it stacks with the Parapet's, which is range over 50). No spy points.                                                                                                                                                            |
 
 ## Residential districts
 
@@ -821,25 +930,27 @@ Blockhouse, which is the right address for a rival and the wrong one for a begin
 
 ## Units this city has to gate
 
-A location kind can be the requirement on a unit (`units/catalog.ts`), so a city that is missing a
-kind locks its residents out of the units behind it. All eight gating kinds are present in Terminus,
-and this table is the check:
+A unit's requirement names the locations that satisfy it (`units/catalog.ts`), so a city with none
+of them on its map locks its residents out of the units behind it until they take ground abroad.
+Seven Terminus locations do only what the maintainer wrote (2026-10-09 and 2026-10-13) and are on
+no unit's list: the Hump, the Mess Room (beyond the Breakers, by name), the Crated Yard, the Crate
+Ring (beyond the Geppetto, by name), the Uplink Farm, Arch Nineteen (beyond the Hollow Men, by name)
+and Refugee's Camp. Until 2026-10-14 this was a list of exceptions to their location types
+(`KIND_GATES_DROPPED`); with the types gone, the unit lists simply leave them out.
 
-| Needs a hold of kind | Where it is in Terminus              |
-| -------------------- | ------------------------------------ |
-| `doghouse`           | The Kennels, Bonded Row              |
-| `gene_clinic`        | The Undercroft, The Viaduct          |
-| `fight_pit`          | The Crate Ring, Bonded Row           |
-| `satellite_uplink`   | The Uplink Farm, Telemetry Hill      |
-| `mad_scientist_lair` | Arch Nineteen, The Viaduct           |
-| `construction_site`  | The Crated Yard, Bonded Row          |
-| `tavern`             | The Mess Room, The Marshalling Yards |
-| `rail_yard`          | The Hump, The Marshalling Yards      |
+| Unit             | Where it is in Terminus                                    |
+| ---------------- | ---------------------------------------------------------- |
+| Cyberhounds      | The Kennels, Bonded Row (or the Doghouse in the Steelbelt) |
+| Snipers          | Box Nine, the Marshalling Yards, by name                   |
+| Breakers         | the Mess Room, the Marshalling Yards, by name              |
+| Kite Crews       | the Repeater Mast, Telemetry Hill, by name                 |
+| The Cartographer | the Old Dome, Telemetry Hill, by name                      |
+| The Geppetto     | the Crate Ring, Bonded Row, by name                        |
+| Hollow Men       | Arch Nineteen, the Viaduct, by name                        |
 
-The Cartographer needs `rail_yard` and `satellite_uplink` together, which in Terminus means the
-Yards plus the Hill, and Twins needs `mad_scientist_lair` and `gene_clinic`, which are both in the
-Viaduct. That makes the Viaduct the single most valuable district in the city for a roster, on top
-of being the gate to the Terminus.
+The Specter, the Abomination, the Colossus, the Loose End, the Juggernauts and the Twins are on
+no Terminus ground: their lists name Ashfall's uplinks, lair, scaffolds, Hauler Yard and clinics
+(and the Reliquary Lab in Arca for the Juggernauts).
 
 ## What this needs in code
 
@@ -847,9 +958,10 @@ of being the gate to the Terminus.
 done unless it says otherwise. In rough order:
 
 1. `city/cities.ts`: rename `verge-station` to `terminus`, change the nickname, set `open: true`.
-2. `city/locations.ts`: a new `rail_station` kind, **appended at the end of `LOCATION_KINDS`**
-   because `art/manifest.ts` seeds `icon-location-*` off each kind's index, and a new
-   `{ kind: 'rail_link' }` hold bonus in the rules family, which carries no percentage.
+2. `city/locations.ts`: a new `rail_station` kind (since 2026-10-14 an icon in `LOCATION_ICONS`),
+   **appended at the end** because `art/manifest.ts` seeds `icon-location-*` off each entry's
+   index, and a new `{ kind: 'rail_link' }` hold bonus in the rules family, which carries no
+   percentage.
 3. `city/geography.ts`: the flat fifteen minute link, applied before any `travel_speed` percentage
    rather than inside it.
 4. `city/atlas.ts`: the five new districts, the three carried-over ones edited, the `vs-` to `tm-`
@@ -950,7 +1062,7 @@ every captured gate does when the district is held whole.
 ## The Mausoleums
 
 The city's one trait, as the railway is Terminus's. Every contested district here holds one
-**Mausoleum**, a location kind of its own, and it does three things:
+**Mausoleum** (`ARCA_TOMB_IDS` lists the eight), and it does three things:
 
 - Holding any one lets the crew muster the **Death Cloaks**: rabble, three unit slots each, 300
   damage and 300 vitality, blunt, Collective, at home in Eerie and Dark ground and poor in Wet and
@@ -965,24 +1077,25 @@ A Mausoleum also houses six, because people live in the tombs.
 
 ## What a plot here pays
 
-Where Ashfall's and Terminus's locations pay what their kind pays, most of Arca's carry their
-own figures (`LocationSchema.bonuses`, read through `baseBonusesOf`): the same kind of place, with
-its icon, its ground and its gating, worth what this map says it is. A figure the maintainer set
-level by level is written as a `ladder` on the bonus, five entries for the five levels, and a
-bonus marked `whenDistrictWhole` is paid only while the district is held whole. Seven kinds exist
-for this city alone (`workshop`, `shrine`, `bounty_wall`, `stage`, `trophy_hall`, `laboratory`,
-`stores`), each needing an icon before the city opens.
+Every location in every city carries its own figures (`Location.bonuses`), and since 2026-10-14
+its own words, ground, contexts, defence and upgrade notes as well: there are no location types
+to fall back on. A figure the maintainer set level by level is written as a `ladder` on the
+bonus, five entries for the five levels, and a bonus marked `whenDistrictWhole` is paid only while
+the district is held whole. Seven icons exist for this city alone (`workshop`, `shrine`,
+`bounty_wall`, `stage`, `trophy_hall`, `laboratory`, `stores`).
 
-Four units are raised on **doors** authored by name rather than by kind of place (`unit_door`,
+Four units are raised on **doors** authored on the ground itself (`unit_door`,
 `UnitRequirement.door`): the Saint at his Shrine (his taverns no longer muster him), the Condemned
 at the Watch Cell (not the Fight Pit), the Crimson Dancer at her Stage (not the Fight Pit), and the
-Juggernauts at the Reliquary Lab or any gene clinic. The door's level is the unit's: each has a
+Juggernauts at the Reliquary Lab, or at the Quiet Ward or the Ascension Clinic in Ashfall. The door's level is the unit's: each has a
 ladder of four steps on the unit's card (`doorSteps`), spent by the engine (`battle/doors.ts`).
 
 Three tags changed with the city. **GUARD** replaces Dug In and Bulwark on every sheet that held
 ground, and goes on the Cyberhounds too: a quarter more damage and a quarter more vitality in any
 fight on the defending side. **ANTI-COMBINE** is what every city's last district pays its holder:
-+10% damage and vitality against the Combine, three levels stacking to +30%. The **Fight Pit** pays
++10% damage and vitality against the Combine in declared battles, three levels stacking to +30%; a
+battle job on the board is not a declared battle and pays none of it (maintainer, 2026-10-11). The
+**Fight Pit** pays
 double infamy for every enemy unit that was intimidated before it died, and nothing else now.
 
 ## Candlemarket
@@ -995,15 +1108,15 @@ three of seven plots open and no gate.
 
 **Unified bonus, Every Candle Lit:** +15% mission caps.
 
-| Location            | Kind              | What holding it pays                               |
-| ------------------- | ----------------- | -------------------------------------------------- |
-| The Wax Stalls      | Market            | 40 caps an hour (a Market elsewhere pays 30).      |
-| Pilgrim Hostels     | Fence Camp        | 50 unit slots, and no caps: beds and nothing else. |
-| The Chandlery       | Chemical Plant    | 20 oil an hour (14 elsewhere).                     |
-| Martyr's Plinth     | Statue in a Plaza | +10 morale, on rabble only.                        |
-| The Night Watch     | Watchtower        | +38 spy points, everywhere.                        |
-| Bulb-String Loft    | Pirate Radio      | +5 Communication and +5 Signals on every officer.  |
-| The Chandlers' Tomb | Mausoleum         | The Death Cloaks, and six beds.                    |
+| Location            | Ground                         | What holding it pays                                                              |
+| ------------------- | ------------------------------ | --------------------------------------------------------------------------------- |
+| The Wax Stalls      | Crammed II, Noisy III          | 40 caps an hour (a Market elsewhere pays 30).                                     |
+| Pilgrim Hostels     | Crammed II, Cold I, Noisy I    | 50 unit slots, and no caps: beds and nothing else.                                |
+| The Chandlery       | Toxic II, Hot I, Crammed I     | 20 oil an hour (14 elsewhere).                                                    |
+| Martyr's Plinth     | Open III, Elevated I           | +10 morale, on rabble only, rising 10, 12, 14, 16, 20 by level.                   |
+| The Night Watch     | Elevated III, Windy I          | +35 spy points, everywhere, rising 35, 50, 65, 80, 110 by level.                  |
+| Bulb-String Loft    | Crammed II, Dark I, Elevated I | +5 Communication and +5 Signals on every officer, rising 5, 6, 7, 8, 10 by level. |
+| The Chandlers' Tomb | Eerie II, Cold I, Crammed I    | The Death Cloaks, and six beds.                                                   |
 
 ## Gravefields
 
@@ -1016,14 +1129,14 @@ taken from inside.
 
 **Unified bonus, Buried With Honours:** 3 XP for every unit slot of your own dead, after every fight.
 
-| Location           | Kind            | What holding it pays                                                                 |
-| ------------------ | --------------- | ------------------------------------------------------------------------------------ |
-| The Bone Market    | The Bone Market | 12% of fight losses back as caps (tapers). Moved here from the Steelbelt.            |
-| Mourners' Row      | Pawn Shop       | 2 HQ metal an hour: the dead's valuables end up here. No bigger truck.               |
-| The Wake House     | Downtown Tavern | +5 Empathy and +5 Resolve on every officer.                                          |
-| The Mausoleums     | Mausoleum       | The Death Cloaks, and six beds.                                                      |
-| Stonecutters' Shed | Scrap Press     | Scrap and planks, steadily.                                                          |
-| The Cemetery       | Graveyard       | +5% infamy from fights (declared battles and mission battle jobs), and nothing else. |
+| Location           | Ground                               | What holding it pays                                                                 |
+| ------------------ | ------------------------------------ | ------------------------------------------------------------------------------------ |
+| The Bone Market    | Eerie II, Noisy I, Dark I, Crammed I | 12% of fight losses back as caps (tapers). Moved here from the Steelbelt.            |
+| Mourners' Row      | Crammed II, Dark I, Eerie I          | 2 HQ metal an hour: the dead's valuables end up here. No bigger truck.               |
+| The Wake House     | Crammed II, Noisy III                | +5 Empathy and +5 Resolve on every officer, rising 5, 6, 7, 8, 10 by level.          |
+| The Mausoleums     | Eerie II, Dark I, Cold I, Crammed I  | The Death Cloaks, and six beds.                                                      |
+| Stonecutters' Shed | Noisy III, Crammed I                 | Scrap and planks, steadily.                                                          |
+| The Cemetery       | Eerie II, Open I, Foggy I, Cold I    | +5% infamy from fights (declared battles and mission battle jobs), and nothing else. |
 
 ## Bellfounders
 
@@ -1035,15 +1148,15 @@ hangs. The furnaces pour plate now, and the quarter rings whether anybody wants 
 **Unified bonus, Cast in Bell Metal:** every modification a unit wears is also +3 armour, stacking,
 inside the 100 cap.
 
-| Location            | Kind            | What holding it pays                                                                                                                                                     |
-| ------------------- | --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| The Clapper Works   | Scrap Press     | Scrap and planks, as a Scrap Press pays.                                                                                                                                 |
-| The Casting Pit     | Foundry         | +3 armour on every Heavy-tier unit, rising 3, 4, 5, 6, 7 by level. No HQ metal.                                                                                          |
-| The Tolling Tower   | Broadcast Tower | A switch (12-hour cooldown): on, every location in Bellfounders is Noisy I, for everybody who fights there, and your own units ignore Noisy everywhere. No intimidation. |
-| The Apprentice Rows | Fence Camp      | 50 unit slots, no caps.                                                                                                                                                  |
-| The Straw Sack      | Workshop        | +5 loot slots on every carrier, rising 5, 6, 7, 8, 10 by level.                                                                                                          |
-| The Hammer Yard     | Workshop        | +10 damage on every blunt-damage unit, rising 10, 15, 20, 25, 30 by level. Not a Construction Site: it does not muster the Colossus and pays no build speed or planks.   |
-| The Founders' Tomb  | Mausoleum       | The Death Cloaks, and six beds.                                                                                                                                          |
+| Location            | Ground                             | What holding it pays                                                                                                                                                     |
+| ------------------- | ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| The Clapper Works   | Noisy III, Crammed II              | Scrap and planks, as a Scrap Press pays.                                                                                                                                 |
+| The Casting Pit     | Hot III, Noisy II, Crammed I       | +3 armour on every Heavy-tier unit, rising 3, 4, 5, 6, 8 by level. No HQ metal.                                                                                          |
+| The Tolling Tower   | Elevated III, Windy II, Noisy I    | A switch (12-hour cooldown): on, every location in Bellfounders is Noisy I, for everybody who fights there, and your own units ignore Noisy everywhere. No intimidation. |
+| The Apprentice Rows | Crammed III, Noisy I, Cold I       | 50 unit slots, no caps.                                                                                                                                                  |
+| The Straw Sack      | Crammed II, Hot II, Noisy I        | +5 loot slots on every carrier, rising 5, 6, 7, 8, 10 by level.                                                                                                          |
+| The Hammer Yard     | Noisy III, Open I, Hot I           | +10 damage on every blunt-damage unit, rising 10, 15, 20, 25, 35 by level. Not a Construction Site: it does not muster the Colossus and pays no build speed or planks.   |
+| The Founders' Tomb  | Eerie II, Dark I, Hot I, Crammed I | The Death Cloaks, and six beds.                                                                                                                                          |
 
 ## The Printworks
 
@@ -1062,15 +1175,15 @@ weakest legendary in the game: ten of her beat a force of 20 Razors on open grou
 Syndic beat 40. Her power is **Propaganda**: no location in the Printworks can be spied while she
 is alive. Take the press hall and she is gone for good.
 
-| Location                 | Kind              | What holding it pays                                                                                                                                                                                                                                                                 |
-| ------------------------ | ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| The Great Press          | Scrap Press       | Scrap and planks, as a Scrap Press pays.                                                                                                                                                                                                                                             |
-| The Boiler House         | Power Station     | 20 oil an hour.                                                                                                                                                                                                                                                                      |
-| The Scriptorium          | University        | A blueprint page a day, of a blueprint you have not finished, at odds by level (basic/intricate/advanced/masterpiece 70/25/5/0 at level 1 to 30/35/25/10 at level 5), and +5 Encyclopedia and +5 Logistics on every officer, rising to +10. No research speed.                       |
-| The Pamphlet Wall        | Broadcast Tower   | One pin a level: a pinned unit type fights you at -5% damage and -5% vitality, whoever fields it. Pins are set all at once and locked until the wall is next worked up; at level 5 with every pin set, one pin can be changed for 5,000 caps on a 12-hour cooldown. No intimidation. |
-| The Typesetters' Canteen | Soup Kitchen      | 14 supplies an hour and 15 unit slots. No morale.                                                                                                                                                                                                                                    |
-| The Distribution Tunnels | Smuggler's Tunnel | 10% off the time of missions on this district's board, rising to 30% by level (written 11, 18, 25, 33, 43 on the divisor channel).                                                                                                                                                   |
-| The Printers' Vault      | Mausoleum         | The Death Cloaks, and six beds.                                                                                                                                                                                                                                                      |
+| Location                 | Ground                                 | What holding it pays                                                                                                                                                                                                                                                                               |
+| ------------------------ | -------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| The Great Press          | Noisy IV, Crammed II, Hot I            | Scrap and planks, as a Scrap Press pays.                                                                                                                                                                                                                                                           |
+| The Boiler House         | Hot III, Noisy II, Foggy II            | 20 oil an hour.                                                                                                                                                                                                                                                                                    |
+| The Scriptorium          | Crammed III, Dark II, Cold I           | A blueprint page a day, of a blueprint you have not finished, at odds by level (basic/intricate/advanced/masterpiece 70/25/5/0 at level 1 to 30/35/25/10 at level 5), and +7 Encyclopedia and +7 Logistics on every officer, rising 7, 8, 9, 10, 12 (from 5 to 10, 2026-10-14). No research speed. |
+| The Pamphlet Wall        | Elevated III, Windy II, Open II        | One pin a level: a pinned unit type fights you at -5% damage and -5% vitality, whoever fields it. Pins are set all at once and locked until the wall is next worked up; at level 5 with every pin set, one pin can be changed for 5,000 caps on a 12-hour cooldown. No intimidation.               |
+| The Typesetters' Canteen | Crammed III, Noisy III, Hot I          | 14 supplies an hour, and 35, 50, 65, 80, 110 unit slots by level (from 15 to 90, 2026-10-14). No morale.                                                                                                                                                                                           |
+| The Distribution Tunnels | Dark IV, Crammed III, Eerie I          | Missions on this district's board take 10, 15, 20, 25, 35% less time by level (written 11, 18, 25, 35, 86 as points into the mission clock's curve, which bends past 25).                                                                                                                          |
+| The Printers' Vault      | Eerie III, Dark II, Crammed I, Noisy I | The Death Cloaks, and six beds.                                                                                                                                                                                                                                                                    |
 
 ## Saint's Rest
 
@@ -1083,16 +1196,16 @@ quiet.
 **Unified bonus, The Saint Walks With You:** units fighting in a force with the Saint get +2%
 damage and vitality while he is alive.
 
-| Location                | Kind         | What holding it pays                                                                                                                                                                                                                                                                                                                              |
-| ----------------------- | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| The Sisters' Dispensary | Black Clinic | Each day, a chance of one battle stim (an Adrenaline Syringes crate in the stash): 30% at level 1, 47, 65, 82, 100%. No standing stims.                                                                                                                                                                                                           |
-| The Infirmary Cloister  | Hospital     | +2% casualty recovery a level: 2, 4, 6, 8, 10. No unit vitality.                                                                                                                                                                                                                                                                                  |
-| The Saint's Shrine      | Shrine       | The Saint's one door. He costs 6,000 caps, 1,500 supplies and 600 HQ metal and takes 50 unit slots. Level 2: Holds the Line. Level 3: +10 evasion, speed and stealth. Level 4: INSPIRATION, every ally beside him ignores the ground that is bad for it. Level 5: +1 damage and vitality per unit slot beside him, to +1,000. His Dug In is gone. |
-| The Watch Cell          | Watchtower   | The Condemned's door (moved off the Fight Pit): +30 damage and vitality for every level above the first, and at level 5 LAST CHANCE, one strike more as they die, one time in five. No spy points.                                                                                                                                                |
-| The Exercise Yard       | Gym          | -5% training time a level, 5 to 25, and at level 5 one more training session a day.                                                                                                                                                                                                                                                               |
-| The Wellhouse           | Water Works  | 26 supplies an hour.                                                                                                                                                                                                                                                                                                                              |
-| The Saint's Inn         | Tavern       | +20 unit slots a level, 20 to 100, and the same again while the whole hill is held. No morale; it musters nobody.                                                                                                                                                                                                                                 |
-| The Pilgrims' Tomb      | Mausoleum    | The Death Cloaks, and six beds.                                                                                                                                                                                                                                                                                                                   |
+| Location                | Ground                                | What holding it pays                                                                                                                                                                                                                                                                                                                              |
+| ----------------------- | ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| The Sisters' Dispensary | Toxic III, Crammed II, Dark II        | Each day, a chance of one battle stim (an Adrenaline Syringes crate in the stash): 30% at level 1, 44, 58, 72, 100%. No standing stims.                                                                                                                                                                                                           |
+| The Infirmary Cloister  | Crammed III, Toxic II, Noisy I        | +2 medic points a level (2, 4, 6, 8, 12) into the recovery curve, so 12 points is about a tenth of the dead back. No unit vitality.                                                                                                                                                                                                               |
+| The Saint's Shrine      | Elevated III, Eerie II, Open I        | The Saint's one door. He costs 6,000 caps, 1,500 supplies and 600 HQ metal and takes 50 unit slots. Level 2: Holds the Line. Level 3: +10 evasion, speed and stealth. Level 4: INSPIRATION, every ally beside him ignores the ground that is bad for it. Level 5: +1 damage and vitality per unit slot beside him, to +1,000. His Dug In is gone. |
+| The Watch Cell          | Elevated IV, Windy II, Cold II        | The Condemned's door (moved off the Fight Pit): +30 damage and vitality for every level above the first and +60 for the last (+30, +60, +90, +150), and at level 5 LAST CHANCE, one strike more as they die, one time in five. No spy points.                                                                                                     |
+| The Exercise Yard       | Open III, Noisy II, Cold I            | -5% training time a level, 5, 10, 15, 20, 30, and at level 5 one more training session a day.                                                                                                                                                                                                                                                     |
+| The Wellhouse           | Wet III, Dark II, Cold II             | 26 supplies an hour.                                                                                                                                                                                                                                                                                                                              |
+| The Saint's Inn         | Crammed IV, Noisy III                 | +20 unit slots a level, 20, 40, 60, 80, 120, and the same again while the whole hill is held. No morale; it musters nobody.                                                                                                                                                                                                                       |
+| The Pilgrims' Tomb      | Eerie III, Dark II, Cold I, Crammed I | The Death Cloaks, and six beds.                                                                                                                                                                                                                                                                                                                   |
 
 ## Bloodstone
 
@@ -1107,15 +1220,15 @@ bill.
 **Unified bonus, Her Blades Lead:** units fighting alongside the Crimson Dancer get +5 penetration
 while she is alive.
 
-| Location             | Kind                  | What holding it pays                                                                                                                                                                                                                                                                                             |
-| -------------------- | --------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| The Bounty Wall      | Bounty Wall           | Each battle job dealt on this district's board is golden with a chance of 20% at level 1, 40, 60, 80, 100%: a gold outline on the card, and +10% pay rising to +50%.                                                                                                                                             |
-| The Red Lantern      | Downtown Tavern       | 60 caps an hour. No morale.                                                                                                                                                                                                                                                                                      |
-| The Hiring Hall      | Fence Camp            | Rabble muster 4% cheaper a level, 4 to 20. No beds, no caps.                                                                                                                                                                                                                                                     |
-| The Crimson Stage    | Stage                 | The Crimson Dancer's door (moved off the Fight Pit). Level 2: +100 damage and vitality. Level 3: SPECTACLE, her kills pay double infamy. Level 4: Crammed and Wet no longer weaken her, and +100 evasion. Level 5: PAPERCUT, every attack strips 5 armour from every enemy unit for the rest of the fight, to 0. |
-| The Chop Shop        | War Machine Graveyard | One random component a day at levels 1 to 3, two from level 4, at rarities rising with level (the Scriptorium's table). No vitality, no seats for all.                                                                                                                                                           |
-| The Trophy Hall      | Trophy Hall           | A list of every unit in the game, ticked as each is killed while the hall is held (reset when it is lost and retaken). Each ticked type pays 10 HQ metal and 100 of every other resource a day, times 1, 1.5, 2, 2.5, 3 by level.                                                                                |
-| The Sellswords' Tomb | Mausoleum             | The Death Cloaks, and six beds.                                                                                                                                                                                                                                                                                  |
+| Location             | Ground                        | What holding it pays                                                                                                                                                                                                                                                                                             |
+| -------------------- | ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| The Bounty Wall      | Crammed III, Noisy II         | Each battle job dealt on this district's board is golden with a chance of 20% at level 1, 36, 52, 68, 100%: a gold outline on the card, and +10% pay rising 18, 26, 34 to +50%.                                                                                                                                  |
+| The Red Lantern      | Crammed III, Noisy II, Dark I | 60 caps an hour. No morale.                                                                                                                                                                                                                                                                                      |
+| The Hiring Hall      | Crammed II, Noisy II, Cold I  | Rabble muster 4% cheaper a level, 4, 8, 12, 16, 24. No beds, no caps.                                                                                                                                                                                                                                            |
+| The Crimson Stage    | Dark III, Noisy II, Crammed I | The Crimson Dancer's door (moved off the Fight Pit). Level 2: +100 damage and vitality. Level 3: SPECTACLE, her kills pay double infamy. Level 4: Crammed and Wet no longer weaken her, and +100 evasion. Level 5: PAPERCUT, every attack strips 5 armour from every enemy unit for the rest of the fight, to 0. |
+| The Chop Shop        | Open II, Toxic II, Noisy I    | One random component a day at levels 1 to 3, two from level 4, at rarities rising with level (the Scriptorium's table). No vitality, no seats for all.                                                                                                                                                           |
+| The Trophy Hall      | Eerie II, Dark II, Crammed I  | A list of every unit in the game, ticked as each is killed while the hall is held (reset when it is lost and retaken). Each ticked type pays 10 HQ metal and 100 of every other resource a day, times 1, 1.5, 2, 2.5, 3.5 by level.                                                                              |
+| The Sellswords' Tomb | Eerie III, Dark II, Cold I    | The Death Cloaks, and six beds.                                                                                                                                                                                                                                                                                  |
 
 ## The Cloisters
 
@@ -1133,15 +1246,15 @@ and level with Ashfall's Executioner on the strength ladder (ten of either beat 
 ground). His power is **Blood Baptism**: every location in the Cloisters is Eerie while he keeps
 the rituals, and every Combine unit fighting there has +10 intimidation.
 
-| Location               | Kind          | What holding it pays                                                                                                                                                                                                                                                                                                                                                                                                             |
-| ---------------------- | ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| The Reliquary Lab      | Laboratory    | A Juggernauts door (a gene clinic does as well; holding both stacks the clinic's vitality on top). They take 10 unit slots and lost Last Stand. Level 2: +20 range. Level 3: +100 vitality, and Wet, Cold and Snowy are home ground. Level 4: +50 damage and they taunt. Level 5: BLOWOUT, a dying Juggernaut deals its damage to enemy units covering up to its own unit slots, smallest units first, only units fully covered. |
-| The Chapter of Silence | Chapel        | +20 defensive spy points a level, 20 to 60. No officer lift, no steady nerve. The crew's own offensive and defensive totals are printed on the Master of Whispers' seat, the Spy Reports tab and the district reports.                                                                                                                                                                                                           |
-| The Novitiate          | Gym           | +3 to every physical attribute of every officer, rising 3, 4, 5, 6, 7 by level. No sessions.                                                                                                                                                                                                                                                                                                                                     |
-| The Cold Vault         | Nuclear Plant | Every other source of oil and HQ metal pays +2% more, rising 2, 3, 4, 5, 6 by level. No HQ metal of its own.                                                                                                                                                                                                                                                                                                                     |
-| The Choir Loft         | Planetarium   | +2% mission XP, rising 2, 3, 4, 5, 6 by level. No research speed, no spy points.                                                                                                                                                                                                                                                                                                                                                 |
-| The Cloister Wall      | High Ground   | Every unit with GUARD gets +10 range and +10 armour, rising to +20 by level (10, 13, 15, 18, 20). No defence percent.                                                                                                                                                                                                                                                                                                            |
-| The Sisters' Crypt     | Mausoleum     | The Death Cloaks, and six beds.                                                                                                                                                                                                                                                                                                                                                                                                  |
+| Location               | Ground                                   | What holding it pays                                                                                                                                                                                                                                                                                                                                                                                                             |
+| ---------------------- | ---------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| The Reliquary Lab      | Cold III, Eerie II, Crammed II, Toxic I  | A Juggernauts door (a gene clinic does as well; holding both stacks the clinic's vitality on top). They take 10 unit slots and lost Last Stand. Level 2: +20 range. Level 3: +100 vitality, and Wet, Cold and Snowy are home ground. Level 4: +50 damage and they taunt. Level 5: BLOWOUT, a dying Juggernaut deals its damage to enemy units covering up to its own unit slots, smallest units first, only units fully covered. |
+| The Chapter of Silence | Eerie IV, Dark II, Cold II               | +50, 55, 60, 65, 75 defensive spy points (from 20 to 70, 2026-10-14). No officer lift, no steady nerve. The crew's own offensive and defensive totals are printed on the Master of Whispers' seat, the Spy Reports tab and the district reports.                                                                                                                                                                                 |
+| The Novitiate          | Cold III, Crammed III, Noisy II          | +3 to every physical attribute of every officer, rising 3, 4, 5, 6, 8 by level. No sessions.                                                                                                                                                                                                                                                                                                                                     |
+| The Cold Vault         | Toxic IV, Dark II, Cold II, Crammed I    | Every other source of oil and HQ metal pays +5% more, rising 5, 7, 9, 11, 15 by level (from 2 to 7, 2026-10-14). No HQ metal of its own.                                                                                                                                                                                                                                                                                         |
+| The Choir Loft         | Dark III, Eerie III, Noisy I, Elevated I | +2% mission XP, rising 2, 3, 4, 5, 7 by level. No research speed, no spy points.                                                                                                                                                                                                                                                                                                                                                 |
+| The Cloister Wall      | Elevated IV, Windy III, Cold I           | Every unit with GUARD gets +10, 13, 15, 18, 24 range and +20, 24, 28, 32, 40 armour by level (armour from 10 to 24, 2026-10-14). No defence percent.                                                                                                                                                                                                                                                                             |
+| The Sisters' Crypt     | Eerie III, Dark III, Crammed II          | The Death Cloaks, and six beds.                                                                                                                                                                                                                                                                                                                                                                                                  |
 
 ## The Nave
 
@@ -1152,7 +1265,7 @@ window the light through which falls on everything, and vaults under the floor d
 siege.
 
 **Unified bonus, The Nave Is Taken:** one level of ANTI-COMBINE (+10% damage and vitality against
-the Combine), stacking with the Spire's and the Blockhouse's.
+the Combine in declared battles), stacking with the Spire's and the Blockhouse's.
 
 **The Combine leader: the Hierarch**, under the Rose Window. Blunt damage, 10 unit slots, and level
 with Directive Xero at the top of the strength ladder (ten of either beat 260 Razors on open
@@ -1160,15 +1273,15 @@ ground). Forty years a monk before the Combine made him its voice, and he still 
 morning. His power is **Martial Arts Instructor**: every Combine unit in the Nave fights with +15
 evasion, 5% more damage and 5 more resistance to blunt.
 
-| Location              | Kind       | What holding it pays                                                                                                                                                        |
-| --------------------- | ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| The Choir             | Cinema     | +5 Composure, Improvisation and Empathy on every officer, rising 5, 6, 7, 8, 10 by level. No morale.                                                                        |
-| The Rose Window       | Chapel     | Units you send into a faction mate's fight get +2% damage and vitality, rising 2, 4, 6, 8, 10 by level.                                                                     |
-| The Undercroft Stores | Stores     | +10% storage of HQ metal, planks, oil, scrap and supplies, rising 10, 13, 15, 18, 20 by level. Not caps.                                                                    |
-| The Collection Plate  | Market     | Every passively producing structure in your district makes +10% more per modification fitted on it, rising to +20% per modification by level (10, 13, 15, 18, 20). No caps. |
-| The Court of Arms     | Armory     | Unit modifications 10% cheaper in resources, rising 10, 14, 18, 22, 25 by level. No muster cut.                                                                             |
-| The Cathedral Close   | Fence Camp | 50 unit slots and 6 caps an hour, as a Fence Camp pays.                                                                                                                     |
-| The Bishops' Crypt    | Mausoleum  | The Death Cloaks, and six beds.                                                                                                                                             |
+| Location              | Ground                                   | What holding it pays                                                                                                                                                        |
+| --------------------- | ---------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| The Choir             | Noisy IV, Dark III, Crammed II, Eerie I  | +7 Composure, Improvisation and Empathy on every officer, rising 7, 8, 9, 10, 12 by level (from 5 to 10, 2026-10-14). No morale.                                            |
+| The Rose Window       | Eerie III, Elevated III, Cold II, Open I | Units you send into a faction mate's fight get +10% damage and vitality, rising 10, 12, 14, 16, 20 by level (from 2 to 12, 2026-10-14).                                     |
+| The Undercroft Stores | Dark IV, Cold III, Crammed II, Wet I     | +10% storage of HQ metal, planks, oil, scrap and supplies, rising 10, 13, 15, 18, 24 by level. Not caps.                                                                    |
+| The Collection Plate  | Crammed IV, Noisy IV                     | Every passively producing structure in your district makes +10% more per modification fitted on it, rising to +24% per modification by level (10, 13, 15, 18, 24). No caps. |
+| The Court of Arms     | Crammed III, Dark III, Cold II, Noisy I  | Unit modifications 10% cheaper in resources, rising 10, 14, 18, 22, 30 by level. No muster cut.                                                                             |
+| The Cathedral Close   | Crammed IV, Noisy III, Cold II           | 50 unit slots and 6 caps an hour, as a Fence Camp pays.                                                                                                                     |
+| The Bishops' Crypt    | Eerie IV, Dark II, Cold II, Crammed II   | The Death Cloaks, and six beds.                                                                                                                                             |
 
 ## The map
 
@@ -1197,5 +1310,5 @@ whole sees the panel over it.
 ## What this still needs
 
 - District plates, so a district can be walked into the way Ashfall's and Terminus's are.
-- Painted icons for the seven new location kinds (`workshop`, `shrine`, `bounty_wall`, `stage`,
+- Painted icons for the seven new location icons (`workshop`, `shrine`, `bounty_wall`, `stage`,
   `trophy_hall`, `laboratory`, `stores`): on the manifest, still drawn procedurally.

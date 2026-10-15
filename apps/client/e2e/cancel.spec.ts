@@ -30,7 +30,11 @@ test.use({ viewport: { width: 1600, height: 1000 } });
  * rather than on a chip a screen away.
  */
 
-const LEFT_TO_DECIDE = /^\d+(h( \d+m)?|m( \d+s)?|s) left to decide$/;
+/*
+ * The countdown alone inside a queue's cell (maintainer, 2026-10-08), where the words would not fit
+ * beside the X; the training banner's line still spells them out.
+ */
+const LEFT_TO_DECIDE = /^\d+(h( \d+m)?|m( \d+s)?|s)( left to decide)?$/;
 
 /** The stockpiles a refund moves, in the order the HUD draws them. */
 function refunded(paid: PartialResources): [ResourceKey, number][] {
@@ -85,7 +89,8 @@ test('a build waiting behind the one being worked wears the X; one past its tent
   const x = page.getByTestId('cancel-build-bq-2');
   await expect(x).toBeVisible();
   await expect(x).toHaveAccessibleName(/call off the greenhouse level 3/i);
-  await expect(page.getByTestId('cancel-build-bq-2-window')).toHaveText(LEFT_TO_DECIDE);
+  // Waiting its turn: the X carries no timer (maintainer, 2026-10-08).
+  await expect(page.getByTestId('cancel-build-bq-2-window')).toHaveText('queued');
 
   const order = lateGameBase.buildQueue.find((entry) => entry.id === 'bq-2');
   if (!order) throw new Error('the late-game fixture has no bq-2');
@@ -109,7 +114,8 @@ test('the In progress page wears the X on a build still inside its tenth, and no
   await expect(page.getByTestId('cancel-build-bq-1')).toHaveCount(0);
   const x = page.getByTestId('cancel-build-bq-2');
   await expect(x).toBeVisible();
-  await expect(page.getByTestId('cancel-build-bq-2-window')).toHaveText(LEFT_TO_DECIDE);
+  // Waiting its turn: the X carries no timer (maintainer, 2026-10-08).
+  await expect(page.getByTestId('cancel-build-bq-2-window')).toHaveText('queued');
   await page.screenshot({ path: 'e2e-out/cancel-progress.png' });
 
   const sent = page.waitForRequest((request) => request.url().endsWith('/api/base/cancel'));
@@ -291,7 +297,7 @@ test('work under way on held ground wears the X beside its clock, and the press 
   const x = page.getByTestId(`cancel-upgrade-${held.location.id}`);
   await expect(x).toBeVisible();
   await expect(page.getByTestId(`cancel-upgrade-${held.location.id}-window`)).toHaveText(
-    /^[12]m( \d+s)? left to decide$/,
+    /^[12]m( \d+s)?( left to decide)?$/,
   );
   await page.screenshot({ path: 'e2e-out/cancel-location.png' });
 
@@ -320,7 +326,7 @@ test('a gate being raised wears the X on its plate over the city', async ({ page
   const x = page.getByTestId(`cancel-gate-${gate.districtId}`);
   await expect(x).toBeVisible();
   await expect(page.getByTestId(`cancel-gate-${gate.districtId}-window`)).toHaveText(
-    /^[45]m( \d+s)? left to decide$/,
+    /^[45]m( \d+s)?( left to decide)?$/,
   );
 
   const sent = page.waitForRequest((request) => request.url().endsWith('/api/city/gate/cancel'));

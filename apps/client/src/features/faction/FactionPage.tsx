@@ -239,7 +239,12 @@ export function FactionPage() {
       {door === 'ledger' && <LedgerWindow data={data} onClose={() => setDoor(null)} />}
 
       {door === 'armies' && (
-        <Armies armies={data.armies} myUserId={myUserId} onClose={() => setDoor(null)} />
+        <Armies
+          armies={data.armies}
+          members={data.members}
+          myUserId={myUserId}
+          onClose={() => setDoor(null)}
+        />
       )}
 
       {door === 'book' && (

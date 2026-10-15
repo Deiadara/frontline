@@ -7,6 +7,7 @@ import {
   type Army,
   type Battlefield,
   type SideSetup,
+  findLocation,
 } from '@frontline/shared';
 
 /**
@@ -76,7 +77,8 @@ function measure(matchup: Matchup): number {
 
 const press: Battlefield = battlefieldFor({
   locationName: 'Kessler Press',
-  kind: 'scrap_press',
+  // The Steelbelt's press house.
+  ground: findLocation('steelbelt-press')!,
   at: new Date('2026-08-13T12:00:00.000Z'),
   weather: 'normal',
 });

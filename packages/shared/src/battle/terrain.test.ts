@@ -1,13 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { noTerritoryEffects } from '../city/index.js';
+import { EVERY_LOCATION, envLabel, findLocation, noTerritoryEffects } from '../city/index.js';
 import { findUnit, UNIT_MODIFIERS, type CombatContext, type UnitSpec } from '../units/index.js';
-import { LOCATION_KINDS, LOCATION_CATALOG, type LocationKind } from '../city/locations.js';
-import {
-  bareBattlefield,
-  battlefieldFor,
-  homeBattlefield,
-  LOCATION_CONTEXTS,
-} from './battlefield.js';
+import { bareBattlefield, battlefieldFor, homeBattlefield } from './battlefield.js';
 import { contextBonusPercent, effectiveStats, HELD_DEFENSE_CEILING } from './effects.js';
 import { simulate } from './engine.js';
 
@@ -30,20 +24,16 @@ const DAY = new Date('2026-08-14T13:00:00Z');
 const NIGHT = new Date('2026-08-14T23:00:00Z');
 
 describe('what each location fights like', () => {
-  it('gives every kind of location at least one context', () => {
-    for (const kind of LOCATION_KINDS) {
-      expect(LOCATION_CONTEXTS[kind], kind).not.toHaveLength(0);
+  it('gives every location at least one context', () => {
+    for (const location of EVERY_LOCATION) {
+      expect(location.contexts, location.id).not.toHaveLength(0);
     }
-  });
-
-  it('covers the catalogue exactly: no location kind without ground rules', () => {
-    expect(Object.keys(LOCATION_CONTEXTS).sort()).toEqual(Object.keys(LOCATION_CATALOG).sort());
   });
 
   it('fights a sewer junction underground and a rail yard in the open', () => {
     const sewer = battlefieldFor({
       locationName: 'The Junction',
-      kind: 'sewer_junction',
+      ground: findLocation('undergrid-junction')!,
       at: DAY,
     });
     expect(sewer.contexts).toContain('underground');
@@ -51,7 +41,7 @@ describe('what each location fights like', () => {
 
     const yard = battlefieldFor({
       locationName: 'The Yard',
-      kind: 'rail_yard',
+      ground: findLocation('glasshouse-fields-haulers')!,
       at: DAY,
     });
     expect(yard.contexts).toContain('open_ground');
@@ -64,9 +54,9 @@ describe('what each location fights like', () => {
    * their territory (`gatePercent`) and not through the battlefield.
    */
   it('never makes a wall out of the ground itself', () => {
-    for (const kind of LOCATION_KINDS) {
-      const ground = battlefieldFor({ locationName: 'x', kind, at: DAY });
-      expect(ground.contexts, kind).not.toContain('vs_structure');
+    for (const location of EVERY_LOCATION) {
+      const ground = battlefieldFor({ locationName: 'x', ground: location, at: DAY });
+      expect(ground.contexts, location.id).not.toContain('vs_structure');
     }
   });
 
@@ -78,16 +68,17 @@ describe('what each location fights like', () => {
    * market is lit at every hour, and a sewer is dark at every hour.
    */
   it('reads darkness off the ground rather than off the clock', () => {
-    const ground = (kind: LocationKind, at: Date): readonly CombatContext[] =>
+    const ground = (id: string, at: Date): readonly CombatContext[] =>
       battlefieldFor({
         locationName: 'x',
-        kind,
+        ground: findLocation(id)!,
         at,
       }).contexts;
 
+    // The Tideline Market and the Undergrid's sewer junction.
     for (const at of [DAY, NIGHT]) {
-      expect(ground('market', at)).not.toContain('dark');
-      expect(ground('sewer_junction', at)).toContain('dark');
+      expect(ground('neon-docks-tideline', at)).not.toContain('dark');
+      expect(ground('undergrid-junction', at)).toContain('dark');
     }
   });
 
@@ -115,7 +106,7 @@ describe('what the ground does to a unit', () => {
   it('raises the holder rather than the attacker behind a gate', () => {
     const field = battlefieldFor({
       locationName: 'x',
-      kind: 'barricade',
+      ground: findLocation('blacksite-outer')!,
       at: DAY,
     });
     const gated = { ...noTerritoryEffects(), gatePercent: 20 };
@@ -166,16 +157,35 @@ describe('the ground changes how the fight goes', () => {
   };
 
   it('is worth more to a roster the ground suits', () => {
-    const run = (kind: 'sewer_junction' | 'rail_yard') => {
+    /*
+     * A cramped, toxic sewer and a windswept yard, written out rather than read off two locations:
+     * labels are authored per location (2026-10-14), and this is about Ash Walkers suiting a
+     * tunnel they can breathe in, not about whichever sewer is wettest this month.
+     */
+    const GROUND = {
+      'undergrid-junction': [
+        envLabel('crammed', 4),
+        envLabel('dark', 3),
+        envLabel('wet', 2),
+        envLabel('toxic', 1),
+      ],
+      'glasshouse-fields-haulers': [
+        envLabel('open', 3),
+        envLabel('noisy', 2),
+        envLabel('windy', 1),
+      ],
+    };
+    const run = (id: keyof typeof GROUND) => {
       let left = 0;
       const runs = 24;
       for (let seed = 0; seed < runs; seed += 1) {
         const simulation = simulate({
           seed: `ground-${seed}`,
           battlefield: battlefieldFor({
-            locationName: kind,
-            kind,
+            locationName: id,
+            ground: findLocation(id)!,
             at: NIGHT,
+            labels: GROUND[id],
           }),
           attacker: { name: 'A', army: { ash_walkers: 22 }, defending: false },
           defender: { name: 'D', army: { wardens: 22 }, defending: true },
@@ -190,7 +200,7 @@ describe('the ground changes how the fight goes', () => {
     // An even fight against Wardens rather than a rout of Sparks, and that matters: a roster that
     // wins both grounds without losing anybody shows no difference between them, which is what
     // this measured when the attacker was strong enough to walk it either way.
-    expect(run('sewer_junction')).toBeGreaterThan(run('rail_yard') * 1.3);
+    expect(run('undergrid-junction')).toBeGreaterThan(run('glasshouse-fields-haulers') * 1.3);
   });
 
   /** A held location is never unbreakable. Enough units still take it. */
@@ -201,7 +211,7 @@ describe('the ground changes how the fight goes', () => {
         seed: `overrun-${seed}`,
         battlefield: battlefieldFor({
           locationName: 'The Barricade',
-          kind: 'barricade',
+          ground: findLocation('blacksite-outer')!,
           at: DAY,
         }),
         attacker: { name: 'A', army: { razors: 34 }, defending: false },

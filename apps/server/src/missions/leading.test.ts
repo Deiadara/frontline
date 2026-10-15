@@ -553,7 +553,6 @@ function seedThatWipes(force: Army, jobName: string, grade: Grade): number {
       force,
       vehicles: {},
       grade,
-      anyRide: false,
     });
     if (total(fought.home) === 0) return seed;
   }
@@ -566,7 +565,7 @@ describe('a battle job is a fight', () => {
 
   it('pays a crew that held the field, and only the dead stay out there', async () => {
     const stack = await makeStack('victors');
-    const force: Army = { razors: 80, wardens: 20, juggernauts: 10 };
+    const force: Army = { razors: 80, wardens: 20, juggernauts: 14 };
     stack.repos.bases.updateArmy(stack.base.id, { ...force, haulers: 20 }, []);
     /*
      * A Siege (B-, the job's floor), and a force sized so holding the field still costs somebody.
@@ -591,6 +590,13 @@ describe('a battle job is a fight', () => {
      * 14,700 where the old Fight V at level one fielded 7,900, and the whole stock lost on all of
      * the first twelve seeds. Ten Juggernauts on top, minted for this test alone, hold the field
      * on all twelve and lose between 28 and 47 people doing it. Seed 3 is one of the twelve.
+     *
+     * It moved again on 2026-10-13, when a line started sending half its fire at whoever is in
+     * front of it by bodies rather than all of it by threat (`AIMED_FIRE_SHARE`): the eighty
+     * Razors now draw the Combine's fire the Juggernauts used to, and ten Juggernauts lost on all
+     * of the first twelve seeds. Fourteen hold the field on the first six and still lose somebody
+     * on each; the sweep tried fourteen, eighteen and twenty-four and the smallest that held is
+     * the one here.
      */
     const mission = planted(stack, siege, force, 3);
 

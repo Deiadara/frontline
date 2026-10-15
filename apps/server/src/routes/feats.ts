@@ -21,6 +21,7 @@ import { featClaimRoom, spendRoom } from '../feats/room.js';
 import { settleBase } from '../district/settle.js';
 import { creditBase } from '../district/stores.js';
 import { mergeArmies } from '../battle/forces.js';
+import { standingEffectsFor } from '../crew/standing.js';
 import { awardPlayerXp } from '../progression/award.js';
 import { tallyPagesIn, tallyResourcesEarned } from '../feats/tally.js';
 import { tellPagesFound } from '../social/pages.js';
@@ -254,7 +255,12 @@ function payFeat(
   /** Which feats this pays, in the draw's seed, so two claims in one millisecond draw apart. */
   feats: string,
 ): FeatReward {
-  const reward = withPagesDrawn(owed, `${base.id}:${now.toISOString()}:${feats}`);
+  const reward = withPagesDrawn(
+    owed,
+    `${base.id}:${now.toISOString()}:${feats}`,
+    // The Joker at the crew's table (2026-10-15): a random page is a page drop like any other.
+    owed.pages ? standingEffectsFor(repos, base, now).dropLuck : 0,
+  );
   // Through the stores' one door like every other credit. `reward` is already the part that fits,
   // so nothing is lost here; the landed figure is still the one the ladders are told about.
   const credit = creditBase(repos, base, reward.resources ?? {}, now);
@@ -322,10 +328,10 @@ function payFeat(
  * on the claim so nothing on the board can be read to predict it. What comes back is the reward
  * as delivered, with the pages it drew in `items`, which is what the receipt shows.
  */
-function withPagesDrawn(reward: FeatReward, seed: string): FeatReward {
+function withPagesDrawn(reward: FeatReward, seed: string, luck: number): FeatReward {
   if (!reward.pages) return reward;
   const { pages, ...rest } = reward;
   const items: Record<string, number> = { ...(rest.items ?? {}) };
-  for (const page of drawFeatPages(pages, seed)) items[page] = (items[page] ?? 0) + 1;
+  for (const page of drawFeatPages(pages, seed, luck)) items[page] = (items[page] ?? 0) + 1;
   return Object.keys(items).length > 0 ? { ...rest, items } : rest;
 }

@@ -6,19 +6,18 @@ import { heldDefense } from '../battle/effects.js';
 import { cohesionWidening } from '../battle/engine.js';
 import { musterSpeedAfterTaper } from '../time/speed.js';
 import { effectiveMarketDiscount, MARKET_DISCOUNT_ASYMPTOTE } from '../market/discount.js';
-import { findDistrict } from './atlas.js';
+import { findDistrict, findLocation } from './atlas.js';
 import { missionSpeedPercentIn, territoryEffectsFor, type LocationControl } from './control.js';
 import {
   LEVEL_SCALE,
-  LOCATION_CATALOG,
   MAX_LOCATION_LEVEL,
   UPGRADE_COST_SCALE,
   bonusesAt,
   clampLevel,
+  describeHoldBonus,
   upgradeCost,
   type HoldBonus,
   type Location,
-  type LocationKind,
 } from './locations.js';
 
 /**
@@ -27,14 +26,16 @@ import {
  * `levels.test.ts` and `city.test.ts` hold the shape of the ladder. This file holds the numbers a
  * player is quoted: what one bonus is worth at a level, what an order costs with and without the
  * Engineer, what a cancel hands back, what a whole district adds and takes away, and how each
- * curved channel bends. Every expected figure is worked by hand from the catalogue, so a change
+ * curved channel bends. Every expected figure is worked by hand from the atlas, so a change
  * to a rounding path or a ceiling shows up here as a number rather than as a direction.
  */
 
-/** The first value of a kind's bonus of `bonusKind`, at `level`. */
-function figure(kind: LocationKind, bonusKind: HoldBonus['kind'], level: number): number {
-  const bonus = bonusesAt(kind, level).find((one) => one.kind === bonusKind);
-  if (!bonus) throw new Error(`${kind} pays no ${bonusKind}`);
+const at = (id: string): Location => findLocation(id)!;
+
+/** The first value of a location's bonus of `bonusKind`, at `level`. */
+function figure(id: string, bonusKind: HoldBonus['kind'], level: number): number {
+  const bonus = bonusesAt(at(id), level).find((one) => one.kind === bonusKind);
+  if (!bonus) throw new Error(`${id} pays no ${bonusKind}`);
   if ('perHour' in bonus) return bonus.perHour;
   if ('flat' in bonus) return bonus.flat;
   if ('percent' in bonus) return bonus.percent;
@@ -42,8 +43,8 @@ function figure(kind: LocationKind, bonusKind: HoldBonus['kind'], level: number)
 }
 
 describe('the level ladder', () => {
-  it('is five whole steps, priced off the old ladder’s even rungs', () => {
-    expect(LEVEL_SCALE).toEqual([1, 2, 3, 4, 5]);
+  it('is five levels with a double last step, priced off the old ladder’s even rungs', () => {
+    expect(LEVEL_SCALE).toEqual([1, 2, 3, 4, 6]);
     expect(LEVEL_SCALE).toHaveLength(MAX_LOCATION_LEVEL);
     expect(UPGRADE_COST_SCALE).toEqual([4.5, 8.8, 17.2, 33.7]);
   });
@@ -56,58 +57,70 @@ describe('the level ladder', () => {
   });
 
   it('multiplies a figure by the level, whole, and bends a share of a fight on the combat ladder', () => {
-    // The Foundry's 3 HQ metal: three a level.
-    expect([1, 2, 3, 4, 5].map((level) => figure('foundry', 'resource', level))).toEqual([
-      3, 6, 9, 12, 15,
+    // The Foundry's 3 HQ metal: three a step, and the last level two steps.
+    expect([1, 2, 3, 4, 5].map((level) => figure('annexes-coldrow', 'resource', level))).toEqual([
+      3, 6, 9, 12, 18,
     ]);
     // A Pirate Radio's 3 intimidation reads the same path through the flat channels.
-    expect([1, 2, 4].map((level) => figure('pirate_radio', 'intimidation', level))).toEqual([
+    expect([1, 2, 4].map((level) => figure('annexes-loft', 'intimidation', level))).toEqual([
       3, 6, 12,
     ]);
-    expect(bonusesAt('scrap_press', 4)).toEqual([
+    expect(bonusesAt(at('steelbelt-press'), 4)).toEqual([
       { kind: 'resource', resource: 'scrap', perHour: 96 },
       { kind: 'resource', resource: 'planks', perHour: 72 },
     ]);
-    // A Hospital's 12% vitality tops out at four times, not five (`COMBAT_LEVEL_SCALE`).
-    expect([1, 2, 3, 4, 5].map((level) => figure('hospital', 'unit_vitality', level))).toEqual([
-      12, 21, 30, 39, 48,
-    ]);
+    // A Hospital's 12% vitality tops out at 4.75 times, not six (`COMBAT_LEVEL_SCALE`).
+    expect(
+      [1, 2, 3, 4, 5].map((level) => figure('chrome-row-ferrous', 'unit_vitality', level)),
+    ).toEqual([12, 21, 30, 39, 57]);
   });
 
   it('pays at least one more session and one more syringe at every level', () => {
-    expect(Array.from({ length: 5 }, (_, i) => figure('gym', 'training_sessions', i + 1))).toEqual([
-      1, 2, 3, 4, 5,
-    ]);
     expect(
-      Array.from({ length: 5 }, (_, i) => figure('black_clinic', 'battle_stims', i + 1)),
-    ).toEqual([2, 4, 6, 8, 10]);
+      Array.from({ length: 5 }, (_, i) => figure('blacksite-drill', 'training_sessions', i + 1)),
+    ).toEqual([1, 2, 3, 4, 6]);
+    expect(
+      Array.from({ length: 5 }, (_, i) => figure('blacksite-blackward', 'battle_stims', i + 1)),
+    ).toEqual([2, 4, 6, 8, 12]);
   });
 
   it('leaves the rules alone at any level', () => {
-    for (const kind of ['fight_pit', 'chapel', 'barricade', 'rail_station'] as const) {
+    // A fight pit, a chapel and a barricade.
+    for (const id of ['blacksite-pit17', 'glasshouse-fields-fieldchapel', 'blacksite-outer']) {
       const rules = (level: number) =>
-        bonusesAt(kind, level).filter((one) => !('percent' in one || 'flat' in one));
-      expect(rules(MAX_LOCATION_LEVEL), kind).toEqual(rules(1));
+        bonusesAt(at(id), level).filter((one) => !('percent' in one || 'flat' in one));
+      expect(rules(MAX_LOCATION_LEVEL), id).toEqual(rules(1));
     }
+  });
+
+  // The one rule a level moves (maintainer, 2026-10-09): the rails out of a Station run 15 minutes
+  // at level 1 down to 5 at level 5 (the last step double), so the link carries its level.
+  it('stamps the Station`s level on its link, and says the minutes on the card', () => {
+    const link = (level: number) => bonusesAt(at('coldwater-halt-platform'), level)[0];
+    expect(link(1)).toEqual({ kind: 'rail_link', level: 1 });
+    expect(link(MAX_LOCATION_LEVEL)).toEqual({ kind: 'rail_link', level: MAX_LOCATION_LEVEL });
+    expect(describeHoldBonus(link(1)!)).toContain('15 min');
+    expect(describeHoldBonus(link(2)!)).toContain('13 min');
+    expect(describeHoldBonus(link(MAX_LOCATION_LEVEL)!)).toContain('5 min');
   });
 
   // The Tram Depot's flat minutes became travel points on 2026-10-07, so its one bonus ladders
   // like every other percentage.
   it('scales the Tram Depot`s travel points like any other quantity', () => {
-    expect([1, 2, 5].map((level) => figure('tram_depot', 'travel_speed', level))).toEqual([
-      22, 44, 110,
+    expect([1, 2, 5].map((level) => figure('undergrid-depot', 'travel_speed', level))).toEqual([
+      22, 44, 132,
     ]);
   });
 });
 
 describe('what a level costs', () => {
-  // The Pawn Shop asks 80 planks for its first upgrade, the cheapest in the catalogue.
-  const PAWN = LOCATION_CATALOG.pawn_shop.upgradeCost;
+  // The Chandlery, a pawn shop, asks 80 planks for its first upgrade, the cheapest on the map.
+  const PAWN = at('neon-docks-chandler').upgradeCost;
 
-  it('is the catalogue figure, times the step, a tenth dearer, in the shared mix', () => {
+  it('is the location`s own figure, times the step, a tenth dearer, in the shared mix', () => {
     expect(PAWN).toBe(80);
     // 80 x 4.5 x 1.1 = 396 planks, and the rest of the mix off that: 39.6, 118.8, 158.4, 79.2.
-    expect(upgradeCost('pawn_shop', 1)).toEqual({
+    expect(upgradeCost(at('neon-docks-chandler'), 1)).toEqual({
       planks: 396,
       highQualityMetal: 40,
       scrap: 119,
@@ -115,25 +128,27 @@ describe('what a level costs', () => {
       caps: 79,
     });
     // The last step: 80 x 33.7 x 1.1 = 2965.6 planks, what the old upgrade to 10 cost.
-    expect(upgradeCost('pawn_shop', 4)).toEqual({
+    expect(upgradeCost(at('neon-docks-chandler'), 4)).toEqual({
       planks: 2966,
       highQualityMetal: 297,
       scrap: 890,
       oil: 1186,
       caps: 593,
     });
-    expect(upgradeCost('pawn_shop', MAX_LOCATION_LEVEL)).toBeNull();
+    expect(upgradeCost(at('neon-docks-chandler'), MAX_LOCATION_LEVEL)).toBeNull();
   });
 
   it('takes the Engineer`s cut on top, never past half and never below nothing', () => {
     const half = { planks: 198, highQualityMetal: 20, scrap: 59, oil: 79, caps: 40 };
-    expect(upgradeCost('pawn_shop', 1, 50)).toEqual(half);
-    expect(upgradeCost('pawn_shop', 1, 90)).toEqual(half);
-    expect(upgradeCost('pawn_shop', 1, -20)).toEqual(upgradeCost('pawn_shop', 1));
+    expect(upgradeCost(at('neon-docks-chandler'), 1, 50)).toEqual(half);
+    expect(upgradeCost(at('neon-docks-chandler'), 1, 90)).toEqual(half);
+    expect(upgradeCost(at('neon-docks-chandler'), 1, -20)).toEqual(
+      upgradeCost(at('neon-docks-chandler'), 1),
+    );
   });
 
   it('hands back ninety percent of what was paid, floored per line', () => {
-    expect(cancelRefund(upgradeCost('pawn_shop', 1)!)).toEqual({
+    expect(cancelRefund(upgradeCost(at('neon-docks-chandler'), 1)!)).toEqual({
       planks: 356,
       highQualityMetal: 36,
       scrap: 107,
@@ -162,8 +177,8 @@ describe('the territory fold', () => {
   const blockhouse = findDistrict('blockhouse')!;
   const glasshouse = findDistrict('glasshouse-fields')!;
 
-  it('pays 20 beds for the block, 7 a level above the first, and the catalogue`s own on top', () => {
-    const kitchen = glasshouse.locations.find((one) => one.kind === 'soup_kitchen')!;
+  it('pays 20 beds for the block, 7 a level above the first, and the location`s own on top', () => {
+    const kitchen = glasshouse.locations.find((one) => one.id === 'glasshouse-fields-ladle')!;
     const controls = new Map([held(kitchen, 'mine', 4)]);
     // 20 + 7 x 3 + 15 x 4 = 101.
     expect(territoryEffectsFor('mine', [kitchen], controls).unitSlotBonus).toBe(101);

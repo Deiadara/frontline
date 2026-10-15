@@ -1,5 +1,4 @@
 import {
-  LOCATION_CATALOG,
   plateAspect,
   type District,
   type FactionMark,
@@ -106,13 +105,13 @@ export function ContestedScene({ district, locations, baseId, gate, onPick }: Co
               <p className="font-display text-[11px] uppercase tracking-[0.12em] text-brass-300">
                 {view.location.name}
               </p>
-              {/* The location's own words where it has them, the kind's otherwise: the same rule the
-                  sheet applies, so the hover and the opened sheet never disagree about a place. */}
+              {/* The location's own words, the same the sheet prints, so the hover and the opened
+                  sheet never disagree about a place. */}
               <p className="font-body text-[12px] leading-relaxed text-ink-200">
-                {view.location.blurb ?? LOCATION_CATALOG[view.location.kind].blurb}
+                {view.location.blurb}
               </p>
               <p className="font-body text-[12px] leading-relaxed text-verdigris-100">
-                {LOCATION_CATALOG[view.location.kind].reward}
+                {view.location.reward}
               </p>
               {/* Who holds it, on its own line under a label (maintainer request, 2026-09-11): the
                   one fact a player hovering a sign is most often after, and the sign's colour

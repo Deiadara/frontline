@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   ATTRIBUTE_EFFECTS,
   EFFECT_CHANNELS,
-  LOCATION_CATALOG,
+  EVERY_LOCATION,
   PERK_CATALOG,
   PERK_BREADTH_BY_KIND,
   RESEARCH_ITEMS,
@@ -21,7 +21,7 @@ import {
 const SOURCES = {
   perks: PERK_CATALOG,
   research: RESEARCH_ITEMS,
-  locations: LOCATION_CATALOG,
+  locations: EVERY_LOCATION,
   unified: UNIFIED_BONUSES,
   attributes: ATTRIBUTE_EFFECTS,
   breadth: PERK_BREADTH_BY_KIND,

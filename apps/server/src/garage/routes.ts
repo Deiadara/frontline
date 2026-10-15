@@ -7,7 +7,6 @@ import {
   vehicleBuildSeconds,
   canAfford,
   describeBlueprintGate,
-  discounted,
   findVehicle,
   fleetCapacity,
   vehicleRefusal,
@@ -22,7 +21,10 @@ import {
   MAX_MUSTER_QUEUE,
   MAX_PER_VEHICLE,
   vehicleBatchCost,
-  vehiclePartsCut,
+  vehiclePrice,
+  vehicleSeats,
+  machineSpeed,
+  machinesOf,
 } from '@frontline/shared';
 import type { FastifyInstance } from 'fastify';
 import { adminWaives } from '../admin/mode.js';
@@ -66,15 +68,11 @@ function machinesOnTheBench(base: Base): Fleet {
 
 /**
  * §A4: what the ground takes off a Garage bill (the Rail Yard: bogies, axles and drive parts by
- * the wagonload). `discounted` floors every line at 1, so nothing is ever free.
+ * the wagonload; the Fuelling Point: less scrap). `vehiclePrice` floors every line at 1, so
+ * nothing is ever free.
  */
 function price(app: FastifyInstance, base: Base, cost: PartialResources): PartialResources {
-  // Bent, not stopped (`vehiclePartsCut`, maintainer 2026-10-05).
-  return discounted(
-    cost,
-    vehiclePartsCut(standingEffectsFor(app.repos, base).vehiclePartsPercent),
-    100,
-  );
+  return vehiclePrice(cost, standingEffectsFor(app.repos, base));
 }
 
 /**
@@ -185,12 +183,15 @@ export function projectGarage(app: FastifyInstance, base: Base): GarageResponse 
   // Once for the page rather than once per row: the fold walks the control table and the roster.
   const spare = districtUnitSlots(app.repos, base).spare;
   const bench = machinesOnTheBench(base);
+  // The Hump's bigger loads, so the page quotes the seats the doors will count (`vehicleSeats`).
+  const standing = standingEffectsFor(app.repos, base);
+  const capacityPercent = standing.vehicleCapacityPercent;
   return {
     resources: base.resources,
     spareUnitSlots: spare,
     garageLevel: buildingLevel(base.buildings, 'garage'),
     fleet: base.fleet,
-    capacity: fleetCapacity(base.fleet),
+    capacity: fleetCapacity(base.fleet, capacityPercent),
     vehicles: VEHICLES.map((spec) => ({
       id: spec.id,
       name: spec.name,
@@ -204,10 +205,11 @@ export function projectGarage(app: FastifyInstance, base: Base): GarageResponse 
       // The yard's own level off it, because the queue charges that number and a screen quoting
       // the catalogue while the route charges something else is a price box that lies.
       buildSeconds: vehicleBuildSeconds(spec, buildingLevel(base.buildings, 'garage')),
-      capacity: spec.capacity,
-      speed: spec.speed,
+      capacity: vehicleSeats(spec, capacityPercent),
+      // With the Coaling Stage's pace on it, the speed every column reads (`machineSpeed`).
+      speed: machineSpeed(spec, machinesOf(standing)),
       // Deprecated duplicate, one release only: see `GarageVehicleSchema.speedPercent`.
-      speedPercent: spec.speed,
+      speedPercent: machineSpeed(spec, machinesOf(standing)),
       requiresGarageLevel: spec.requiresGarageLevel,
       requiresBlueprint: blueprintForVehicle(spec.id)?.name ?? null,
       hasBlueprint: holds(spec.id),

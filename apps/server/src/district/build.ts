@@ -12,7 +12,8 @@ import {
   isUnlockedForQueue,
   atLevelCeiling,
   nextQueuedLevel,
-  queueTailStands,
+  queueCancelCascade,
+  mergeResources,
   projectedBuildings,
   queueStartsAt,
   queueCancellable,
@@ -372,7 +373,7 @@ export function queueBuild(repos: Repositories, input: BuildInput): BuildResult 
  * followed by "you need Quarters at 4" is two round trips for one answer, and the district screen
  * shows the same list in its hover note.
  */
-export type BuildCancelRefusal = 'unknown_order' | 'window_closed' | 'orders_behind';
+export type BuildCancelRefusal = 'unknown_order' | 'window_closed';
 export type BuildCancelResult =
   | { kind: 'refused'; reason: BuildCancelRefusal }
   | { kind: 'cancelled'; base: Base; refund: PartialResources };
@@ -385,6 +386,10 @@ export type BuildCancelResult =
  * comes back whole. The orders behind it close up, the way a cancelled muster batch's do: each
  * entry's clock is absolute and was frozen at the completion of the one in front, so the one
  * behind a cancelled order would otherwise wait out a build that no longer exists.
+ *
+ * The orders built on it go with it (maintainer, 2026-10-08), each refunded the same way: Gate 2
+ * to 3 cannot stand once Gate 1 to 2 is called off (`queueCancelCascade`). This used to be a
+ * refusal, which left the earlier order with no way off the queue but cancelling backwards.
  */
 export function cancelBuild(
   repos: Repositories,
@@ -396,11 +401,16 @@ export function cancelBuild(
   const entry = base.buildQueue.find((queued) => queued.id === orderId);
   if (!entry) return { kind: 'refused', reason: 'unknown_order' };
   if (!queueCancellable(entry, now)) return { kind: 'refused', reason: 'window_closed' };
-  if (!queueTailStands(base.buildQueue, base.buildings, base.level, orderId)) {
-    return { kind: 'refused', reason: 'orders_behind' };
-  }
+  const falls = new Set([
+    orderId,
+    ...queueCancelCascade(base.buildQueue, base.buildings, base.level, orderId),
+  ]);
+  const going = base.buildQueue.filter((queued) => falls.has(queued.id));
 
-  const refund = cancelRefund(entry.paid);
+  const refund = going.reduce<PartialResources>(
+    (total, queued) => mergeResources(total, cancelRefund(queued.paid)),
+    {},
+  );
   // Back into the stores as far as they have room, warned about first (maintainer ruling,
   // 2026-09-28).
   const credit = creditBase(repos, base, refund, now);
@@ -409,7 +419,7 @@ export function cancelBuild(
   // running keeps its clock; only the ones still waiting move up, and never to before now.
   const rechained: BuildQueueEntry[] = [];
   for (const queued of base.buildQueue) {
-    if (queued.id === orderId) continue;
+    if (falls.has(queued.id)) continue;
     const previous = rechained.at(-1);
     if (Date.parse(queued.startedAt) <= now.getTime()) {
       rechained.push(queued);
@@ -422,7 +432,7 @@ export function cancelBuild(
   const cancelled: Base = {
     ...base,
     resources: credit.resources,
-    inventory: addItems(base.inventory, entry.parts),
+    inventory: going.reduce((held, queued) => addItems(held, queued.parts), base.inventory),
     buildQueue: rechained,
   };
   repos.bases.updateHoldings(cancelled.id, cancelled.resources, cancelled.inventory);

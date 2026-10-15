@@ -60,6 +60,7 @@ export * from './art/backdrop.js';
 export * from './battle/types.js';
 export * from './battle/attrition.js';
 export * from './battle/salvage.js';
+export * from './battle/death-salvage.js';
 export * from './battle/battlefield.js';
 export * from './battle/effects.js';
 export * from './battle/doors.js';

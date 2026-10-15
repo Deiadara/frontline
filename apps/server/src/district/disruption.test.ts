@@ -143,7 +143,7 @@ describe('what a raid takes off a district while it lasts', () => {
    */
   it("cuts the structures and leaves the held ground's output whole", async () => {
     const { app, base } = await makeBase();
-    const market = EVERY_LOCATION.find((location) => location.kind === 'market');
+    const market = EVERY_LOCATION.find((location) => location.id === 'neon-docks-tideline');
     const control = market ? app.repos.city.control(market.id) : undefined;
     if (!control) throw new Error('fixture: no Market on the map to hold');
     app.repos.city.put({ ...control, holder: { kind: 'crew', baseId: base.id }, garrison: {} });

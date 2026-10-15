@@ -7,6 +7,8 @@ import {
   findVehicle,
   splitDueMuster,
   musterBatchProgress,
+  musterClockMs,
+  musterWaiting,
   musterCancelWindowMs,
   musterCancellable,
   timeSavingPercent,
@@ -20,7 +22,9 @@ import {
 } from '@frontline/shared';
 import { useEffect, useMemo } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { CancelMark } from '../../components/ui/CancelMark';
+import { CancelCell } from '../../components/ui/CancelMark';
+import { Panel } from '../../components/ui/Panel';
+import { EmptyQueueSlot, QueueSlot } from '../../components/ui/QueueSlot';
 import { DrawnFace } from '../../components/ui/DrawnMarks';
 import { HoverCard } from '../../components/ui/HoverCard';
 import { Icon } from '../../components/ui/Icon';
@@ -208,6 +212,9 @@ export function UnitsPage() {
         </Link>
       }
       wide
+      // Ten pixels between the quotation, the figures, the bench and the roster rather than
+      // twenty, so the Carriers fit on one screen (maintainer, 2026-10-08).
+      tight
     >
       {/* The standing rule about unit slots used to be a paragraph pinned above the roster, read once
           and then in the way forever. It is on the figure it describes now: the number is the thing
@@ -318,47 +325,61 @@ export function UnitsPage() {
           to carry a portrait, a twelve-row sheet and a price in what was left, at every width. A
           strip costs one row of height when there is something on it, and gives the roster the
           whole frame. */}
-      <section data-testid="bench" className="flex min-w-0 flex-col gap-2">
-        <header className="flex items-baseline gap-3">
-          <h2 className="font-stamp text-[17px] leading-none text-brass-100">On the bench</h2>
+      {/* On the paper sheet the mission board's In flight list is drawn on (maintainer,
+          2026-10-08): a framed panel with its title ruled off, so the bench reads as a defined
+          template rather than boxes floating on the page. */}
+      <Panel
+        title="On the bench"
+        tone="paper"
+        dense
+        data-testid="bench"
+        className="min-w-0"
+        action={
           <span className="font-display text-[12px] uppercase tracking-[0.16em] tabular-nums text-ink-300">
             {bench.length} / {MAX_MUSTER_QUEUE}
           </span>
-        </header>
+        }
+      >
+        <div className="flex min-w-0 flex-col gap-2 px-3 pb-2.5 pt-2">
+          {/* §A5: the cancel window is short and shuts the moment the first unit walks out, so
+              `window_closed` is the refusal a player is most likely to meet. It used to be silent:
+              the button un-dimmed, the order stayed, and nothing said why. */}
+          {cancel.error && <PressError onDismiss={cancel.reset}>{cancel.error.message}</PressError>}
 
-        {/* §A5: the cancel window is short and shuts the moment the first unit walks out, so
-            `window_closed` is the refusal a player is most likely to meet. It used to be silent:
-            the button un-dimmed, the order stayed, and nothing said why. */}
-        {cancel.error && <PressError onDismiss={cancel.reset}>{cancel.error.message}</PressError>}
-
-        {bench.length === 0 ? (
-          <p className="font-body text-[13px] leading-snug text-ink-300">
-            Nobody on the bench. Pick somebody from the roster.
-          </p>
-        ) : (
-          <ol
-            className="grid gap-x-4 gap-y-2 sm:grid-cols-2 xl:grid-cols-3"
-            data-testid="muster-queue"
-          >
-            {bench.map((order, index) => (
-              <BenchRow
-                key={order.id}
-                order={order}
-                now={now}
-                head={index === 0}
-                pending={cancel.isPending}
-                onCancel={() => cancel.mutate({ orderId: order.id })}
-              />
-            ))}
+          {/* Every place the bench has, taken or free (maintainer, 2026-10-08): an order fills a box
+              that was already drawn, so mustering never pushes the roster down the page. */}
+          <ol className="grid grid-cols-5 gap-1.5" data-testid="muster-queue">
+            {/* Never fewer than the bench holds: a save from before testing mode stopped waiving the
+                cap can carry more than five, and an order with no box is one nobody can cancel. */}
+            {Array.from({ length: Math.max(MAX_MUSTER_QUEUE, bench.length) }, (_, place) => {
+              const order = bench[place];
+              return order ? (
+                <BenchRow
+                  key={order.id}
+                  order={order}
+                  now={now}
+                  head={place === 0}
+                  pending={cancel.isPending}
+                  onCancel={() => cancel.mutate({ orderId: order.id })}
+                />
+              ) : (
+                <EmptyQueueSlot
+                  key={`free-${place}`}
+                  place={place + 1}
+                  className={BENCH_SLOT}
+                  data-testid={`bench-free-${place + 1}`}
+                />
+              );
+            })}
           </ol>
-        )}
-      </section>
+        </div>
+      </Panel>
 
       {/* The second rule the maintainer asked for: the bench is a different kind of thing from the
           roster under it, and a hand-drawn line is what the rest of this interface uses to say so. */}
       <span aria-hidden className="ink-rule -my-1" />
 
-      <div className="flex min-w-0 flex-col gap-4">
+      <div className="flex min-w-0 flex-col gap-2.5">
         <div className="flex flex-wrap gap-2">
           {ROSTER_TABS.map((option) => (
             <button
@@ -420,8 +441,8 @@ export function UnitsPage() {
                 atGate={data.gateArmy[unit.id] ?? 0}
                 abroad={data.abroad[unit.id] ?? 0}
                 carriersFight={data.carriersFight ?? false}
-                ignoredLabels={data.ignoredLabels}
                 antiCombineLevels={data.antiCombineLevels}
+                reactorHeld={data.reactorHeld ?? false}
                 deltas={mustered[unit.id] ?? []}
                 // The crew-wide half of the Bonuses chip. The unit's own half rides on the row.
                 {...(data.musterBreakdown === undefined ? {} : { bonuses: data.musterBreakdown })}
@@ -475,6 +496,9 @@ export function UnitsPage() {
   );
 }
 
+/** One place on the bench, taken or free: a fixed height, so the strip never changes size. */
+const BENCH_SLOT = 'h-[4.125rem]';
+
 /**
  * One batch on the bench.
  *
@@ -500,39 +524,53 @@ function BenchRow({
   // A Garage order sits on the same bench, so a machine is named off its own catalogue.
   const name = findUnit(order.unitId)?.name ?? findVehicle(order.unitId)?.name ?? order.unitId;
   const { done, total, nextMs, nextProgress } = musterBatchProgress(order, now);
+  // Only the batch being worked counts down (maintainer, 2026-10-08); one waiting its turn shows
+  // its whole clock and holds it until it starts.
+  const waiting = musterWaiting(order, now);
   return (
-    <li className="flex min-w-0 items-center gap-2">
-      <span className="min-w-0 flex-1">
-        <span className="flex items-baseline justify-between gap-2">
-          <span className="truncate font-display text-[11px] uppercase tracking-[0.1em] text-ink-200">
+    <QueueSlot head={head} className={cn(BENCH_SLOT, 'relative')} data-testid={`bench-${order.id}`}>
+      <span className="flex min-w-0 flex-1 flex-col justify-center gap-1">
+        {/* Wrapping, not truncating: five places across a 1024 frame leave a hundred pixels for
+            "The Crimson Dancer", and a cut name is the one thing the bar rules out. The place is
+            tall enough for two lines, so a long name costs nothing. Its right-hand end is kept
+            clear of the X's corner whether or not the X is there, so nothing moves when it goes. */}
+        <span className="block pr-[4.75rem]">
+          <span className="block break-words font-display text-[10.5px] uppercase leading-[1.15] tracking-[0.06em] text-ink-200">
             {name}
           </span>
-          <span className="shrink-0 font-display text-[11px] tabular-nums text-ink-300">
+        </span>
+        <span className="flex items-baseline justify-between gap-2 font-display text-[10px] leading-none tabular-nums">
+          <span className="text-ink-300">
             {done} / {total}
-            <span className="ml-1.5 text-brass-300">{formatRemaining(nextMs)}</span>
+          </span>
+          <span className="text-brass-300">
+            {formatRemaining(waiting ? musterClockMs(order, now) : nextMs)}
           </span>
         </span>
-        <span className="mt-1 block h-1.5 w-full overflow-hidden rounded-sm bg-surface-800">
+        <span className="paint-track block h-1 w-full rounded-[1px]">
           <span
-            className={cn('block h-full rounded-sm', head ? 'bg-brass-300' : 'bg-iris-300')}
+            className={cn('paint-fill block h-full', head ? 'bg-brass-300' : 'bg-iris-300')}
             style={{ width: `${Math.round(nextProgress * 100)}%` }}
           />
         </span>
-        {/* §A5: the window is a tenth of the batch's own clock and shuts the moment the first
-            unit walks out, so it is there and gone. The same X every other clock in the game
-            wears (maintainer request, 2026-09-12); under the bar rather than beside the name, because
-            the bench column is narrow and the countdown beside the X is most of its width. */}
-        <CancelMark
-          className="mt-1.5"
-          windowMs={musterCancellable(order, now) ? musterCancelWindowMs(order, now) : 0}
-          label={`Call off the ${name} batch`}
-          pending={pending}
-          onCancel={onCancel}
-          tip={`Call it off: ${Math.round(MUSTER_CANCEL_REFUND * 100)}% back`}
-          data-testid={`cancel-${order.id}`}
-        />
       </span>
-    </li>
+      {/* §A5: the window is a tenth of the batch's own clock and shuts the moment the first unit
+          walks out, so it is there and gone. The same X every other clock in the game wears
+          (maintainer request, 2026-09-12), laid over the box's top right corner (maintainer,
+          2026-10-08) so the bar runs the full width and the X fades without moving a thing. */}
+      <CancelCell
+        size="sm"
+        flip
+        className="absolute right-1.5 top-1.5"
+        windowMs={musterCancellable(order, now) ? musterCancelWindowMs(order, now) : 0}
+        queued={waiting}
+        label={`Call off the ${name} batch`}
+        pending={pending}
+        onCancel={onCancel}
+        tip={`Call it off: ${Math.round(MUSTER_CANCEL_REFUND * 100)}% back`}
+        data-testid={`cancel-${order.id}`}
+      />
+    </QueueSlot>
   );
 }
 

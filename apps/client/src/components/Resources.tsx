@@ -463,17 +463,35 @@ export function ResourceGrid({ resources, className }: ResourceGridProps) {
  * in the hostile ramp, so the player reads *which* material is short rather than only that the
  * button is dead (GDD §D3: oil is the one that usually is).
  */
-export function CostLine({ cost, stock }: { cost: PartialResources; stock: Resources }) {
+export function CostLine({
+  cost,
+  stock,
+  compact = false,
+}: {
+  cost: PartialResources;
+  stock: Resources;
+  /**
+   * The glyph and the figure, with the material's name on the hover, the way the stockpile across
+   * the top of the screen reads. For a price that has to sit on one line in half a window (the plot
+   * dialog, maintainer 2026-10-08): five materials with their names are 750px, and without them
+   * under 400.
+   */
+  compact?: boolean;
+}) {
   const entries = RESOURCE_ORDER.filter((kind) => (cost[kind] ?? 0) > 0);
 
   return (
     // A handle of its own, so a test can ask what a price says without matching a bare number
     // against a whole card: the roster's sheet has a `Morale 40` two inches above a `40 Caps`.
-    <div className="flex flex-wrap items-center gap-x-4 gap-y-1" data-testid="cost-line">
+    <div
+      className={cn('flex flex-wrap items-center gap-y-1', compact ? 'gap-x-3' : 'gap-x-4')}
+      data-testid="cost-line"
+    >
       {entries.map((kind) => {
         const amount = cost[kind] ?? 0;
         const meta = RESOURCE_META[kind];
         const short = stock[kind] < amount;
+        const figure = Math.round(amount).toLocaleString('en-US');
         return (
           <span
             key={kind}
@@ -481,12 +499,17 @@ export function CostLine({ cost, stock }: { cost: PartialResources; stock: Resou
               'flex items-center gap-1.5 font-display text-xs',
               short ? 'text-oxblood-300' : meta.color,
             )}
+            {...(compact ? { 'data-tip': `${figure} ${meta.label}` } : {})}
           >
             <ResourceIcon kind={kind} />
-            <span className="font-semibold tabular-nums">
-              {Math.round(amount).toLocaleString('en-US')}
-            </span>
-            <span className="text-[11px] uppercase tracking-[0.15em] opacity-70">{meta.label}</span>
+            <span className="font-semibold tabular-nums">{figure}</span>
+            {compact ? (
+              <span className="sr-only">{meta.label}</span>
+            ) : (
+              <span className="text-[11px] uppercase tracking-[0.15em] opacity-70">
+                {meta.label}
+              </span>
+            )}
           </span>
         );
       })}

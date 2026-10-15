@@ -209,6 +209,23 @@ export const SkirmishOutcomeSchema = z.object({
     .object({ attacker: z.number().min(0).default(0), defender: z.number().min(0).default(0) })
     .default({ attacker: 0, defender: 0 }),
   /**
+   * The Geppetto's robots on each side (AD HOC ARMY, 2026-10-09): how many he made and how many
+   * were destroyed. Never in `fled`, `killed` or `winnerLosses`, which are mustered units only.
+   * Optional so a stub engine, which has no robots, need not write two zeroes.
+   */
+  adHocArmy: z
+    .object({
+      attacker: z.object({
+        made: z.number().int().nonnegative(),
+        lost: z.number().int().nonnegative(),
+      }),
+      defender: z.object({
+        made: z.number().int().nonnegative(),
+        lost: z.number().int().nonnegative(),
+      }),
+    })
+    .optional(),
+  /**
    * The full ledger (`battle/analysis.ts`), when the engine that ran this was the real one.
    *
    * Optional because a stub engine has no simulation behind it to analyse, and a stub is exactly
@@ -360,7 +377,16 @@ export function outcomeFrom(simulation: Simulation, input: SkirmishInput): Skirm
   // One narrative, two readers: the battle log and the report's prose section are the same lines.
   // They were not, and the report was the shorter of the two: it ended where the fight did and said
   // nothing about the withdrawal or the ring.
-  const log = [...narrate(simulation, findings), lossLine(gotHome, dead), ...ringLines(breakout)];
+  const robots = simulation.adHocArmy ?? {
+    attacker: { made: 0, lost: 0 },
+    defender: { made: 0, lost: 0 },
+  };
+  const log = [
+    ...narrate(simulation, findings),
+    ...robotLines(robots),
+    lossLine(gotHome, dead),
+    ...ringLines(breakout),
+  ];
   return {
     winner: simulation.winner,
     log,
@@ -391,6 +417,7 @@ export function outcomeFrom(simulation: Simulation, input: SkirmishInput): Skirm
       defender: openingJam(simulation.defender),
     },
     battlefield: simulation.battlefield,
+    adHocArmy: robots,
     analysis: analyseBattle({
       battleId: input.battleId ?? input.seed,
       locationName: input.locationName,
@@ -442,6 +469,16 @@ function ringLines(breakout: Breakout): string[] {
     lines.push(`${stopped} got out of the fight and no further. The ring was waiting.`);
   if (ringDead > 0) lines.push(`Holding the ring cost ${ringDead}.`);
   return lines;
+}
+
+/** The Geppetto's robots in a line of the log, one per side that had any. */
+function robotLines(robots: NonNullable<Simulation['adHocArmy']>): string[] {
+  return (['attacker', 'defender'] as const)
+    .filter((side) => robots[side].made > 0)
+    .map((side) => {
+      const { made, lost } = robots[side];
+      return `The Geppetto made ${made} robot${made === 1 ? '' : 's'} for the ${side}, and ${lost} of them ${lost === 1 ? 'was' : 'were'} destroyed.`;
+    });
 }
 
 function lossLine(fled: Army, killed: Army): string {

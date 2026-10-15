@@ -50,7 +50,7 @@ describe('a location changing hands', () => {
     const app = await buildApp({ config, db, logger: false });
     instances.push({ app, db });
 
-    const market = EVERY_LOCATION.find((location) => location.kind === 'market');
+    const market = EVERY_LOCATION.find((location) => location.id === 'neon-docks-tideline');
     if (!market) throw new Error('fixture: no Market anywhere');
     const now = new Date();
     const [loser, taker] = [await register(app, 'loser'), await register(app, 'taker')];

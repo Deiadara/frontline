@@ -74,7 +74,6 @@ function openWindow(
       carrierFlat={carrierFlat}
       marks={{}}
       carriersFight={false}
-      anyRide={false}
       roster={undefined}
       stores={undefined}
       leaders={[

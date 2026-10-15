@@ -49,6 +49,11 @@ export interface ProgressBarProps {
   tone?: ProgressTone;
   /** Taller, for a bar that is the subject of its panel rather than a line in a list. */
   size?: 'sm' | 'md';
+  /**
+   * How the label is set. `caption` is the small spaced capitals a list row wears; `title` is the
+   * stamped face the research rail names its officers in, for a bar that is the panel's subject.
+   */
+  labelStyle?: 'caption' | 'title';
   className?: string;
   'data-testid'?: string;
 }
@@ -59,6 +64,7 @@ export function ProgressBar({
   remaining,
   tone = 'brass',
   size = 'sm',
+  labelStyle = 'caption',
   className,
   'data-testid': testId,
 }: ProgressBarProps) {
@@ -69,7 +75,14 @@ export function ProgressBar({
     <span className={cn('block min-w-0', className)} data-testid={testId}>
       {remaining !== undefined && (
         <span className="mb-1 flex min-w-0 items-baseline justify-between gap-2">
-          <span className="min-w-0 truncate font-display text-[10px] uppercase tracking-[0.16em] text-ink-300">
+          <span
+            className={cn(
+              'min-w-0 truncate',
+              labelStyle === 'title'
+                ? 'font-stamp text-[14px] leading-tight text-ink-100'
+                : 'font-display text-[10px] uppercase tracking-[0.16em] text-ink-300',
+            )}
+          >
             {label}
           </span>
           {/* The number a player is actually waiting on, in the hand face and given the room to be

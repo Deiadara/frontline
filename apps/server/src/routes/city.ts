@@ -22,6 +22,8 @@ import {
   PinPamphletsRequestSchema,
   SwapPamphletRequestSchema,
   ThrowSwitchRequestSchema,
+  ThrowLampsRequestSchema,
+  ChooseReactorRequestSchema,
   type District,
 } from '@frontline/shared';
 import type { FastifyInstance } from 'fastify';
@@ -37,7 +39,13 @@ import { settleBase } from '../district/settle.js';
 import { AppError, cityQuery, parseBody, type ErrorCode } from '../errors.js';
 import { recallSpy, sendSpy } from '../spying/spying.js';
 import { cancelGateRaise, raiseCapturedGate } from '../city/gates.js';
-import { pinPamphlets, swapPamphlet, throwSwitch } from '../city/ground.js';
+import {
+  chooseReactor,
+  pinPamphlets,
+  swapPamphlet,
+  throwLamps,
+  throwSwitch,
+} from '../city/ground.js';
 import { settleWorld } from '../world/settle.js';
 
 /**
@@ -441,6 +449,26 @@ export function registerCityRoutes(app: FastifyInstance): void {
     return { district: projectDistrict(app.repos, base, district, now, app.config.admin), base };
   });
 
+  // Lampman's Row (2026-10-09): the same shape as the tower's switch, at its own cooldown.
+  app.post('/city/lamps', { preHandler: app.authenticate }, (request): CityMutationResponse => {
+    const { locationId, lit } = parseBody(ThrowLampsRequestSchema, request.body);
+    const now = new Date();
+    const base = settled(app, request.currentUser.id, now);
+    const district = districtOfLocation(locationId);
+    app.db.transaction(() => throwLamps(app.repos, base, locationId, lit, now))();
+    return { district: projectDistrict(app.repos, base, district, now, app.config.admin), base };
+  });
+
+  // The Reactor Shed (2026-10-14): the same shape again, naming a unit at a 12-hour lock.
+  app.post('/city/reactor', { preHandler: app.authenticate }, (request): CityMutationResponse => {
+    const { locationId, unitId } = parseBody(ChooseReactorRequestSchema, request.body);
+    const now = new Date();
+    const base = settled(app, request.currentUser.id, now);
+    const district = districtOfLocation(locationId);
+    app.db.transaction(() => chooseReactor(app.repos, base, locationId, unitId, now))();
+    return { district: projectDistrict(app.repos, base, district, now, app.config.admin), base };
+  });
+
   app.post('/city/pamphlets', { preHandler: app.authenticate }, (request): CityMutationResponse => {
     const { locationId, pins } = parseBody(PinPamphletsRequestSchema, request.body);
     const now = new Date();
@@ -459,7 +487,7 @@ export function registerCityRoutes(app: FastifyInstance): void {
       const base = settled(app, request.currentUser.id, now);
       const district = districtOfLocation(locationId);
       const swapped = app.db.transaction(() =>
-        swapPamphlet(app.repos, base, locationId, { from, to }, now),
+        swapPamphlet(app.repos, base, locationId, { from, to }, now, app.config.admin),
       )();
       return {
         district: projectDistrict(app.repos, swapped.base, district, now, app.config.admin),

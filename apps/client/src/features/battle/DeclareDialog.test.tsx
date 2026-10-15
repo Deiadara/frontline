@@ -47,6 +47,8 @@ const board: BattlesResponse = {
   spyReports: [],
   slots: [EARLY, LATE],
   infamy: RICH,
+  callsPending: 0,
+  callsAllowed: 3,
   callPrices: { locations: { [target.locationId]: DECLARE_INFAMY_COST }, districts: {} },
   gates: [],
   structures: [],
@@ -366,5 +368,31 @@ describe('the marks on offer', () => {
       </QueryClientProvider>,
     );
     expect(screen.getByTestId(`slot-${EARLY}`)).toHaveTextContent('07:30');
+  });
+});
+
+/*
+ * Greyed with the reason, not refused on the press (maintainer, 2026-10-06): the cap on fights
+ * called at once lived only in the route until the board carried it (bug pass, 2026-10-11).
+ */
+describe('the cap on fights called at once', () => {
+  it('greys Call at the cap and says why, and takes the call under it', () => {
+    const { onConfirm } = open([EARLY, LATE], RICH, target, {
+      ...board,
+      callsPending: 3,
+      callsAllowed: 3,
+    });
+    const confirm = screen.getByTestId('declare-confirm');
+    expect(confirm).toBeDisabled();
+    expect(confirm.getAttribute('data-tip')).toMatch(/3 fights called already/);
+    fireEvent.click(confirm);
+    expect(onConfirm).not.toHaveBeenCalled();
+  });
+
+  it('offers the call with no reason on it under the cap', () => {
+    open([EARLY, LATE], RICH, target, { ...board, callsPending: 2, callsAllowed: 3 });
+    const confirm = screen.getByTestId('declare-confirm');
+    expect(confirm).toBeEnabled();
+    expect(confirm.getAttribute('data-tip')).toBeNull();
   });
 });

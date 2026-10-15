@@ -1,8 +1,8 @@
-import { ALL_DISTRICTS } from '../city/atlas.js';
+import { ALL_DISTRICTS, ARCA_TOMB_IDS, COMBINE_CHAPEL_IDS } from '../city/atlas.js';
 import { CITIES } from '../city/cities.js';
 import { startingGarrison } from '../city/control.js';
 import { isContested, type ContestedDistrict, type District } from '../city/districts.js';
-import type { Location } from '../city/locations.js';
+import { isStation, type Location } from '../city/locations.js';
 
 /**
  * The world as the catalogue is allowed to count it (2026-09-24).
@@ -89,19 +89,17 @@ export const GARRISONED_DISTRICTS: readonly District[] = PLAYABLE_DISTRICTS.filt
 );
 
 /** The regime's chapels: the Chosen Chapel over Ashfall and the Frontier Chapel inside Control. */
-export const CHAPEL_LOCATIONS: readonly Location[] = PLAYABLE_LOCATIONS.filter(
-  (location) => location.kind === 'combine_chapel',
+export const CHAPEL_LOCATIONS: readonly Location[] = PLAYABLE_LOCATIONS.filter((location) =>
+  COMBINE_CHAPEL_IDS.includes(location.id),
 );
 
 /** Arca's tombs, one in each contested district (2026-10-07): the whole of the city's one trait. */
-export const MAUSOLEUMS: readonly Location[] = PLAYABLE_LOCATIONS.filter(
-  (location) => location.kind === 'mausoleum',
+export const MAUSOLEUMS: readonly Location[] = PLAYABLE_LOCATIONS.filter((location) =>
+  ARCA_TOMB_IDS.includes(location.id),
 );
 
 /** Terminus's seven platforms, which are the whole of the railway a crew can hold. */
-export const RAIL_STATIONS: readonly Location[] = PLAYABLE_LOCATIONS.filter(
-  (location) => location.kind === 'rail_station',
-);
+export const RAIL_STATIONS: readonly Location[] = PLAYABLE_LOCATIONS.filter(isStation);
 
 /**
  * The most of something a crew can hold outside its own city, whichever city that is.

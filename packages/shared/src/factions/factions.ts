@@ -86,6 +86,20 @@ export const FACTION_CARDS = [
 export const FactionCardSchema = z.enum(FACTION_CARDS);
 export type FactionCard = z.infer<typeof FactionCardSchema>;
 
+/**
+ * Onboarding (maintainer, 2026-10-15): a seat whose holder changes, by a reseat or by a new member
+ * taking it, is locked for this long, and the new holder's card pays nothing until it is over.
+ */
+export const FACTION_SEAT_ONBOARDING_MS = 12 * 3_600_000;
+
+/** "Onboarding, 11h left" for a seat whose Onboarding ends at `until`, or null when settled. */
+export function describeOnboarding(until: string | null, now: Date): string | null {
+  if (until === null) return null;
+  const left = Date.parse(until) - now.getTime();
+  if (left <= 0) return null;
+  return `Onboarding, ${Math.max(1, Math.ceil(left / 3_600_000))}h left`;
+}
+
 export const FACTION_RANKS = ['leader', 'chief', 'member'] as const;
 export const FactionRankSchema = z.enum(FACTION_RANKS);
 export type FactionRank = z.infer<typeof FactionRankSchema>;
@@ -242,6 +256,11 @@ export const FactionMemberSchema = z.object({
   card: FactionCardSchema,
   cardMark: OfficerMarkSchema,
   /**
+   * When the seat's Onboarding ends, or null when it is settled (`FACTION_SEAT_ONBOARDING_MS`):
+   * the card pays nothing until then, and the leader cannot move anybody into or out of it.
+   */
+  onboardingUntil: IsoDateTimeSchema.nullable().default(null),
+  /**
    * The face on their file (maintainer request, 2026-09-12).
    *
    * The roster used to draw a member as their seat's card glyph, and the member window drew a
@@ -326,6 +345,8 @@ export const FACTION_REFUSALS = [
   'too_many_today',
   'invited_too_often_today',
   'invited_too_often_this_week',
+  /** A seat in Onboarding is locked until its twelve hours are up (2026-10-15). */
+  'seat_onboarding',
 ] as const;
 export const FactionRefusalSchema = z.enum(FACTION_REFUSALS);
 export type FactionRefusal = z.infer<typeof FactionRefusalSchema>;
@@ -346,6 +367,8 @@ export const FACTION_REFUSAL_TEXT: Record<FactionRefusal, string> = {
     'An invitation is a letter, and you have sent enough for one day. The wires open again tomorrow.',
   invited_too_often_today: `They have had ${INVITES_TO_ONE_PLAYER_PER_DAY} invitations from you or your table today. Ask again tomorrow.`,
   invited_too_often_this_week: `They have had ${INVITES_TO_ONE_PLAYER_PER_WEEK} invitations from you or your table this week. Give them a few days.`,
+  seat_onboarding:
+    'That seat is still Onboarding. Nobody moves into or out of it until its twelve hours are up.',
 };
 
 /** Whether one more person fits. */

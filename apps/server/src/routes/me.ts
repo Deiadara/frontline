@@ -4,6 +4,7 @@ import type { FastifyInstance } from 'fastify';
 import { fightsCalledOn } from '../battle/declare.js';
 import { productionRatesFor, productionYieldFor, settleBase } from '../district/settle.js';
 import { buildClocksFor, buildQuotesFor } from '../district/build.js';
+import { buildBoostOilFor } from '../district/boost.js';
 import { takeLevelUp } from '../progression/award.js';
 
 export function registerMeRoutes(app: FastifyInstance): void {
@@ -39,6 +40,8 @@ export function registerMeRoutes(app: FastifyInstance): void {
     const buildQuotes = base ? buildQuotesFor(app.repos, base, now) : undefined;
     // And the clock beside it, for the same reason: the speed fold never reaches the client.
     const buildClocks = base ? buildClocksFor(app.repos, base, now, app.config.admin) : undefined;
+    // And the burn's price, for the same reason: the ground's cut off its oil stays here.
+    const buildBoostOil = base ? buildBoostOilFor(app.repos, base, now) : undefined;
     // And what the district is making, for the same reason: the ground and the yields stay here.
     const productionRates = base ? productionRatesFor(app.repos, base, now) : undefined;
     const productionYield = base ? productionYieldFor(app.repos, base, now) : undefined;
@@ -50,6 +53,7 @@ export function registerMeRoutes(app: FastifyInstance): void {
       unread,
       buildQuotes,
       buildClocks,
+      buildBoostOil,
       productionRates,
       productionYield,
       levelUp,

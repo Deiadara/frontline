@@ -441,6 +441,13 @@ export const BattlesResponseSchema = z.object({
   slots: z.array(IsoDateTimeSchema),
   /** §D7: what the caller's name is worth. Boosts are priced per fight, on each `BattleView`. */
   infamy: z.number().int().nonnegative(),
+  /**
+   * The fights this crew has called and not yet fought, against the most it may have standing at
+   * once (three, plus the Raid Boss's last rung). On the wire so the dialog greys Call at the cap
+   * with the reason rather than refusing it on the press (maintainer, 2026-10-06).
+   */
+  callsPending: z.number().int().nonnegative().default(0),
+  callsAllowed: z.number().int().positive().default(3),
   callPrices: CallPricesSchema,
   /**
    * Whether a call is free in this build (testing mode waives the price, `routes/admin.ts`). The

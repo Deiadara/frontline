@@ -126,13 +126,13 @@ describe('who gets a gate', () => {
    * The board's caveat, and it needs no code.
    *
    * A gate is a `BattleTarget` of its own kind, never a location, so the sweep above cannot
-   * include it. Asserted against the catalogue so that stays true if somebody ever adds a
-   * location that sounds like a gate.
+   * include it. Asserted against the names so that stays true if somebody ever adds a location
+   * that sounds like a gate (the Crane Site was renamed off "Gate" for this).
    */
   it('never asks a crew to capture the gate itself', () => {
     for (const district of CITY_DISTRICTS) {
       for (const location of district.locations) {
-        expect(location.kind).not.toBe('gate');
+        expect(location.name, location.id).not.toMatch(/\bGate\b/);
       }
     }
   });

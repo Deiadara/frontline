@@ -369,7 +369,10 @@ describe('drilling', () => {
     it('pays the gain out once and takes the session off the board', () => {
       const state = beginTraining(startingTraining(NOW), session(), NOW);
       const first = settleTraining(state, later(TRAINING_SECONDS));
-      expect(first.gains).toEqual([{ subjectId: OVERSEER_SUBJECT, attribute: 'stamina' }]);
+      // The session's id rides along, for the Bunkroom's roll (2026-10-09).
+      expect(first.gains).toEqual([
+        { subjectId: OVERSEER_SUBJECT, attribute: 'stamina', sessionId: state.sessions[0]?.id },
+      ]);
       expect(settleTraining(first.state, later(TRAINING_SECONDS * 10)).gains).toHaveLength(0);
     });
 

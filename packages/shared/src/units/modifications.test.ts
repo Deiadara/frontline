@@ -314,7 +314,7 @@ describe('the hundred-point ceiling', () => {
       const fitted = modificationsForUnit(unit.id);
       // A legendary takes nothing, and neither does anything the Combine fields: the yard never
       // sees their sheets (`UnitSpec.faction`).
-      if (unit.tier === 'legendary' || isCombineUnit(unit)) {
+      if (unit.tier === 'legendary' || isCombineUnit(unit) || unit.spawned === true) {
         expect(fitted, unit.id).toEqual([]);
         continue;
       }
@@ -430,7 +430,7 @@ describe('who a card will go on', () => {
     if (!spec) throw new Error('expected a universal card');
     for (const unit of UNIT_CATALOG) {
       expect(modificationFitsUnit(spec, unit.id), `${spec.id}: ${unit.id}`).toBe(
-        unit.tier !== 'legendary' && !isCombineUnit(unit),
+        unit.tier !== 'legendary' && !isCombineUnit(unit) && unit.spawned !== true,
       );
     }
   });

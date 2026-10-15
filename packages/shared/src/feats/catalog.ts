@@ -3748,7 +3748,8 @@ const FRONTIER: FeatSpec[] = [
     {
       id: 'platforms_3',
       name: 'Four Stops',
-      blurb: 'Four platforms in your name. Most of the frontier is fifteen minutes from you.',
+      blurb:
+        'Four platforms between you and your table. Most of the frontier is a quarter of an hour from you, and less from a platform you have worked up.',
       era: 'late',
       size: 'large',
       reward: wages('late', 'large'),
@@ -3844,12 +3845,191 @@ const FRONTIER: FeatSpec[] = [
     ],
     'death_cloaks',
   ),
+  /*
+   * The parts bin, both ways (maintainer, 2026-10-09): components the ground hands over at the
+   * day's turn (the Chop Shop, the Wagon Breakers), and components broken down at the Scrapyard.
+   */
+  ...chain('deliveries', 'components_delivered', [
+    {
+      id: 'deliveries_1',
+      name: 'Something Off the Bench',
+      blurb: 'Take delivery of a component from ground you hold. It turns up with the morning.',
+      era: 'mid',
+      size: 'small',
+      reward: kit('mid', 'small'),
+      target: 1,
+    },
+    {
+      id: 'deliveries_2',
+      name: 'Standing Order',
+      blurb: 'Fifty components delivered by your ground. The breakers know your name.',
+      era: 'late',
+      size: 'small',
+      reward: kit('late', 'small'),
+      target: 50,
+    },
+  ]),
+  ...chain('seized_pages', 'pages_delivered', [
+    {
+      id: 'seized_pages_1',
+      name: 'Unclaimed Paperwork',
+      blurb:
+        'Take delivery of a blueprint page from ground you hold. It turns up with the morning.',
+      era: 'mid',
+      size: 'small',
+      reward: kit('mid', 'small'),
+      target: 1,
+    },
+    {
+      id: 'seized_pages_2',
+      name: 'A Filing Cabinet of Your Own',
+      blurb: 'Thirty pages delivered by your ground. Somebody else drew them; you will build them.',
+      era: 'late',
+      size: 'small',
+      reward: kit('late', 'small'),
+      target: 30,
+    },
+  ]),
+  ...chain('breakdowns', 'components_broken_down', [
+    {
+      id: 'breakdowns_1',
+      name: 'Back to Metal',
+      blurb: 'Break a component down at the Scrapyard into HQ metal and scrap.',
+      era: 'early',
+      size: 'small',
+      reward: kit('early', 'small'),
+      target: 1,
+    },
+    {
+      id: 'breakdowns_2',
+      name: 'Nothing Wasted',
+      blurb:
+        'Forty components broken down. What nothing on the bench wanted went back into the stores.',
+      era: 'mid',
+      size: 'small',
+      reward: kit('mid', 'small'),
+      target: 40,
+    },
+  ]),
+  /*
+   * Lampman's Row (maintainer, 2026-10-09): the lamps over Ironmouth, or over the whole of
+   * Terminus at level 5. Counted per change, which the six-hour wait keeps from being a button.
+   */
+  /*
+   * The Geppetto (maintainer, 2026-10-09): mustered off the Crate Ring, and the robots he makes in
+   * a fight, counted for whoever he fought for, won or lost.
+   */
+  // He is one of a kind, so his muster is one feat and not a ladder.
+  solo(
+    {
+      id: 'geppetto_1',
+      name: 'The Toymaker Signs On',
+      blurb: 'Muster The Geppetto. He needs the Crate Ring, a Lab at 15 and a Gauntlet at 15.',
+      era: 'late',
+      size: 'medium',
+      reward: kit('late', 'medium'),
+      target: 1,
+    },
+    'units_mustered_of',
+    'the_geppetto',
+  ),
+  /*
+   * The Technicians' Bunkroom (maintainer, 2026-10-09): the extra points it pays off finished
+   * drills, one in ten at level 1 up to one in two at level 5.
+   */
+  ...chain('bunkroom', 'drill_bonus_points', [
+    {
+      id: 'bunkroom_1',
+      name: 'Picked It Up From the Techs',
+      blurb: 'A drill pays a point more than it should. Somebody in the Bunkroom was watching.',
+      era: 'mid',
+      size: 'small',
+      reward: kit('mid', 'small'),
+      target: 1,
+    },
+    {
+      id: 'bunkroom_2',
+      name: 'Night School',
+      blurb: 'Twenty five extra points off the Bunkroom. The blackboard is still not wiped.',
+      era: 'late',
+      size: 'small',
+      reward: kit('late', 'small'),
+      target: 25,
+    },
+  ]),
+  /*
+   * The Reactor Shed (maintainer, 2026-10-14): naming the unit type whose dead burn their killers,
+   * at most once in twelve hours.
+   */
+  ...chain('reactor', 'reactor_choices', [
+    {
+      id: 'reactor_1',
+      name: 'Hot Hands',
+      blurb:
+        'Name a unit type Radioactive at the Reactor Shed. Whoever kills one of them regrets it.',
+      era: 'late',
+      size: 'small',
+      reward: kit('late', 'small'),
+      target: 1,
+    },
+    {
+      id: 'reactor_2',
+      name: 'Half-Life',
+      blurb:
+        'Ten choices at the Reactor Shed. The shed has learned what each of your units is good for.',
+      era: 'late',
+      size: 'small',
+      reward: kit('late', 'small'),
+      target: 10,
+    },
+  ]),
+  ...chain('robots', 'robots_made', [
+    {
+      id: 'robots_1',
+      name: 'Something From Nothing',
+      blurb: 'Your Geppetto makes his first robot in a fight. It stands in front of him.',
+      era: 'late',
+      size: 'small',
+      reward: kit('late', 'small'),
+      target: 1,
+    },
+    {
+      id: 'robots_2',
+      name: 'An Army by Hand',
+      blurb: 'A hundred robots made in your fights. Not one of them was paid for or mourned.',
+      era: 'late',
+      size: 'medium',
+      reward: kit('late', 'medium'),
+      target: 100,
+    },
+  ]),
+  ...chain('lamps', 'lamps_thrown', [
+    {
+      id: 'lamps_1',
+      name: 'Lamplighter',
+      blurb:
+        'Light the lamps on Lampman’s Row, or put them out. The tunnel streets go the way you say.',
+      era: 'mid',
+      size: 'small',
+      reward: kit('mid', 'small'),
+      target: 1,
+    },
+    {
+      id: 'lamps_2',
+      name: 'Keeper of the Wicks',
+      blurb: 'Twenty changes of the lamps. Every crew in the cutting has learnt to look up first.',
+      era: 'late',
+      size: 'small',
+      reward: kit('late', 'small'),
+      target: 20,
+    },
+  ]),
   ...chain('rails', 'rail_journeys', [
     {
       id: 'rails_1',
       name: 'Put Them on the Train',
       blurb:
-        'Send one move or one column by rail. Fifteen minutes on the line, plus the walk to the platform at each end.',
+        'Send one move or one column by rail. Fifteen minutes on the line from a new platform, five from one worked all the way up, plus the walk at each end.',
       era: 'mid',
       size: 'small',
       reward: kit('mid', 'small'),

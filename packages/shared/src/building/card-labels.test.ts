@@ -3,6 +3,8 @@ import { CHANNEL_LABELS } from '../crew/effects.js';
 import { describeAddonEffect, describeSetBonus } from './addons.js';
 import { OFFICER_FOR_EFFECT } from './requirements.js';
 import { MODIFICATIONS, findModification, type ModificationEffect } from './modifications.js';
+import { UNIT_MODIFICATIONS } from '../units/modifications.js';
+import { UNIT_STAT_LABELS } from '../units/stats.js';
 
 /**
  * What a structure card says it pays, against the channel that pays it (wiring audit, 2026-10-01).
@@ -62,6 +64,28 @@ describe('a structure card names the channel that pays it', () => {
    * `counter_intel_points`, points a spy has to beat in `crewCounter`, so its line is points with
    * no percent sign, and it asks the chair that defends a crew's ground against spies.
    */
+  /*
+   * A unit card's line printed the catalogue's field names (2026-10-11): "+5 lootCapacity" and
+   * "+16 offense" on the Units page hover, while the Scrapyard bench called the same numbers Loot
+   * and Damage. The line uses the sheet's own labels now, so the two screens agree.
+   */
+  it("names a unit card's ratings as the sheet does, never by field name", () => {
+    const loot = UNIT_MODIFICATIONS.find((spec) => typeof spec.effect.lootCapacity === 'number')!;
+    expect(describeAddonEffect(loot)).toContain(`+${loot.effect.lootCapacity} loot`);
+    expect(describeAddonEffect(loot)).not.toContain('lootCapacity');
+    for (const spec of UNIT_MODIFICATIONS) {
+      const line = describeAddonEffect(spec);
+      for (const stat of Object.keys(spec.effect)) {
+        if (stat in UNIT_STAT_LABELS) {
+          expect(line, spec.id).toContain(
+            UNIT_STAT_LABELS[stat as keyof typeof UNIT_STAT_LABELS].toLowerCase(),
+          );
+          if (stat !== stat.toLowerCase()) expect(line, spec.id).not.toContain(stat);
+        }
+      }
+    }
+  });
+
   it('prints the counter-intelligence card in points, against spies', () => {
     const core = findModification('nexus_encrypted_core')!;
     expect(core.effect).toBe('counter_intel_points');
@@ -84,26 +108,24 @@ describe('a structure card names the channel that pays it', () => {
   });
 
   /*
-   * A muster card's number is speed, which the clock is divided by (`musterSecondsFor`), and it
-   * printed as time off: Night Course's 16 read "+16% off how long training takes" and is 13.8% off
-   * on its own (maintainer, 2026-10-01). It prints that cut now, as the Gauntlet's line does.
+   * A card that feeds a curve prints its raw points (maintainer, 2026-10-15): the bench adds the
+   * card's speed to everybody else's and tapers the sum, so a share of the curve on its own (Night
+   * Course's 16 read as 14% off) is not what a muster spends. The Units page prints the spent cut.
    */
-  it('prints a muster card as the time it takes off on its own, not its speed as time', () => {
+  it('prints a card that feeds a curve as the raw points it adds', () => {
     const night = MODIFICATIONS.find((spec) => spec.name === 'Night Course')!;
     expect(night.effect).toBe('muster_time_reduction');
     expect(night.magnitude).toBe(16);
-    expect(describeAddonEffect(night)).toBe('-14% muster time (tapers)');
-    const lines = linesFor('muster_time_reduction');
-    expect(lines.length).toBeGreaterThan(1);
-    for (const [index, line] of lines.entries()) {
-      expect(line, line).toMatch(/^-\d+% muster time \(tapers\)$/);
-      expect(line, line).not.toContain('off how long');
-      const speed = MODIFICATIONS.filter((spec) => spec.effect === 'muster_time_reduction')[index]!
-        .magnitude;
-      // The cut, rounded, and never the speed renamed: 1 - 1 / (1 + speed / 100).
-      const cut = Math.round((1 - 1 / (1 + speed / 100)) * 100);
-      expect(Number(line.slice(1, line.indexOf('%'))), line).toBe(cut);
+    expect(describeAddonEffect(night)).toBe('+16 points of muster speed (tapers)');
+    for (const effect of [
+      'muster_time_reduction',
+      'muster_supplies_reduction',
+      'defense_percent',
+    ] as const) {
+      const lines = linesFor(effect);
+      expect(lines.length, effect).toBeGreaterThan(0);
+      for (const line of lines) expect(line, line).toMatch(/^\+\d+(\.\d+)? points .* \(tapers\)$/);
     }
-    expect(describeSetBonus('automation')).toMatch(/^-\d+% muster time \(tapers\)$/);
+    expect(describeSetBonus('automation')).toMatch(/^\+\d+ points of muster speed \(tapers\)$/);
   });
 });

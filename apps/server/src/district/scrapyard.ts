@@ -1,6 +1,7 @@
 import {
   ITEM_CATALOG,
   addItems,
+  breakdownYield,
   hasItems,
   itemCount,
   removeItems,
@@ -69,8 +70,10 @@ import {
 } from '@frontline/shared';
 import { adminCost, adminWaives } from '../admin/mode.js';
 import type { Repositories } from '../db/repos/index.js';
-import { tallyAddonBuilt } from '../feats/tally.js';
+import { tallyAddonBuilt, tallyComponentBrokenDown } from '../feats/tally.js';
+import { creditBase, refuseWaste } from './stores.js';
 import { officerFitReader } from '../crew/standing.js';
+import { awardPlayerXp } from '../progression/award.js';
 import { unlockContextFor } from '../units/muster.js';
 
 /**
@@ -108,8 +111,22 @@ export const SCRAPYARD_REQUIRED_LEVEL = 1;
  */
 export interface YardStanding {
   refitDiscountPercent: number;
+  /** Player XP every press that builds something pays (the Spoil Heap, `scrapyardXp`). */
+  scrapyardXp?: number;
 }
 const NO_STANDING: YardStanding = { refitDiscountPercent: 0 };
+
+/**
+ * A build that went through, with the Spoil Heap's XP banked on it (maintainer, 2026-10-09).
+ *
+ * Through `awardPlayerXp` like every other XP in the game, so the crew's XP bonus rides on it and
+ * a level it crosses is announced by `/me` the way a finished build's is.
+ */
+function builtWithXp(repos: Repositories, built: Base, standing: YardStanding): AddonBuildResult {
+  const xp = standing.scrapyardXp ?? 0;
+  if (xp <= 0) return { kind: 'built', base: built };
+  return { kind: 'built', base: awardPlayerXp(repos, built, 'scrapyardBuild', 0, xp).base };
+}
 
 /** The yard's own level, which every price and every gate on this page reads. */
 const yardLevel = (base: Base): number => buildingLevel(base.buildings, 'scrapyard');
@@ -552,7 +569,7 @@ export function buildAddon(
     // Feats: a trap counts as a trap and as a fitting, because the two ladders are asking
     // different questions and a trap is an honest answer to both. See `tallyAddonBuilt`.
     tallyAddonBuilt(repos, built.id, true);
-    return { kind: 'built', base: built };
+    return builtWithXp(repos, built, standing);
   }
 
   if (kind === 'modification') {
@@ -602,7 +619,7 @@ export function buildAddon(
     repos.bases.updateResources(built.id, built.resources);
     repos.bases.updateDistrict(built.id, buildings, built.buildQueue);
     tallyAddonBuilt(repos, built.id, false);
-    return { kind: 'built', base: built };
+    return builtWithXp(repos, built, standing);
   }
 
   const spec = findUnitModification(id);
@@ -653,5 +670,36 @@ export function buildAddon(
   repos.bases.updateHoldings(built.id, built.resources, built.inventory);
   repos.bases.updateUnitLoadouts(built.id, loadouts);
   tallyAddonBuilt(repos, built.id, false);
-  return { kind: 'built', base: built };
+  return builtWithXp(repos, built, standing);
+}
+
+/**
+ * Breaks one component down into HQ metal and scrap, by its rarity (`COMPONENT_BREAKDOWN`,
+ * maintainer 2026-10-09). Wants a standing Scrapyard and one of the part in the bin; the yield goes
+ * through the stores' ceilings like any credit, so a full store is asked about first
+ * (`refuseWaste`). Admin mode keeps the part, as it keeps every bill at the yard.
+ */
+export function breakDownComponent(
+  repos: Repositories,
+  base: Base,
+  itemId: string,
+  now: Date,
+  options: { acceptWaste?: boolean | undefined; admin?: boolean } = {},
+): AddonBuildResult {
+  if (buildingLevel(base.buildings, 'scrapyard') < SCRAPYARD_REQUIRED_LEVEL) {
+    return { kind: 'refused', reason: 'Build the Scrapyard first' };
+  }
+  const gain = breakdownYield(itemId);
+  if (gain === null) return { kind: 'refused', reason: 'Only a component can be broken down' };
+  const part = itemId as ItemId;
+  if (itemCount(base.inventory, part) < 1) {
+    return { kind: 'refused', reason: 'There is none of that in the parts bin' };
+  }
+  const credit = creditBase(repos, base, gain, now);
+  refuseWaste(credit, options.acceptWaste);
+  const inventory =
+    options.admin === true ? base.inventory : removeItems(base.inventory, { [part]: 1 });
+  repos.bases.updateHoldings(base.id, credit.resources, inventory);
+  tallyComponentBrokenDown(repos, base.id);
+  return { kind: 'built', base: { ...base, resources: credit.resources, inventory } };
 }

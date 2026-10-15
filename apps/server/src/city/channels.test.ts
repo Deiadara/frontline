@@ -6,8 +6,6 @@ import {
   noCrewEffects,
   type CrewEffects,
   EVERY_LOCATION,
-  LOCATION_CATALOG,
-  LOCATION_KINDS,
   MAX_LOCATION_LEVEL,
   bonusesAt,
   BUILDING_MAX_LEVEL,
@@ -89,12 +87,12 @@ function holdingEverything(): TerritoryEffects {
 }
 
 describe('every channel a location pays into', () => {
-  it('is pushed by at least one kind of location', () => {
+  it('is pushed by at least one location', () => {
     const pushed = new Set<string>();
-    for (const kind of LOCATION_KINDS) {
-      for (const bonus of LOCATION_CATALOG[kind].bonuses) pushed.add(bonus.kind);
+    for (const location of EVERY_LOCATION) {
+      for (const bonus of location.bonuses) pushed.add(bonus.kind);
     }
-    // Read off the union's own members via the catalogue, so a bonus kind added and never used
+    // Read off the union's own members via the map, so a bonus kind added and never used
     // shows up here rather than as a quiet gap.
     expect(pushed.size).toBeGreaterThanOrEqual(20);
   });
@@ -153,7 +151,16 @@ describe('every channel a location pays into', () => {
    * fight, which is exactly what a conditional channel exists not to do. `leading.test.ts` in
    * `@frontline/shared` is what pins that the spend actually happens.
    */
-  const SPEND_DESTINATIONS: readonly string[] = ['unitEvasionFlat'];
+  //
+  // The four table channels (2026-10-15) are paid by the faction's cards alone, never by a perk
+  // or a rung: `factions/cards.test.ts` pins that each one is paid.
+  const SPEND_DESTINATIONS: readonly string[] = [
+    'unitEvasionFlat',
+    'tableAttackOffensePercent',
+    'tableDefenceVitalityPercent',
+    'tableBattleInfamyPercent',
+    'dropLuck',
+  ];
 
   it('leaves no crew-only channel that neither the perk book nor the Lab pays into', () => {
     const effects = noCrewEffects();
@@ -172,13 +179,15 @@ describe('every channel a location pays into', () => {
   });
 
   it('scales with the level a location has been worked up to', () => {
-    for (const kind of LOCATION_KINDS) {
-      const fresh = bonusesAt(kind, 1).reduce((sum, bonus) => sum + magnitude(bonus), 0);
-      const worked = bonusesAt(kind, MAX_LOCATION_LEVEL).reduce(
+    // Two switches are the same at every level by ruling: the Tolling Tower and the Reactor Shed.
+    const switches = new Set(['bellfounders-tollingtower', 'blockhouse-reactor']);
+    for (const location of EVERY_LOCATION.filter((one) => !switches.has(one.id))) {
+      const fresh = bonusesAt(location, 1).reduce((sum, bonus) => sum + magnitude(bonus), 0);
+      const worked = bonusesAt(location, MAX_LOCATION_LEVEL).reduce(
         (sum, bonus) => sum + magnitude(bonus),
         0,
       );
-      expect(worked, kind).toBeGreaterThan(fresh);
+      expect(worked, location.id).toBeGreaterThan(fresh);
     }
   });
 });

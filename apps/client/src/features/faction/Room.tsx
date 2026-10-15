@@ -2,6 +2,7 @@ import {
   FACTION_CARD_SPECS,
   FACTION_RANK_LABELS,
   describeCardBonus,
+  describeOnboarding,
   plateAspect,
   type FactionMember,
   type FactionRank,
@@ -105,6 +106,8 @@ function Seat({
   isSelf: boolean;
   onOpen: () => void;
 }) {
+  // Onboarding (2026-10-15): a seat whose holder changed in the last twelve hours pays nothing.
+  const onboarding = describeOnboarding(member.onboardingUntil, new Date());
   return (
     <HoverCard
       className={PLATE}
@@ -124,6 +127,14 @@ function Seat({
             {FACTION_CARD_SPECS[member.card].aspect} at {member.cardMark}:{' '}
             {describeCardBonus(member.card, member.cardMark)} for the table.
           </p>
+          {onboarding && (
+            <p
+              className="mt-1 font-body text-[12px] leading-snug text-ember-300"
+              data-testid={`onboarding-hover-${member.username}`}
+            >
+              {onboarding}: the card pays nothing, and the seat cannot be changed, until then.
+            </p>
+          )}
           <dl className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 font-body text-[12px] text-ink-200">
             <dt className="text-ink-400">District</dt>
             <dd className="truncate">{member.districtName}</dd>
@@ -166,6 +177,14 @@ function Seat({
           >
             {FACTION_RANK_LABELS[member.rank]}
           </span>
+          {onboarding && (
+            <span
+              className="truncate font-display text-[10px] uppercase tracking-[0.12em] text-ember-300"
+              data-testid={`onboarding-${member.username}`}
+            >
+              {onboarding}
+            </span>
+          )}
         </span>
       </span>
     </HoverCard>

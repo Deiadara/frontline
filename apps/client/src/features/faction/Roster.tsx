@@ -154,7 +154,10 @@ function MemberRow({
           />
         </span>
 
-        <span className="flex shrink-0 flex-col items-end leading-tight">
+        {/* A fixed column behind a rule, so the stamp stands in the same place on every row
+            whatever the figures beside it come to (maintainer, 2026-10-15): the widest unit count
+            fits, and a short one leaves the space empty rather than pulling the stamp over. */}
+        <span className="flex w-[4.75rem] shrink-0 flex-col items-end self-stretch justify-center border-l border-surface-600/70 pl-2 leading-tight">
           <span className="flex items-center gap-1 font-display text-[11px] font-bold tabular-nums text-ink-100">
             <Icon name="units" aria-hidden className="h-3 w-3 text-brass-300" />
             {member.armySize.toLocaleString('en-US')}

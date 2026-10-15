@@ -4,7 +4,7 @@ import { findUnit, UNIT_RULES, unitRules } from '@frontline/shared';
  * How a unit rule reads: something it can do, or something it cannot.
  *
  * `tone` is new on the shared rule spec, so it is read through this rather than off the object at
- * each call site: a build of `@frontline/shared` without the field must still draw Shield Line and
+ * each call site: a build of `@frontline/shared` without the field must still draw Taunt and
  * Field Medic the way it always has, and a rule that says nothing about its tone is positive.
  *
  * **The rule the card is handed usually has no tone on it.** `UnitOptionSchema.rules` is
@@ -53,15 +53,9 @@ export const NO_RIDE_RULE: string = 'no_ride';
  * board's picker can ask it about a row they only have an id for. False for every unit on a shared
  * package that does not carry the rule yet, which is the same answer those screens gave before.
  *
- * `anyRide` is the crew's waiver (`UnitsResponse.anyRide`), and leaving it out of this call was a
- * bug rather than a simplification: the rule is on the sheet, the waiver is on the crew, and the
- * server reads both everywhere it spends a seat. A window that read only the sheet told a crew
- * holding the waiver that its Colossus walked, charged it nothing against the yard, and then had
- * the confirm refused `no_seats`. Defaulted false so a caller that genuinely has no crew in hand
- * gets the catalogue's answer, which is the strict one.
+ * Nothing waives it (maintainer, 2026-10-15): the rule is the sheet's, for every crew.
  */
-export function walksAlways(unitId: string, anyRide = false): boolean {
-  if (anyRide) return false;
+export function walksAlways(unitId: string): boolean {
   const spec = findUnit(unitId);
   return spec !== undefined && unitRules(spec).some((rule) => rule.id === NO_RIDE_RULE);
 }

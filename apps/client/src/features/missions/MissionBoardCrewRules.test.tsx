@@ -14,22 +14,18 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { MissionBoard } from './MissionBoard';
 
 /**
- * The two crew switches the picker has to read, and did not (bug pass, 2026-09-19).
- *
- * Both of them lift a hard rule off a *unit sheet*, and neither is a fact about the sheet:
+ * The crew switch the picker has to read, and did not (bug pass, 2026-09-19), and the rule
+ * nothing switches off any more.
  *
  * - `carriers_fight` puts this crew's porters in a line. `standsInLine` is the predicate, the
  *   settle reads it (`missions/resolve.ts` hands `fightMissionBattle` the crew's whole fold), and
- *   the picker printed "cannot fight" beside a Scavenger that was about to fight and die.
- * - `any_ride` gets a `no_ride` sheet into a truck. `ridingGroups(force, anyRide)` is what the
- *   launch spends seats with, and the picker printed "walks" beside a Colossus that rides, then
- *   quoted the column at fifteen when it was travelling at the truck's pace.
+ *   the picker printed "cannot fight" beside a Scavenger that was about to fight and die. It could
+ *   not ride on `CrewStandingResponse.effects`, which is a record of numbers, so it went on the
+ *   roster payload.
+ * - `no_ride` keeps the Colossus off every machine. Its waiver (`any_ride`) left the game on
+ *   2026-10-15, so the column always waits for it.
  *
- * Neither could ever have ridden on `CrewStandingResponse.effects`, which is a record of numbers,
- * and that is the whole reason they were missing: there was nowhere on the wire to put them until
- * `carriersFight` went on the roster payload for the ally picker. `anyRide` is beside it now.
- *
- * Every test here is a pair: the same board, the same force, one switch flipped. A single-sided
+ * The switch tests are a pair: the same board, the same force, one switch flipped. A single-sided
  * assertion would pass against a screen that had simply stopped printing the label at all.
  */
 
@@ -85,7 +81,7 @@ const WAGON = findVehicle('armoured_car');
 /** Razors to make a column, a Colossus that will not board, and porters that cannot fight. */
 const ARMY = { razors: 4, scavengers: 6, the_colossus: 1 };
 
-function renderBoard(switches: { carriersFight?: boolean; anyRide?: boolean } = {}) {
+function renderBoard(switches: { carriersFight?: boolean } = {}) {
   return render(
     <MissionBoard
       areas={[area]}
@@ -97,7 +93,6 @@ function renderBoard(switches: { carriersFight?: boolean; anyRide?: boolean } = 
       carrierFlat={0}
       marks={{}}
       carriersFight={switches.carriersFight ?? false}
-      anyRide={switches.anyRide ?? false}
       // The card a unit's name opens comes off the roster; these fixtures draw names bare.
       roster={undefined}
       leaders={[officer]}
@@ -159,21 +154,13 @@ describe('a crew whose porters fight', () => {
   });
 });
 
-describe('a crew whose machines seat anything', () => {
-  it('holds the column at the Colossus without the waiver', () => {
-    renderBoard({ anyRide: false });
+describe('a Colossus beside a truck with room for it', () => {
+  it('walks, and holds the column at its own pace', () => {
+    renderBoard();
     const dialog = openColumn();
     expect(within(dialog).getByTestId('walks-the_colossus')).toBeInTheDocument();
     expect(pace(dialog)).toBe(COLOSSUS?.stats.speed);
-  });
-
-  it('puts it in the truck, and quotes the truck, with the waiver', () => {
-    renderBoard({ anyRide: true });
-    const dialog = openColumn();
-    expect(within(dialog).queryByTestId('walks-the_colossus')).toBeNull();
-    expect(pace(dialog)).toBe(WAGON?.speed);
-    // The bug this is really about: the quote was the slower of the two, which is the one
-    // direction `column.ts` says a road quote may not be wrong in.
+    // Not vacuous: the truck is faster, so a seat would have changed the quote.
     expect(WAGON?.speed ?? 0).toBeGreaterThan(COLOSSUS?.stats.speed ?? 0);
   });
 });

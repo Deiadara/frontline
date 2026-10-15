@@ -89,7 +89,7 @@ describe('PERK_CATALOG', () => {
    * union with no magnitude and no entry here fails the check below, which is the direction the
    * guard is supposed to point.
    */
-  const RULE_KINDS: readonly string[] = ['carriers_fight', 'any_ride', 'steady_nerve', 'unit_mark'];
+  const RULE_KINDS: readonly string[] = ['carriers_fight', 'steady_nerve', 'unit_mark'];
 
   it('grants something on every entry, and nothing on an id it does not carry', () => {
     for (const entry of PERK_CATALOG) {

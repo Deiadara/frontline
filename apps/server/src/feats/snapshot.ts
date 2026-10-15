@@ -3,7 +3,10 @@ import {
   BLUEPRINTS,
   MISC_AREA_ID,
   BUILDING_KINDS,
+  ARCA_TOMB_IDS,
+  COMBINE_CHAPEL_IDS,
   EVERY_LOCATION,
+  isStation,
   cityOf,
   isBlueprintUnlocked,
   levelCeilingFor,
@@ -27,6 +30,7 @@ import { districtsHeldWhole } from '../city/gates.js';
 import { unitsAbroad } from '../district/unit-slots.js';
 import { garrisonedUnits } from '../units/roster.js';
 import type { Repositories } from '../db/repos/index.js';
+import { alliesOf } from '../city/holding.js';
 
 /**
  * Every number a feat might ask about this crew, in one flat record.
@@ -238,11 +242,20 @@ export function featSnapshot(repos: Repositories, base: Base): FeatSnapshot {
     heldPlaces.filter((one) => cityOf(one.districtId) !== homeCity).length,
   );
   put('cities_held', new Set(heldPlaces.map((one) => cityOf(one.districtId))).size);
-  // The railway, which is one location kind and therefore one filter (`city/rails.ts`). A rival
+  // The railway: every Station carries the line, so it is one filter (`isStation`). A rival
   // does not have to break your city to break your line, only to take one platform.
-  put('rail_stations_held', heldPlaces.filter((one) => one.kind === 'rail_station').length);
-  // Arca's tombs, the same way: one location kind, one filter (`DISTRICTS.md`, "The Mausoleums").
-  put('mausoleums_held', heldPlaces.filter((one) => one.kind === 'mausoleum').length);
+  // Held by the crew or a mate at its table (maintainer, 2026-10-13), since a mate's platform is
+  // one the crew rides from (`city/railway.ts`).
+  const table = new Set([base.id, ...alliesOf(repos, base.id)]);
+  put(
+    'rail_stations_held',
+    EVERY_LOCATION.filter((one) => {
+      const holder = controls.get(one.id)?.holder;
+      return isStation(one) && holder?.kind === 'crew' && table.has(holder.baseId);
+    }).length,
+  );
+  // Arca's tombs, the list the Death Cloaks are raised on (`ARCA_TOMB_IDS`, `DISTRICTS.md`).
+  put('mausoleums_held', heldPlaces.filter((one) => ARCA_TOMB_IDS.includes(one.id)).length);
   // P8-C: the best-worked holding. Held ground starts at level 1, so nothing held reads 0.
   put(
     'location_level_held',
@@ -259,7 +272,7 @@ export function featSnapshot(repos: Repositories, base: Base): FeatSnapshot {
    *
    * A district that was the regime's is one whose allegiance is `government` in the city table,
    * whoever stands on it today: the measure asks what a crew has taken off the Combine, and a
-   * district it took off looters is not that. The Chapel is the one location of its kind, so
+   * district it took off looters is not that. Each Chapel is one location (`COMBINE_CHAPEL_IDS`), so
    * "held" is a lookup on the control row rather than a walk; it is read here rather than off
    * `combineLeaderAlive` because holding the plot is the question, and a plot can be held with
    * Directive Xero dead on it or lost with him still standing.
@@ -326,7 +339,7 @@ const COMBINE_GROUND: ReadonlySet<string> = new Set(
  * one chapel and one standalone feat; there are two now, a city apart, and the ladder in
  * `feats/catalog.ts` ends on holding both.
  */
-const CHAPELS = EVERY_LOCATION.filter((location) => location.kind === 'combine_chapel');
+const CHAPELS = EVERY_LOCATION.filter((location) => COMBINE_CHAPEL_IDS.includes(location.id));
 
 /**
  * How many of the Overseer's skills are at or above a threshold.

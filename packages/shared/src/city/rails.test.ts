@@ -7,7 +7,7 @@ import {
   rawMinutesBetween,
   travelMinutesBetween,
 } from './geography.js';
-import { RAIL_LINK_MINUTES } from './locations.js';
+import { RAIL_LINK_MINUTES, isStation, railLinkMinutes } from './locations.js';
 import { partyCanRide, railwayOffer, railwayOfferBetween, stationDistricts } from './rails.js';
 
 /**
@@ -25,9 +25,12 @@ const at = (id: string) => {
   return district!;
 };
 
+/** The rails out of a platform nobody has worked up. */
+const LEVEL_ONE_RIDE = railLinkMinutes(1);
+
 /** Every Station in Terminus, as location ids: what a crew that owned the whole line would hold. */
 const EVERY_STATION = districtsOfCity(TERMINUS_CITY_ID).flatMap((district) =>
-  district.locations.filter((one) => one.kind === 'rail_station').map((one) => one.id),
+  district.locations.filter(isStation).map((one) => one.id),
 );
 
 describe('the frontier between two cities', () => {
@@ -85,21 +88,22 @@ describe('who is on the line', () => {
 describe('what the railway is worth', () => {
   const wholeLine = stationDistricts(EVERY_STATION);
 
-  it('is fifteen flat minutes when you board and alight where you are going', () => {
+  it('is the rails alone when you board and alight where you are going', () => {
     const offer = railwayOffer(at('coldwater-halt'), at('blockhouse'), wholeLine);
     expect(offer).not.toBeNull();
     expect(offer!.boardAt.id).toBe('coldwater-halt');
     expect(offer!.alightAt.id).toBe('blockhouse');
     expect(offer!.toPlatform).toBe(0);
     expect(offer!.fromPlatform).toBe(0);
-    expect(offer!.minutes).toBe(RAIL_LINK_MINUTES);
+    expect(offer!.minutes).toBe(15);
+    expect(offer!.ride).toBe(15);
   });
 
   it('beats the road it replaces across the length of the city', () => {
     const road = travelMinutesBetween(at('coldwater-halt'), at('blockhouse'));
     const offer = railwayOffer(at('coldwater-halt'), at('blockhouse'), wholeLine);
     // A guard on the fixture: a rail rule that is not faster than walking proves nothing.
-    expect(road).toBeGreaterThan(RAIL_LINK_MINUTES * 2);
+    expect(road).toBeGreaterThan(LEVEL_ONE_RIDE * 2);
     expect(offer!.minutes).toBeLessThan(road);
   });
 
@@ -113,17 +117,20 @@ describe('what the railway is worth', () => {
     expect(offer).not.toBeNull();
     expect(offer!.alightAt.id).not.toBe('telemetry-hill');
     expect(offer!.fromPlatform).toBeGreaterThan(0);
-    expect(offer!.minutes).toBe(offer!.toPlatform + RAIL_LINK_MINUTES + offer!.fromPlatform);
+    expect(offer!.minutes).toBe(offer!.toPlatform + LEVEL_ONE_RIDE + offer!.fromPlatform);
   });
 
   it('picks the platform that makes the whole journey shortest, not the nearest one', () => {
     const offer = railwayOffer(at('carriage'), at('telemetry-hill'), wholeLine);
     expect(offer).not.toBeNull();
-    const every = [...wholeLine].map((districtId) => {
+    const every = [...wholeLine.keys()].map((districtId) => {
       const alight = railwayOffer(
         at('carriage'),
         at('telemetry-hill'),
-        new Set([districtId, 'coldwater-halt']),
+        new Map([
+          [districtId, 1],
+          ['coldwater-halt', 1],
+        ]),
       );
       return alight?.minutes ?? Number.POSITIVE_INFINITY;
     });
@@ -132,9 +139,9 @@ describe('what the railway is worth', () => {
 
   it('offers nothing on one platform, because a line needs two ends', () => {
     expect(
-      railwayOffer(at('coldwater-halt'), at('blockhouse'), new Set(['coldwater-halt'])),
+      railwayOffer(at('coldwater-halt'), at('blockhouse'), new Map([['coldwater-halt', 1]])),
     ).toBeNull();
-    expect(railwayOffer(at('coldwater-halt'), at('blockhouse'), new Set())).toBeNull();
+    expect(railwayOffer(at('coldwater-halt'), at('blockhouse'), new Map())).toBeNull();
   });
 
   it('does not run over the frontier', () => {
@@ -146,16 +153,56 @@ describe('what the railway is worth', () => {
   it('exists nowhere but Terminus, because nowhere else has a platform', () => {
     const elsewhere = ALL_DISTRICTS.filter((district) => district.cityId !== TERMINUS_CITY_ID);
     for (const district of elsewhere) {
-      expect(
-        district.locations.some((one) => one.kind === 'rail_station'),
-        district.id,
-      ).toBe(false);
+      expect(district.locations.some(isStation), district.id).toBe(false);
     }
   });
 
   it('answers nothing for ground the map does not have', () => {
     expect(railwayOfferBetween('nowhere', 'blockhouse', wholeLine)).toBeNull();
     expect(railwayOfferBetween('coldwater-halt', 'nowhere', wholeLine)).toBeNull();
+  });
+});
+
+describe('how long the rails take', () => {
+  it('is set by the level of the platform the train leaves from: 15, 13, 11, 9, 5', () => {
+    // Two minutes a step, the last level a double step (maintainer, 2026-10-09).
+    expect(RAIL_LINK_MINUTES).toEqual([15, 13, 11, 9, 5]);
+    expect([1, 2, 3, 4, 5].map(railLinkMinutes)).toEqual([15, 13, 11, 9, 5]);
+    // Out of range reads the nearest level, like every other location figure.
+    expect(railLinkMinutes(0)).toBe(15);
+    expect(railLinkMinutes(9)).toBe(5);
+  });
+
+  it('runs one way at one clock and back at another', () => {
+    // Coldwater worked to level 2, the Blockhouse left at 1: leaving the faster platform is 13
+    // minutes, and the way back from the slower one is 15 (maintainer, 2026-10-09).
+    const line = new Map([
+      ['coldwater-halt', 2],
+      ['blockhouse', 1],
+    ]);
+    const out = railwayOffer(at('coldwater-halt'), at('blockhouse'), line);
+    const back = railwayOffer(at('blockhouse'), at('coldwater-halt'), line);
+    expect(out!.ride).toBe(13);
+    expect(out!.minutes).toBe(13);
+    expect(back!.ride).toBe(15);
+    expect(back!.minutes).toBe(15);
+  });
+
+  it('reads the level each held platform is at', () => {
+    const held = stationDistricts(
+      new Map([
+        ['coldwater-halt-platform', 5],
+        ['blockhouse-officershalt', 3],
+        // Not a Station, so not on the line at any level.
+        ['marshalling-yards-hump', 5],
+      ]),
+    );
+    expect([...held]).toEqual([
+      ['coldwater-halt', 5],
+      ['blockhouse', 3],
+    ]);
+    expect(railwayOffer(at('coldwater-halt'), at('blockhouse'), held)!.minutes).toBe(5);
+    expect(railwayOffer(at('blockhouse'), at('coldwater-halt'), held)!.minutes).toBe(11);
   });
 });
 
@@ -192,7 +239,7 @@ describe('what the road bonuses are worth on a ride', () => {
   const FROM = 'carriage';
   const TO = 'telemetry-hill';
 
-  it('never spends a percentage on the fifteen minutes in the middle', () => {
+  it('never spends a percentage on the rails in the middle', () => {
     const legless = { speed: 100, reductionPercent: 0 };
     const cut = { speed: 100, reductionPercent: 60 };
     // Coldwater to the Blockhouse is a platform at either end, so the whole journey is the link.
@@ -200,16 +247,16 @@ describe('what the road bonuses are worth on a ride', () => {
     const hastened = railwayOfferBetween('coldwater-halt', 'blockhouse', wholeLine, cut);
     // Nothing makes a train faster and nothing makes it slower: the same journey, the same clock,
     // with the best pace and the biggest reduction in the game spent on it.
-    expect(plain?.minutes).toBe(RAIL_LINK_MINUTES);
-    expect(hastened?.minutes).toBe(RAIL_LINK_MINUTES);
+    expect(plain?.minutes).toBe(LEVEL_ONE_RIDE);
+    expect(hastened?.minutes).toBe(LEVEL_ONE_RIDE);
   });
 
   it('never drives a leg to nothing, however hard the percentage is pressed', () => {
     const huge = railwayOfferBetween(FROM, TO, wholeLine, { speed: 100, reductionPercent: 300 });
     expect(huge).not.toBeNull();
-    // A leg that exists is never free, and the fifteen is untouched by a road bonus of any size.
+    // A leg that exists is never free, and the rails are untouched by a road bonus of any size.
     expect(huge!.toPlatform).toBeGreaterThanOrEqual(MIN_TRAVEL_MINUTES);
     expect(huge!.fromPlatform).toBeGreaterThanOrEqual(MIN_TRAVEL_MINUTES);
-    expect(huge!.minutes).toBeGreaterThanOrEqual(RAIL_LINK_MINUTES + 2 * MIN_TRAVEL_MINUTES);
+    expect(huge!.minutes).toBeGreaterThanOrEqual(LEVEL_ONE_RIDE + 2 * MIN_TRAVEL_MINUTES);
   });
 });

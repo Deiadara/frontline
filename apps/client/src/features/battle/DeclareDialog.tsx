@@ -121,6 +121,14 @@ export function DeclareDialog({
   const waived = board.data?.callPriceWaived === true;
   const charged = cost !== null && cost > 0;
   const affordable = cost !== null && (waived || infamy >= cost);
+  // At the cap of fights called at once, greyed with the reason (maintainer, 2026-10-06): the
+  // route refused this on the press, and nothing on the window said so before it.
+  const callsPending = board.data?.callsPending ?? 0;
+  const callsAllowed = board.data?.callsAllowed ?? Number.POSITIVE_INFINITY;
+  const atCap = callsPending >= callsAllowed;
+  const capRefusal = atCap
+    ? `You have ${callsPending} ${callsPending === 1 ? 'fight' : 'fights'} called already, the most you may have standing at once`
+    : null;
 
   const days = slots.reduce<{ day: string; slots: string[] }[]>((groups, slot) => {
     const day = dayLabel(slot, zone);
@@ -287,11 +295,12 @@ export function DeclareDialog({
             size="sm"
             variant="danger"
             disabled={chosen === null || pending || !affordable}
+            refusal={capRefusal}
             data-testid="declare-confirm"
             // Not the confirm every other primary button gets. Calling a fight is the loudest thing
             // a player does in this game: everybody in the city sees it, and it cannot be taken back.
             data-sound="call"
-            onClick={() => chosen && affordable && onConfirm(chosen)}
+            onClick={() => chosen && affordable && !atCap && onConfirm(chosen)}
           >
             {pending ? 'Working…' : 'Call it'}
           </Button>

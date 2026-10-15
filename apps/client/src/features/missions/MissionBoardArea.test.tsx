@@ -78,7 +78,6 @@ function props(
     carrierFlat: 0,
     marks: {},
     carriersFight: false,
-    anyRide: false,
     roster: undefined,
     stores: undefined,
     leaders: [

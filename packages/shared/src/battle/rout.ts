@@ -1,6 +1,7 @@
 import { COMBINE_LEADERS } from '../city/combine.js';
 import type { Army } from '../units/index.js';
 import { luckyFleeChance } from './luck.js';
+import { PERCEPTION_STEALTH_SHARE, perceives } from './engine.js';
 import type { SideState, Simulation, Stack } from './engine.js';
 
 /**
@@ -79,6 +80,8 @@ export interface FleeContext {
   lastRound: number;
   /** Whether the losing side was the one that came here. */
   away: boolean;
+  /** Whether the winner has PERCEPTION alive, which halves the runners' stealth (`perceives`). */
+  perceived?: boolean;
 }
 
 /**
@@ -100,12 +103,14 @@ export function routContextOf(simulation: Simulation): FleeContext {
     lastRound: simulation.rounds.length,
     away: !attackerWon,
     luck: (attackerWon ? simulation.defender : simulation.attacker).luck,
+    perceived: perceives(attackerWon ? simulation.attacker : simulation.defender),
   };
 }
 
 export function fleeChance(stack: Stack, context: FleeContext): number {
   const speedEdge = clamp((stack.effective.speed - context.pursuit) / 100, -1, 1);
-  const stealth = stack.effective.stealth / 100;
+  const stealth =
+    (stack.effective.stealth * (context.perceived === true ? PERCEPTION_STEALTH_SHARE : 1)) / 100;
   const brokeAt = stack.brokeAt ?? context.lastRound;
   const early = context.lastRound <= 1 ? 0 : 1 - (brokeAt - 1) / Math.max(1, context.lastRound - 1);
 

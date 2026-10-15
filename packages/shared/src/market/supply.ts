@@ -131,8 +131,12 @@ export function supplyUnitPrice(
   key: ResourceKey,
   discountPercent = 0,
   traderPoints: number | null = null,
+  /** The ground's cut off the supply run alone (`supplyDiscountPercent`, the Long Bond). */
+  supplyCutPercent = 0,
 ): number {
-  return withoutFloatNoise(RESOURCE_CAP_VALUE[key] * supplyMarkup(discountPercent, traderPoints));
+  return withoutFloatNoise(
+    RESOURCE_CAP_VALUE[key] * supplyMarkup(discountPercent, traderPoints, supplyCutPercent),
+  );
 }
 
 /**
@@ -140,9 +144,18 @@ export function supplyUnitPrice(
  * Trader's rate where it is better (`traderRates`, maintainer 2026-10-04): even at C+, and 0.8 at a
  * perfect sheet. `traderPoints` is the working Trader's seat points, or null with the chair empty.
  */
-export function supplyMarkup(discountPercent = 0, traderPoints: number | null = null): number {
+export function supplyMarkup(
+  discountPercent = 0,
+  traderPoints: number | null = null,
+  /**
+   * A share off the run alone, after the discount and the Trader (the Long Bond, maintainer
+   * 2026-10-09): ten per cent off is ten per cent off whatever the run would have charged.
+   */
+  supplyCutPercent = 0,
+): number {
   const plain = SUPPLY_MARKUP * (1 - effectiveMarketDiscount(discountPercent) / 100);
-  return withoutFloatNoise(traderRates(traderPoints, 0, plain).markup);
+  const cut = 1 - Math.min(100, Math.max(0, supplyCutPercent)) / 100;
+  return withoutFloatNoise(traderRates(traderPoints, 0, plain).markup * cut);
 }
 
 /**
@@ -156,12 +169,17 @@ export function supplyPrice(
   units: number,
   discountPercent = 0,
   traderPoints: number | null = null,
+  supplyCutPercent = 0,
 ): number {
   const count = Math.max(0, Math.floor(units));
   if (count === 0) return 0;
   return Math.max(
     1,
-    Math.ceil(withoutFloatNoise(count * supplyUnitPrice(key, discountPercent, traderPoints))),
+    Math.ceil(
+      withoutFloatNoise(
+        count * supplyUnitPrice(key, discountPercent, traderPoints, supplyCutPercent),
+      ),
+    ),
   );
 }
 
@@ -185,10 +203,13 @@ export function supplyAffordable(
   capacity: number,
   discountPercent = 0,
   traderPoints: number | null = null,
+  supplyCutPercent = 0,
 ): number {
   const room = Math.max(0, capacity - stock[key]);
   const byCaps = Math.floor(
-    withoutFloatNoise(stock.caps / supplyUnitPrice(key, discountPercent, traderPoints)),
+    withoutFloatNoise(
+      stock.caps / supplyUnitPrice(key, discountPercent, traderPoints, supplyCutPercent),
+    ),
   );
   return Math.max(0, Math.min(supplyRationUnits(key, allowanceLeft), room, byCaps));
 }
@@ -229,6 +250,8 @@ export interface SupplyOrder {
   discountPercent?: number;
   /** The working Trader's seat points, or null with the chair empty (`supplyMarkup`). */
   traderPoints?: number | null;
+  /** The ground's cut off the run alone (`supplyMarkup`, the Long Bond). */
+  supplyCutPercent?: number;
 }
 
 /**
@@ -243,7 +266,15 @@ export function supplyRefusal(order: SupplyOrder): SupplyRefusal | null {
   const units = Math.floor(order.units);
   if (units <= 0) return 'nothing_ordered';
   if (supplyRationCost(order.key, units) > order.allowanceLeft) return 'over_allowance';
-  if (supplyPrice(order.key, units, order.discountPercent, order.traderPoints) > order.stock.caps) {
+  if (
+    supplyPrice(
+      order.key,
+      units,
+      order.discountPercent,
+      order.traderPoints,
+      order.supplyCutPercent,
+    ) > order.stock.caps
+  ) {
     return 'cannot_afford';
   }
   return null;
@@ -297,6 +328,7 @@ export function supplyBoard(
   capacityFor: (key: ResourceKey) => number,
   discountPercent = 0,
   traderPoints: number | null = null,
+  supplyCutPercent = 0,
 ): SupplyBoard {
   const allowance = supplyAllowance(level, bulkCapacity);
   const left = Math.max(0, allowance - Math.max(0, Math.floor(used)));
@@ -311,8 +343,16 @@ export function supplyBoard(
         // No cast: `SupplyLine['key']` is derived from this very list now, so the two agree by
         // construction. The cast that used to sit here is what let the enum drift narrow unnoticed.
         key,
-        capsPerUnit: supplyUnitPrice(key, discountPercent, traderPoints),
-        most: supplyAffordable(key, stock, left, capacity, discountPercent, traderPoints),
+        capsPerUnit: supplyUnitPrice(key, discountPercent, traderPoints, supplyCutPercent),
+        most: supplyAffordable(
+          key,
+          stock,
+          left,
+          capacity,
+          discountPercent,
+          traderPoints,
+          supplyCutPercent,
+        ),
         capacity,
       };
     }),

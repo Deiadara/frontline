@@ -1217,6 +1217,14 @@ describe('§H7a: bidding at the Bar', () => {
     expect((await bid(app, rival, first.recruitId, outbid)).statusCode).toBe(200);
     // Outbid, and the wage is still held: the screen's "bid up to" says so, and so does the route.
     expect((await readBar(app, player)).bidCeiling).toBeLessThan(second.nextBid);
+    // ...and the ledger says so (maintainer, 2026-10-13): the hold is on the book the screens
+    // print, taken off what is left to promise, so the Crew page and the bid field agree.
+    const held = (await readBar(app, player)).payroll;
+    expect(held.heldByBids).toBe(wage(first.nextBid));
+    expect(held.available).toBe(Math.max(0, held.capacity - held.committed - held.heldByBids));
+    expect((await readBar(app, player)).bidCeiling).toBe(
+      bidCeilingFor(held.available, bar.wageDiscountPercent),
+    );
     const refused = await bid(app, player, second.recruitId, second.nextBid);
     expect(refused.statusCode).toBe(409);
     expect(errorOf(refused.body).message).toContain('payroll');

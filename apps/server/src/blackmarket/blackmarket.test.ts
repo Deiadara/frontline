@@ -1,5 +1,4 @@
 import {
-  MAX_LOCATION_LEVEL,
   MAX_NOTORIETY,
   BLACK_MARKET_GOODS,
   BLACK_MARKET_SLOTS,
@@ -336,29 +335,23 @@ describe('POST /api/black-market/bid', () => {
   });
 
   /**
-   * The Statue's cut comes off what the winner pays, and the table refuses on that charge. So the
-   * field's edge is past the ledger for a crew standing under it, and the shelf has to say where.
+   * The discount comes off what the winner pays, and the table refuses on that charge. So the
+   * field's edge is past the ledger for a crew that has one, and the shelf has to say where.
    */
-  it('quotes a bid ceiling past the ledger for a crew the Statue favours', async () => {
+  it('quotes a bid ceiling past the ledger for a crew with a black-market discount', async () => {
     const { app } = await makeApp();
     const { token } = await crew(app, 'operator');
     await giveInfamy(app, token, 700);
     const me = await app.inject({ method: 'GET', url: '/api/me', headers: auth(token) });
     const baseId = me.json<{ base: { id: string } }>().base.id;
-    const statue = 'last-platform-stationmaster';
-    const control = app.repos.city.control(statue);
-    if (!control) throw new Error(`fixture: no control row for ${statue}`);
-    app.repos.city.put({
-      ...control,
-      holder: { kind: 'crew', baseId },
-      level: MAX_LOCATION_LEVEL,
-      garrison: {},
-    });
+    // The Broker Network rung since 2026-10-13: the Stationmaster's Office, the one Statue on the
+    // map, pays officer skills now and no black-market cut.
+    brokerNetwork(app, baseId);
 
     const base = app.repos.bases.findById(baseId);
     if (!base) throw new Error('fixture: the crew lost its district');
     const percent = standingEffectsFor(app.repos, base).blackMarketDiscountPercent;
-    expect(percent, 'holding the Statue bought no discount').toBeGreaterThan(0);
+    expect(percent, 'the Broker Network bought no discount').toBeGreaterThan(0);
 
     const ceiling = (await shelf(app, token)).bidCeiling ?? 0;
     expect(ceiling).toBeGreaterThan(700);
@@ -438,7 +431,7 @@ describe('the close', () => {
   });
 
   /*
-   * Bug pass, 2026-10-02: the winner's bell quoted the bid, not what the Statue's discount left it
+   * Bug pass, 2026-10-02: the winner's bell quoted the bid, not what the discount left it
    * paying, and the others' bells named the winner by login name.
    */
   it('tells the winner what they paid, and the rest who took it by the name they go by', async () => {
@@ -451,19 +444,12 @@ describe('the close', () => {
     const me = await app.inject({ method: 'GET', url: '/api/me', headers: auth(one.token) });
     const { base: mine, user } = me.json<{ base: { id: string }; user: { id: string } }>();
     app.repos.users.updateProfile(user.id, { displayName: 'Vex' });
-    const statue = 'last-platform-stationmaster';
-    const control = app.repos.city.control(statue)!;
-    app.repos.city.put({
-      ...control,
-      holder: { kind: 'crew', baseId: mine.id },
-      level: MAX_LOCATION_LEVEL,
-      garrison: {},
-    });
+    brokerNetwork(app, mine.id);
     const percent = standingEffectsFor(
       app.repos,
       app.repos.bases.findById(mine.id)!,
     ).blackMarketDiscountPercent;
-    expect(percent, 'fixture: the Statue buys no discount').toBeGreaterThan(0);
+    expect(percent, 'fixture: the Broker Network buys no discount').toBeGreaterThan(0);
 
     const board = await shelf(app, one.token);
     const goodId = board.offers[0]!.slot.goodId;
@@ -796,3 +782,13 @@ describe('a blueprint the crew already holds', () => {
     expect(second.economy.infamy).toBeLessThan(500_000);
   });
 });
+
+/** The research rung that cuts the black market's price (`black_market_discount`), finished. */
+function brokerNetwork(app: FastifyInstance, baseId: string): void {
+  const base = app.repos.bases.findById(baseId);
+  if (!base) throw new Error('fixture: no base');
+  app.repos.bases.updateResearch(base.id, {
+    ...base.research,
+    technologies: [...base.research.technologies, 'tech_broker_network'],
+  });
+}

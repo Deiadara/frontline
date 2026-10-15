@@ -17,12 +17,8 @@ import {
   MODIFICATION_SET_SIZE,
   SET_BONUSES,
   describeSetBonus,
-  modificationSlotLevelsFor,
-  nextModificationSlotLevel,
   nextQueuedLevel,
   projectedBuildings,
-  buildCancelWindowMs,
-  queueRemainingMs,
   atLevelCeiling,
   buildingNeedsParts,
   buildingParts,
@@ -53,9 +49,9 @@ import { useState, type ReactNode } from 'react';
 import { ApiRequestError } from '../../lib/api';
 import { CostLine } from '../../components/Resources';
 import { useCancelBuild, useCrewStanding, useMe } from '../../lib/queries';
-import { CancelMark } from '../../components/ui/CancelMark';
-import { DrawnButton } from '../../components/ui/DrawnButton';
-import { DrawnRule } from '../../components/ui/DrawnMarks';
+import { BuildOrderPlate } from './BuildOrderPlate';
+import { DrawnButton, DrawnLabel } from '../../components/ui/DrawnButton';
+import { DrawnCrane, DrawnRule } from '../../components/ui/DrawnMarks';
 import { HoverCard } from '../../components/ui/HoverCard';
 import { Confirm } from '../../components/ui/Confirm';
 import { Modal } from '../../components/ui/Modal';
@@ -63,10 +59,14 @@ import { cn } from '../../lib/cn';
 import { ItemGlyph } from '../inventory/ItemGlyph';
 import { ItemWindow } from '../market/MarketPage';
 import { structureBonus } from './bonus';
-import { formatDuration, formatRemaining } from './format';
+import { formatDuration } from './format';
 import { PayrollBookDialog } from '../../components/Payroll';
 import { useServerClock } from '../missions/useServerClock';
 import { PressError } from '../../components/ui/PressError';
+import { Icon } from '../../components/ui/Icon';
+import { RarityTag } from '../../lib/rarity';
+import { YardPlate } from '../scrapyard/YardGlyph';
+import { SLOT_WELL } from '../scrapyard/template';
 
 /**
  * One plot's dialog: what stands there, what the next level costs and takes, what it does, and the
@@ -96,6 +96,11 @@ interface StructureDialogProps {
   quotes?: BuildQuotes | undefined;
   /** `/me`'s `buildClocks`: how long the server would take, after the crew's speed and the burn. */
   clocks?: BuildClocks | undefined;
+  /**
+   * `/me`'s `buildBoostOil`: what the burn costs this crew, with the ground's cut off it (Shaft
+   * Nine). Absent, the burn is priced off the structures alone.
+   */
+  boostOil?: number | undefined;
   /** The district read's clock and when it arrived: `useServerClock`'s two arguments, for the burn. */
   serverNow: string | undefined;
   receivedAt: number | undefined;
@@ -123,6 +128,7 @@ export function StructureDialog({
   base,
   quotes,
   clocks,
+  boostOil,
   serverNow,
   receivedAt,
   pending,
@@ -141,11 +147,10 @@ export function StructureDialog({
   // This structure's own orders, so the window that took the order is the window that can call
   // it off (maintainer request, 2026-09-12). The clock is the district read's, like the rail's.
   const now = useServerClock(serverNow, receivedAt);
-  const crewStandingEffects = useCrewStanding().data?.effects;
+  const crewStanding = useCrewStanding().data;
   // The crew's half of the production rates, so a producing structure quotes what the settle pays.
   const productionYield = useMe().data?.productionYield;
   const cancel = useCancelBuild(base.id);
-  const underWay = buildQueue.filter((entry) => entry.kind === kind);
   const [payrollOpen, setPayrollOpen] = useState(false);
 
   const unlocked = isUnlockedForQueue(kind, buildings, buildQueue, base.level);
@@ -180,19 +185,16 @@ export function StructureDialog({
   const queueFull = buildQueue.length >= buildQueueCapacity(base.research.technologies);
 
   const slots = modificationCapacity(standing);
-  const nextSlotAt = nextModificationSlotLevel(standing?.level ?? 0, kind);
-  // A ten-rung structure opens its last two slots together, at 10.
-  const slotsOpeningNext = modificationSlotLevelsFor(kind).filter(
-    (level) => level === nextSlotAt,
-  ).length;
-
   // §F2: the Apothecary's ceiling is filled to the structure *plus* the crew's storage bonus, so the
   // line that quotes it reads the same fold the settle does.
-  const crewStorage = crewStandingEffects?.['storageCapacityPercent'] ?? 0;
+  // The people's and the ground's (the Undercroft Stores), as the settle fills the shelves.
+  const crewStorage = productionYield?.storageCapacityPercent ?? 0;
   const ceilings = storeCeilings(buildings, crewStorage);
   // A price no amount of waiting reaches: the stores cannot hold it.
   const over = cost !== null && !affordable ? overTheStores(cost, ceilings) : null;
-  const crewPayroll = crewStandingEffects?.['payrollPercent'] ?? 0;
+  // People and ground together (the Printworks held whole): `effects` is people-only, so the
+  // Quarters' line never showed the ground's share until 2026-10-13.
+  const crewPayroll = crewStanding?.payrollPercent ?? 0;
   const bonus = structureBonus(
     kind,
     buildings,
@@ -224,7 +226,7 @@ export function StructureDialog({
        * Generator's, which is the difference between 705px and 688 at 1280x720. `Modal`'s note on
        * `broad` carries the rest of the figures.
        */
-      size="broad"
+      size="plot"
       className="border-brass-300/30"
     >
       {/* A plain block, not a <header>: `role=dialog` is not sectioning content, so a <header>
@@ -282,10 +284,13 @@ export function StructureDialog({
          * left grows to take whatever the bracket rack is taller by, and the rack grows when it is
          * the shorter one, so the gap to the rule below is the same on both sides.
          */}
-        <div className="grid gap-3 sm:grid-cols-2 sm:items-stretch" data-testid="structure-deck">
-          <div className="flex min-w-0 flex-col gap-3" data-testid="structure-left">
-            {/* §A1: what the order costs, which is what the window is opened to find out. First, and
-              on its own, rather than the fourth label/value pair down a column. */}
+        <div className="flex flex-col gap-3" data-testid="structure-deck">
+          {/*
+           * The order and what the level gives, side by side at one fixed height (maintainer,
+           * 2026-10-08), so every plot's window is the same shape whatever its price, parts or
+           * clock: a busy structure fills lines that were already drawn.
+           */}
+          <div className="grid h-[14rem] grid-cols-2 gap-3" data-testid="structure-top">
             <Section
               title={
                 ceiling?.maxed === true
@@ -296,107 +301,52 @@ export function StructureDialog({
                       ? `Upgrade to level ${nextLevel}`
                       : 'Build this'
               }
+              grow
+              fill
             >
-              {cost === null ? (
-                <p
-                  className="font-display text-[12px] tracking-[0.15em] text-ink-300"
-                  data-testid="structure-ceiling"
-                >
-                  {ceiling?.line}
-                </p>
-              ) : (
-                <div className="flex flex-col gap-2.5">
-                  <CostLine cost={cost} stock={resources} />
-                  {seconds !== null && (
-                    <p className="font-display text-[12px] uppercase tracking-[0.14em] text-ink-300">
-                      Takes{' '}
-                      <span className="tabular-nums text-ink-100">{formatDuration(seconds)}</span>
-                    </p>
-                  )}
-                  {/* §A1: the handful of levels that ask for a part as well as a price. Kept apart
-                  from the cost line, because a part is a *gate*: no amount of waiting produces
-                  one, and a player has to know to go and look for it. */}
-                  {nextLevel !== null && buildingNeedsParts(kind, nextLevel) && (
-                    <div className="flex flex-col gap-1.5 pt-1">
-                      {/* The hand's own rule, not a hairline: the same mark the unit hovers put
-                      between a name and the numbers under it. */}
-                      <span aria-hidden className="block h-1.5 text-ink-300/60">
-                        <DrawnRule />
-                      </span>
-                      <span className="font-display text-[11px] uppercase tracking-[0.2em] text-ink-300">
-                        Also needs
-                      </span>
-                      <ul className="flex flex-wrap gap-1.5">
-                        {Object.entries(buildingParts(kind, nextLevel)).map(([id, count]) => {
-                          const held = base.inventory[id as ItemId] ?? 0;
-                          return (
-                            <li key={id}>
-                              <HoverCard
-                                label={ITEM_CATALOG[id as ItemId].name}
-                                size="window"
-                                card={<ItemWindow id={id as ItemId} />}
-                              >
-                                <span
-                                  className={cn(
-                                    'flex items-center gap-1.5 rounded-sm border px-2 py-1',
-                                    held >= (count ?? 0)
-                                      ? 'border-verdigris-500/60 bg-verdigris-700/20 text-verdigris-100'
-                                      : 'border-oxblood-500/60 bg-oxblood-500/10 text-oxblood-300',
-                                  )}
-                                >
-                                  <ItemGlyph id={id as ItemId} className="h-5 w-5" />
-                                  <span className="font-display text-[12px] font-semibold tabular-nums">
-                                    {count}× {ITEM_CATALOG[id as ItemId].name}
-                                  </span>
-                                  <span className="font-display text-[11px] tabular-nums opacity-80">
-                                    ({held} held)
-                                  </span>
-                                </span>
-                              </HoverCard>
-                            </li>
-                          );
-                        })}
-                      </ul>
-                    </div>
-                  )}
-                </div>
-              )}
-              {/* What is already on the clock for this plot, inside the order's own panel: the
-              window that took the order is the window that can call it off (maintainer request,
-              2026-09-12). The clock is the district read's, like the rail's. */}
-              {underWay.length > 0 && (
-                <div
-                  className="flex flex-col gap-2 pt-3"
-                  data-testid={`structure-under-way-${kind}`}
-                >
-                  <span className="font-display text-[11px] uppercase tracking-[0.2em] text-ink-300">
-                    Under way
-                  </span>
-                  <ul className="flex flex-col gap-2.5">
-                    {underWay.map((entry) => (
-                      <li key={entry.id} className="flex flex-col gap-1.5">
-                        <div className="flex items-baseline justify-between gap-3">
-                          <span className="font-display text-[12px] uppercase tracking-[0.14em] text-ink-200">
-                            To level {entry.level}
-                          </span>
-                          <span className="shrink-0 font-display text-[12px] font-bold tabular-nums text-brass-300">
-                            {formatRemaining(queueRemainingMs(entry, now))}
-                          </span>
-                        </div>
-                        <CancelMark
-                          windowMs={buildCancelWindowMs(entry, base, now)}
-                          label={`Call off ${spec.name} level ${entry.level}`}
-                          pending={cancel.isPending}
-                          onCancel={() => cancel.mutate({ orderId: entry.id })}
-                          data-testid={`structure-cancel-${entry.id}`}
-                        />
-                      </li>
-                    ))}
-                  </ul>
-                  {cancel.error && (
-                    <PressError onDismiss={cancel.reset}>{cancel.error.message}</PressError>
-                  )}
-                </div>
+              <div className="flex flex-col gap-2 pt-2.5">
+                {cost === null ? (
+                  <p
+                    className="font-display text-[12px] tracking-[0.15em] text-ink-300"
+                    data-testid="structure-ceiling"
+                  >
+                    {ceiling?.line}
+                  </p>
+                ) : (
+                  <>
+                    {/* The whole price on one line: the glyph and the figure, the name on the
+                        hover. */}
+                    <CostLine compact cost={cost} stock={resources} />
+                    {seconds !== null && (
+                      <p className="font-display text-[12px] uppercase tracking-[0.14em] text-ink-300">
+                        Takes{' '}
+                        <span className="tabular-nums text-ink-100">{formatDuration(seconds)}</span>
+                      </p>
+                    )}
+                    {/* §A1: the handful of levels that ask for a part as well as a price, on a
+                        line of their own. A part is a *gate*: no amount of waiting produces one,
+                        and a player has to know to go and look for it. */}
+                    {nextLevel !== null && buildingNeedsParts(kind, nextLevel) && (
+                      <PartsLine parts={buildingParts(kind, nextLevel)} base={base} />
+                    )}
+                  </>
+                )}
+              </div>
+              {/* What is already on the clock for this plot, at the foot of the order's own panel:
+                  the window that took the order is the window that can call it off (maintainer
+                  request, 2026-09-12). There whether or not anything is building, so queueing a
+                  level fills a line that was already drawn. */}
+              <div className="mt-auto">
+                <UnderWayLine
+                  kind={kind}
+                  base={base}
+                  now={now}
+                  pending={cancel.isPending}
+                  onCancel={(orderId) => cancel.mutate({ orderId })}
+                />
+              </div>
+              {cancel.error && (
+                <PressError onDismiss={cancel.reset}>{cancel.error.message}</PressError>
               )}
             </Section>
 
@@ -441,13 +391,15 @@ export function StructureDialog({
             </Section>
           </div>
 
-          {/* §E: three brackets, each one a door to the bench that cuts what goes in it. */}
-          {/* No "Build more in the Scrapyard" button under the rack (maintainer, 2026-10-04): the
-            empty brackets are already doors to the same bench. */}
+          {/* §E: the three brackets across the whole window, one card each. Each is a door to the
+              bench that cuts what goes in it, a card that says what it does, or a lock. No "Build
+              more in the Scrapyard" button under them (maintainer, 2026-10-04): the empty
+              brackets are already doors to the same bench. */}
           <Section
             title={`Modifications: ${slots.used} of ${MAX_MODIFICATION_SLOTS} slots`}
-            grow
-            fill
+            // Whether the bracket is a set rides on the heading's line rather than under the
+            // cards, where a line kept for it stood empty on most plots.
+            aside={<SetAside kind={kind} base={base} />}
           >
             <SlotRack
               kind={kind}
@@ -456,15 +408,6 @@ export function StructureDialog({
               onClear={onClearSlot}
               clearing={clearing}
             />
-            {/* Only the line that is still news. "All three are open" was a sentence about nothing
-              to do, printed exactly when a player has nothing left to wait for (maintainer
-              request, 2026-09-16). */}
-            {nextSlotAt !== null && (
-              <p className="mt-2 font-body text-[12px] leading-relaxed text-ink-300">
-                {slotsOpeningNext > 1 ? 'The next two slots open' : 'The next slot opens'} at level{' '}
-                {nextSlotAt}. The Scrapyard builds what goes in them.
-              </p>
-            )}
           </Section>
         </div>
       </div>
@@ -495,11 +438,15 @@ export function StructureDialog({
             receivedAt={receivedAt}
             onBoost={onBoost}
             boostPending={boostPending}
+            boostOil={boostOil}
             onGo={onGo}
             onPayroll={() => setPayrollOpen(true)}
             ceilings={ceilings}
           />
           <DrawnButton
+            // The same size as Close and the building's own control beside it (maintainer,
+            // 2026-10-08): one row of three alike buttons.
+            size="sm"
             disabled={cost === null || !affordable || !partsInHand || queueFull || pending}
             onClick={onBuild}
             data-tip={over ? overTheStoresText(over) : undefined}
@@ -526,12 +473,99 @@ export function StructureDialog({
   );
 }
 
-/** A fitted modification reads as a fact; an unfitted one reads as an option. */
-function cnRow(fitted: boolean): string {
-  return [
-    'flex items-center justify-between gap-3 border px-2 py-1 font-display text-[11px] uppercase tracking-[0.12em]',
-    fitted ? 'border-brass-500/60 text-brass-300' : 'border-surface-700 text-ink-300',
-  ].join(' ');
+/**
+ * §A1: the parts a level asks for besides its price, as chips on one line. The count and the part
+ * on the chip, green when the crew holds enough and red when it does not; what is held is on the
+ * hover with the part's own window.
+ */
+function PartsLine({ parts, base }: { parts: Partial<Record<ItemId, number>>; base: Base }) {
+  return (
+    <div className="flex items-center gap-2" data-testid="structure-parts">
+      <span className="shrink-0 font-display text-[11px] uppercase tracking-[0.16em] text-ink-300">
+        Also needs
+      </span>
+      <ul className="flex min-w-0 gap-1.5">
+        {Object.entries(parts).map(([id, count]) => {
+          const held = base.inventory[id as ItemId] ?? 0;
+          return (
+            <li key={id} className="min-w-0">
+              <HoverCard
+                label={`${ITEM_CATALOG[id as ItemId].name}, ${held} held`}
+                size="window"
+                card={<ItemWindow id={id as ItemId} />}
+              >
+                <span
+                  className={cn(
+                    'flex items-center gap-1 whitespace-nowrap rounded-sm border px-1.5 py-0.5',
+                    held >= (count ?? 0)
+                      ? 'border-verdigris-500/60 bg-verdigris-700/20 text-verdigris-100'
+                      : 'border-oxblood-500/60 bg-oxblood-500/10 text-oxblood-300',
+                  )}
+                >
+                  <ItemGlyph id={id as ItemId} className="h-4 w-4" />
+                  <span className="font-display text-[11px] font-semibold tabular-nums">
+                    {count}× {ITEM_CATALOG[id as ItemId].name}
+                  </span>
+                </span>
+              </HoverCard>
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
+}
+
+/**
+ * The level of this structure on the clock, drawn the way the district's rail draws it, or an
+ * empty line of the same height when nothing is building. The earliest order for the plot is the
+ * one shown; any queued behind it are counted beside its level.
+ */
+function UnderWayLine({
+  kind,
+  base,
+  now,
+  pending,
+  onCancel,
+}: {
+  kind: BuildingKind;
+  base: Base;
+  now: Date;
+  pending: boolean;
+  onCancel: (orderId: string) => void;
+}) {
+  const orders = base.buildQueue.filter((entry) => entry.kind === kind);
+  const current = orders[0];
+  return (
+    <div className="mt-3 flex flex-col gap-2" data-testid="structure-under-way-line">
+      <span aria-hidden className="block h-1.5 text-ink-300/60">
+        <DrawnRule />
+      </span>
+      <div className="flex h-[3.75rem] items-center gap-3">
+        {current ? (
+          <>
+            <DrawnCrane className="h-11 w-11 shrink-0 text-brass-300" />
+            <BuildOrderPlate
+              entry={current}
+              base={base}
+              now={now}
+              worked={base.buildQueue[0]?.id === current.id}
+              after={orders.length - 1}
+              pending={pending}
+              onCancel={() => onCancel(current.id)}
+              cancelTestId={`structure-cancel-${current.id}`}
+              className="min-w-0 flex-1"
+              data-testid={`structure-under-way-${kind}`}
+            />
+          </>
+        ) : (
+          <span className="flex h-full flex-1 items-center justify-center rounded-sm border border-dashed border-surface-500/70 font-display text-[10px] uppercase tracking-[0.18em] text-ink-400">
+            Nothing under way
+          </span>
+        )}
+      </div>
+    </div>
+  );
 }
 
 /**
@@ -578,21 +612,11 @@ function SlotRack({
 
   return (
     <>
-      {/*
-       * Spread over the panel's spare height (maintainer, 2026-10-04): `pt-3`, `gap-3` and the
-       * body's `pb-3` are the same 12px, so the rule to the first row, the rows to each other and
-       * the last row to the frame all get 12px plus the same share of the slack.
-       *
-       * The floor is the height the rack and the "Build more in the Scrapyard" button under it
-       * took together, so the windows where that button was what set the deck's height (the
-       * Infirmary and the Garage) kept their size when it went.
-       */}
-      <ul
-        className="flex min-h-[134.5px] flex-1 flex-col justify-evenly gap-3 pt-3"
-        data-testid={`slots-${kind}`}
-      >
+      {/* Three cards abreast with a moderate gap, each the same fixed size whatever is in it
+          (maintainer, 2026-10-08), so the rack is one shape on every plot. */}
+      <ul className="grid grid-cols-3 gap-4 pt-2.5" data-testid={`slots-${kind}`}>
         {slots.map((slot) => (
-          <SlotRow
+          <SlotCard
             key={slot.index}
             slot={slot}
             kind={kind}
@@ -602,8 +626,6 @@ function SlotRack({
           />
         ))}
       </ul>
-
-      <SetReadout fitted={fittedHere} open={slots.filter((slot) => slot.open).length} />
 
       {/*
        * The one permanent decision left on this window, asked the way the kit asks every other one.
@@ -660,6 +682,17 @@ function completedFamily(
   return fitted.every((spec) => spec.family === family) ? family : null;
 }
 
+/** The set line for a structure's brackets, worked out from what is fitted there. */
+function SetAside({ kind, base }: { kind: BuildingKind; base: Base }) {
+  const standing = findBuilding(base.buildings, kind);
+  const slots = modificationSlots(kind, standing);
+  const fitted = (standing?.modifications ?? []).flatMap((id) => {
+    const spec = findModification(id);
+    return spec ? [spec] : [];
+  });
+  return <SetReadout fitted={fitted} open={slots.filter((slot) => slot.open).length} />;
+}
+
 /**
  * Whether this structure is built around one family, and what that is worth (2026-09-14).
  *
@@ -682,7 +715,7 @@ function SetReadout({ fitted, open }: { fitted: ModificationSpec[]; open: number
   if (family !== null) {
     const bonus = SET_BONUSES[family];
     return (
-      <p
+      <span
         /*
          * `.ink-field`, not `.ink-box`.
          *
@@ -692,7 +725,7 @@ function SetReadout({ fitted, open }: { fitted: ModificationSpec[]; open: number
          * its own border on both sides. `.ink-field` is the same pen authored for exactly this
          * shape (the note above it in `index.css` says so), with its line 3 units in.
          */
-        className="ink-field mt-2 px-3 py-2 font-body text-[12px] leading-snug text-verdigris-100"
+        className="ink-field whitespace-nowrap px-2.5 py-1 font-body text-[12px] leading-snug text-verdigris-100"
         data-testid="set-readout"
         data-set="complete"
       >
@@ -700,7 +733,7 @@ function SetReadout({ fitted, open }: { fitted: ModificationSpec[]; open: number
           {MODIFICATION_FAMILY_LABELS[family]} set
         </span>{' '}
         {bonus.title}: {describeSetBonus(family)}, on top of what the cards pay.
-      </p>
+      </span>
     );
   }
 
@@ -714,17 +747,81 @@ function SetReadout({ fitted, open }: { fitted: ModificationSpec[]; open: number
   if (best === undefined) return null;
 
   return (
-    <p
-      className="mt-2 font-body text-[12px] leading-snug text-ink-400"
+    <span
+      className="whitespace-nowrap font-body text-[12px] leading-snug text-ink-300"
       data-testid="set-readout"
       data-set="partial"
     >
       {`${best[1]} of ${MODIFICATION_SET_SIZE} ${MODIFICATION_FAMILY_LABELS[best[0]]}. A full bracket of one family adds ${describeSetBonus(best[0])}.`}
-    </p>
+    </span>
   );
 }
 
-function SlotRow({
+/** Every bracket card is this size, filled, empty or locked. */
+const SLOT_CARD = 'flex h-[11.5rem] min-w-0 flex-col rounded-sm border px-3 pb-2.5 pt-3';
+
+/** The pen line between a card's sections. */
+function CardRule({ className }: { className?: string }) {
+  return (
+    <span aria-hidden className={cn('block h-1.5 text-brass-300/55', className)}>
+      <DrawnRule />
+    </span>
+  );
+}
+
+/**
+ * One bracket card's three sections, the same in every state (maintainer, 2026-10-08): the plate
+ * with the name and the tag beside it, closed by a pen line under the tag; what goes on in the
+ * bracket; and, under a second line, the one control, centred.
+ */
+function SlotCardBody({
+  plate,
+  title,
+  tag,
+  place,
+  body,
+  foot,
+}: {
+  plate: ReactNode;
+  title: ReactNode;
+  tag?: ReactNode;
+  place: number;
+  body: ReactNode;
+  foot: ReactNode;
+}) {
+  return (
+    <>
+      <span className="flex min-w-0 items-stretch gap-3">
+        {plate}
+        <span className="flex min-w-0 flex-1 flex-col">
+          <span className="flex min-w-0 items-start gap-2">
+            <span className="flex min-w-0 flex-1 flex-col items-start gap-1">
+              {title}
+              {tag}
+            </span>
+            <span className="shrink-0 font-display text-[10px] uppercase tracking-[0.16em] text-ink-400">
+              Slot {place + 1}
+            </span>
+          </span>
+          {/* Just under the tag, and starting at the title's edge rather than the plate's, so it
+              closes the name off without running into the plate (maintainer, 2026-10-08). */}
+          <CardRule className="mt-1.5" />
+        </span>
+      </span>
+      <span className="mt-2.5 block min-w-0">{body}</span>
+      <span className="mt-auto block">
+        <CardRule />
+        <span className="flex min-h-8 items-center justify-center pt-2">{foot}</span>
+      </span>
+    </>
+  );
+}
+
+const PLATE = 'flex h-14 w-14 shrink-0 items-center justify-center rounded-sm';
+const CARD_TITLE = 'break-words font-display text-[15px] font-bold leading-tight';
+const CARD_BODY = 'break-words font-display text-[12px] uppercase leading-snug tracking-[0.08em]';
+
+function SlotCard({
   slot,
   kind,
   clearing,
@@ -741,80 +838,115 @@ function SlotRow({
   const fitted = slot.modificationId === null ? undefined : findModification(slot.modificationId);
 
   if (fitted) {
+    /*
+     * The card as the yard's bench draws it (maintainer, 2026-10-08): the mark on its plate, the
+     * name and the grade, and what it does. The longer sentence about it is on the hover, read off
+     * the catalogue rather than the district payload, so the bench and this card say the same
+     * thing.
+     */
     return (
       <li
-        className={cnRow(true)}
+        className={cn(SLOT_CARD, SLOT_WELL, 'border-bile-300/50')}
         data-testid={`slot-${kind}-${slot.index}`}
-        /*
-         * What the card in the bracket does, on the hover (maintainer request, 2026-09-16).
-         *
-         * The row has room for a name and a control and nothing else, and a name on its own does
-         * not say why the bracket was worth filling. Read off the catalogue rather than off the
-         * district payload, which carries the id and no effect at all, so this sentence and the
-         * one the bench prints on the same card are the same sentence.
-         */
-        data-tip={`${fitted.name} · ${describeAddonEffect(fitted)}`}
+        data-tip={`${fitted.name} · ${describeAddonEffect(fitted)}. ${fitted.description}`}
       >
-        <span className="truncate">{fitted.name}</span>
-        {/*
-         * A verb, not a state (2026-09-14), and the yard's own verb (2026-09-16).
-         *
-         * The control sat at the end of a row whose other half is the fitted card's name, so it
-         * read as the slot's *state* rather than as something to press: "Automated Protocols,
-         * Empty" says the opposite of what is true. Every other row in the rack does say its state
-         * there ("Level 20" on a locked one), which is exactly why a verb is needed on this one.
-         *
-         * The word is the bench's, because it is the same act in both places and a player who
-         * learns Dismantle on the card should not have to learn Strip out on the bracket.
-         */}
-        <button
-          type="button"
-          className="shrink-0 text-oxblood-300 underline-offset-2 hover:underline"
-          data-testid={`slot-clear-${kind}-${slot.index}`}
-          disabled={clearing}
-          onClick={() => onClear(slot.index)}
-        >
-          Dismantle
-        </button>
+        <SlotCardBody
+          place={slot.index}
+          plate={
+            <YardPlate mark={{ kind: 'effect', effect: fitted.effect }} tone="bile" size="lg" />
+          }
+          title={<h4 className={cn(CARD_TITLE, 'text-ink-100')}>{fitted.name}</h4>}
+          tag={<RarityTag rarity={fitted.rarity} />}
+          body={<p className={cn(CARD_BODY, 'text-brass-300')}>{describeAddonEffect(fitted)}</p>}
+          foot={
+            /*
+             * A verb, not a state (2026-09-14), and the yard's own verb (2026-09-16): the same act
+             * in both places, so a player who learns Dismantle on the bench does not have to learn
+             * a second word here.
+             */
+            <DrawnButton
+              size="sm"
+              tone="danger"
+              data-sound="click"
+              data-testid={`slot-clear-${kind}-${slot.index}`}
+              disabled={clearing}
+              onClick={() => onClear(slot.index)}
+            >
+              Dismantle
+            </DrawnButton>
+          }
+        />
       </li>
     );
   }
 
   if (!slot.open) {
     return (
-      <li className={cnRow(false)} data-testid={`slot-${kind}-${slot.index}`}>
-        <span className="truncate">Locked</span>
-        <span className="shrink-0 tabular-nums">Level {slot.opensAtLevel}</span>
+      <li
+        className={cn(SLOT_CARD, 'border-surface-700 bg-surface-950/40')}
+        data-testid={`slot-${kind}-${slot.index}`}
+      >
+        <SlotCardBody
+          place={slot.index}
+          plate={
+            <span aria-hidden className={cn(PLATE, 'icon-plate text-ink-400')}>
+              <Icon name="lock" className="h-7 w-7" />
+            </span>
+          }
+          title={
+            <span className={cn(CARD_TITLE, 'uppercase tracking-[0.1em] text-ink-300')}>
+              Locked
+            </span>
+          }
+          body={
+            <p className={cn(CARD_BODY, 'text-ink-400')}>
+              Opens at level <span className="tabular-nums text-ink-200">{slot.opensAtLevel}</span>
+            </p>
+          }
+          foot={
+            <span className="font-display text-[11px] uppercase tracking-[0.16em] text-ink-400">
+              Not yet
+            </span>
+          }
+        />
       </li>
     );
   }
 
   /*
-   * The whole empty bracket is the control, and what it does now is open the bench (2026-09-16).
-   *
-   * It used to open a picker over the shelf. There is no shelf: the yard cuts a card for a named
-   * structure and bolts it in on the same press, so the only thing this row can usefully do is
-   * take the player to the bench for *this* structure. Which is also what it looked like it did.
+   * The whole empty bracket is the control, and what it does is open the bench (2026-09-16): the
+   * yard cuts a card for a named structure and bolts it in on the same press, so the one useful
+   * thing this card can do is take the player to the bench for *this* structure.
    */
   return (
-    <li data-testid={`slot-${kind}-${slot.index}`}>
+    <li className="min-w-0" data-testid={`slot-${kind}-${slot.index}`}>
       <button
         type="button"
         onClick={() => onGo(`/game/scrapyard?view=modifications&bench=${kind}`)}
         data-testid={`slot-door-${kind}-${slot.index}`}
         data-sound="click"
-        data-tip={`Bracket ${slot.index + 1} · empty · cut one for ${BUILDING_CATALOG[kind].name} at the yard`}
+        data-tip={`Slot ${slot.index + 1} · empty · cut one for ${BUILDING_CATALOG[kind].name} at the yard`}
         className={cn(
-          cnRow(false),
-          'w-full cursor-pointer text-left transition-colors',
-          'border-verdigris-300/40 hover:border-verdigris-300/80 hover:text-verdigris-100',
+          SLOT_CARD,
+          // The card takes the press, so it is the group the drawn button's face answers to.
+          'group/drawn w-full cursor-pointer border-dashed border-verdigris-300/50 bg-surface-900/40 text-left transition-colors',
+          'hover:border-verdigris-300 hover:bg-verdigris-500/10',
           'focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-verdigris-300',
         )}
       >
-        <span className="truncate">Empty</span>
-        <span className="flex shrink-0 items-center gap-1.5 text-verdigris-100">
-          Cut one at the yard
-        </span>
+        <SlotCardBody
+          place={slot.index}
+          plate={
+            <span aria-hidden className={cn(PLATE, 'icon-plate text-verdigris-100')}>
+              <Icon name="build" className="h-7 w-7" />
+            </span>
+          }
+          title={
+            <span className={cn(CARD_TITLE, 'uppercase tracking-[0.1em] text-ink-200')}>Empty</span>
+          }
+          body={<span className={cn(CARD_BODY, 'text-ink-300')}>Nothing fitted yet</span>}
+          foot={<DrawnLabel tone="blue">Cut one at the yard ›</DrawnLabel>}
+        />
       </button>
     </li>
   );
@@ -834,6 +966,7 @@ function StructureAction({
   receivedAt,
   onBoost,
   boostPending,
+  boostOil,
   onGo,
   onPayroll,
   ceilings,
@@ -844,6 +977,7 @@ function StructureAction({
   receivedAt: number | undefined;
   onBoost: () => void;
   boostPending: boolean;
+  boostOil: number | undefined;
   onGo: (path: string) => void;
   onPayroll: () => void;
   /** What the stores can hold, so a price past them says so rather than "short". */
@@ -858,6 +992,7 @@ function StructureAction({
           receivedAt={receivedAt}
           onBoost={onBoost}
           pending={boostPending}
+          oil={boostOil ?? buildBoostOilCost(base.buildings)}
           ceilings={ceilings}
         />
       );
@@ -939,6 +1074,7 @@ function BurnButton({
   receivedAt,
   onBoost,
   pending,
+  oil,
   ceilings,
 }: {
   base: Base;
@@ -946,12 +1082,13 @@ function BurnButton({
   receivedAt: number | undefined;
   onBoost: () => void;
   pending: boolean;
+  /** The server's price for the burn (`/me`'s `buildBoostOil`), which the door charges. */
+  oil: number;
   ceilings: StoreCeilings;
 }) {
   // The district read's own clock, so a skewed machine reads the same burn as everyone else.
   const now = useServerClock(serverNow, receivedAt);
   const remainingMs = buildBoostRemainingMs(base.economy.buildBoostUntil, now);
-  const oil = buildBoostOilCost(base.buildings);
   const over = overTheStores({ oil }, ceilings);
   if (buildingLevel(base.buildings, 'generator') <= 0) return null;
 
@@ -1053,11 +1190,14 @@ function ceilingReason(kind: BuildingKind, base: Base): Ceiling {
  */
 function Section({
   title,
+  aside,
   grow = false,
   fill = false,
   children,
 }: {
   title: string;
+  /** A line set on the heading's right, after the title. */
+  aside?: ReactNode;
   /** Fill the column: the two panels whose bottoms have to meet the rule together. */
   grow?: boolean;
   /**
@@ -1102,6 +1242,9 @@ function Section({
          * text lives in a leaf; the rule is the leaf's sibling.
          */}
         <span>{title}</span>
+        {aside !== undefined && (
+          <span className="absolute inset-y-0 right-3 flex items-center pt-0.5">{aside}</span>
+        )}
         {/* Hand-drawn, not a border: a heading underlined with a ruler reads as a spreadsheet.
             `inset-x-3` matches the padding, so the rule stops short of the drawn frame instead of
             running into it. */}

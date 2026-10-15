@@ -20,7 +20,7 @@ import {
   type Resources,
 } from '@frontline/shared';
 import { NavLink, useLocation, useSearchParams } from 'react-router-dom';
-import { CancelMark } from '../../components/ui/CancelMark';
+import { CancelBox } from '../../components/ui/CancelMark';
 import { ProgressBar } from '../../components/ui/ProgressBar';
 import { LoadFailure } from '../../components/ui/LoadFailure';
 import { cn } from '../../lib/cn';
@@ -64,23 +64,30 @@ function ActiveProject({ active, at }: { active: ActiveResearch; at: Date }) {
 
   return (
     <div className="flex flex-col gap-3 p-4">
-      {/* One painted bar, the same one a mission and a muster batch draw, so every running clock
-          in the game reads as the same kind of thing. */}
-      <ProgressBar
-        progress={researchProgressAt(active, at)}
-        label={titleOf(active.project)}
-        remaining={remaining === 0 ? 'Landing…' : formatCountdown(remaining)}
-        size="md"
-        data-testid="research-progress"
-      />
-      {/* The first tenth of the project's clock: call it off and ninety percent comes back. */}
-      <CancelMark
-        windowMs={researchCancelWindowMs(active, at)}
-        label={`Call off ${titleOf(active.project)}`}
-        pending={cancel.isPending}
-        onCancel={() => cancel.mutate({})}
-        data-testid="cancel-research"
-      />
+      <div className="flex items-center gap-4">
+        {/* One painted bar, the same one a mission and a muster batch draw, so every running clock
+            in the game reads as the same kind of thing. */}
+        <ProgressBar
+          className="flex-1"
+          progress={researchProgressAt(active, at)}
+          label={titleOf(active.project)}
+          remaining={remaining === 0 ? 'Landing…' : formatCountdown(remaining)}
+          size="md"
+          // Set like the officers on the rail below it (maintainer, 2026-10-08): the spaced grey
+          // capitals were the faintest type on the page for the one thing running.
+          labelStyle="title"
+          data-testid="research-progress"
+        />
+        {/* The first tenth of the project's clock: call it off and ninety percent comes back. A box
+            of its own on the right, which says so once the tenth is gone (maintainer, 2026-10-08). */}
+        <CancelBox
+          windowMs={researchCancelWindowMs(active, at)}
+          label={`Call off ${titleOf(active.project)}`}
+          pending={cancel.isPending}
+          onCancel={() => cancel.mutate({})}
+          data-testid="cancel-research"
+        />
+      </div>
       {cancel.error && <PressError onDismiss={cancel.reset}>{cancel.error.message}</PressError>}
     </div>
   );
@@ -226,7 +233,11 @@ function TrackHeader({
           note={
             head === null
               ? 'Every track on every trade is shut without one.'
-              : `Makes all research ${head.addsPercent.toFixed(1)}% faster.`
+              : // A chair taken in the last six hours gives nothing yet (`CHAIR_SETTLE_HOURS`), and
+                // the line used to read "0.0% faster" for the whole wait.
+                head.settled
+                ? `Makes all research ${head.addsPercent.toFixed(1)}% faster.`
+                : 'Settling in: takes nothing off the clock yet.'
           }
         />
       </div>

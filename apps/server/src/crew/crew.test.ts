@@ -27,6 +27,8 @@ import {
   askingWage,
   makeAttributes,
   recoverCasualties,
+  casualtyRecoveryShare,
+  medicPointsOf,
   startingEconomy,
   startingProgression,
   startingResearch,
@@ -476,6 +478,38 @@ describe('the Training tab over HTTP', () => {
       after.effects.lootCapacityPercent,
       'the people ledger moved when a plot changed hands',
     ).toBe(before.effects.lootCapacityPercent ?? 0);
+  });
+
+  /*
+   * The medic card prints every point a win is recovered on and the share the fight spends
+   * (maintainer, 2026-10-15): the crew's own, which `effects` carries, and the Infirmary's four a
+   * level, which it does not. `medicPointsOf` is the one sum the fights read too.
+   */
+  it('quotes every medic point a win is recovered on, the Infirmary included', async () => {
+    const app = await makeApp();
+    const token = await signIn(app);
+    const base = app.repos.bases.findByOwnerId(app.repos.users.findByUsername('driller')?.id ?? '');
+    if (!base) throw new Error('no base');
+    app.repos.bases.updateBuildings(base.id, [
+      ...base.buildings.filter((building) => building.kind !== 'infirmary'),
+      { id: 'b-infirmary', kind: 'infirmary', level: 10, modifications: [] },
+    ]);
+    const res = await app.inject({ method: 'GET', url: '/api/overseer/me', headers: auth(token) });
+    expect(res.statusCode).toBe(200);
+    const read = res.json<{
+      effects: Record<string, number>;
+      medicPoints: number;
+      medicSharePercent: number;
+    }>();
+    const held = app.repos.bases.findById(base.id)!;
+    const points = medicPointsOf(
+      standingEffectsFor(app.repos, held).casualtyRecoveryPercent,
+      held.buildings,
+    );
+    expect(points).toBeGreaterThanOrEqual(40);
+    expect(read.medicPoints).toBe(points);
+    expect(read.medicPoints).toBeGreaterThan(read.effects.casualtyRecoveryPercent ?? 0);
+    expect(read.medicSharePercent).toBe(Math.round(casualtyRecoveryShare(points) * 10) / 10);
   });
 
   it('trains an officer, not only the Overseer', async () => {

@@ -31,8 +31,6 @@ import { IdSchema, IsoDateTimeSchema } from './primitives.js';
 export const ProfileHoldingSchema = z.object({
   locationId: z.string().min(1),
   name: z.string().min(1),
-  /** The catalogue's label for the kind of place: "Scrap Press", "Pumphouse". */
-  kind: z.string().min(1),
   districtId: IdSchema,
   districtName: z.string().min(1),
   level: z.number().int().min(1),

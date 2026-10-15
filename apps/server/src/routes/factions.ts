@@ -28,6 +28,7 @@ import type { FastifyInstance } from 'fastify';
 import type { Repositories } from '../db/repos/index.js';
 import type { UserRecord } from '../types.js';
 import { AppError, parseBody } from '../errors.js';
+import { cardsAtTable } from '../factions/cards.js';
 import { hasRoom, projectFaction } from '../factions/project.js';
 import { notify, notifyFaction } from '../social/notify.js';
 import { invitationRefusal, outOfLettersToday, recordInvitationLetter } from '../social/limits.js';
@@ -492,11 +493,28 @@ export function registerFactionRoutes(app: FastifyInstance): void {
           })),
         );
         const was = dealt.get(targetId) ?? null;
+        /*
+         * Onboarding (maintainer, 2026-10-15): a seat whose holder changed in the last twelve
+         * hours is locked. A seat moves the card the member leaves and the card they take, so both
+         * have to be settled. Read off `cardsAtTable`, which records the table as it stands.
+         */
+        const now = new Date();
+        const seated = cardsAtTable(app.repos, held.factionId, now);
+        const onboarding = new Set(
+          [...seated.values()]
+            .filter((dealtCard) => dealtCard.onboardingUntil !== null)
+            .map((dealtCard) => dealtCard.card),
+        );
+        if ((was !== null && onboarding.has(was)) || (card !== null && onboarding.has(card))) {
+          refuse('seat_onboarding');
+        }
         for (const row of rows) {
           const holds = dealt.get(row.userId) ?? null;
           app.repos.factions.setSeat(row.userId, card !== null && holds === card ? was : holds);
         }
         app.repos.factions.setSeat(targetId, card);
+        // Read once more so the new holders are recorded from now: their Onboarding starts here.
+        cardsAtTable(app.repos, held.factionId, now);
         return answer(userId);
       })();
     },

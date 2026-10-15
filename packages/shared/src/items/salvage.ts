@@ -1,6 +1,7 @@
 import { ITEM_CATALOG, ITEM_IDS, type ItemId } from './catalog.js';
 import { ITEM_RARITIES, type ItemRarity } from './rarity.js';
 import type { ItemCost } from './inventory.js';
+import { luckyRarityWeights } from './luck.js';
 
 /**
  * What a crew brings back that is not a number (§E5, items extension).
@@ -55,11 +56,13 @@ export function rollSalvage(
   totalMinutes: number,
   succeeded: boolean,
   random: () => number,
+  /** The Joker's luck at the crew's table (`items/luck.ts`): rarer finds, not more of them. */
+  luck = 0,
 ): ItemCost {
   const found: ItemCost = {};
   for (let roll = 0; roll < salvageRolls(totalMinutes, succeeded); roll++) {
     if (random() > SALVAGE_HIT_CHANCE) continue;
-    const id = pickByRarity(random);
+    const id = pickByRarity(random, luck);
     found[id] = (found[id] ?? 0) + 1;
   }
   return found;
@@ -72,22 +75,23 @@ export function rollSalvage(
  * part, only a certain one. `count` rolls, every one a hit. Drawn off the same stream as the rest
  * of the settle, so two reads of the finished run agree about what came home.
  */
-export function guaranteedSalvage(count: number, random: () => number): ItemCost {
+export function guaranteedSalvage(count: number, random: () => number, luck = 0): ItemCost {
   const found: ItemCost = {};
   for (let roll = 0; roll < count; roll++) {
-    const id = pickByRarity(random);
+    const id = pickByRarity(random, luck);
     found[id] = (found[id] ?? 0) + 1;
   }
   return found;
 }
 
 /** One item, drawn against the rarity weights above. Blueprints are excluded: those are traded. */
-function pickByRarity(random: () => number): ItemId {
+function pickByRarity(random: () => number, luck: number): ItemId {
   const target = random();
+  const weights = luckyRarityWeights(RARITY_WEIGHT, luck);
   let cumulative = 0;
   let chosenRarity: ItemRarity = 'basic';
   for (const rarity of ITEM_RARITIES) {
-    cumulative += RARITY_WEIGHT[rarity];
+    cumulative += weights[rarity];
     if (target <= cumulative) {
       chosenRarity = rarity;
       break;

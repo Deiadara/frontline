@@ -1,6 +1,5 @@
 import {
   DECLARE_INFAMY_COST,
-  LOCATION_CATALOG,
   MAX_LOCATION_LEVEL,
   createCommander,
   discountedCaps,
@@ -241,7 +240,7 @@ describe('the Chosen Chapel', () => {
   it('pays its infamy the moment it changes hands, and only then', async () => {
     const chapel = findLocation('ccs-chapel');
     expect(chapel, 'the Chapel is not on the map').toBeDefined();
-    expect(LOCATION_CATALOG[chapel!.kind].captureInfamy ?? 0).toBeGreaterThan(0);
+    expect(chapel!.captureInfamy ?? 0).toBeGreaterThan(0);
 
     // Nobody dies, so the only infamy either fight pays is what the *ground* is worth, which is
     // the whole claim, and is otherwise buried under a kill count that varies by garrison size.
@@ -277,7 +276,7 @@ describe('the Chosen Chapel', () => {
      */
     expect(plain.infamy).toBeGreaterThan(0);
     expect(withChapel.infamy - plain.infamy, 'the Chapel paid nothing for changing hands').toBe(
-      LOCATION_CATALOG[chapel!.kind].captureInfamy,
+      chapel!.captureInfamy,
     );
   });
 });
@@ -552,7 +551,7 @@ describe('the ground a unit is mustered on (§A4)', () => {
     give(stack, KENNELS, MAX_LOCATION_LEVEL);
 
     const units = await roster(stack);
-    const expected = homeMusterBonus(HOUNDS, new Map([['doghouse', MAX_LOCATION_LEVEL]]));
+    const expected = homeMusterBonus(HOUNDS, new Map([[KENNELS, MAX_LOCATION_LEVEL]]));
     expect(expected.costPercent).toBeGreaterThan(0);
     expect(houndsOn(units).homeCostReduction).toBe(expected.costPercent);
     expect(houndsOn(units).homeSpeedBonus).toBe(expected.speedPercent);

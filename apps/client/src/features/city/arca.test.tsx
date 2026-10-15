@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { UNIT_CATALOG } from '@frontline/shared';
 import type { ReactNode } from 'react';
 import { describe, expect, it } from 'vitest';
@@ -165,14 +165,25 @@ describe('the Noisy the tower puts down', () => {
     expect(screen.getByTestId('label-noisy').className).not.toContain('outline-hextech-300');
   });
 
-  it('strikes an ignored weakness through in blue on the unit card', () => {
+  it('strikes a cancelled weakness through in blue, and names what cancelled it', () => {
     const affinity = { id: 'noisy', label: 'Noisy', note: '-5% per tier', good: false };
-    const { rerender } = render(<AffinityTag affinity={affinity} unitName="Razors" ignored />);
+    const { rerender } = render(
+      <AffinityTag
+        affinity={affinity}
+        unitName="Razors"
+        cancelledBy="The Tolling Tower, while the bells ring"
+      />,
+    );
     const chip = screen.getByText('Noisy');
     expect(chip).toHaveAttribute('data-ignored', 'yes');
     expect(chip.className).toContain('line-through');
+    fireEvent.focus(screen.getByRole('button', { name: /Noisy/ }));
+    expect(screen.getByTestId('cancelled-by-noisy')).toHaveTextContent(
+      'Cancelled by The Tolling Tower, while the bells ring: Razors ignore Noisy in a fight.',
+    );
     rerender(<AffinityTag affinity={affinity} unitName="Razors" />);
-    expect(screen.getByText('Noisy').className).not.toContain('line-through');
+    expect(document.querySelector('[data-ignored]')).toBeNull();
+    expect(screen.queryByTestId('cancelled-by-noisy')).toBeNull();
   });
 });
 

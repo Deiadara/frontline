@@ -10,12 +10,11 @@ import {
 } from '@frontline/shared';
 
 /**
- * The Tram Depot works on the road to a job, not only on the march to a fight.
+ * The Colossus walks on the road to a job, whatever the crew owns or holds (maintainer, 2026-10-15).
  *
- * `any_ride` is a city holding whose entire purpose is that a `no_ride` sheet stops holding the
- * column to its own pace. `battle/movement.ts` read it from the day the column had a speed, and
- * this module did not, so one crew's Colossus rode to a fight and walked to a mission down the
- * same streets. The holding is bought once; it cannot be true on one road and false on the other.
+ * The ride waiver (`any_ride`) left the game with every one of its sources, so `no_ride` is
+ * absolute: a Heli Porter in the column changes nothing about a Colossus's pace, on this road as on
+ * the march to a fight (`battle/movement.ts`).
  */
 
 const T0 = new Date('2026-09-14T12:00:00.000Z');
@@ -51,30 +50,25 @@ function makeBase(): Base {
 const TEMPLATE =
   MISSION_TEMPLATES.find((one) => one.travelBand === 'furthest') ?? MISSION_TEMPLATES[0]!;
 
-const roadMinutes = (anyRide: boolean): number =>
+const roadMinutes = (vehicles: Record<string, number>): number =>
   launchMission({
-    id: `run-${String(anyRide)}`,
+    id: `run-${Object.keys(vehicles).join('-') || 'walking'}`,
     base: makeBase(),
     template: TEMPLATE,
     areaId: MISC_AREA_ID,
-    // One Colossus, which carries `no_ride`, and the Heli Porter that can lift it.
+    // One Colossus, which carries `no_ride`.
     force: { the_colossus: 1 },
-    vehicles: { heli_porter: 1 },
+    vehicles,
     now: T0,
     seed: 7,
     grade: TEMPLATE.grades[0],
     leader: sureLeader(),
-    anyRide,
   }).mission.travelMinutes;
 
-describe('the Tram Depot on the road to a job', () => {
-  it('seats a Colossus that would otherwise hold the column to fifteen', () => {
-    const walking = roadMinutes(false);
-    const riding = roadMinutes(true);
-
-    // A guard on the fixture: if the Colossus ever loses `no_ride`, or the wagon stops being able
-    // to carry it, both figures collapse to the same number and this test proves nothing.
+describe('the Colossus on the road to a job', () => {
+  it('walks at its own pace with the biggest machine in the yard beside it', () => {
+    const walking = roadMinutes({});
     expect(walking).toBeGreaterThan(0);
-    expect(riding).toBeLessThan(walking);
+    expect(roadMinutes({ heli_porter: 1 })).toBe(walking);
   });
 });

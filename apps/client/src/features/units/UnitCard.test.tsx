@@ -73,6 +73,7 @@ function optionFor(spec: UnitSpec): UnitOption {
           label: ENV_LABEL_CATALOG[id].name,
           note: immune && per === 0 ? 'Immune' : `${per > 0 ? '+' : ''}${per}% per tier`,
           good: immune || per > 0,
+          cancelledBy: null,
         },
       ];
     }),
@@ -161,10 +162,14 @@ describe('the marks band', () => {
  */
 describe('the order of the marks band', () => {
   const RANK = ['brass', 'verdigris', 'oxblood'] as const;
+  // A level tag not unlocked yet (2026-10-09) is greyed out, and sits after everything the unit
+  // already carries and before the red: a card never leads with what the unit does not have.
   const rankOf = (chip: Element | null): number =>
-    RANK.findIndex((ink) => chip?.className.includes(`border-${ink}`));
+    chip?.getAttribute('data-locked') === 'yes'
+      ? 1.5
+      : RANK.findIndex((ink) => chip?.className.includes(`border-${ink}`));
 
-  it('draws brass first, verdigris next and oxblood last, on every unit', () => {
+  it('draws brass first, verdigris next, then the greyed tags, and oxblood last, on every unit', () => {
     let mixed = 0;
     for (const spec of UNIT_CATALOG) {
       const option = optionFor(spec);
@@ -727,7 +732,13 @@ describe('a Muster the route would refuse', () => {
   });
 
   it('goes in testing mode past the gates it waives', () => {
-    card(razors, { benchFull: true, spare: 0, resources: {}, waived: true });
+    card(razors, { spare: 0, resources: {}, waived: true });
     expect(button(razors)).toBeEnabled();
+  });
+
+  // The bench is five places in testing mode too (maintainer, 2026-10-08).
+  it('is greyed on a full bench, testing mode or not', () => {
+    card(razors, { benchFull: true, waived: true });
+    expect(button(razors)).toHaveAttribute('data-tip', MUSTER_REFUSAL_TEXT.queue_full);
   });
 });

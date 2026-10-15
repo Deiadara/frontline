@@ -369,6 +369,11 @@ describe('a completed set', () => {
    * through them rather than printing the raw channel or inventing a verb.
    */
   it('describes every set bonus in the direction its channel actually moves', () => {
+    const POINTS: readonly string[] = [
+      'muster_time_reduction',
+      'muster_supplies_reduction',
+      'defense_percent',
+    ];
     const reductions = MODIFICATION_FAMILIES.filter((family) =>
       SET_BONUSES[family].effect.endsWith('_reduction'),
     );
@@ -379,10 +384,9 @@ describe('a completed set', () => {
       const line = describeSetBonus(family);
       // Never the internal channel name, which is what printing the enum would leak.
       expect(line, family).not.toContain('_');
-      // The muster clock's figure is a speed, printed as the time it takes off on its own
-      // (maintainer, 2026-10-01): a minus and a smaller number than the speed.
-      if (SET_BONUSES[family].effect === 'muster_time_reduction') {
-        expect(line, family).toMatch(/^-\d+% muster time/);
+      // A set that feeds a curve prints its raw points (maintainer, 2026-10-15).
+      if (POINTS.includes(SET_BONUSES[family].effect)) {
+        expect(line, family).toContain(`+${SET_BONUSES[family].magnitude} points`);
         continue;
       }
       expect(line, family).toContain(`${SET_BONUSES[family].magnitude}%`);

@@ -1,7 +1,22 @@
-import { ITEM_CATALOG, ITEM_IDS, type ItemCost } from '@frontline/shared';
+import {
+  COMPONENT_BREAKDOWN,
+  ITEM_CATALOG,
+  ITEM_IDS,
+  ITEM_RARITIES,
+  ITEM_RARITY_LABELS,
+  breakdownYield,
+  type ItemCost,
+  type ItemId,
+  type PartialResources,
+} from '@frontline/shared';
+import { useState } from 'react';
+import { Confirm } from '../../components/ui/Confirm';
+import { DrawnButton } from '../../components/ui/DrawnButton';
+import { PressError } from '../../components/ui/PressError';
 import { ItemGlyph } from '../inventory/ItemGlyph';
 import { RarityTag } from '../../lib/rarity';
 import { cn } from '../../lib/cn';
+import { useBreakDownComponent } from '../../lib/queries';
 import { BENCH_BOARD, BENCH_TRAY, SLOT_WELL } from './template';
 
 /**
@@ -13,8 +28,10 @@ import { BENCH_BOARD, BENCH_TRAY, SLOT_WELL } from './template';
  * A player looking at a Hardshell Rig that wants eight Ceramic Plates should be one tab away from
  * seeing that they hold two, rather than on another screen entirely.
  *
- * Read-only on purpose. There is nothing to press: a component is spent by building the thing that
- * needs it, and a button here would be a second way to do what the bench beside it already does.
+ * One press per part: break it down into HQ metal and scrap (maintainer, 2026-10-09), for a part
+ * nothing on the bench wants. Asked for first, because the part does not come back; the yield is
+ * on the button's hover and in the question. Building with a part is still done on the bench that
+ * needs it.
  *
  * ## Only what is in the bin
  *
@@ -32,6 +49,8 @@ export function PartsBench({ held }: { held: ItemCost }) {
     (id) => ITEM_CATALOG[id].kind === 'component' && (held[id] ?? 0) > 0,
   );
   const total = parts.reduce((sum, id) => sum + (held[id] ?? 0), 0);
+  const breakDown = useBreakDownComponent();
+  const [asking, setAsking] = useState<ItemId | null>(null);
 
   return (
     <section className={cn(BENCH_BOARD, 'flex flex-col gap-3')} data-testid="scrapyard-parts">
@@ -86,11 +105,68 @@ export function PartsBench({ held }: { held: ItemCost }) {
                 >
                   {count.toLocaleString('en-US')}
                 </span>
+                <span className="relative shrink-0">
+                  <DrawnButton
+                    size="sm"
+                    // The bench only opens on a standing yard (`ScrapyardPage`), so the one thing
+                    // to wait for here is a press already in flight.
+                    disabled={breakDown.isPending}
+                    data-tip={`Break one down for ${yieldWords(id)}`}
+                    data-testid={`scrapyard-break-${id}`}
+                    onClick={() => setAsking(id)}
+                  >
+                    Break down
+                  </DrawnButton>
+                  {breakDown.error && breakDown.variables?.itemId === id && (
+                    <PressError onDismiss={breakDown.reset}>{breakDown.error.message}</PressError>
+                  )}
+                </span>
               </li>
             );
           })}
         </ul>
       )}
+      {asking !== null && (
+        <Confirm
+          title={`Break down ${ITEM_CATALOG[asking].name}?`}
+          body={`One goes into the press and comes out as ${yieldWords(asking)}. The part does not come back.`}
+          confirm="Break it down"
+          testId="scrapyard-breakdown"
+          onConfirm={() => {
+            breakDown.mutate({ itemId: asking });
+            setAsking(null);
+          }}
+          onCancel={() => setAsking(null)}
+        />
+      )}
+      {/* The yield table, so what the press pays is on the bench rather than in a hover only. */}
+      {parts.length > 0 && (
+        <p
+          className="px-4 pb-3 font-body text-[12px] leading-snug text-ink-300"
+          data-testid="scrapyard-breakdown-table"
+        >
+          Breaking a part down pays by its rarity:{' '}
+          {ITEM_RARITIES.map(
+            (rarity) =>
+              `${ITEM_RARITY_LABELS[rarity].toLowerCase()} ${gainWords(COMPONENT_BREAKDOWN[rarity])}`,
+          ).join('; ')}
+          .
+        </p>
+      )}
     </section>
   );
+}
+
+/** What one of this part breaks down into, in words. */
+function yieldWords(id: ItemId): string {
+  return gainWords(breakdownYield(id) ?? {});
+}
+
+function gainWords(gain: PartialResources): string {
+  return [
+    gain.highQualityMetal ? `${gain.highQualityMetal} HQ metal` : null,
+    gain.scrap ? `${gain.scrap} scrap` : null,
+  ]
+    .filter((part) => part !== null)
+    .join(' and ');
 }

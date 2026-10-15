@@ -151,7 +151,8 @@ test('a plate in the room opens that person’s file, with what your rank lets y
   await expect(card).toContainText('King of diamonds');
   await expect(card).toContainText('Toughness, Organization and Resolve');
   await expect(card).toContainText('At their D+');
-  await expect(card).toContainText('Holding your ground');
+  // The King's line since 2026-10-15: vitality on the defending side, for the whole table.
+  await expect(card).toContainText('vitality when defending');
   // What they field is on their own file, so "who could help me" has an answer per person.
   await expect(file.getByText('Ironsides', { exact: false })).toBeVisible();
   // The fixture's player leads, so the three things a leader may do about a chief are here.
@@ -190,6 +191,13 @@ test('the faction screen offers what an ally can field', async ({ page }) => {
   // ...and your own crew, marked as yours: "what we field" is the whole table.
   await expect(armies.getByText('Nikos')).toBeVisible();
   await expect(armies.getByText('you', { exact: true })).toBeVisible();
+  // Their own face on the row (maintainer, 2026-10-15), not a sigil hashed off the account.
+  const face = armies.getByTestId('member-face-Sable_Ninth');
+  await expect(face).toBeVisible();
+  await expect(face).not.toHaveAttribute('data-face', 'none');
+
+  await settleFonts(page);
+  await page.screenshot({ path: 'screenshots/faction-armies.png', fullPage: false });
 });
 
 /**

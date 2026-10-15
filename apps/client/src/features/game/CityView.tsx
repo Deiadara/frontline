@@ -13,7 +13,7 @@ import {
 import { useNavigate } from 'react-router-dom';
 import { CostLine } from '../../components/Resources';
 import { Button } from '../../components/ui/Button';
-import { CancelMark } from '../../components/ui/CancelMark';
+import { CancelCell } from '../../components/ui/CancelMark';
 import { useCancelGateRaise, useCity, useMe, useRaiseGate } from '../../lib/queries';
 import { formatRemaining } from '../base/format';
 import { useServerClock } from '../missions/useServerClock';
@@ -175,9 +175,10 @@ export const DISTRICT_MARKS: Readonly<Record<string, Readonly<Record<string, OnP
    * window as Terminus's (x 0.085..0.915, y 0.232..0.873): the Printworks was drawn a little above
    * the top of it and sits on the line instead.
    *
-   * Almshouses stands on the crane at the bottom of the river (maintainer, 2026-10-08), which is
-   * inside the captured-gate panel's corner: a crew holding a district whole sees the panel over
-   * this tag. The maintainer's call, made after the panel was raised with them.
+   * Almshouses stands on the roofs below and left of the crane at the bottom of the river
+   * (maintainer, 2026-10-09: moved off the water), which is inside the captured-gate panel's
+   * corner: a crew holding a district whole sees the panel over this tag. The maintainer's call,
+   * made after the panel was raised with them.
    */
   arca: {
     nave: { x: 0.409, y: 0.321 },
@@ -190,7 +191,7 @@ export const DISTRICT_MARKS: Readonly<Record<string, Readonly<Record<string, OnP
     candlemarket: { x: 0.701, y: 0.784 },
     gravefields: { x: 0.24, y: 0.445 },
     // The four plots. Which id stands where only matters for the seeded rival on the Waxworks.
-    almshouses: { x: 0.21, y: 0.8 },
+    almshouses: { x: 0.125, y: 0.87 },
     'chantry-lane': { x: 0.491, y: 0.655 },
     lamplighters: { x: 0.122, y: 0.492 },
     waxworks: { x: 0.708, y: 0.458 },
@@ -575,16 +576,17 @@ function CapturedGatePanel({
         </span>
       </div>
       <p className="font-body text-[12px] leading-snug text-ink-300">
-        {/* Its points against spies are not printed: spy strength is not public (2026-10-01). */}+
-        {Math.round(gate.defensePercent)}% holding it.
+        {/* Its raw points (maintainer, 2026-10-15): the fight curves them with the holder's other
+            defence. Its points against spies are not printed: spy strength is not public. */}
+        +{Math.round(gate.defensePercent * 10) / 10} points of defence holding it.
       </p>
       {working ? (
-        <div className="flex flex-wrap items-center gap-3">
+        <div className="flex items-center justify-between gap-3">
           <span className="font-display text-[11px] uppercase tracking-[0.14em] tabular-nums text-ember-300">
             Being raised, {formatRemaining(Date.parse(gate.upgradingUntil ?? '') - now.getTime())}{' '}
             left
           </span>
-          <CancelMark
+          <CancelCell
             windowMs={windowMs}
             label={`Call off raising the ${gate.districtName} gate`}
             pending={pending}

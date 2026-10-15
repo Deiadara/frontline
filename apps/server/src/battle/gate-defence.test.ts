@@ -24,6 +24,7 @@ import {
   DECLARE_INFAMY_COST,
   GATE_DEFENSE_PERCENT_PER_LEVEL,
   declarationWindow,
+  findDistrict,
   findModification,
   gateDefensePercent,
   skirmishOutcome,
@@ -211,5 +212,42 @@ describe('a Gate a crew is defending behind', () => {
       6,
     );
     expect(withCard!.defensePercent).toBeCloseTo(without!.defensePercent, 6);
+  });
+});
+
+/**
+ * Ironmouth held whole, "Nobody Digs You Out" (maintainer, 2026-10-09): the gate's garrison hits 5%
+ * harder and takes 5% more, at the crew's own gate. Measured as the same subtraction across two
+ * worlds that differ only by the district held.
+ */
+describe('Ironmouth held whole, at the gate', () => {
+  const holdIronmouth = (world: World): void => {
+    for (const location of findDistrict('ironmouth')!.locations) {
+      const control = world.app.repos.city.control(location.id)!;
+      world.app.repos.city.put({
+        ...control,
+        holder: { kind: 'crew', baseId: world.victimBaseId },
+        garrison: {},
+      });
+    }
+  };
+
+  it('pays the garrison five points of damage and vitality, and nothing on the defence', async () => {
+    const plain = await makeWorld();
+    raiseGate(plain, GATE_LEVEL);
+    await fightAtTheGate(plain);
+    const without = plain.seen[0]?.defenderTerritory;
+
+    const held = await makeWorld();
+    raiseGate(held, GATE_LEVEL);
+    holdIronmouth(held);
+    await fightAtTheGate(held);
+    const withIt = held.seen[0]?.defenderTerritory;
+
+    expect(without && withIt, 'both fights must reach the engine').toBeTruthy();
+    expect(withIt!.gateFightPercent).toBe(5);
+    expect(withIt!.unitOffensePercent - without!.unitOffensePercent).toBe(5);
+    expect(withIt!.unitVitalityPercent - without!.unitVitalityPercent).toBe(5);
+    expect(withIt!.defensePercent).toBeCloseTo(without!.defensePercent, 6);
   });
 });

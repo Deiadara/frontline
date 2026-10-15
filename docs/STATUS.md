@@ -31,7 +31,7 @@ implemented mechanic (the `role` field on `BuildingSpec` is the contract that ke
 ✅ Nexus gating: it caps every other structure at its own level, unlocks the rest as it grows
 (ladder from level 1 to 12), and discounts everyone else's materials and clock.
 
-✅ **Build queue**, four slots and six once the Engineer's third rung (`Batch Runs`) is
+✅ **Build queue**, four slots and five once the Engineer's third rung (`Batch Runs`) is
 researched, worked sequentially. Materials taken at order time; price and duration frozen onto the
 entry. Settled lazily on read: no scheduler.
 

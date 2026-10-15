@@ -19,7 +19,6 @@ import {
   BUILD_BOOST_PERCENT,
   BuyBuildBoostRequestSchema,
   ClearModificationRequestSchema,
-  buildBoostOilCost,
   nexusLevelForUpgrade,
   nexusShortfall,
   projectedBuildings,
@@ -41,7 +40,7 @@ import {
   type BuildCancelRefusal,
   type BuildRefusal,
 } from '../district/build.js';
-import { buyBuildBoost } from '../district/boost.js';
+import { buildBoostOilFor, buyBuildBoost } from '../district/boost.js';
 import { clearSlot } from '../district/modifications.js';
 import { settleBase } from '../district/settle.js';
 import { storeCeilingsOf } from '../district/stores.js';
@@ -70,10 +69,6 @@ const CANCEL_ERRORS: Record<BuildCancelRefusal, { code: ErrorCode; message: stri
   window_closed: {
     code: 'PLACE_UNAVAILABLE',
     message: 'The work has gone too far to stop. It finishes now',
-  },
-  orders_behind: {
-    code: 'PLACE_UNAVAILABLE',
-    message: 'An order behind this one is built on it. Call that one off first',
   },
 };
 
@@ -185,7 +180,11 @@ export function registerBaseRoutes(app: FastifyInstance): void {
     if (result.kind === 'refused') {
       throw new AppError(
         'BOOST_REFUSED',
-        boostMessage(result.reason, settled.base, storeCeilingsOf(app.repos, settled.base, now)),
+        boostMessage(
+          result.reason,
+          buildBoostOilFor(app.repos, settled.base, now),
+          storeCeilingsOf(app.repos, settled.base, now),
+        ),
       );
     }
     return { base: result.base, paid: result.paid };
@@ -287,10 +286,10 @@ const CLEAR_MESSAGES: Record<ClearSlotRefusal, string> = {
 /** §B4: why the burn could not be bought, with the number that makes it actionable. */
 function boostMessage(
   reason: BuildBoostRefusal,
-  base: Parameters<typeof nexusGate>[1],
+  /** What the burn costs this crew, with the ground's cut off it (`buildBoostOilFor`). */
+  oil: number,
   ceilings: StoreCeilings,
 ): string {
-  const oil = buildBoostOilCost(base.buildings);
   const over = overTheStores({ oil }, ceilings);
   switch (reason) {
     case 'no_generator':

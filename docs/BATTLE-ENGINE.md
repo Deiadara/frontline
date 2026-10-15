@@ -60,8 +60,9 @@ first a free volley against a stack that is already dead.
    odds while it disengages, on its own draw from the fight's stream (maintainer, 2026-09-29). It
    was a fifth of the stack, rounded, so a stack of one or two was never caught at all.
 
-The loop runs to `MAX_ROUNDS` or until one side has nobody fighting. If both collapse in the same
-round it is settled on `residualPower`, which counts broken stacks at `BROKEN_WEIGHT`.
+The loop runs to `MAX_ROUNDS` (25 since 2026-10-09, up from 12) or until one side has nobody
+fighting. If both collapse in the same round it is settled on `residualPower`, which counts broken
+stacks at `BROKEN_WEIGHT`.
 
 ### No hard caps
 
@@ -102,6 +103,58 @@ exponential approach to the ceiling that leaves the knee at the same slope. Each
   unmarked one at `STEALTH_UNTAGGED_SHARE`. It was missing until 2026-09-21, and without it the
   mark was worth exactly nothing: the stealth term is a weighted mean, so for a force whose
   stacks are marked alike the weight cancelled and the mark bought no share at all.
+- **The line as it forms** (`buildStacks`, 2026-10-09). The Cold Store puts flat vitality on every
+  non-Stitcher unit of the side, its level per Stitcher in the line, on the finished sheet
+  (`coldStore`). A side with the Geppetto forms up with his first robots beside him (AD HOC ARMY,
+  `withAdHocArmy`): one, or two at a level-5 Crate Ring, built off `adHocArmyAt(level)`.
+
+### After every round's damage
+
+- **The Transit Clinic** (`transitClinic`, 2026-10-14). Every body of a side that died since the
+  round's snapshot (the opening volleys count before round one) heals that side's most hurt living
+  body, the single body in any stack still fighting with the most vitality missing, by
+  `deathHealPercent` of the dead one's vitality, one death at a time, never past full. The officer
+  and the Geppetto's robots neither pay into it nor take from it.
+
+### Targeting rules
+
+- **SAFE DISTANCE** (`withinReach` in `allocate`, 2026-10-09). A shooter with range below
+  `SAFE_DISTANCE_REACH` (50) cannot target a stack with the rule while any stack without it is
+  still fighting on that side. Two stacks with the rule do not screen each other, and a side whose
+  other units have died or run leaves them open. The other half of the rule is at intimidation:
+  silencing one costs `SAFE_DISTANCE_COST` (twice) its morale.
+- **TAUNT** (`taunts`, called Shield Line until 2026-10-13). Pulls its share of the enemy's fire
+  off the top (`tauntPull`) before the rest of the line is weighed.
+- **Holds the Line** (`stalwart`, reworked 2026-10-13). The stack's morale does not drop during the
+  fight: `moralePhase` lets a round lift it and never lower it, and the wire takes nothing off it.
+  It breaks only if it formed up already routed. It used to hold only while over half stood.
+- **RADIOACTIVE** (`radioactiveDeaths`, `burnFallout`, 2026-10-14). Every volley records which
+  stack put the most damage on each target (`Killers`). A RADIOACTIVE body that dies puts its
+  vitality on that stack, a fifth a round for the next `RADIOACTIVE_ROUNDS` (5) rounds, added after
+  the medics, whether or not its own stack has broken since, until the fight ends. A death with no
+  shooter on record (the ambush, a dying strike) burns nobody.
+- **The Tower Box** (2026-10-14). Units with range 50 or more deal more (`rangeAtLeast`), stacking
+  with the Parapet's range over 50 (`rangeAbove`).
+- **The Frontier Chapel** (2026-10-14). Eerie is one of the crew's `ignoredLabels` (the standing
+  fold adds `labelImmunities` to the Tolling Tower's Noisy), so no Eerie tier on the ground moves
+  any of its units in a fight.
+- **The Holding Pens** (`Stack.vsTier`, 2026-10-13). A stack's shots at a target of a tier its
+  crew's ground names land `offenseVsTierPercent` harder (the Rabble, 10% to 20%).
+- **Golden Terror** (`golden_terror`, 2026-10-13). The Hollow Men's Terror off a level-5 Arch
+  Nineteen: the same two tiers as Terror at 40 where Terror is 35, handed over by `unit_modifier`
+  and written onto the sheet by `markedUnit`.
+- **ROOFTOP** (2026-10-09). Nobody with it is in the ambush (`outOfTheAmbush`), and its evasion is
+  doubled, inside the 100 cap, against a shooter with range below `ROOFTOP_REACH` (30)
+  (`fromTheRoof`).
+- **PERCEPTION** (`perceives`, 2026-10-09). While a unit with it is alive on a side, the other
+  side's stealth counts at `PERCEPTION_STEALTH_SHARE` (half): in the ambush it hides with, and in
+  the rout if the perceiving side won (`FleeContext.perceived`). Spying does not read it.
+- **AD HOC ARMY** (`makeAdHocArmy`, 2026-10-09). At the start of every round after the first, a
+  Geppetto still in the fight adds as many robots as he formed up with, whether or not the
+  earlier ones stand: to a robot stack that has not broken, or as a fresh stack off the formed
+  sheet. The robots are taken off both sides before `simulate` returns (`stripAdHocArmy`), with
+  `Simulation.adHocArmy` saying how many were made and destroyed, so no casualty list, rout, loot
+  or infamy ever counts one. The battle log prints the figure.
 
 ### Traps
 

@@ -29,7 +29,8 @@ import { springTrap, TRAP_CATALOG } from './traps.js';
  * seed is pinned on a coin. Each block names the ruling it holds.
  */
 
-const fighters = UNIT_CATALOG.filter((unit) => unit.combat !== false);
+// Not the Geppetto's robots: no roster carries one, and a fight takes any it is sent off the line.
+const fighters = UNIT_CATALOG.filter((unit) => unit.combat !== false && unit.spawned !== true);
 const total = (army: Army): number => Object.values(army).reduce((sum, n) => sum + n, 0);
 const OPEN = bareBattlefield();
 const TUNNEL: Battlefield = {

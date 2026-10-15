@@ -99,6 +99,11 @@ interface PageShellProps {
   stretch?: boolean;
   /** Give the sheet the wider measure. For screens carrying art rather than paragraphs. */
   wide?: boolean;
+  /**
+   * Half the gap between the page's sections (maintainer, 2026-10-08): for a page whose whole
+   * point is to fit on one screen, the units roster with its bench over it.
+   */
+  tight?: boolean;
   children: ReactNode;
 }
 
@@ -134,6 +139,7 @@ export function PageShell({
   ruled = false,
   action,
   wide = false,
+  tight = false,
   fills = false,
   stretch = false,
   children,
@@ -207,7 +213,7 @@ export function PageShell({
             <div
               className={cn(
                 'flex flex-col',
-                fills ? 'min-h-0 flex-1 gap-3' : 'gap-5',
+                fills ? 'min-h-0 flex-1 gap-3' : tight ? 'gap-2.5' : 'gap-5',
                 stretch && !fills && 'min-h-full',
               )}
             >

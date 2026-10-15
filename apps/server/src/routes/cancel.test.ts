@@ -212,8 +212,8 @@ describe("a location's work", () => {
     const started = startUpgrade(repos, { base, location: PRESS, control, now: at(0) });
     expect(started.kind).toBe('started');
     if (started.kind !== 'started') return;
-    const price = upgradeCost(PRESS.kind, control.level)!;
-    const seconds = upgradeSeconds(PRESS.kind, control.level);
+    const price = upgradeCost(PRESS, control.level)!;
+    const seconds = upgradeSeconds(PRESS, control.level);
 
     const late = new Date(at(0).getTime() + seconds * 100);
     expect(
@@ -374,7 +374,7 @@ describe('full stores', () => {
     const control = repos.city.control(PRESS.id)!;
     const started = startUpgrade(repos, { base, location: PRESS, control, now: at(0) });
     if (started.kind !== 'started') throw new Error('fixture: the upgrade was refused');
-    const refund = ninety(upgradeCost(PRESS.kind, control.level)!);
+    const refund = ninety(upgradeCost(PRESS, control.level)!);
     const waste = wouldWaste(() =>
       cancelUpgrade(repos, {
         base: started.base,
@@ -474,11 +474,11 @@ describe('over the wire', () => {
   });
 
   /*
-   * An order in front of another of the same structure cannot go while that one stays: the later
-   * order was priced as the level after it, and landing it without it jumped a level for a tenth
-   * of the skipped one's price (bug pass, 2026-09-27).
+   * An order in front of another of the same structure takes that one with it (maintainer,
+   * 2026-10-08): the later order was priced as the level after it, and landing it alone jumped a
+   * level for a tenth of the skipped one's price (bug pass, 2026-09-27). It used to be refused.
    */
-  it('refuses to cancel an order another is built on, and takes the later one first', async () => {
+  it('cancels an order another is built on, and the later one with it, refunding both', async () => {
     const { app, token, baseId } = await player();
     const base = app.repos.bases.findById(baseId)!;
     app.repos.bases.updateResources(baseId, {
@@ -516,10 +516,10 @@ describe('over the wire', () => {
         payload: { orderId, acceptWaste: RICH_ON_PURPOSE },
       });
 
-    const refused = await cancel(first!.id);
-    expect(refused.statusCode).toBe(409);
-    expect(refused.body).toContain('built on it');
-    expect((await cancel(next!.id)).statusCode).toBe(200);
-    expect((await cancel(first!.id)).statusCode).toBe(200);
+    const both = await cancel(first!.id);
+    expect(both.statusCode, both.body.slice(0, 200)).toBe(200);
+    const after = both.json<BuildStructureResponse>();
+    expect(after.base.buildQueue.map((queued) => queued.id)).not.toContain(next!.id);
+    expect(after.base.buildQueue).toHaveLength(0);
   });
 });

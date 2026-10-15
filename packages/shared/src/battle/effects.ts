@@ -1,4 +1,5 @@
 import {
+  FLAT_STAT_LABELS,
   labelEffectPercent,
   labelText,
   labelVerdict,
@@ -7,6 +8,7 @@ import {
   type LabelVerdict,
   type TerritoryEffects,
   type UnitStatFlat,
+  type UnitStatPercent,
 } from '../city/index.js';
 import { ANTI_COMBINE_PERCENT, PAMPHLET_PENALTY_PERCENT } from '../city/arca.js';
 import { NO_DOOR_PERKS, type DoorPerks } from './doors.js';
@@ -248,6 +250,12 @@ export function effectiveStats(
     unitEvasionFlat?: number;
     /** The Tolling Tower's gift, off the crew's control rows (`CrewOnlyEffects.ignoredLabels`). */
     ignoredLabels?: readonly EnvLabelId[];
+    /**
+     * The faction table's Ace and King (maintainer, 2026-10-15): damage on the attacking side,
+     * vitality on the defending side. Crew-only, widened like the two above.
+     */
+    tableAttackOffensePercent?: number;
+    tableDefenceVitalityPercent?: number;
   },
   upgrades: FittedUpgrades = [],
   fight: UnitFightContext = {},
@@ -305,7 +313,7 @@ export function effectiveStats(
   const faith = unit.faith === true ? FAITH_PER_MAUSOLEUM * (territory.mausoleums ?? 0) : 0;
   /*
    * The door's own points and the congregation, flat on the sheet like Faith, because that is
-   * what the ladder promises: a level-5 Condemned is a 240-vitality unit that the percentages
+   * what the ladder promises: a level-5 Condemned is a 270-vitality unit that the percentages
    * then multiply. The congregation is capped before it lands, so a thousand-slot line beside the
    * Saint is worth exactly the ceiling.
    */
@@ -327,12 +335,24 @@ export function effectiveStats(
   const ally = fight.allyPercent ?? 0;
   const bothWays = antiCombine + pamphlet + ally;
   const flats = statFlatsFor(unit, territory.unitStatFlats ?? []);
+  // The Ground Array's Energy (2026-10-09): by the damage the upgraded sheet deals.
+  const byDamageType = territory.unitDamageTypeOffense?.[sheet.damageType] ?? 0;
+  // The Viaduct's scoped percentages (2026-10-13): TAUNT units' vitality, long guns' damage.
+  const scoped = statPercentsFor(
+    unit,
+    territory.unitStatPercents ?? [],
+    capRating(sheet.range + door.range + flats.range),
+  );
   const offenseBonus =
     percent +
     ground.percent +
     territory.unitOffensePercent +
     (tier.offense ?? 0) +
     (kind.offense ?? 0) +
+    byDamageType +
+    scoped.offense +
+    // The Ace of spades: only when this side is the attacker.
+    (side.defending ? 0 : (territory.tableAttackOffensePercent ?? 0)) +
     bothWays;
 
   // Everything the holder built buys *toughness*, not damage: a wall does not make a rifle shoot
@@ -352,7 +372,12 @@ export function effectiveStats(
     territory.unitVitalityPercent +
     (tier.vitality ?? 0) +
     (kind.vitality ?? 0) +
+    scoped.vitality +
+    // The Sappers' Store (2026-10-13): a percent of vitality for every card fitted to the unit.
+    (territory.modificationVitalityPercent ?? 0) * (fight.fittedCount ?? upgrades.length) +
     toughness +
+    // The King of diamonds: only when this side is defending, outside the held-ground curve.
+    (side.defending ? (territory.tableDefenceVitalityPercent ?? 0) : 0) +
     bothWays;
   const vitalityBonus = ownToughness + heldDefense(held);
   const withoutGateBonus = ownToughness + heldDefense(heldWithoutGate);
@@ -360,7 +385,8 @@ export function effectiveStats(
 
   return {
     offense: (sheet.offense + faith + doorFlatOffense + flats.offense) * (1 + offenseBonus / 100),
-    vitality: (sheet.vitality + faith + doorFlatVitality) * (1 + vitalityBonus / 100),
+    vitality:
+      (sheet.vitality + faith + doorFlatVitality + flats.vitality) * (1 + vitalityBonus / 100),
     // What the gate multiplied that by, for the one kind of attacker that does not meet it.
     gateToughness: withoutGate > 0 ? (1 + vitalityBonus / 100) / withoutGate : 1,
     // Armour is points on a 0..100 rating, not a multiplier: see `unitArmorPercent`. Still capped,
@@ -417,6 +443,9 @@ export function effectiveStats(
       ...(antiCombine > 0 ? ['Anti-Combine'] : []),
       ...(pamphlet < 0 ? ['Pamphleted'] : []),
       ...(ally > 0 ? ['Fighting for an ally'] : []),
+      // The ground's flat points, each with the plot that pays it: they landed on the sheet and
+      // on no reason until 2026-10-13, so a +8 armour Casting Pit showed on its card alone.
+      ...statFlatReasons(unit, territory.unitStatFlats ?? []),
       ...(doorFlatOffense > 0 || door.vitality > 0 ? ['Door'] : []),
     ],
   };
@@ -429,10 +458,46 @@ type StatFlats = Record<UnitStatFlat['stat'], number>;
  * What the crew's flat-point bonuses are worth to this unit: every entry whose scope it fits.
  * A scope left out matches everything; `rule: 'guard'` matches a sheet carrying GUARD.
  */
+/**
+ * A unit's stealth outside a fight, for the readers that ask before one: a spy counting a
+ * garrison (`spying.ts`) and a ring catching a column (`deploy.ts`). The ground's flat points
+ * (the Ventilation Shafts, 2026-10-09) go on the fitted sheet before the percentage, as
+ * `effectiveStats` puts them on in a fight.
+ */
+export function crewStealth(
+  unit: UnitSpec,
+  fittedStealth: number,
+  effects: Pick<TerritoryEffects, 'unitStatFlats' | 'unitStealthPercent'>,
+): number {
+  const flat = statFlatsFor(unit, effects.unitStatFlats).stealth;
+  return capRating(Math.round((fittedStealth + flat) * (1 + effects.unitStealthPercent / 100)));
+}
+
+/**
+ * The scoped percentages that reach this unit (`unit_stat_percent`): the TAUNT units, or the units
+ * whose range on this sheet is above the figure. `range` is the rating after its flats, the one the
+ * fight reads, so a Box Nine Sniper is measured with its spotters.
+ */
+export function statPercentsFor(
+  unit: UnitSpec,
+  percents: readonly UnitStatPercent[],
+  range: number,
+): { offense: number; vitality: number } {
+  const out = { offense: 0, vitality: 0 };
+  for (const scoped of percents) {
+    if (scoped.rule === 'taunts' && unit.taunts !== true) continue;
+    if (scoped.rangeAbove !== undefined && !(range > scoped.rangeAbove)) continue;
+    if (scoped.rangeAtLeast !== undefined && !(range >= scoped.rangeAtLeast)) continue;
+    out[scoped.stat] += scoped.percent;
+  }
+  return out;
+}
+
 export function statFlatsFor(unit: UnitSpec, flats: readonly UnitStatFlat[]): StatFlats {
   const out: StatFlats = {
     armor: 0,
     offense: 0,
+    vitality: 0,
     range: 0,
     evasion: 0,
     speed: 0,
@@ -440,12 +505,31 @@ export function statFlatsFor(unit: UnitSpec, flats: readonly UnitStatFlat[]): St
     penetration: 0,
   };
   for (const flat of flats) {
-    if (flat.tier !== undefined && flat.tier !== unit.tier) continue;
-    if (flat.damageType !== undefined && flat.damageType !== unit.stats.damageType) continue;
-    if (flat.rule === 'guard' && !unit.modifiers.includes('guard')) continue;
-    out[flat.stat] += flat.flat;
+    if (flatReaches(unit, flat)) out[flat.stat] += flat.flat;
   }
   return out;
+}
+
+/** Whether a flat-point bonus's scope takes in this unit. A scope left out matches everything. */
+function flatReaches(unit: UnitSpec, flat: UnitStatFlat): boolean {
+  if (flat.tier !== undefined && flat.tier !== unit.tier) return false;
+  if (flat.damageType !== undefined && flat.damageType !== unit.stats.damageType) return false;
+  if (flat.rule === 'guard' && !unit.modifiers.includes('guard')) return false;
+  if (flat.unitId !== undefined && flat.unitId !== unit.id) return false;
+  return true;
+}
+
+/**
+ * The same bonuses as lines a player can read, one per entry that reaches this unit: "+8 armour
+ * (The Casting Pit)". For the battle report's reasons and the unit card (2026-10-13).
+ */
+export function statFlatReasons(unit: UnitSpec, flats: readonly UnitStatFlat[]): string[] {
+  return flats
+    .filter((flat) => flatReaches(unit, flat) && flat.flat !== 0)
+    .map(
+      (flat) =>
+        `${flat.flat > 0 ? '+' : ''}${flat.flat} ${FLAT_STAT_LABELS[flat.stat]} (${flat.source ?? 'held ground'})`,
+    );
 }
 
 /**

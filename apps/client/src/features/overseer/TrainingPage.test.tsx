@@ -14,6 +14,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import * as F from '../../../e2e/fixtures';
 import { IMPORTANCE_TEXT } from '../../lib/importance';
 import { TrainingPage } from './TrainingPage';
+import { formatRemaining } from '../base/format';
 import type * as QueriesModule from '../../lib/queries';
 
 /**
@@ -21,9 +22,9 @@ import type * as QueriesModule from '../../lib/queries';
  *
  * `applyGain` (`packages/shared/src/crew/training.ts`) is the only place a session's value is
  * decided, and it decides it against the sheet in front of it: two points under
- * `TRAINING_HALF_GAIN_FROM` and one at or above it. `TrainingResponse.gainPerSession` is a flat
- * `TRAINING_GAIN` with no attribute in scope, so a screen that prints it prints the wrong number
- * for the back half of every skill.
+ * `TRAINING_HALF_GAIN_FROM` and one at or above it. The response used to carry a flat crew-wide
+ * gain with no attribute in scope (dropped 2026-10-13), and a screen that printed it printed the
+ * wrong number for the back half of every skill.
  *
  * That is not a quoted estimate, it is a promise on a button: "+2 Analysis" on a control that
  * spends one of five hours a day and cannot be taken back. The hour goes, the sheet moves by one,
@@ -220,21 +221,39 @@ describe('the floor at the foot of the training sheet', () => {
     const row = screen.getByTestId(`training-underway-${IDLE.id}`);
     expect(row).toHaveAttribute('data-queued', 'true');
     expect(row.querySelector<HTMLElement>('.paint-fill')?.style.width).toBe('0%');
-    expect(row).toHaveTextContent(/in \d+m/);
+    // Its whole hour, held until its turn (maintainer, 2026-10-08), and an X with no timer.
+    expect(row).toHaveTextContent(formatRemaining(WORKING.session!.durationSeconds * 1000));
+    expect(within(row).getByTestId('cancel-floor-queued-window')).toHaveTextContent('queued');
     expect(screen.getByTestId(`training-underway-${WORKING.id}`)).not.toHaveAttribute(
       'data-queued',
     );
     expect(screen.getByTestId('training-underway')).toHaveTextContent('1 working, 1 queued');
     expect(within(screen.getByTestId('training-subjects')).getByText('Queued')).toBeInTheDocument();
     fireEvent.click(within(screen.getByTestId('training-subjects')).getByText(IDLE.name));
-    expect(screen.getByTestId('training-in-flight')).toHaveTextContent(/Starts in/);
+    expect(screen.getByTestId('training-in-flight')).toHaveTextContent(/Queued ·/);
   });
 
-  it('says so plainly when nobody is on the floor', () => {
-    board.current = { ...F.trainingResponse, subjects: [IDLE] };
+  /*
+   * Every place the floor has is drawn, free or taken (maintainer, 2026-10-08), so starting a drill
+   * fills a box that was already there instead of growing the strip and costing the sheet a row.
+   */
+  it('says nobody is on it and draws every place free when the floor is empty', () => {
+    board.current = { ...F.trainingResponse, queueSlots: 3, subjects: [IDLE] };
     drawSheet();
-    expect(screen.getByTestId('training-underway')).toHaveTextContent('The floor is empty.');
+    const strip = screen.getByTestId('training-underway');
+    expect(strip).toHaveTextContent(/nobody/i);
+    expect(within(strip).getAllByRole('listitem')).toHaveLength(3);
+    expect(within(strip).getAllByTestId(/^training-free-/)).toHaveLength(3);
     expect(screen.queryByTestId(`training-underway-${IDLE.id}`)).toBeNull();
+  });
+
+  it('fills a free place with a drill rather than adding one', () => {
+    board.current = { ...F.trainingResponse, queueSlots: 2, subjects: [IDLE, WORKING] };
+    drawSheet();
+    const strip = screen.getByTestId('training-underway');
+    expect(within(strip).getAllByRole('listitem')).toHaveLength(2);
+    expect(within(strip).getAllByTestId(/^training-free-/)).toHaveLength(1);
+    expect(within(strip).getByTestId(`training-underway-${WORKING.id}`)).toBeInTheDocument();
   });
 
   /** The four columns live inside the same frame the strip does, which is the whole request. */

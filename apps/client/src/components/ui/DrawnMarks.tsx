@@ -258,3 +258,57 @@ export function DrawnRule() {
     </svg>
   );
 }
+
+/**
+ * A crane over a half-built wall, for a structure with a level on the clock (maintainer,
+ * 2026-10-08).
+ *
+ * The plot dialog's line for the order under way. Drawn in the same pen as the rest of the sheet
+ * rather than taken from the icon set, because it is a picture of the work rather than a button:
+ * a mast, a jib with its counterweight, a hook let down over the courses of brick going up.
+ */
+export function DrawnCrane({ className }: { className?: string }) {
+  const id = useId();
+
+  return (
+    <svg viewBox="0 0 40 40" className={cn('overflow-visible', className)} aria-hidden>
+      <defs>
+        <filter id={`crane-${id}`} x="-10%" y="-10%" width="120%" height="120%">
+          <feTurbulence type="fractalNoise" baseFrequency="0.12" numOctaves="2" seed="17" />
+          <feDisplacementMap
+            in="SourceGraphic"
+            scale="1.1"
+            xChannelSelector="R"
+            yChannelSelector="G"
+          />
+        </filter>
+      </defs>
+      <g filter={`url(#crane-${id})`} {...INK}>
+        {/* Mast, lattice and foot. */}
+        <path d="M10 37.5 L10.4 5" strokeWidth="1.6" />
+        <path d="M14 37.5 L13.6 5" strokeWidth="1.6" />
+        <path
+          d="M10.2 30 L13.8 26 M10.2 22 L13.8 18 M10.3 14 L13.7 10"
+          strokeWidth="1"
+          opacity="0.7"
+        />
+        <path d="M6 37.6 L18 37.3" strokeWidth="1.8" />
+        {/* Jib, counterweight and the tie over the top. */}
+        <path d="M4 7 L37 6.2" strokeWidth="1.6" />
+        <path d="M12 2.5 L5 7 M12 2.5 L30 6.5" strokeWidth="1" opacity="0.7" />
+        <path d="M4.5 7.5 L4.5 11 L8.5 11 L8.5 7.4" strokeWidth="1.3" />
+        {/* The hook, let down over the wall. */}
+        <path d="M30 6.6 L30.2 17" strokeWidth="1" />
+        <path d="M30.2 17 q0 2.6 -2.2 2.2" strokeWidth="1.3" />
+        {/* Three courses of brick, the top one short: the level still going up. */}
+        <path d="M20 37.4 L38 37.2 M20 33.4 L38 33.3 M20 29.4 L32 29.5" strokeWidth="1.2" />
+        <path d="M20 37.4 L20 29.4 M38 37.2 L38 33.3" strokeWidth="1.2" />
+        <path
+          d="M26 37.3 L26 33.4 M32 33.3 L32 29.5 M29 37.2 L29 33.3"
+          strokeWidth="0.9"
+          opacity="0.7"
+        />
+      </g>
+    </svg>
+  );
+}

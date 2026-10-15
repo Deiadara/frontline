@@ -482,19 +482,17 @@ for (const width of [1024, 1280]) {
 }
 
 /**
- * A muster card prints the time it takes off the clock on its own, not its speed as time
- * (maintainer, 2026-10-01): Night Course's 16 read "+16% off how long training takes" and is 14%
- * off. Read off the Gauntlet's bench as the player meets it.
+ * A muster card prints the raw points of speed it adds (maintainer, 2026-10-15), never its speed
+ * as time off ("+16% off how long training takes", 2026-10-01). The bench tapers the sum with the
+ * crew's; the Units page prints the spent cut. Read off the Gauntlet's bench as a player meets it.
  */
-test('the muster cards on the Gauntlet bench print their own cut of the clock', async ({
-  page,
-}) => {
+test('the muster cards on the Gauntlet bench print the points they add', async ({ page }) => {
   const drawn = scrapyard.entries.filter(
     (entry) =>
       entry.kind === 'modification' &&
       entry.building === 'gauntlet' &&
       entry.documentHeld &&
-      entry.effect.includes('muster time'),
+      entry.effect.includes('muster speed'),
   );
   expect(drawn.length, 'no muster card drawn on the Gauntlet bench').toBeGreaterThan(0);
   await installApi(page, lateGame);
@@ -504,7 +502,7 @@ test('the muster cards on the Gauntlet bench print their own cut of the clock', 
   await settleFonts(page);
   for (const entry of drawn) {
     const row = page.getByTestId(`addon-${entry.id}`);
-    await expect(row).toContainText(/-\d+% muster time \(tapers\)/);
+    await expect(row).toContainText(/\+\d+ points of muster speed \(tapers\)/);
     await expect(row).not.toContainText('off how long training takes');
   }
   await page.getByTestId(`addon-${drawn[0]!.id}`).scrollIntoViewIfNeeded();

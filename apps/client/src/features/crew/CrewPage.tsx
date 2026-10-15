@@ -685,18 +685,24 @@ function OfficerWindow({
 }
 
 /*
- * The officer and Overseer windows, which must not scroll (maintainer, 2026-10-08).
+ * The officer and Overseer windows, which must not scroll (maintainer, 2026-10-08) and end where
+ * the sheet ends (maintainer, 2026-10-09).
  *
- * At 1920x1080 the whole file fits in 85% of the screen and is drawn exactly as it always was. On a
- * screen under 1000px tall it did not: 214px too tall at 1280x720, 33px at 1440x900. There, and only
- * there, the window takes the full height the backdrop allows, the header and padding tighten, the
- * chair's dropdown stands beside its label instead of wrapping under it, and the sheet's rows close
- * up (`AttributeSheet`'s `fitShort`). Written out whole rather than built from a shared prefix,
- * because Tailwind only generates classes it can read as literals.
+ * The window used to be 85% of the screen tall whatever it held, so at 1920x1080 the sheet stopped
+ * well short of the window's foot and the officer's "Let go" sat alone at the bottom of that. Now
+ * the window is as tall as the file and no taller: the sheet column sets the body's height, the
+ * portrait column stretches to match, so "Let go" ends on the sheet's bottom line and the body's
+ * padding is the same on every side. The backdrop centres whatever height that comes to.
+ *
+ * On a screen under 1000px tall the file did not fit: 214px too tall at 1280x720, 33px at 1440x900.
+ * There, and only there, the header and padding tighten, the chair's dropdown stands beside its
+ * label instead of wrapping under it, and the sheet's rows close up (`AttributeSheet`'s `fitShort`).
+ * `Modal` caps the window at the backdrop's height. Written out whole rather than built from a
+ * shared prefix, because Tailwind only generates classes it can read as literals.
  */
-const CREW_WINDOW = 'h-[85vh] border-brass-300/40 [@media(max-height:999px)]:h-[calc(100vh-2rem)]';
+const CREW_WINDOW = 'border-brass-300/40';
 const CREW_WINDOW_HEAD =
-  'flex shrink-0 flex-wrap items-start justify-between gap-3 border-b border-surface-600/60 px-5 py-4 [@media(max-height:999px)]:py-2.5';
+  'flex shrink-0 flex-wrap items-start justify-between gap-3 border-b border-surface-600/60 px-5 py-4 [@media(max-height:999px)]:py-2';
 const CREW_WINDOW_BODY =
   'grid min-h-0 flex-1 gap-4 p-5 md:grid-cols-[14rem_minmax(0,1fr)] [@media(max-height:999px)]:p-4';
 const CREW_WINDOW_SHEET_COLUMN = 'flex min-w-0 flex-col gap-3 [@media(max-height:999px)]:gap-2';

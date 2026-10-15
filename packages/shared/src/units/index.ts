@@ -7,3 +7,5 @@ export * from './muster.js';
 export * from './upgrades.js';
 export * from './modifications.js';
 export * from './loadout.js';
+export * from './ad-hoc-army.js';
+export * from './shortcut.js';

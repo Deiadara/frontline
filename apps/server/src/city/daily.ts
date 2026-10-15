@@ -4,6 +4,7 @@ import {
   GAME_TIMEZONE,
   ITEM_CATALOG,
   ITEM_RARITIES,
+  luckyRarityWeights,
   RARITY_ODDS_BY_LEVEL,
   TROPHY_PAY,
   TROPHY_PAY_SCALE,
@@ -29,6 +30,7 @@ import type { Repositories } from '../db/repos/index.js';
 import { creditBase } from '../district/stores.js';
 import { notifyBase } from '../social/notify.js';
 import { settleEach } from '../world/guard.js';
+import { tallyComponentsDelivered, tallyPagesDelivered } from '../feats/tally.js';
 
 /**
  * What held ground pays once a day (maintainer, 2026-10-06 and 2026-10-07).
@@ -49,39 +51,91 @@ export const STIM_GOOD_ID = 'adrenaline_syringes';
 /** What one crew's ground paid on one day, for the notice and the ledger. */
 export interface DailyGrant {
   pages: ItemId[];
+  /** Which ground each page came off, by location name, in the same order. */
+  pagesFrom?: string[];
   stim: boolean;
   components: ItemId[];
+  /** Which ground each component came off, by location name, in the same order. */
+  componentsFrom?: string[];
   trophyPay: PartialResources;
 }
 
-/** The Scriptorium's page: one of a blueprint the crew has not finished, rarity by the hall's level. */
-export function drawDailyPage(base: Base, level: number, seed: string): ItemId | null {
-  const rarity = drawRarity(level, `${seed}:rarity`);
-  const pool = BLUEPRINTS.filter((spec) => blueprintStatus(base.inventory, spec) !== 'unlocked')
+/**
+ * A daily page: one of a blueprint the crew has not finished and a page it does not hold, its rarity
+ * drawn at the odds of `level`'s row (the Scriptorium's level, or the row the Seized Goods Office
+ * sets for its own).
+ *
+ * When nothing of the rarity drawn is left to give, the nearest rarity that has something is given
+ * instead, the rarer side first (2026-10-09): a crew that holds every basic page is owed a page,
+ * not an empty morning. Null only when the crew holds or has finished every page there is.
+ */
+export function drawDailyPage(base: Base, level: number, seed: string, luck = 0): ItemId | null {
+  const rolled = drawRarity(level, `${seed}:rarity`, luck);
+  const open = BLUEPRINTS.filter((spec) => blueprintStatus(base.inventory, spec) !== 'unlocked')
     .flatMap((spec) => spec.pages.map((page) => ({ spec, page })))
-    .filter(({ spec, page }) => pageRarity(spec, page) === rarity)
     // Not one it already has (bug pass, 2026-10-07): a second copy of a page fills no square, so
     // a wall of a crew eight-ninths of the way through a document paid it nothing on most days.
-    // The caller threads its own growing inventory through, so two Scriptoriums on one morning
-    // cannot both hand over the same sheet either.
-    .filter(({ page }) => itemCount(base.inventory, page.id) === 0)
-    .map(({ page }) => ({ id: page.id, weight: 1 }));
-  return drawWeighted(pool, `${seed}:page`);
+    // The caller threads its own growing inventory through, so two pages on one morning cannot
+    // be the same sheet either.
+    .filter(({ page }) => itemCount(base.inventory, page.id) === 0);
+  const at = ITEM_RARITIES.indexOf(rolled);
+  const nearest = [...ITEM_RARITIES]
+    .map((rarity, index) => ({ rarity, distance: Math.abs(index - at), rarer: index > at }))
+    .sort((a, b) => a.distance - b.distance || Number(b.rarer) - Number(a.rarer));
+  for (const { rarity } of nearest) {
+    const pool = open
+      .filter(({ spec, page }) => pageRarity(spec, page) === rarity)
+      .map(({ page }) => ({ id: page.id, weight: 1 }));
+    if (pool.length > 0) return drawWeighted(pool, `${seed}:page`);
+  }
+  return null;
 }
 
-/** The Chop Shop's component: any component in the catalogue of the rarity the level rolled. */
-export function drawDailyComponent(level: number, seed: string): ItemId | null {
-  const rarity = drawRarity(level, `${seed}:rarity`);
+/**
+ * A daily component: any component in the catalogue of the rarity the level rolled (the Chop
+ * Shop), or of the rarity the ground fixes for its level (the Wagon Breakers, 2026-10-09). Luck
+ * (the Joker, 2026-10-15) can lift a fixed rarity a step, as it lifts a rolled one.
+ */
+export function drawDailyComponent(
+  level: number,
+  seed: string,
+  fixed?: ItemRarity,
+  luck = 0,
+): ItemId | null {
+  const rarity =
+    fixed === undefined
+      ? drawRarity(level, `${seed}:rarity`, luck)
+      : luck > 0
+        ? drawFromWeights(
+            luckyRarityWeights(
+              Object.fromEntries(
+                ITEM_RARITIES.map((one) => [one, one === fixed ? 100 : 0]),
+              ) as Record<ItemRarity, number>,
+              luck,
+            ),
+            `${seed}:rarity`,
+          )
+        : fixed;
   const pool = Object.values(ITEM_CATALOG)
     .filter((spec) => spec.kind === 'component' && spec.rarity === rarity)
     .map((spec) => ({ id: spec.id, weight: 1 }));
   return drawWeighted(pool, `${seed}:component`);
 }
 
-/** One rarity off the level's row of `RARITY_ODDS_BY_LEVEL`, with the odds the row prints. */
-export function drawRarity(level: number, seed: string): ItemRarity {
+/**
+ * One rarity off the level's row of `RARITY_ODDS_BY_LEVEL`, with the odds the row prints, moved
+ * toward the rarer end by the Joker's luck (`items/luck.ts`, 2026-10-15).
+ */
+export function drawRarity(level: number, seed: string, luck = 0): ItemRarity {
   const row = RARITY_ODDS_BY_LEVEL[Math.min(RARITY_ODDS_BY_LEVEL.length, Math.max(1, level)) - 1]!;
-  const pool = ITEM_RARITIES.map((rarity, at) => ({ id: rarity, weight: row[at] ?? 0 })).filter(
+  const weights = Object.fromEntries(
+    ITEM_RARITIES.map((rarity, at) => [rarity, row[at] ?? 0]),
+  ) as Record<ItemRarity, number>;
+  return drawFromWeights(luckyRarityWeights(weights, luck), seed);
+}
+
+function drawFromWeights(weights: Readonly<Record<ItemRarity, number>>, seed: string): ItemRarity {
+  const pool = ITEM_RARITIES.map((rarity) => ({ id: rarity, weight: weights[rarity] })).filter(
     (entry) => entry.weight > 0,
   );
   return drawWeighted(pool, seed) ?? 'basic';
@@ -120,7 +174,7 @@ export function recordTrophyKills(
   if (kills.length === 0) return;
   for (const control of repos.city.controls().values()) {
     if (control.holder.kind !== 'crew' || control.holder.baseId !== baseId) continue;
-    if (findLocation(control.locationId)?.kind !== 'trophy_hall') continue;
+    if (!isTrophyHall(control.locationId)) continue;
     const ground = groundStateOf(control);
     const trophies = { ...ground.trophies };
     for (const [unitId, count] of kills) trophies[unitId] = (trophies[unitId] ?? 0) + count;
@@ -132,13 +186,18 @@ export function recordTrophyKills(
   }
 }
 
+/** Whether this location is a Trophy Hall: it keeps the kills (`trophies`). */
+function isTrophyHall(locationId: string): boolean {
+  return findLocation(locationId)?.bonuses.some((bonus) => bonus.kind === 'trophies') ?? false;
+}
+
 /** The unit types with a kill on any Trophy Hall this crew holds, and the best hall's level. */
 function trophiesHeld(repos: Repositories, baseId: string): { kinds: number; level: number } {
   const killed = new Set<string>();
   let level = 0;
   for (const control of repos.city.controls().values()) {
     if (control.holder.kind !== 'crew' || control.holder.baseId !== baseId) continue;
-    if (findLocation(control.locationId)?.kind !== 'trophy_hall') continue;
+    if (!isTrophyHall(control.locationId)) continue;
     level = Math.max(level, control.level);
     for (const [unitId, kills] of Object.entries(groundStateOf(control).trophies)) {
       if (kills > 0) killed.add(unitId);
@@ -167,20 +226,37 @@ export function grantDaily(
   const grant: DailyGrant = { pages: [], stim: false, components: [], trophyPay: {} };
   let inventory = base.inventory;
 
-  effects.dailyPages.forEach((level, at) => {
-    const page = drawDailyPage({ ...base, inventory }, level, `${seed}:page:${at}`);
+  const pagesFrom: string[] = [];
+  effects.dailyPages.forEach(({ level, locationId }, at) => {
+    const page = drawDailyPage(
+      { ...base, inventory },
+      level,
+      `${seed}:page:${at}`,
+      effects.dropLuck,
+    );
     if (page === null) return;
     inventory = addItems(inventory, { [page]: 1 });
     grant.pages.push(page);
+    pagesFrom.push((locationId && findLocation(locationId)?.name) || 'the Scriptorium');
   });
-  effects.dailyComponents.forEach(({ count, level }, at) => {
+  if (pagesFrom.length > 0) grant.pagesFrom = pagesFrom;
+  const from: string[] = [];
+  effects.dailyComponents.forEach(({ count, level, rarity, locationId }, at) => {
+    const name = (locationId && findLocation(locationId)?.name) || 'your ground';
     for (let n = 0; n < count; n += 1) {
-      const component = drawDailyComponent(level, `${seed}:component:${at}:${n}`);
+      const component = drawDailyComponent(
+        level,
+        `${seed}:component:${at}:${n}`,
+        rarity,
+        effects.dropLuck,
+      );
       if (component === null) continue;
       inventory = addItems(inventory, { [component]: 1 });
       grant.components.push(component);
+      from.push(name);
     }
   });
+  if (from.length > 0) grant.componentsFrom = from;
   if (effects.dailyStimPercent > 0) {
     const roll = mulberry32(seedFrom(`${seed}:stim`))() * 100;
     grant.stim = roll < effects.dailyStimPercent;
@@ -197,6 +273,8 @@ export function grantDaily(
       addToStash(repos.blackMarket.stashFor(base.id), STIM_GOOD_ID),
     );
   }
+  tallyComponentsDelivered(repos, base.id, grant.components.length);
+  tallyPagesDelivered(repos, base.id, grant.pages.length);
   repos.history.record({
     actorId: null,
     baseId: base.id,
@@ -219,17 +297,24 @@ export function grantDaily(
 export function dailyGrantSummary(grant: DailyGrant): string {
   const lines: string[] = [];
   if (grant.pages.length > 0) {
-    lines.push(
-      `${grant.pages.map((id) => ITEM_CATALOG[id]?.name ?? id).join(', ')} from the Scriptorium`,
-    );
+    const bySource = new Map<string, string[]>();
+    grant.pages.forEach((id, at) => {
+      const source = grant.pagesFrom?.[at] ?? 'the Scriptorium';
+      bySource.set(source, [...(bySource.get(source) ?? []), ITEM_CATALOG[id]?.name ?? id]);
+    });
+    for (const [source, names] of bySource) lines.push(`${names.join(', ')} from ${source}`);
   }
   if (grant.stim) {
     lines.push(`one ${BLACK_MARKET_GOODS[STIM_GOOD_ID]?.name ?? 'stim'} from the Dispensary`);
   }
   if (grant.components.length > 0) {
-    lines.push(
-      `${grant.components.map((id) => ITEM_CATALOG[id]?.name ?? id).join(', ')} from the Chop Shop`,
-    );
+    // Grouped by the ground that paid them, in the order they came.
+    const bySource = new Map<string, string[]>();
+    grant.components.forEach((id, at) => {
+      const source = grant.componentsFrom?.[at] ?? 'the Chop Shop';
+      bySource.set(source, [...(bySource.get(source) ?? []), ITEM_CATALOG[id]?.name ?? id]);
+    });
+    for (const [source, names] of bySource) lines.push(`${names.join(', ')} from ${source}`);
   }
   const pay = Object.entries(grant.trophyPay).filter(([, amount]) => (amount ?? 0) > 0);
   if (pay.length > 0) {

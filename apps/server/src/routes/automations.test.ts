@@ -279,6 +279,32 @@ describe('reading and writing a standing order', () => {
   });
 
   /*
+   * The ladder is read off `research.technologies`, and a rung is only banked there by a settle
+   * (bug pass, 2026-10-11). Read off the raw row, a rung that finished while the player was on
+   * another screen stayed shut here, and the write refused the order by the rung's name.
+   */
+  it('opens the ladder for a rung that finished while the player was elsewhere', async () => {
+    const { app, token, baseId } = await crew();
+    withOfficers(app, baseId, 1);
+    const base = app.repos.bases.findById(baseId);
+    if (!base) throw new Error('no base');
+    app.repos.bases.updateResearch(baseId, {
+      ...base.research,
+      active: {
+        id: 'open-door',
+        project: { kind: 'technology', techId: AUTOMATION_RUNGS.open },
+        startedAt: new Date(Date.now() - 2 * 3_600_000).toISOString(),
+        durationMinutes: 60,
+        paid: {},
+      },
+    });
+    const read = await app.inject({ method: 'GET', url: '/api/automations', headers: auth(token) });
+    expect(read.json<{ powers: { unlocked: boolean } }>().powers.unlocked).toBe(true);
+    const written = await save(app, token, ORDER);
+    expect(written.statusCode, written.body).toBe(200);
+  });
+
+  /*
    * A slot's own leader stays on the list while out, marked so (maintainer, 2026-10-06). Dropping
    * them left a running order's dropdown reading "Choose the officer who leads". Somebody out whom
    * no slot names is still left off: the picker offers nobody the runner would refuse.

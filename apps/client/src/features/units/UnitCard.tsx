@@ -10,6 +10,8 @@ import {
   UNIT_TIER_LABELS,
   findUnit,
   isCombatUnit,
+  levelTagGranted,
+  levelTagsFor,
   maxMusterable,
   musterCost,
   musterSecondsFor,
@@ -17,6 +19,7 @@ import {
   type StatKey,
   type MusterBreakdown,
   type UnitOption,
+  UNIT_RULES,
 } from '@frontline/shared';
 import { useState } from 'react';
 import { CostLine } from '../../components/Resources';
@@ -32,7 +35,7 @@ import type { DeltaMark } from '../../lib/deltas';
 import { RATING_FILL, RATING_TEXT, ratingBand, ratingPercent } from '../../lib/rating';
 import { formatDuration } from '../base/format';
 import { RULE_INK, ruleTone } from './rules';
-import { AffinityTag, ModifierTag, RuleTag, antiCombineRule } from './tags';
+import { AffinityTag, LockedRuleTag, ModifierTag, RuleTag, antiCombineRule } from './tags';
 import { UnitBonuses } from './UnitBonuses';
 import { DamageLine } from './UnitDamage';
 import { UnitPortrait } from './UnitPortrait';
@@ -116,13 +119,10 @@ export interface UnitCardProps {
    * reason the Scrapyard's rail and the deploy dialog have none.
    */
   enemy?: boolean;
-  /**
-   * Environment labels the crew ignores everywhere (the Tolling Tower's Noisy, 2026-10-07): a
-   * weakness in this list is drawn blue and crossed out, with the tower named on hover.
-   */
-  ignoredLabels?: readonly string[];
   /** Levels of ANTI-COMBINE the crew holds (the Nave and each city's last Combine district). */
   antiCombineLevels?: number;
+  /** Whether the crew holds a Reactor Shed: a fighting card then offers RADIOACTIVE, locked. */
+  reactorHeld?: boolean;
 }
 
 /** Everything the price box needs, and nothing anything above it does. */
@@ -156,7 +156,7 @@ export interface UnitCardMuster {
   benchFull?: boolean;
   /** How many of this unit the crew has, everywhere, queued included: a one-of-a-kind's guard. */
   held?: number;
-  /** Testing mode, which waives every gate but the one-of-a-kind (`admin/mode.ts`). */
+  /** Testing mode, which waives every gate but the one-of-a-kind and the full bench (`admin/mode.ts`). */
   waived?: boolean;
   pending: boolean;
   onMuster: (count: number) => void;
@@ -200,8 +200,8 @@ export function UnitCard({
   bonuses,
   carriersFight = false,
   enemy = false,
-  ignoredLabels = [],
   antiCombineLevels = 0,
+  reactorHeld = false,
 }: UnitCardProps) {
   /*
    * §E: a carrier's fighting numbers are behind a programme (maintainer, 2026-09-19).
@@ -395,7 +395,12 @@ export function UnitCard({
               </span>
               <span className="block truncate text-left font-display text-[11px] uppercase tracking-[0.14em] text-ink-300">
                 {UNIT_TIER_LABELS[unit.tier]} ·{' '}
-                {enemy ? 'The Combine' : BUILDING_CATALOG[unit.musteredAt].name}
+                {enemy
+                  ? 'The Combine'
+                  : // A robot is made in the fight by the Geppetto, never mustered at a structure.
+                    findUnit(unit.id)?.spawned === true
+                    ? 'The Geppetto'
+                    : BUILDING_CATALOG[unit.musteredAt].name}
               </span>
             </HoverCard>
           </span>
@@ -590,8 +595,8 @@ export function UnitCard({
           <div className="mt-1 flex flex-1 flex-col justify-center gap-1.5 border-t border-surface-700/70 pt-2">
             <Marks
               unit={unit}
-              ignoredLabels={ignoredLabels}
               antiCombineLevels={antiCombineLevels}
+              reactorHeld={reactorHeld && isCombatUnit(unit.id)}
             />
             {/*
              * A rule between the keywords and the matchup (maintainer, 2026-09-18).
@@ -776,7 +781,7 @@ function MusterBox({ unit, muster }: { unit: UnitOption; muster: UnitCardMuster 
    * race (another tab spending first) gets as far as the server's refusal now.
    */
   const refusal = ((): string | null => {
-    if (!waived && benchFull) return MUSTER_REFUSAL_TEXT.queue_full;
+    if (benchFull) return MUSTER_REFUSAL_TEXT.queue_full;
     if (unit.unique && held + count > 1) return MUSTER_REFUSAL_TEXT.already_have_one;
     if (unit.room !== undefined && count > unit.room) return MUSTER_REFUSAL_TEXT.at_the_cap;
     if (waived) return null;
@@ -878,7 +883,7 @@ function StatLabel({ statKey }: { statKey: RatingKey }) {
  *
  * All of them, wrapping. It used to print two and count the rest into a `+N` chip, which kept the
  * card a fixed height and hid the one thing a player opens a roster to compare: a Colossus reading
- * `SHIELD LINE +3` says nothing about the three. The row takes as many lines as the marks need and
+ * `TAUNT +3` says nothing about the three. The row takes as many lines as the marks need and
  * the card grows with it; the grid stretches the row, so the price boxes still line up across it.
  *
  * Rules first, then modifiers, then characteristics. A shield line is the most important thing
@@ -891,15 +896,17 @@ function StatLabel({ statKey }: { statKey: RatingKey }) {
 /**
  * The band in colour order (maintainer, 2026-09-26): brass rules first, then the verdigris
  * modifiers and good ground, then everything red, so what is against a unit always sits at the end.
+ * The greyed tags it could still be granted go after everything it already has and before the red,
+ * so a card never leads with what the unit does not carry.
  */
 function Marks({
   unit,
-  ignoredLabels,
   antiCombineLevels,
+  reactorHeld,
 }: {
   unit: UnitOption;
-  ignoredLabels: readonly string[];
   antiCombineLevels: number;
+  reactorHeld: boolean;
 }) {
   const { rules, modifiers, affinities } = unit;
   const ruleChip = (rule: UnitOption['rules'][number]) => (
@@ -909,14 +916,26 @@ function Marks({
   );
   const affinityChip = (affinity: UnitOption['affinities'][number]) => (
     <li key={affinity.id} className="min-w-0">
-      <AffinityTag
-        affinity={affinity}
-        unitName={unit.name}
-        ignored={!affinity.good && ignoredLabels.includes(affinity.id)}
-      />
+      <AffinityTag affinity={affinity} unitName={unit.name} cancelledBy={affinity.cancelledBy} />
     </li>
   );
   const against = (rule: UnitOption['rules'][number]) => ruleTone(rule) === 'negative';
+  // The tags a location's level, a door or an officer's perk would grant and this crew does not
+  // have yet, greyed out (`levelTagsFor`).
+  const locked = [
+    ...levelTagsFor(unit.id).filter((tag) => !levelTagGranted(tag, rules, modifiers)),
+    // The Reactor Shed's choice (2026-10-14): offered on every fighting card while a shed is
+    // held, until the shed names this one.
+    ...(reactorHeld && !rules.some((rule) => rule.id === 'radioactive')
+      ? [
+          {
+            label: UNIT_RULES.radioactive.label,
+            description: UNIT_RULES.radioactive.description,
+            unlock: 'Choose them at your Reactor Shed',
+          },
+        ]
+      : []),
+  ];
 
   return (
     <ul className="flex min-h-6 flex-wrap items-center gap-1" data-testid={`marks-${unit.id}`}>
@@ -932,6 +951,11 @@ function Marks({
         </li>
       ))}
       {affinities.filter((affinity) => affinity.good).map(affinityChip)}
+      {locked.map((tag) => (
+        <li key={`locked-${tag.label}`} className="min-w-0">
+          <LockedRuleTag tag={tag} />
+        </li>
+      ))}
       {rules.filter(against).map(ruleChip)}
       {affinities.filter((affinity) => !affinity.good).map(affinityChip)}
     </ul>

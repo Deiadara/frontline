@@ -16,6 +16,7 @@ import {
   type BattleView,
   type BattlesResponse,
   type MeResponse,
+  findLocation,
 } from '@frontline/shared';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
@@ -109,7 +110,7 @@ const view: BattleView = {
   districtName: 'Steelbelt',
   battlefield: battlefieldFor({
     locationName: 'Kessler Press',
-    kind: 'scrap_press',
+    ground: findLocation('steelbelt-press')!,
     at: new Date(MARK),
     weather: 'normal',
   }),
@@ -139,6 +140,8 @@ const battles: BattlesResponse = {
   spyReports: [],
   slots: [],
   infamy: 40,
+  callsPending: 0,
+  callsAllowed: 3,
   callPrices: { locations: {}, districts: {} },
   gates: [],
   structures: [],

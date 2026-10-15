@@ -95,8 +95,8 @@ async function makeStack(admin = false): Promise<Stack> {
   if (control) app.repos.city.put({ ...control, holder: { kind: 'crew', baseId }, garrison: {} });
 
   // Enough to cover the whole ladder on anything on this ground, so no test here is about money.
-  // The nine steps come to about 110x a kind's base price (`UPGRADE_COST_SCALE`), and the
-  // Bonefield is one of the dearest in the catalogue.
+  // The nine steps come to about 110x a location's base price (`UPGRADE_COST_SCALE`), and the
+  // Bonefield is one of the dearest on the map.
   app.repos.bases.updateResources(baseId, {
     caps: 400_000,
     supplies: 400_000,
@@ -149,13 +149,13 @@ describe('working a location up (§A4)', () => {
     expect(view.level).toBe(1);
     expect(view.upgrade?.toLevel).toBe(2);
     expect(view.upgrade?.note.length ?? 0).toBeGreaterThan(20);
-    expect(view.upgrade?.cost).toEqual(upgradeCost(view.location.kind, 1));
+    expect(view.upgrade?.cost).toEqual(upgradeCost(view.location, 1));
   });
 
   it('charges for it, puts a clock on it, and banks it on the next read', async () => {
     const stack = await makeStack();
     const before = stack.app.repos.bases.findById(stack.baseId)?.resources.caps ?? 0;
-    const cost = upgradeCost(findLocation(MINE)!.kind, 1)?.caps ?? 0;
+    const cost = upgradeCost(findLocation(MINE)!, 1)?.caps ?? 0;
 
     const res = await upgrade(stack);
     expect(res.statusCode, res.body).toBe(200);
@@ -186,7 +186,7 @@ describe('working a location up (§A4)', () => {
 
     expect(after.bonuses).not.toEqual(before.bonuses);
     // Not just *different*: the same bonuses, described at the new level, one line each.
-    expect(after.bonuses).toHaveLength(bonusesAt(after.location.kind, 2).length);
+    expect(after.bonuses).toHaveLength(bonusesAt(after.location, 2).length);
     for (const line of after.bonuses) expect(line.length).toBeGreaterThan(2);
   });
 
@@ -257,17 +257,17 @@ describe('working a location up (§A4)', () => {
   });
 
   it('takes longer at each step, and longer on harder ground', () => {
-    const kind = findLocation(MINE)!.kind;
+    const mine = findLocation(MINE)!;
     for (let level = 1; level < UPGRADE_SECONDS_SCALE.length; level += 1) {
-      expect(upgradeSeconds(kind, level + 1)).toBeGreaterThan(upgradeSeconds(kind, level));
+      expect(upgradeSeconds(mine, level + 1)).toBeGreaterThan(upgradeSeconds(mine, level));
     }
     // One step per upgrade on the five-level ladder, each the old nine-step clock's every second
     // entry (maintainer, 2026-10-06): the climb to 5 takes what the climb to 10 took.
     expect(UPGRADE_SECONDS_SCALE).toHaveLength(MAX_LOCATION_LEVEL - 1);
     expect(UPGRADE_SECONDS_SCALE).toEqual([3, 5.9, 9.2, 11.5]);
-    // The Bonefield is a war machine graveyard (defence 6); the Ramp is a skate ground (1).
-    expect(upgradeSeconds('war_machine_graveyard', 1)).toBeGreaterThan(
-      upgradeSeconds('skate_ground', 1),
+    // The Bonefield's defence is 6 and the Ramp's 1.
+    expect(upgradeSeconds(findLocation('steelbelt-bonefield')!, 1)).toBeGreaterThan(
+      upgradeSeconds(findLocation('steelbelt-ramp')!, 1),
     );
   });
 });
@@ -566,7 +566,7 @@ describe('a cancelled upgrade refunds what it was charged', () => {
       now,
     });
     if (started.kind !== 'started') throw new Error(`refused: ${started.reason}`);
-    const listed = upgradeCost(location.kind, 1)!;
+    const listed = upgradeCost(location, 1)!;
     const paid = stack.app.repos.city.control(MINE)!.upgradePaid!;
     // The premise: the Engineer's cut was taken.
     expect(paid.caps ?? 0).toBeLessThan(listed.caps ?? 0);

@@ -12,6 +12,7 @@ import {
   asFormed,
   intimidationReach,
   MAX_MEND_SHARE,
+  MAX_ROUNDS,
   MAX_INTIMIDATED_SHARE,
   bareLineRules,
   fightingSlots,
@@ -173,7 +174,7 @@ describe('calibration against the reference curve', () => {
   it('runs long enough to have a story in it', () => {
     const close = fight(army({ razors: 40 }), army({ razors: 36 }), 'length');
     expect(close.rounds.length).toBeGreaterThanOrEqual(4);
-    expect(close.rounds.length).toBeLessThanOrEqual(12);
+    expect(close.rounds.length).toBeLessThanOrEqual(MAX_ROUNDS);
   });
 });
 
@@ -190,7 +191,7 @@ describe('the loop itself', () => {
     for (const [attacking, defending] of rosters) {
       const simulation = fight(attacking, defending);
       expect(['attacker', 'defender']).toContain(simulation.winner);
-      expect(simulation.rounds.length).toBeLessThanOrEqual(12);
+      expect(simulation.rounds.length).toBeLessThanOrEqual(MAX_ROUNDS);
     }
   });
 

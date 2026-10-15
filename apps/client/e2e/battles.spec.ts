@@ -277,10 +277,12 @@ test('the tabs move between what is coming, what came back and what you hold', a
 
   await page.getByTestId('battles-tab-ground').click();
   await expect(page.getByTestId('structures')).toBeVisible();
-  // The gate's level and its worth in a fight, and nothing against spies (maintainer, 2026-10-01).
+  // The gate's level and its raw points of defence (maintainer, 2026-10-15), and nothing against
+  // spies (maintainer, 2026-10-01).
   const gate = page.getByTestId('gate-defence');
   await expect(gate).toContainText('Toughness');
-  await expect(gate).not.toContainText(/spies|points/i);
+  await expect(gate).toContainText(/\+[\d.]+ points/);
+  await expect(gate).not.toContainText(/spies|%/i);
   await page.screenshot({ path: 'e2e-out/battles-gate-block.png' });
 
   await page.getByTestId('battles-tab-coming').click();
@@ -715,12 +717,13 @@ test('the forecast counts the Combine legendary standing over the ground', async
   /*
    * A fight against the regime, on his ground, with a force big enough for his power to decide it.
    *
-   * Sixty-eight Razors rather than the fifty-four this carried until 2026-10-07, when the Combine
-   * sheets picked up GUARD (a quarter more damage and vitality on ground they hold). The press
-   * house is ten unit slots wide, so a fight there is attritional and its forecast is close to a
-   * step: fifty-four Razors lose every run and eighty win every one. The usable band is 66 to 72,
-   * where the Syndic's own points are what decides it; 68 sits in the middle of it. Both guards
-   * below are what catches the next time that band moves.
+   * Seventy-two Razors: fifty-four until 2026-10-07, when the Combine sheets picked up GUARD (a
+   * quarter more damage and vitality on ground they hold), and sixty-eight until 2026-10-15, when
+   * every location's ground labels were authored afresh and the Uplink's changed under this fight.
+   * The press house is ten unit slots wide, so a fight there is attritional and its forecast is
+   * close to a step. Measured on 2026-10-15: 68 reads 38% with the Syndic dead, 70 reads 55, 72
+   * reads 68 and 74 reads 83, each with her alive at least 25 points worse, so 72 sits inside the
+   * band. Both guards below are what catches the next time that band moves.
    */
   const against = {
     ...battles,
@@ -734,7 +737,7 @@ test('the forecast counts the Combine legendary standing over the ground', async
         },
         role: 'attacker' as const,
         side: 'attacker' as const,
-        muster: { army: { razors: 68 }, perimeter: {}, size: 68 },
+        muster: { army: { razors: 72 }, perimeter: {}, size: 72 },
         enemySize: 12,
       },
       ...battles.coming.slice(1),

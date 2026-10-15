@@ -325,11 +325,25 @@ export function fleetSize(fleet: Fleet): number {
   return Object.values(fleet).reduce((total, count) => total + (count ?? 0), 0);
 }
 
+/**
+ * The unit slots one machine seats for this crew: its catalogue capacity with the crew's
+ * `vehicleCapacityPercent` on it (the Hump, maintainer 2026-10-09), rounded up per machine.
+ *
+ * Every seat in the game is counted through this, so the deploy window, the mission dialog, the
+ * column's pace and the doors that refuse an overloaded column cannot disagree. Worked in whole
+ * hundredths so a 30-slot wagon at +10% is 33 and not the 34 a float's 33.000000000000004 rounds to.
+ */
+export function vehicleSeats(spec: Pick<VehicleSpec, 'capacity'>, capacityPercent = 0): number {
+  const percent = 100 + Math.max(0, capacityPercent);
+  return Math.ceil(Math.round(spec.capacity * percent * 100) / 10_000);
+}
+
 /** Unit slots a fleet could carry if every seat were filled. */
-export function fleetCapacity(fleet: Fleet): number {
+export function fleetCapacity(fleet: Fleet, capacityPercent = 0): number {
   let seats = 0;
   for (const [id, count] of Object.entries(fleet)) {
-    seats += (findVehicle(id)?.capacity ?? 0) * (count ?? 0);
+    const spec = findVehicle(id);
+    seats += (spec ? vehicleSeats(spec, capacityPercent) : 0) * (count ?? 0);
   }
   return seats;
 }
@@ -337,10 +351,9 @@ export function fleetCapacity(fleet: Fleet): number {
 /**
  * A machine's speed after whatever raises it, never past 100.
  *
- * Nothing raises one today: no location bonus, no perk and no refit pays into a vehicle. The cap is
- * written anyway because the rule is the same one units get (`time/speed.ts`, `effectiveSpeed`),
- * and the first channel that does pay into it should find the ceiling already here rather than
- * discover that the Heli Porter at 95 plus a flat +8 halves a road twice.
+ * The Coaling Stage pays into it (`vehicleSpeedPercent`, maintainer 2026-10-09). The cap is the
+ * rule units get (`time/speed.ts`, `effectiveSpeed`), so the Heli Porter at 95 does not run past
+ * the top of its own scale.
  */
 export function effectiveVehicleSpeed(spec: VehicleSpec, bonusPercent = 0, flat = 0): number {
   return effectiveSpeed(spec.speed, { percent: bonusPercent, flat });
@@ -389,17 +402,46 @@ const ridingOrder = (fleet: Fleet): VehicleSpec[] =>
  * Cheese Wagon behind it still has thirty slots for them. Only `wanted === false` ends the yard,
  * because the machines are in speed order and a slower one would be declined too.
  */
+/**
+ * What the crew's ground does to its machines: more seats (the Hump) and more pace (the Coaling
+ * Stage). Every reader of a column takes both, so a dialog and the door cannot disagree.
+ */
+export interface MachineBonus {
+  /** `vehicleCapacityPercent`, read through {@link vehicleSeats}. */
+  capacityPercent?: number;
+  /** `vehicleSpeedPercent`, read through {@link effectiveVehicleSpeed}. */
+  speedPercent?: number;
+}
+
+/** A crew's machine bonuses off its standing fold, for the readers that hold the whole fold. */
+export function machinesOf(effects: {
+  vehicleCapacityPercent: number;
+  vehicleSpeedPercent: number;
+}): MachineBonus {
+  return {
+    capacityPercent: effects.vehicleCapacityPercent,
+    speedPercent: effects.vehicleSpeedPercent,
+  };
+}
+
+/** One machine's pace for this crew. */
+export function machineSpeed(spec: VehicleSpec, machines: MachineBonus = {}): number {
+  return effectiveVehicleSpeed(spec, machines.speedPercent ?? 0);
+}
+
 function fill(
   machine: VehicleSpec,
   boarding: { speed: number; unitSlots: number; left: number }[],
+  machines: MachineBonus,
 ): { carried: number; wanted: boolean } {
-  let seats = machine.capacity;
+  let seats = vehicleSeats(machine, machines.capacityPercent ?? 0);
+  const pace = machineSpeed(machine, machines);
   let carried = 0;
   let wanted = false;
   for (const group of boarding) {
     // `boarding` is slowest first, so the first group this machine cannot outrun is also the last:
     // nobody behind it would be helped by a seat either.
-    if (group.speed >= machine.speed) break;
+    if (group.speed >= pace) break;
     if (group.left === 0) continue;
     wanted = true;
     // Unit slots, not heads: a machine with four slots left takes four Razors or one Ironside. A
@@ -453,6 +495,8 @@ export function columnSpeed(
   fleet: Fleet,
   force: ColumnForce,
   effectiveSpeedOf: (unitId: string) => ColumnUnit,
+  /** What the crew's ground does to its machines: seats and pace. */
+  machines: MachineBonus = {},
 ): number {
   const groups = [...Object.entries(force)]
     .filter(([, count]) => (count ?? 0) > 0)
@@ -468,7 +512,7 @@ export function columnSpeed(
   const boarding = groups.filter((group) => group.rides).sort((a, b) => a.speed - b.speed);
   let slowest = Number.POSITIVE_INFINITY;
   for (const machine of ridingOrder(fleet)) {
-    const { carried, wanted } = fill(machine, boarding);
+    const { carried, wanted } = fill(machine, boarding, machines);
     // Nobody left who would take a seat on this, either because everybody is aboard or because
     // everybody still walking is quicker than it. Machines are in speed order, so neither can come
     // back and the rest of the yard is worth nothing.
@@ -478,7 +522,7 @@ export function columnSpeed(
     // still take them, so it is stepped over rather than ending the fill, and its own speed stays
     // out of the answer because the column is not waiting on an empty bike.
     if (carried === 0) continue;
-    slowest = Math.min(slowest, machine.speed);
+    slowest = Math.min(slowest, machineSpeed(machine, machines));
   }
 
   for (const group of groups) {
@@ -511,7 +555,12 @@ export interface RiderGroup {
  * A caller counts a `no_ride` sheet out first (`ridingGroups`): a Colossus cannot fill a seat and
  * must not keep a truck on the road.
  */
-export function loadable(chosen: Fleet, riders: readonly RiderGroup[]): Fleet {
+export function loadable(
+  chosen: Fleet,
+  riders: readonly RiderGroup[],
+  /** The crew's `vehicleCapacityPercent` (`vehicleSeats`). */
+  capacityPercent = 0,
+): Fleet {
   // Heaviest sheet first, so a machine is offered the riders that are hardest to place before the
   // ones that fit anywhere. `fill` steps over a group too heavy for what is left, so nobody is
   // stranded by the order; what it decides is which machine each rider ends up on.
@@ -525,7 +574,7 @@ export function loadable(chosen: Fleet, riders: readonly RiderGroup[]): Fleet {
     // `fill` refuses a machine slower than the rider, and pace is not this question: what a column
     // does about a slow bike is `columnSpeed`'s answer. A speed of zero on every group turns that
     // rule off here without touching it there, since no machine in the catalogue is slower.
-    const { carried, wanted } = fill(spec, boarding);
+    const { carried, wanted } = fill(spec, boarding, { capacityPercent });
     if (!wanted) break;
     if (carried === 0) continue;
     taken[spec.id] = (taken[spec.id] ?? 0) + 1;

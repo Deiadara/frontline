@@ -81,6 +81,9 @@ import {
   AdminMutationResponseSchema,
   type UpgradeLocationRequest,
   type ThrowSwitchRequest,
+  type ThrowLampsRequest,
+  type ChooseReactorRequest,
+  type BreakDownComponentRequest,
   type PinPamphletsRequest,
   type SwapPamphletRequest,
   type PlantSleepersRequest,
@@ -398,6 +401,16 @@ export const getScrapyard = () => apiFetch('/scrapyard', ScrapyardResponseSchema
 export const buildAddon = (body: BuildAddonRequest) =>
   apiFetch('/scrapyard/build', BuildAddonResponseSchema, jsonBody(body));
 
+/** A component out of the parts bin, into HQ metal and scrap (2026-10-09). Minds the stores. */
+export const breakDownComponent = (body: { itemId: string }) =>
+  mindingWaste((acceptWaste) =>
+    apiFetch(
+      '/scrapyard/breakdown',
+      BuildAddonResponseSchema,
+      jsonBody({ ...body, acceptWaste } satisfies BreakDownComponentRequest),
+    ),
+  );
+
 export const getDistrict = (id: string) => apiFetch(`/city/${id}`, DistrictDetailResponseSchema);
 
 /** §A4: plant a cell of Sleepers on ground this crew does not hold (`sleepers.ts`). */
@@ -415,6 +428,14 @@ export const upgradeLocation = (body: UpgradeLocationRequest) =>
 /** Arca (2026-10-07): throw the Tolling Tower's switch on a tower this crew holds. */
 export const throwSwitch = (body: ThrowSwitchRequest) =>
   apiFetch('/city/switch', CityMutationResponseSchema, jsonBody(body));
+
+/** Lampman's Row (2026-10-09): light the lamps on a row this crew holds, or put them out. */
+export const throwLamps = (body: ThrowLampsRequest) =>
+  apiFetch('/city/lamps', CityMutationResponseSchema, jsonBody(body));
+
+/** The Reactor Shed (2026-10-14): name the unit type its holder makes Radioactive. */
+export const chooseReactor = (body: ChooseReactorRequest) =>
+  apiFetch('/city/reactor', CityMutationResponseSchema, jsonBody(body));
 
 /** Set every pin on a Pamphlet Wall at once, while the wall is unlocked. */
 export const pinPamphlets = (body: PinPamphletsRequest) =>

@@ -107,7 +107,6 @@ function renderBoard(extra: Partial<MissionBoardProps> = {}) {
       carrierFlat={0}
       marks={{}}
       carriersFight={false}
-      anyRide={false}
       // The card a unit's name opens comes off the roster; these fixtures draw names bare.
       roster={undefined}
       leaders={[officer]}
@@ -197,7 +196,6 @@ describe('the crew’s own road', () => {
       unitColumnSpeed(unitId, {
         percent: road.unitSpeedPercent,
         fitted: fittedFor({}, unitId),
-        anyRide: false,
       }),
     );
     const cut = GROUND_PERCENT + ARRIVAL_PERCENT;

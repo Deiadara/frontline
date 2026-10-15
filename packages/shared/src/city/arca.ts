@@ -19,7 +19,8 @@ export const RARITY_ODDS_BY_LEVEL: readonly (readonly [number, number, number, n
 
 /** The Trophy Hall's pay per unit type killed while held, at level 1, and how it climbs. */
 export const TROPHY_PAY = { highQualityMetal: 10, each: 100 } as const;
-export const TROPHY_PAY_SCALE: readonly number[] = [1, 1.5, 2, 2.5, 3];
+// Half the level 1 pay again a step, the last step double (2026-10-09): 1, 1.5, 2, 2.5, 3.5.
+export const TROPHY_PAY_SCALE: readonly number[] = [1, 1.5, 2, 2.5, 3.5];
 
 /** What a pinned unit loses against the wall's holder, in percent of damage and vitality. */
 export const PAMPHLET_PENALTY_PERCENT = 5;
@@ -37,7 +38,10 @@ export const ANTI_COMBINE_PERCENT = 10;
 
 /** The Saint at a level-5 Shrine: +1 damage and vitality a unit slot beside him, to this ceiling. */
 export const SAINT_CONGREGATION_CAP = 1_000;
-/** The Condemned: +30 damage and vitality for every door level above the first. */
+/**
+ * The Condemned: +30 damage and vitality for every door level above the first, and twice that for
+ * the last (2026-10-09): +30, +60, +90, +150.
+ */
 export const CONDEMNED_PER_LEVEL = 30;
 /** LAST CHANCE: the odds a dying Condemned strikes once more. */
 export const LAST_CHANCE_PERCENT = 20;

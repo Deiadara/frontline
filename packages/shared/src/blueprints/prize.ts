@@ -1,6 +1,7 @@
 import { OFFICER_MARKS, markIndex, type OfficerMark } from '../crew/marks.js';
 import type { ItemRarity } from '../items/rarity.js';
 import { drawWeighted, seedFrom } from '../rng.js';
+import { luckyPool } from '../items/luck.js';
 import {
   BLUEPRINTS,
   BLUEPRINT_CATEGORIES,
@@ -186,9 +187,29 @@ export const PAGE_DRAW_WEIGHT: Readonly<Record<ItemRarity, number>> = {
 export function pageWonFrom(
   category: BlueprintCategory,
   seed: string | number,
+  /** The Joker's luck at the crew's table (`items/luck.ts`). */
+  luck = 0,
 ): BlueprintPageId | null {
-  return drawPage(pagesIn(category), `won:${seed}`);
+  return drawPage(luckyPages(pagesIn(category), luck), `won:${seed}`);
 }
+
+/** A pool of pages with `luck` moving its odds toward the rarer sheets (`items/luck.ts`). */
+export function luckyPages(
+  pool: readonly { id: BlueprintPageId; weight: number }[],
+  luck: number,
+): { id: BlueprintPageId; weight: number }[] {
+  if (luck <= 0) return [...pool];
+  pageRarities ??= new Map(
+    BLUEPRINTS.flatMap((blueprint) =>
+      blueprint.pages.map((page) => [page.id, pageRarity(blueprint, page)] as const),
+    ),
+  );
+  const rarities = pageRarities;
+  return luckyPool(pool, (entry) => rarities.get(entry.id) ?? 'basic', luck);
+}
+
+/** Every page's rarity, by id, built the first time luck asks. */
+let pageRarities: Map<string, ItemRarity> | undefined;
 
 /** Every page in a category, each with the rarity it was authored at. */
 export function pagesIn(category: BlueprintCategory): { id: BlueprintPageId; weight: number }[] {
@@ -213,8 +234,8 @@ export function everyPage(): { id: BlueprintPageId; weight: number }[] {
  * `count` random pages for a feat (maintainer ruling P8-A, 2026-10-02: the mid game pays "a
  * random page"), drawn on the claim off the whole pool, the rarer sheets less often.
  */
-export function drawFeatPages(count: number, seed: string): BlueprintPageId[] {
-  const pool = everyPage();
+export function drawFeatPages(count: number, seed: string, luck = 0): BlueprintPageId[] {
+  const pool = luckyPages(everyPage(), luck);
   const drawn: BlueprintPageId[] = [];
   for (let index = 0; index < count; index += 1) {
     const page = drawPage(pool, `feat:${seed}:${index}`);

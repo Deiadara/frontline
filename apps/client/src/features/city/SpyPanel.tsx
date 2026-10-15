@@ -20,7 +20,7 @@ import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Button } from '../../components/ui/Button';
 import { Modal } from '../../components/ui/Modal';
-import { CancelMark } from '../../components/ui/CancelMark';
+import { CancelCell } from '../../components/ui/CancelMark';
 import { DrawnGlyph } from '../../components/ui/DrawnMarks';
 import { cn } from '../../lib/cn';
 import { useRecallSpy, useSpy } from '../../lib/queries';
@@ -183,8 +183,14 @@ export function SpyPanel({
           <div className="flex flex-wrap items-center justify-between gap-3">
             <Button
               size="sm"
-              disabled={
-                spy.isPending || caps < SPY_TIER_SPECS[tier].caps || !tiersOpen.includes(tier)
+              disabled={spy.isPending}
+              // Greyed with the reason on hover rather than silently (maintainer, 2026-10-06).
+              refusal={
+                !tiersOpen.includes(tier)
+                  ? 'That tier is shut to you'
+                  : caps < SPY_TIER_SPECS[tier].caps
+                    ? `${SPY_TIER_SPECS[tier].label} costs ${SPY_TIER_SPECS[tier].caps.toLocaleString('en-US')} caps and you hold ${Math.floor(caps).toLocaleString('en-US')}`
+                    : null
               }
               onClick={() => spy.mutate({ target, tier })}
               data-testid={`${testId}-send`}
@@ -350,19 +356,16 @@ function RunUnderway({
       >
         {left <= 0 ? 'Walking back in' : formatRemaining(left)}
       </p>
-      {/* The way out shares the line with the way back, rather than sitting under it. */}
+      {/* The way out shares the line with the way back, rather than sitting under it. The X's
+          cell keeps its room once the window shuts, so the line never reflows. */}
       <div className="flex flex-wrap items-center justify-between gap-3">
-        {spyRecallWindowMs(run, now) > 0 ? (
-          <CancelMark
-            windowMs={spyRecallWindowMs(run, now)}
-            label="Turn the runners round"
-            pending={pending}
-            onCancel={onRecall}
-            data-testid={`${testId}-recall`}
-          />
-        ) : (
-          <span />
-        )}
+        <CancelCell
+          windowMs={turned ? 0 : spyRecallWindowMs(run, now)}
+          label="Turn the runners round"
+          pending={pending}
+          onCancel={onRecall}
+          data-testid={`${testId}-recall`}
+        />
         {actions}
       </div>
     </div>

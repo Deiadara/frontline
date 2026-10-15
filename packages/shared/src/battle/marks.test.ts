@@ -229,11 +229,15 @@ describe('Opening Volley: a shot away before the lines form', () => {
   });
 });
 
-describe('Holds the Line: it does not run while over half of it stands', () => {
-  it('reads the units standing, not the morale', () => {
+/**
+ * Holds the Line since 2026-10-13 (maintainer): "this unit's morale does not drop during the
+ * fight". It used to hold only while over half of the stack stood.
+ */
+describe('Holds the Line: its morale does not drop during the fight', () => {
+  it('is the rule on the sheet, however many of the stack are left', () => {
     const stalwart = { unit: spec('wardens'), alive: 6, started: 10 } as Stack;
     expect(holdsTheLine(stalwart)).toBe(true);
-    expect(holdsTheLine({ ...stalwart, alive: 5 })).toBe(false);
+    expect(holdsTheLine({ ...stalwart, alive: 1 })).toBe(true);
     expect(holdsTheLine({ ...stalwart, unit: spec('razors') })).toBe(false);
   });
 
@@ -276,11 +280,16 @@ describe('Holds the Line: it does not run while over half of it stands', () => {
     expect(saved).toBeGreaterThanOrEqual(SEEDS * 0.8);
   });
 
-  it('never leaves a stalwart stack broken while over half of it is standing', () => {
+  it('ends every fight at no less morale than it formed up with, and never breaks', () => {
+    let fell = 0;
     for (const seed of ['a', 'b', 'c', 'd', 'e', 'f']) {
       const battle = fight({ juggernauts: 40 }, { wardens: 25, razors: 20 }, `stalwart-${seed}`);
       const wardens = stackOf(battle.defender, 'wardens');
-      if (wardens.brokeAt !== null) expect(holdsTheLine(wardens), seed).toBe(false);
+      expect(wardens.morale, seed).toBeGreaterThanOrEqual(wardens.effective.morale);
+      expect(wardens.brokeAt, seed).toBeNull();
+      // The Razors beside them have no such rule: the fight is hard enough to shake a line.
+      if (stackOf(battle.defender, 'razors').brokeAt !== null) fell += 1;
     }
+    expect(fell).toBeGreaterThan(0);
   });
 });

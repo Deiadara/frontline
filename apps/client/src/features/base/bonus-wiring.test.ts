@@ -1,9 +1,4 @@
-import {
-  casualtyRecoveryShare,
-  infirmaryRecoveryPercent,
-  type Building,
-  type BuildingKind,
-} from '@frontline/shared';
+import { infirmaryRecoveryPercent, type Building, type BuildingKind } from '@frontline/shared';
 import { describe, expect, it } from 'vitest';
 import { districtWith, structureBonus } from './bonus';
 
@@ -25,40 +20,36 @@ const DISTRICT: Building[] = [at('nexus', 20), at('generator', 4)];
 describe('the Gate line', () => {
   /*
    * The engine reads the Gate as 2.5 points of held-ground toughness a level, cards added
-   * (`gateDefensePercent` into `gatePercent`, then the `heldDefense` curve). The line quoted
-   * `districtDefense`, 6 a level times the cards, which the battle code reads only to ask whether
-   * a Gate is standing at all. Its points against spies are not printed: spy strength is not
-   * public (maintainer, 2026-10-01).
+   * (`gateDefensePercent` into `gatePercent`), and puts the sum with the holder's other defence
+   * through the `heldDefense` curve. Since 2026-10-15 (maintainer) a structure line prints its raw
+   * points and only the Crew page prints the curved figure the fight spends. Its points against
+   * spies are not printed: spy strength is not public (maintainer, 2026-10-01).
    */
-  it('quotes the defence the fight gets, and no spy figure', () => {
-    expect(structureBonus('gate', DISTRICT, 10).value).toBe('+25% defence');
-    expect(structureBonus('gate', DISTRICT, 10).value).not.toMatch(/point|spy/i);
+  it('quotes its raw points of defence, and no spy figure', () => {
+    expect(structureBonus('gate', DISTRICT, 10).value).toBe('+25 points of defence');
+    expect(structureBonus('gate', DISTRICT, 7).value).toBe('+17.5 points of defence');
+    expect(structureBonus('gate', DISTRICT, 10).value).not.toMatch(/spy|%/i);
   });
 
-  it('adds the armour cards in the district, and tapers past the knee like the fight does', () => {
+  it('adds the armour cards in the district, untapered', () => {
     // Positive control: a card in another structure lands on the Gate's line, as it does in the
-    // fight. A Gate at 20 with Interlocking Bulwarks is 76 before the curve.
+    // fight. A Gate at 20 with Interlocking Bulwarks is 76 before the curve, and the line says 76.
     const carded = [...DISTRICT, at('quarters', 10, ['gate_interlocking_bulwarks'])];
-    const value = structureBonus('gate', carded, 20).value;
-    const shown = Number(/^\+(\d+)% defence/.exec(value)?.[1]);
-    expect(shown).toBeGreaterThan(50);
-    expect(shown).toBeLessThan(76);
+    expect(structureBonus('gate', carded, 20).value).toBe('+76 points of defence');
   });
 });
 
 describe('the Infirmary line', () => {
   /*
-   * The Infirmary pays medic points, four a level, and the share of the dead that walks home is
-   * those points through `casualtyRecoveryShare`. The line printed the points with a percent sign,
-   * so a level 10 Infirmary promised 40% and delivered 27.5%.
+   * The Infirmary pays medic points, four a level. They join the crew's own and the sum goes
+   * through `casualtyRecoveryShare`, so the share forty points would walk home alone (28%) is not
+   * what a win spends beside the crew's (maintainer, 2026-10-15). The line prints the points; the
+   * Crew page's medic card prints the combined points and the share.
    */
-  it('quotes the share of the dead its points walk home, not the points', () => {
+  it('quotes its medic points, not a lone share of the curve', () => {
     const projected = districtWith(DISTRICT, 'infirmary', 10);
     expect(infirmaryRecoveryPercent(projected)).toBe(40);
-    expect(structureBonus('infirmary', DISTRICT, 10).value).toBe(
-      `${Math.round(casualtyRecoveryShare(40))}%`,
-    );
-    expect(structureBonus('infirmary', DISTRICT, 10).value).toBe('28%');
+    expect(structureBonus('infirmary', DISTRICT, 10).value).toBe('+40 medic points');
   });
 });
 

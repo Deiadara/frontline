@@ -6,12 +6,16 @@ import {
   drillCancelWindowMs,
   drillCancellable,
   drillProgressAt,
-  drillRemainingMs,
   findResearchItem,
   findUnit,
   findVehicle,
-  buildCancelWindowMs,
-  queueCompletesAt,
+  queueCancelWindowMs,
+  queueClockMs,
+  queueWaiting,
+  musterWaiting,
+  musterClockMs,
+  drillClockMs,
+  drillUnderway,
   queueProgressAt,
   researchCancelWindowMs,
   researchCompletesAt,
@@ -19,13 +23,12 @@ import {
   musterCancelWindowMs,
   musterCancellable,
   musterProgressAt,
-  musterRemainingMs,
   type Base,
   type LocationView,
   type TrainingSession,
 } from '@frontline/shared';
-import type { ReactNode } from 'react';
-import { CancelMark } from '../../components/ui/CancelMark';
+import { CancelCell } from '../../components/ui/CancelMark';
+import { alsoCalledOff, withTip } from '../base/BuildOrderPlate';
 import { ScreenLoad } from '../../components/ui/LoadFailure';
 import { ProgressBar } from '../../components/ui/ProgressBar';
 import {
@@ -132,23 +135,30 @@ export function InProgressPage() {
           <ul className="flex flex-col gap-2.5" data-testid="progress-builds">
             {base.buildQueue.map((entry) => {
               const name = `${BUILDING_CATALOG[entry.kind].name} to ${String(entry.level)}`;
-              const left = Math.max(0, queueCompletesAt(entry).getTime() - now.getTime());
+              // Only the order being worked counts down (maintainer, 2026-10-08); one waiting
+              // its turn shows its whole clock and holds it.
+              const waiting = queueWaiting(entry, now);
+              const left = queueClockMs(entry, now);
               return (
                 <Row
                   key={entry.id}
                   testId={`progress-build-${entry.id}`}
                   name={name}
-                  status={left === 0 ? 'Finishing' : 'Building'}
+                  status={waiting ? 'Queued' : left === 0 ? 'Finishing' : 'Building'}
                   tone={left === 0 ? 'done' : 'plain'}
+                  cancel={
+                    <BuildCancel
+                      baseId={base.id}
+                      orderId={entry.id}
+                      name={name}
+                      windowMs={queueCancelWindowMs(entry, now)}
+                      queued={waiting}
+                      {...withTip(alsoCalledOff(entry, base))}
+                    />
+                  }
                 >
                   <Where place="Your district" remaining={formatRemaining(left)} />
                   <ProgressBar progress={queueProgressAt(entry, now)} label={name} />
-                  <BuildCancel
-                    baseId={base.id}
-                    orderId={entry.id}
-                    name={name}
-                    windowMs={buildCancelWindowMs(entry, base, now)}
-                  />
                 </Row>
               );
             })}
@@ -168,10 +178,12 @@ export function InProgressPage() {
                   name={name}
                   status={left === 0 ? 'Finishing' : 'Researching'}
                   tone={left === 0 ? 'done' : 'plain'}
+                  cancel={
+                    <ResearchCancel name={name} windowMs={researchCancelWindowMs(active, now)} />
+                  }
                 >
                   <Where place="The Lab" remaining={formatRemaining(left)} />
                   <ProgressBar progress={researchProgressAt(active, now)} label={name} />
-                  <ResearchCancel name={name} windowMs={researchCancelWindowMs(active, now)} />
                 </Row>
               );
             })()}
@@ -185,16 +197,32 @@ export function InProgressPage() {
             {base.musterQueue.map((order) => {
               const what = findUnit(order.unitId)?.name ?? findVehicle(order.unitId)?.name;
               const name = `${String(order.count)} × ${what ?? order.unitId}`;
-              const left = musterRemainingMs(order, now);
+              const waiting = musterWaiting(order, now);
+              const left = musterClockMs(order, now);
               return (
                 <Row
                   key={order.id}
                   testId={`progress-muster-${order.id}`}
                   name={name}
                   status={
-                    order.delivered > 0
-                      ? `${String(order.delivered)} of ${String(order.count)} out`
-                      : 'Mustering'
+                    waiting
+                      ? 'Queued'
+                      : order.delivered > 0
+                        ? `${String(order.delivered)} of ${String(order.count)} out`
+                        : 'Mustering'
+                  }
+                  cancel={
+                    <MusterCancel
+                      baseId={base.id}
+                      orderId={order.id}
+                      name={name}
+                      // The bench's own gate, not just the clock: a batch with a unit already out
+                      // is not cancellable however young its clock is (`musterCancellable`).
+                      windowMs={
+                        musterCancellable(order, now) ? musterCancelWindowMs(order, now) : 0
+                      }
+                      queued={waiting}
+                    />
                   }
                 >
                   <Where
@@ -204,14 +232,6 @@ export function InProgressPage() {
                     remaining={formatRemaining(left)}
                   />
                   <ProgressBar progress={musterProgressAt(order, now)} label={name} />
-                  <MusterCancel
-                    baseId={base.id}
-                    orderId={order.id}
-                    name={name}
-                    // The bench's own gate, not just the clock: a batch with a unit already out is
-                    // not cancellable however young its clock is (`musterCancellable`).
-                    windowMs={musterCancellable(order, now) ? musterCancelWindowMs(order, now) : 0}
-                  />
                 </Row>
               );
             })}
@@ -287,45 +307,45 @@ function Where({ place, remaining }: { place: string; remaining: string }) {
   );
 }
 
-/** The X, inside its window, on a rule of its own so it reads as the row's footer. */
-function Footer({ children }: { children: ReactNode }) {
-  return <div className="border-t border-surface-700/70 pt-2.5">{children}</div>;
-}
-
 function BuildCancel({
   baseId,
   orderId,
   name,
   windowMs,
+  queued,
+  tip,
 }: {
   baseId: string;
   orderId: string;
   name: string;
   windowMs: number;
+  queued: boolean;
+  /** The orders that go with it, when there are any. */
+  tip?: string;
 }) {
   const cancel = useCancelBuild(baseId);
   // The refusal outlives the window: "too late" lands exactly when the window has just shut.
-  if (windowMs <= 0) return <WriteError message={cancel.error?.message} />;
   return (
-    <Footer>
-      <CancelMark
+    <>
+      <CancelCell
         windowMs={windowMs}
         label={`Call off ${name}`}
         pending={cancel.isPending}
         onCancel={() => cancel.mutate({ orderId })}
+        queued={queued}
+        {...withTip(tip)}
         data-testid={`cancel-build-${orderId}`}
       />
       <WriteError message={cancel.error?.message} />
-    </Footer>
+    </>
   );
 }
 
 function ResearchCancel({ name, windowMs }: { name: string; windowMs: number }) {
   const cancel = useCancelResearch();
-  if (windowMs <= 0) return <WriteError message={cancel.error?.message} />;
   return (
-    <Footer>
-      <CancelMark
+    <>
+      <CancelCell
         windowMs={windowMs}
         label={`Take ${name} off the bench`}
         pending={cancel.isPending}
@@ -333,7 +353,7 @@ function ResearchCancel({ name, windowMs }: { name: string; windowMs: number }) 
         data-testid="cancel-research"
       />
       <WriteError message={cancel.error?.message} />
-    </Footer>
+    </>
   );
 }
 
@@ -342,25 +362,27 @@ function MusterCancel({
   orderId,
   name,
   windowMs,
+  queued,
 }: {
   baseId: string;
   orderId: string;
   name: string;
   windowMs: number;
+  queued: boolean;
 }) {
   const cancel = useCancelMuster(baseId);
-  if (windowMs <= 0) return <WriteError message={cancel.error?.message} />;
   return (
-    <Footer>
-      <CancelMark
+    <>
+      <CancelCell
         windowMs={windowMs}
         label={`Call off ${name}`}
         pending={cancel.isPending}
         onCancel={() => cancel.mutate({ orderId })}
+        queued={queued}
         data-testid={`cancel-muster-${orderId}`}
       />
       <WriteError message={cancel.error?.message} />
-    </Footer>
+    </>
   );
 }
 
@@ -381,32 +403,32 @@ function subjectName(
 function Drill({ session, who, now }: { session: TrainingSession; who: string; now: Date }) {
   const cancel = useCancelDrill();
   const name = `${who}: ${ATTRIBUTE_LABELS[session.attribute]}`;
-  const left = drillRemainingMs(session, now.getTime());
+  const waiting = !drillUnderway(session, now.getTime());
+  const left = drillClockMs(session, now.getTime());
   const at = now.toISOString();
   const windowMs = drillCancellable(session, at) ? drillCancelWindowMs(session, at) : 0;
   return (
     <Row
       testId={`progress-drill-${session.id}`}
       name={name}
-      status={left === 0 ? 'Finishing' : 'Drilling'}
+      status={waiting ? 'Queued' : left === 0 ? 'Finishing' : 'Drilling'}
       tone={left === 0 ? 'done' : 'plain'}
-    >
-      <Where place="The training floor" remaining={formatRemaining(left)} />
-      <ProgressBar progress={drillProgressAt(session, now.getTime())} label={name} />
-      {windowMs > 0 ? (
-        <Footer>
-          <CancelMark
+      cancel={
+        <>
+          <CancelCell
             windowMs={windowMs}
+            queued={waiting}
             label={`Call off ${name}`}
             pending={cancel.isPending}
             onCancel={() => cancel.mutate({ sessionId: session.id })}
             data-testid={`cancel-drill-${session.id}`}
           />
           <WriteError message={cancel.error?.message} />
-        </Footer>
-      ) : (
-        <WriteError message={cancel.error?.message} />
-      )}
+        </>
+      }
+    >
+      <Where place="The training floor" remaining={formatRemaining(left)} />
+      <ProgressBar progress={drillProgressAt(session, now.getTime())} label={name} />
     </Row>
   );
 }
@@ -453,12 +475,9 @@ function DistrictWorks({
               testId={`progress-work-${view.location.id}-upgrade`}
               name={name}
               status="Upgrading"
-            >
-              <Where place={districtName} remaining={formatRemaining(clock.left)} />
-              <ProgressBar progress={clock.progress} label={name} />
-              {clock.windowMs > 0 ? (
-                <Footer>
-                  <CancelMark
+              cancel={
+                <>
+                  <CancelCell
                     windowMs={clock.windowMs}
                     label={`Call off ${name}`}
                     pending={pressed && cancelUpgrade.isPending}
@@ -466,10 +485,11 @@ function DistrictWorks({
                     data-testid={`cancel-work-${view.location.id}-upgrade`}
                   />
                   <WriteError message={refused} />
-                </Footer>
-              ) : (
-                <WriteError message={refused} />
-              )}
+                </>
+              }
+            >
+              <Where place={districtName} remaining={formatRemaining(clock.left)} />
+              <ProgressBar progress={clock.progress} label={name} />
             </Row>
           );
         })}

@@ -12,7 +12,7 @@ import {
   MUSTER_TIME_PER_GAUNTLET_LEVEL,
   bonusesAt,
   buildingLevel,
-  cardBonusPercent,
+  cardValue,
   clampLevel,
   completedSet,
   fittedIn,
@@ -258,10 +258,17 @@ function crewAndGroundLines(
 
   const membership = repos.factions.membershipOf(base.ownerId);
   if (membership) {
-    for (const held of cardsAtTable(repos, membership.factionId).values()) {
+    for (const held of cardsAtTable(repos, membership.factionId, now).values()) {
       const spec = FACTION_CARD_SPECS[held.card];
-      if (spec.channel !== EFFECT_CHANNEL[channel]) continue;
-      lines.push({ source: spec.name, note: 'Your table', percent: cardBonusPercent(held.mark) });
+      // A seat in Onboarding pays nothing yet (2026-10-15).
+      if (!spec.channels.includes(EFFECT_CHANNEL[channel]) || held.onboardingUntil !== null) {
+        continue;
+      }
+      lines.push({
+        source: spec.name,
+        note: 'Your table',
+        percent: cardValue(held.card, held.mark),
+      });
     }
   }
 
@@ -284,6 +291,9 @@ function groundLines(repos: Repositories, base: Base, channel: 'cost' | 'speed')
     held.add(location.districtId);
     for (const bonus of bonusesAt(location, control.level)) {
       if (bonus.kind !== HOLD_KIND[channel]) continue;
+      // A cut on one tier (the Hiring Hall's rabble) is that unit's own line, not the crew-wide
+      // chip's: listed here it summed to more than the chip (bug pass, 2026-10-11).
+      if (bonus.kind === 'muster_cost' && bonus.tier !== undefined) continue;
       lines.push({
         source: location.name,
         note: `Level ${clampLevel(control.level)}`,

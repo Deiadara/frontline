@@ -5,6 +5,7 @@ import {
   askingWage,
   assessJoin,
   committedWage,
+  finalValue,
   buildingLevel,
   cancelDrill,
   chairPassiveOf,
@@ -178,7 +179,12 @@ export function bidCeilingFor(available: number, discountPercent: number): numbe
  * one that comes out of the stockpile, which is the worst kind of pricing bug because it looks
  * like a refund.
  */
-export function ledgerFor(base: Base, effects: LedgerEffects = NO_LEDGER_EFFECTS): PayrollLedger {
+export function ledgerFor(
+  base: Base,
+  effects: LedgerEffects = NO_LEDGER_EFFECTS,
+  /** What tonight's bids hold on the book (`heldByBidsFor`), off what is left to promise. */
+  heldByBids = 0,
+): PayrollLedger {
   return payrollLedger(
     base.economy.payroll,
     buildingLevel(base.buildings, 'nexus'),
@@ -188,7 +194,54 @@ export function ledgerFor(base: Base, effects: LedgerEffects = NO_LEDGER_EFFECTS
     effects.payrollStepDiscountPercent,
     // The Fixer's passive (maintainer, 2026-10-04).
     chairPassiveOf(effects, 'fixer', 'payroll'),
+    heldByBids,
   );
+}
+
+/**
+ * The wages this crew's other bids tonight hold against its payroll book (maintainer, 2026-10-04).
+ *
+ * Every bid holds its wage for the day, won or lost: "if you have bid, that is temporarily taken
+ * out of payroll whether you win or not, and bids cannot be taken back. At the end of the day you
+ * get back the payroll you did not end up using." One table counts once, at the crew's highest bid
+ * there, open or sealed: raising a bid replaces the lower one rather than adding to it. Counted at
+ * the talked-down wage, the figure the close commits, across every city: the book is one book.
+ *
+ * Only tonight's tables, so the hold lifts at the close by itself: the winner's wage becomes a
+ * commitment on the book, and what the crew did not win is free again the next day. Because every
+ * bid was checked against the book with all the others held, every table the crew wins at midnight
+ * fits, whichever order the tables settle in and whichever bidder a table falls back to.
+ *
+ * It held only the tables the crew led or had sealed until then (2026-10-02), so a crew second at
+ * one table could still sign it at the close after the leader was refused and leave its payroll
+ * short for a table it was leading.
+ */
+export function wagesHeldByBids(
+  repos: Repositories,
+  userId: string,
+  day: string,
+  exceptRecruitId: string | null,
+  wageDiscountPercent: number,
+): number {
+  // A stub `Repositories` with no Bar table is a night nobody bid on (the hundred fixtures that
+  // build a crew without one), not a throw: answered as nothing held.
+  return (repos.bar?.bidsBy?.(userId, day) ?? [])
+    .filter((bid) => bid.recruitId !== exceptRecruitId)
+    .reduce((held, bid) => held + committedWage(finalValue(bid), wageDiscountPercent), 0);
+}
+
+/**
+ * What this crew's bids tonight hold on its book, for the ledger a screen prints (maintainer,
+ * 2026-10-13): every table it has bid at today, at the talked-down wage, so "Left to promise" on
+ * the Crew page is the figure the Bar's bid field is capped at.
+ */
+export function heldByBidsFor(
+  repos: Repositories,
+  base: Base,
+  now: Date,
+  effects: Pick<CrewEffects, 'wageDiscountPercent'>,
+): number {
+  return wagesHeldByBids(repos, base.ownerId, barDay(now), null, effects.wageDiscountPercent);
 }
 
 /** What the ledger reads off a crew's standing: pass `standingEffectsFor`, or the ground pays nothing. */
@@ -326,7 +379,7 @@ export function signRecruit(repos: Repositories, input: SignInput): SignResult {
     base: signed,
     officer,
     wage,
-    payroll: ledgerFor(signed, effects),
+    payroll: ledgerFor(signed, effects, heldByBidsFor(repos, signed, now, effects)),
   };
 }
 
@@ -417,7 +470,11 @@ export function releaseOfficer(
     base: released,
     officer,
     fee,
-    payroll: ledgerFor(released, standingEffectsFor(repos, released)),
+    payroll: ledgerFor(
+      released,
+      standingEffectsFor(repos, released),
+      heldByBidsFor(repos, released, now, standingEffectsFor(repos, released)),
+    ),
   };
 }
 

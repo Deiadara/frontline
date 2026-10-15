@@ -7,7 +7,7 @@
  * the hard wrapping in the doc (and in this file) never reaches a backend.
  */
 import type { VehicleId } from '../building/index.js';
-import type { DistrictKind, LocationKind } from '../city/index.js';
+import type { DistrictKind, LocationIcon } from '../city/index.js';
 import type { OverseerArchetype } from '../overseer.js';
 import type { ResourceKey } from '../resources.js';
 
@@ -1419,7 +1419,7 @@ export const DISTRICT_KIND_ICON_SUBJECTS: Readonly<Record<DistrictKind, string>>
   `),
 };
 
-/** ART-PROMPTS §6.4: keyed by `LocationKind`. The map markers inside a contested district. */
+/** ART-PROMPTS §6.4: keyed by `LocationIcon`. The map markers inside a contested district. */
 /**
  * §C1: one icon per machine the Garage builds.
  *
@@ -1461,7 +1461,7 @@ export const VEHICLE_ICON_SUBJECTS: Readonly<Record<VehicleId, string>> = {
   `),
 };
 
-export const LOCATION_ICON_SUBJECTS: Readonly<Record<LocationKind, string>> = {
+export const LOCATION_ICON_SUBJECTS: Readonly<Record<LocationIcon, string>> = {
   scrap_press: block(`
     A baling press seen from above with a squared bale on the outfeed and a scatter of loose
     swarf, warm #f59e0b rust tones.
@@ -1929,5 +1929,17 @@ export const UNIT_SUBJECTS: Readonly<Record<string, string>> = {
     mid-step in a martial stance with open hands, no weapon anywhere. Ranks of Combine soldiers
     stand at the edges copying him. Cold white light down the columns, warm candle glow at the
     floor, dust in the air.
+  `),
+  // --- the Geppetto (2026-10-09). Text only: no image is generated until the maintainer asks.
+  the_geppetto: block(`
+    A frail old toymaker in a leather workshop apron and half-moon spectacles, kneeling among
+    crates in a ring of shipping containers, one hand on the chest of a half-built robot made of
+    scrap, a thin thread of light running from his fingers into it. Warm lamp key from below,
+    cold rim from the crates.
+  `),
+  ad_hoc_army: block(`
+    A clumsy robot built from whatever was lying around: a stove for a chest, a pram's wheels, a
+    mannequin's arm on one side and a pipe wrench on the other, a painted toy face. It stands
+    square with its arms out as if shielding someone behind it. Dusty light in a crate yard.
   `),
 };

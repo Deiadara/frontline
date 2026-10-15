@@ -1,12 +1,11 @@
 import type { FactionCard } from './factions.js';
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_ATTRIBUTES, type Attributes } from '../attributes.js';
-import { OFFICER_MARKS } from '../crew/marks.js';
 import {
   CARD_BY_SLOT,
   FACTION_CARD_SPECS,
   SEAT_SLOT_ORDER,
-  cardBonusPercent,
+  cardValue,
   cardMark,
   cardPoints,
   dealCards,
@@ -126,24 +125,36 @@ describe('what a card is worth', () => {
     ).toBe(60);
   });
 
-  it('marks on the officer ladder, and pays half a point a band', () => {
+  it('marks on the officer ladder, and pays up to its top figure by grade', () => {
     expect(cardMark('king_diamonds', sheet({ toughness: 10, organization: 10, resolve: 10 }))).toBe(
       'F-',
     );
     expect(
       cardMark('king_diamonds', sheet({ toughness: 100, organization: 100, resolve: 100 })),
     ).toBe('S+');
-    expect(cardBonusPercent('F-')).toBe(0);
-    expect(cardBonusPercent('B')).toBe(7);
-    expect(cardBonusPercent('S+')).toBe(Math.round((OFFICER_MARKS.length - 1) / 2));
+    // "Up to X" at S+, scaling down by grade (maintainer, 2026-10-15).
+    expect(cardValue('ace_spades', 'F-')).toBe(0);
+    expect(cardValue('ace_spades', 'B')).toBe(7);
+    expect(cardValue('ace_spades', 'S+')).toBe(10);
+    expect(cardValue('jack_clubs', 'B')).toBe(16);
+    expect(cardValue('jack_clubs', 'S+')).toBe(25);
+    expect(cardValue('joker', 'A')).toBe(8);
   });
 
   it('says what it reads and what it pays, in words', () => {
     expect(describeCardReads('queen_hearts')).toBe('Logic, Analysis and Logistics');
-    expect(describeCardBonus('jack_clubs', 'B')).toBe('+7% Infamy off everything that earns it');
+    expect(describeCardBonus('ace_spades', 'S+')).toBe('+10% damage when attacking');
+    expect(describeCardBonus('king_diamonds', 'B')).toBe('+7% vitality when defending');
+    expect(describeCardBonus('queen_hearts', 'B')).toBe('+7% mission rewards and experience');
+    expect(describeCardBonus('jack_clubs', 'B')).toBe('+16% infamy from battles');
+    expect(describeCardBonus('joker', 'B')).toBe(
+      'Luck 7: better odds of rarer pages and components',
+    );
   });
 
-  it('pushes five different channels', () => {
-    expect(new Set(FACTION_CARDS.map((card) => FACTION_CARD_SPECS[card].channel)).size).toBe(5);
+  it('pushes its own channels, none of them another card`s', () => {
+    const channels = FACTION_CARDS.flatMap((card) => FACTION_CARD_SPECS[card].channels);
+    expect(new Set(channels).size).toBe(channels.length);
+    expect(channels).toHaveLength(6);
   });
 });

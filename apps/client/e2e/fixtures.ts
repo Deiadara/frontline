@@ -88,7 +88,6 @@ import {
   EFFECT_CHANNELS,
   OVERSEER_SUBJECT,
   officerPortraitId,
-  TRAINING_GAIN,
   TRAINING_SECONDS,
   TRAININGS_PER_DAY,
   crewEffects,
@@ -102,7 +101,6 @@ import {
   ENV_LABEL_CATALOG,
   envLabel,
   ENV_LABEL_IDS,
-  LOCATION_CATALOG,
   bonusesAt,
   mergeLabels,
   upgradeCost,
@@ -228,6 +226,7 @@ import {
   blackMarketPrice,
   findBlackMarketGood,
   gateDefensePercent,
+  findLocation,
 } from '@frontline/shared';
 
 const NOW = '2026-08-12T10:00:00.000Z';
@@ -506,17 +505,17 @@ export const lateGame: MeResponse = {
  * The same save with the build queue **full**: `MAX_BUILD_QUEUE` orders at once (§D3).
  *
  * `lateGameBase` carries three, which is what the rail down the left of the district looks like
- * most of the time. Six is the case that decides its layout: the rail is as tall as it can ever
+ * most of the time. Five is the case that decides its layout: the rail is as tall as it can ever
  * get, and on a narrow frame it is what a name plate has to stay clear of. The two were measured
  * apart on 2026-09-15 and only the full one was covering plates.
  *
  * **It carries `Batch Runs`** (maintainer, 2026-09-22), and has to. The queue is four wide until
- * that rung is researched and six after it, so six orders is not a state a crew without it can
+ * that rung is researched and five after it, so five orders is not a state a crew without it can
  * reach: the fixture would be drawing a rail the game cannot produce, and the readout above it
- * would say `6/4`. The rung is what makes this save's own ceiling six.
+ * would say `5/4`. The rung is what makes this save's own ceiling five.
  *
  * The orders run back to back off one clock, so the countdowns read like a queue that is being
- * worked rather than six things finishing at once, and they are relative to *now* for the reason
+ * worked rather than five things finishing at once, and they are relative to *now* for the reason
  * `lateGameBase`'s three are: a queue pinned to `NOW` shows every order as already done.
  */
 export const fullQueueBase: Base = {
@@ -525,25 +524,23 @@ export const fullQueueBase: Base = {
     ...lateGameBase.research,
     technologies: [...lateGameBase.research.technologies, BUILD_QUEUE_RESEARCH_ID],
   },
-  buildQueue: (['quarters', 'greenhouse', 'gate', 'lab', 'garage', 'infirmary'] as const).map(
-    (kind, index) => {
-      const durationSeconds = (20 + 10 * index) * 60;
-      // Each order starts where the one in front of it finishes. The first is already five
-      // minutes in, so the rail has a bar with something on it.
-      const startedAt = new Date(
-        Date.now() - 5 * 60 * 1000 + index * durationSeconds * 1000,
-      ).toISOString();
-      return {
-        id: `bq-full-${index + 1}`,
-        kind,
-        level: 2 + index,
-        startedAt,
-        durationSeconds,
-        paid: buildingCost(kind, 2 + index, base.buildings),
-        parts: {},
-      };
-    },
-  ),
+  buildQueue: (['quarters', 'greenhouse', 'gate', 'lab', 'garage'] as const).map((kind, index) => {
+    const durationSeconds = (20 + 10 * index) * 60;
+    // Each order starts where the one in front of it finishes. The first is already five
+    // minutes in, so the rail has a bar with something on it.
+    const startedAt = new Date(
+      Date.now() - 5 * 60 * 1000 + index * durationSeconds * 1000,
+    ).toISOString();
+    return {
+      id: `bq-full-${index + 1}`,
+      kind,
+      level: 2 + index,
+      startedAt,
+      durationSeconds,
+      paid: buildingCost(kind, 2 + index, base.buildings),
+      parts: {},
+    };
+  }),
 };
 
 export const fullQueue: MeResponse = { ...lateGame, base: fullQueueBase };
@@ -809,14 +806,13 @@ function spyReportOnRivals(locationId: string, placeName: string): SpyReport {
 
 function locationViewsFor(district: District): DistrictDetailResponse['locations'] {
   return district.locations.map((location, index) => {
-    const spec = LOCATION_CATALOG[location.kind];
     const mine = index === 0;
     const rivals = index === 2;
     // §A4: the one location this crew holds is part-worked, so the screen has a level to draw,
     // an upgrade to offer, and pips that are not all the same. The rest sit at 1 like any capture.
     const level = mine ? 2 : 1;
-    const cost = upgradeCost(location.kind, level);
-    const note = upgradeNote(location.kind, level);
+    const cost = upgradeCost(location, level);
+    const note = upgradeNote(location, level);
     return {
       location,
       holder: mine
@@ -829,23 +825,34 @@ function locationViewsFor(district: District): DistrictDetailResponse['locations
       level,
       upgradingUntil: null,
       upgradingSince: null,
-      upgrade: cost && note ? { toLevel: level + 1, cost, note, seconds: 1800 } : null,
-      defense: spec.baseDefense + index,
+      upgrade:
+        cost && note
+          ? {
+              toLevel: level + 1,
+              cost,
+              note,
+              seconds: 1800,
+              pays: bonusesAt(location, level + 1).map((bonus) => describeHoldBonus(bonus)),
+            }
+          : null,
+      defense: location.baseDefense + index,
       // Nothing about somebody else's count is free (2026-09-22): the crew's own is exact, the
       // rival's is whatever the last report said, the looters' is unknown.
       garrisonSize: mine ? 3 : null,
       garrison: mine ? { razors: 3 } : null,
       latestSpyReport: rivals ? spyReportOnRivals(location.id, location.name) : null,
-      bonuses: bonusesAt(location.kind, level).map((bonus) => describeHoldBonus(bonus)),
-      reward: spec.reward,
+      bonuses: bonusesAt(location, level).map((bonus) => describeHoldBonus(bonus)),
+      reward: location.reward,
       // The same fold the server does: the ground's own character plus today's sky. `NOW` is a
       // fixed instant, so the fixture's labels are stable and a screenshot of them is comparable.
-      labels: mergeLabels(spec.labels, weatherLabels(weatherAt(new Date(NOW)))),
-      unlocks: unitsUnlockedByLocation(location.kind).map((unit) => unit.name),
+      labels: mergeLabels(location.labels, weatherLabels(weatherAt(new Date(NOW)))),
+      unlocks: unitsUnlockedByLocation(location.id).map((unit) => unit.name),
       holderFaction: null,
       holderSide: mine ? ('mine' as const) : ('enemy' as const),
       noisyFromTower: false,
       switch: null,
+      lamps: null,
+      reactor: null,
       pamphlets: null,
       trophies: null,
       door: null,
@@ -979,7 +986,6 @@ function holdingOf(location: Location, level: number): ProfileHolding {
   return {
     locationId: location.id,
     name: location.name,
-    kind: LOCATION_CATALOG[location.kind].label,
     districtId: location.districtId,
     districtName: findDistrict(location.districtId)?.name ?? location.districtId,
     level,
@@ -1198,7 +1204,6 @@ export const unitsResponse: UnitsResponse = {
   resources: base.resources,
   musterCostReduction: 10,
   musterSpeedBonus: 34,
-  ignoredLabels: [],
   antiCombineLevels: 0,
   // A Greenhouse 8 (half a point a level), Sealed Growrooms and Grey Water Loop: 14 points, which
   // the supplies line takes as 12.5 beside the 10 of cost cut (`suppliesLineCut`, 2026-10-01).
@@ -1291,6 +1296,7 @@ export const unitsResponse: UnitsResponse = {
             label: ENV_LABEL_CATALOG[id].name,
             note: immune && per === 0 ? 'Immune' : `${per > 0 ? '+' : ''}${per}% per tier`,
             good: immune || per > 0,
+            cancelledBy: null,
           },
         ];
       }),
@@ -1314,6 +1320,8 @@ export const unitsResponse: UnitsResponse = {
               cost: [{ source: 'The Doghouse', note: 'Level 6, its own ground', percent: 10 }],
               speed: [{ source: 'The Doghouse', note: 'Level 6, its own ground', percent: 15 }],
             },
+            // The held ground's flat points on the sheet, as the roster names them (2026-10-13).
+            groundStats: ['+10 range (The Cloister Wall)', '+10 armour (The Cloister Wall)'],
           }
         : {}),
       unlocked,
@@ -1578,6 +1586,7 @@ export const bar: BarResponse = {
     available: 732,
     purchasedSteps: 6,
     nextStepCost: payrollStepCost(6),
+    heldByBids: 0,
     stepSize: PAYROLL_STEP,
   },
   filledRoles: ['master_of_whispers', 'fixer', 'raid_boss'],
@@ -2105,6 +2114,7 @@ const fixtureHead: NonNullable<ResearchResponse['head']> = {
   timeCutPercent: 18.4,
   // What the Head adds once joined with the Lab's cards and the crew's points (P7-C).
   addsPercent: 15.2,
+  settled: true,
 };
 
 /** Real names in `OFFICER_ROLES` order, with the longest of them on a chair that has a mark. */
@@ -2476,7 +2486,6 @@ export const trainingResponse: TrainingResponse = {
   // The queue the game starts with: the Overseer's hour and room for the idle officer behind it,
   // so the free half of the screen is a sheet of open rows rather than dimmed ones.
   queueSlots: 2,
-  gainPerSession: TRAINING_GAIN,
   sessionSeconds: TRAINING_SECONDS,
   subjects: [
     {
@@ -2592,6 +2601,9 @@ export const crewStanding: CrewStandingResponse = {
   haulPercent: STANDING_EFFECTS.lootCapacityPercent + 25,
   carrierFlat: 0,
   missionCapsPercent: 0,
+  heldDefensePercent: 0,
+  medicPoints: 0,
+  medicSharePercent: 0,
 };
 
 /**
@@ -3283,7 +3295,8 @@ const comingBattle = (
   // would make the deployment screen's forecast right in the fixture and wrong in the game.
   battlefield: battlefieldFor({
     locationName: targetName,
-    kind: 'scrap_press',
+    // The Steelbelt's press house, whatever the fixture calls the target.
+    ground: findLocation('steelbelt-press')!,
     at: new Date(scheduledFor),
     weather,
   }),
@@ -3501,6 +3514,8 @@ export const battles: BattlesResponse = {
   ],
   slots: boardSlots,
   infamy: BOARD_INFAMY,
+  callsPending: 0,
+  callsAllowed: 3,
   /*
    * §D7: only the crew across the road is a person, so only their ground is charged: the third
    * location of every contested district (`locationViewsFor`). Looter ground and the AI rival's
@@ -3726,6 +3741,7 @@ export const factionScreen: FactionResponse = {
       // The leader's chair is the ace of spades, whoever sits in it.
       card: 'ace_spades',
       cardMark: 'C',
+      onboardingUntil: null,
       // Their own Overseer, which is the face the roster draws (maintainer request, 2026-09-12).
       portraitId: overseer.portraitId,
       overseerName: overseer.name,
@@ -3746,6 +3762,7 @@ export const factionScreen: FactionResponse = {
       isBot: true,
       card: 'king_diamonds',
       cardMark: 'D+',
+      onboardingUntil: null,
       // A different face from the leader's, so a roster drawing one portrait twice is visible.
       portraitId: OVERSEER_PRESETS[1]?.portraitId ?? 'overseer-2',
       overseerName: 'Sable',

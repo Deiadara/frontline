@@ -175,7 +175,7 @@ describe('the supplies line for a strong mid-game crew built for cheap supplies'
     };
     repos.bases.updateCommanders(base.id, strong.commanders);
     repos.city.put({
-      locationId: EVERY_LOCATION.find((location) => location.kind === 'armory')!.id,
+      locationId: EVERY_LOCATION.find((location) => location.id === 'blacksite-armory')!.id,
       holder: { kind: 'crew', baseId: base.id },
       level: 4,
       upgradingUntil: null,

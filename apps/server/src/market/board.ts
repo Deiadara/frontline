@@ -462,9 +462,12 @@ export function projectMarket(
       (key) => storageCapacityFor(base.buildings, key, bulk),
       ground,
       trader,
+      // The Long Bond's cut off the run alone (2026-10-09), quoted where it is charged.
+      standing.supplyDiscountPercent,
     ),
-    barterRate: brokerRate(base.level, ground, trader),
+    barterRate: brokerRate(base.level, ground, trader, standing.brokerRatePercent),
     traderPoints: trader,
+    supplyCutPercent: standing.supplyDiscountPercent,
     // The raw sum, which every shared price function curves for itself: see the schema field.
     marketDiscountPercent: ground,
     // §G4: the two things the Blueprints screen cannot see for itself. Read from the same base
@@ -516,7 +519,8 @@ export function buySupply(
   const standing = standingEffectsFor(repos, base, now);
   const discount = standing.marketDiscountPercent;
   const trader = standing.chairPoints.trader ?? null;
-  const price = supplyPrice(key, units, discount, trader);
+  const cut = standing.supplyDiscountPercent;
+  const price = supplyPrice(key, units, discount, trader, cut);
 
   const refusal = supplyRefusal({
     key,
@@ -525,6 +529,7 @@ export function buySupply(
     allowanceLeft: admin ? Number.POSITIVE_INFINITY : Math.max(0, allowance - used),
     discountPercent: discount,
     traderPoints: trader,
+    supplyCutPercent: cut,
   });
   if (refusal !== null && !adminWaives(refusal, admin)) return { kind: 'refused', reason: refusal };
 
@@ -609,7 +614,14 @@ export function barter(
     give,
     want,
     amount,
-    brokerPayoutRate(want, brokerRate(base.level, discount, trader), discount, trader, give),
+    brokerPayoutRate(
+      want,
+      brokerRate(base.level, discount, trader, standing.brokerRatePercent),
+      discount,
+      trader,
+      give,
+      standing.supplyDiscountPercent,
+    ),
   );
   // The quote floors, and valuing by worth means ten of a cheap thing can buy less than one of a
   // dear one. Past the minimum count and still nothing back is the same trade as under it.

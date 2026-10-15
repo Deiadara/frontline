@@ -277,11 +277,20 @@ describe('an officer in the line (§D3)', () => {
   it('confirms the discount is what moved it: an unflagged officer stack takes more', () => {
     const leader = officer({ strength: 60, toughness: 50, resolve: 60 });
     const sim = led({ razors: 10 }, { razors: 10 }, leader);
-    const shooter = stackOf(sim.defender, 'Razors');
     const officerIndex = sim.attacker.stacks.findIndex((stack) => stack.officer !== undefined);
-    const discounted = allocate(shooter, sim.attacker.stacks)[officerIndex]!.share;
-    const plain = allocate(shooter, sim.attacker.stacks.map(unflagged))[officerIndex]!.share;
+    // On a FOCUS shooter the whole budget is by threat, so the discount moves the share by the
+    // closed form exactly (2026-10-13). A plain shooter sends half its fire by bodies, which the
+    // discount halves the same way, so its share is between the two halves' answers.
+    const shooter = stackOf(sim.defender, 'Razors');
+    const aimed = { ...shooter, unit: { ...shooter.unit, focus: true } };
+    const discounted = allocate(aimed, sim.attacker.stacks)[officerIndex]!.share;
+    const plain = allocate(aimed, sim.attacker.stacks.map(unflagged))[officerIndex]!.share;
     expect(discounted).toBeCloseTo((plain * OFFICER_TARGET_SHARE) / (1 - plain / 2), 6);
+    const blended = allocate(shooter, sim.attacker.stacks)[officerIndex]!.share;
+    const blendedPlain = allocate(shooter, sim.attacker.stacks.map(unflagged))[officerIndex]!.share;
+    expect(blended).toBeLessThan(blendedPlain);
+    expect(blended / blendedPlain).toBeGreaterThan(0.4);
+    expect(blended / blendedPlain).toBeLessThan(0.75);
   });
 
   it('never appears in a casualty list, alive or dead', () => {

@@ -212,6 +212,12 @@ export const MeResponseSchema = z.object({
   /** The clock beside each quote. See {@link BuildClocksSchema}. Optional for the same reason. */
   buildClocks: BuildClocksSchema.optional(),
   /**
+   * What the Generator's burn costs this crew in oil, with the ground's cut off it (Shaft Nine,
+   * `buildBoostOilFor`). Optional for the same reason; a client without it prices the burn off
+   * the structures alone (`buildBoostOilCost`).
+   */
+  buildBoostOil: z.number().int().nonnegative().optional(),
+  /**
    * What the district makes an hour right now, per resource, the way the settle pays it: the
    * structures, the ground held, the crew's line speed and yields, and any disruption running.
    *
@@ -230,6 +236,9 @@ export const MeResponseSchema = z.object({
       productionPercent: z.number(),
       storageCapacityPercent: z.number(),
       resourceYieldPercent: FractionalResourcesSchema.optional(),
+      // The Collection Plate's share per fitted modification; the structure window runs the same
+      // rates over this object, and dropped it at the parser until 2026-10-11.
+      modificationOutputPercent: z.number().optional(),
       raidCutPercent: z.number().optional(),
     })
     .optional(),
@@ -428,6 +437,11 @@ export const LocationViewSchema = z.object({
       cost: PartialResourcesSchema,
       note: z.string().min(1),
       seconds: z.number().int().positive(),
+      /**
+       * What the next level pays, line by line, through the same text as `bonuses`: a ladder's
+       * step used to be bought blind (2026-10-13). Empty when the next level pays nothing new.
+       */
+      pays: z.array(z.string()).default([]),
     })
     .nullable(),
   /**
@@ -480,6 +494,32 @@ export const LocationViewSchema = z.object({
   /** The Tolling Tower's switch, on its own sheet: on or off, and when it may next be thrown. */
   switch: z
     .object({ on: z.boolean(), changesAt: IsoDateTimeSchema.nullable() })
+    .nullable()
+    .default(null),
+  /**
+   * Lampman's Row (2026-10-09): lit or out, when the holder may next throw them, and how far they
+   * reach at this level (`lampsReach`). Null on every other location.
+   */
+  lamps: z
+    .object({
+      lit: z.boolean(),
+      changesAt: IsoDateTimeSchema.nullable(),
+      tiers: z.number().int().positive(),
+      wholeCity: z.boolean(),
+    })
+    .nullable()
+    .default(null),
+  /**
+   * The Reactor Shed (2026-10-14): the unit type made RADIOACTIVE (public, it is on the holder's
+   * cards and in their fights), and for the holder when the lock lifts and what they may name.
+   * Null on every other location.
+   */
+  reactor: z
+    .object({
+      unitId: z.string().nullable(),
+      changesAt: IsoDateTimeSchema.nullable(),
+      options: z.array(z.object({ id: z.string(), name: z.string() })),
+    })
     .nullable()
     .default(null),
   /** The Pamphlet Wall: what is pinned, how many pins, and whether the pins may be set or swapped. */
@@ -654,6 +694,20 @@ export const ThrowSwitchRequestSchema = z.object({
 });
 export type ThrowSwitchRequest = z.infer<typeof ThrowSwitchRequestSchema>;
 
+/** `POST /city/lamps`: light Lampman's Row's lamps, or put them out (2026-10-09). */
+export const ThrowLampsRequestSchema = z.object({
+  locationId: z.string().min(1),
+  lit: z.boolean(),
+});
+export type ThrowLampsRequest = z.infer<typeof ThrowLampsRequestSchema>;
+
+/** `POST /city/reactor`: name the Reactor Shed's RADIOACTIVE unit type (2026-10-14). */
+export const ChooseReactorRequestSchema = z.object({
+  locationId: z.string().min(1),
+  unitId: z.string().min(1),
+});
+export type ChooseReactorRequest = z.infer<typeof ChooseReactorRequestSchema>;
+
 export const PinPamphletsRequestSchema = z.object({
   locationId: z.string().min(1),
   pins: z.array(z.string().min(1)),
@@ -719,7 +773,15 @@ export const UnitOptionSchema = z.object({
   musteredAt: BuildingKindSchema,
   unique: z.boolean(),
   stats: UnitStatsSchema,
-  modifiers: z.array(z.object({ label: z.string(), description: z.string(), when: z.string() })),
+  modifiers: z.array(
+    z.object({
+      label: z.string(),
+      description: z.string(),
+      when: z.string(),
+      /** The sheet's signature, drawn in gold (`UnitSpec.goldenModifiers`). Absent means plain. */
+      golden: z.boolean().optional(),
+    }),
+  ),
   /**
    * The flags that are rules rather than percentages (`units/catalog.ts` `UNIT_RULES`).
    *
@@ -728,7 +790,18 @@ export const UnitOptionSchema = z.object({
    * They were on the unit sheet and on no screen at all, so a player could field an Ironside
    * without ever learning that it is a shield line.
    */
-  rules: z.array(z.object({ id: z.string(), label: z.string(), description: z.string() })),
+  rules: z.array(
+    z.object({
+      id: z.string(),
+      label: z.string(),
+      description: z.string(),
+      /**
+       * The ground level behind a rule that grows with one: the Crate Ring's for AD HOC ARMY
+       * (2026-10-09), which the card reads to draw the robot at that level. Absent elsewhere.
+       */
+      level: z.number().int().nonnegative().optional(),
+    }),
+  ),
   /**
    * §A4: the location characteristics this unit is unusually good or bad in.
    *
@@ -745,6 +818,13 @@ export const UnitOptionSchema = z.object({
       /** `+11` / `−8` per tier, or `Immune`. */
       note: z.string().min(1),
       good: z.boolean(),
+      /**
+       * What stops this label biting this crew's unit, by name, or null (maintainer, 2026-10-15):
+       * the Tolling Tower while its bells ring, the held place that makes the crew immune (the
+       * Frontier Chapel's Eerie), or the unit's door ("The Crimson Stage at level 4"). The card
+       * strikes the chip through and the hover names it.
+       */
+      cancelledBy: z.string().min(1).nullable().default(null),
     }),
   ),
   cost: PartialResourcesSchema,
@@ -757,7 +837,8 @@ export const UnitOptionSchema = z.object({
   doorLevel: z.number().int().min(1).nullable().default(null),
   doorSteps: z.array(z.string()).default([]),
   /**
-   * §A4: percentage points this unit's *own* ground takes off, on top of `musterCostReduction`.
+   * §A4: percentage points this unit's *own* ground takes off, on top of `musterCostReduction`,
+   * and a cut paid on its tier alone (the Hiring Hall's on the rabble).
    *
    * Per unit rather than on the response, because that is what the rule is: working the Doghouse
    * up makes Cyberhounds cheaper and quicker and does nothing at all for a Razor. The crew-wide
@@ -790,6 +871,12 @@ export const UnitOptionSchema = z.object({
       supplies: z.array(BonusLineSchema).optional(),
     })
     .optional(),
+  /**
+   * The held ground's flat points that reach this unit, each naming its plot: "+8 armour (The
+   * Casting Pit)". The same lines the battle report gives as reasons; the card showed none of
+   * them until 2026-10-13. Optional out of the parser like `homeCostReduction`, read as `?? []`.
+   */
+  groundStats: z.array(z.string()).optional(),
   unlocked: z.boolean(),
   /**
    * The most of this unit the crew may still add under a cap tied to held ground
@@ -947,35 +1034,32 @@ export const UnitsResponseSchema = z.object({
    * reading and the one every crew without the programme gets.
    */
   carriersFight: z.boolean().optional(),
-  /**
-   * Whether this crew's machines seat anything at all (`any_ride`, bug pass 2026-09-19).
-   *
-   * The sibling of `carriersFight` above, and it was missing for the same reason: `no_ride` is a
-   * fact about a sheet, `any_ride` waives it for a *crew*, and no payload said which crews. Three
-   * things grant it (a location bonus, a research rung and a perk) and the server reads it at both
-   * doors that spend seats, `ridingUnitSlots` in `battle/deploy.ts` and `ridingGroups` in the
-   * settle. The two screens that quote seats asked the catalogue instead, so a crew holding the
-   * waiver was told its Colossus walked, was charged no seat for it, and had the batch refused
-   * `no_seats` on confirm.
-   *
-   * Optional out of the parser for the reason the two above it are: the server always sends it,
-   * and `?? false` is the reading every crew without the waiver gets.
-   */
-  anyRide: z.boolean().optional(),
-  /**
-   * Environment labels the crew's units ignore everywhere (the Tolling Tower's Noisy, maintainer
-   * 2026-10-07), so the roster can draw the weakness crossed out. Empty for a crew with none.
-   */
-  ignoredLabels: z.array(z.string()).default([]),
   /** Levels of ANTI-COMBINE the crew holds, drawn as a tag on every unit card. */
   antiCombineLevels: z.number().int().nonnegative().default(0),
+  /**
+   * Whether the crew holds a Reactor Shed (2026-10-14): every fighting card then shows RADIOACTIVE
+   * as a locked tag until the shed names it. Optional; `?? false` is a crew without one.
+   */
+  reactorHeld: z.boolean().optional(),
   /**
    * The crew's walking pace bonus (`unitSpeedPercent`, off the standing fold), which the march to a
    * fight puts on every walker (`battle/movement.ts`). The deploy window and the battle page read
    * a column's pace off this roster, and quoted it without the bonus (bug pass, 2026-10-02).
-   * Optional for the reason `anyRide` is; `?? 0` is the reading of a crew with none.
+   * Optional for the reason `carriersFight` is; `?? 0` is the reading of a crew with none.
    */
   unitSpeedPercent: z.number().optional(),
+  /**
+   * The crew's extra seats on every machine (`vehicleCapacityPercent`, the Hump), which every door
+   * that counts a seat reads through `vehicleSeats`. The deploy window, the battle page and the
+   * mission dialog quote seats off this roster. Optional for the reason `carriersFight` is; `?? 0` is
+   * the reading of a crew with none.
+   */
+  vehicleCapacityPercent: z.number().optional(),
+  /**
+   * The crew's extra pace on every machine (`vehicleSpeedPercent`, the Coaling Stage), read through
+   * `machineSpeed`. Optional for the same reason; `?? 0` for a crew with none.
+   */
+  vehicleSpeedPercent: z.number().optional(),
   /**
    * §A4: the Sleepers this crew has planted on ground it does not hold (`sleepers.ts`).
    *
@@ -1395,6 +1479,13 @@ export const MissionRoadSchema = z.object({
    * 2026-10-04). Optional out of the parser; read it as `?? 0`.
    */
   baseCutPercent: z.number().optional(),
+  /**
+   * The crew's extra seats on every machine (`vehicleSeats`, the Hump, 2026-10-09), which the
+   * launch spends on the column's pace. Optional out of the parser; read it as `?? 0`.
+   */
+  vehicleCapacityPercent: z.number().optional(),
+  /** The crew's extra pace on every machine (`machineSpeed`, the Coaling Stage). `?? 0`. */
+  vehicleSpeedPercent: z.number().optional(),
 });
 export type MissionRoad = z.infer<typeof MissionRoadSchema>;
 
@@ -1744,6 +1835,11 @@ export const ResearchHeadSchema = z.object({
    * points and curved (P7-C, 2026-10-02): the share off a clock with them, less the share without.
    */
   addsPercent: z.number(),
+  /**
+   * Whether the chair has settled (`chairSettlesAt`): until it has, both cuts above are nothing and
+   * the page says so, rather than promising that research is 0.0% faster.
+   */
+  settled: z.boolean(),
 });
 export type ResearchHead = z.infer<typeof ResearchHeadSchema>;
 
@@ -1973,7 +2069,6 @@ export const TrainingResponseSchema = z.object({
   perDay: z.number().int().positive(),
   /** Drills the floor's queue holds, the running one included: `TRAINING_QUEUE_SLOTS` plus the Professor's rung. */
   queueSlots: z.number().int().positive(),
-  gainPerSession: z.number().int().positive(),
   /** The hour before anybody's sheet shortens it (`TRAINING_SECONDS`). Each subject has its own. */
   sessionSeconds: z.number().int().positive(),
   subjects: z.array(TrainingSubjectSchema),
@@ -2029,6 +2124,21 @@ export const CrewStandingResponseSchema = z.object({
    * worth a flat load per unit on every haul, and a board that read the printed sheet quoted a
    * smaller bag than the settle paid for a crew that had finished Haul Rigging.
    */
+  /**
+   * What "Holding your ground" is actually worth in a fight at home (maintainer, 2026-10-13):
+   * the standing fold's defence sum with the Gate's percentage on it, through the held-ground
+   * taper (`heldDefense`). The raw channel on `effects` is what the card used to print, and a crew
+   * at 60 raw with a level 20 Gate is spent as 80 of 110.
+   */
+  heldDefensePercent: z.number().default(0),
+  /**
+   * Every medic point a won fight is recovered on (maintainer, 2026-10-15): the crew's own, its
+   * held ground's and the Infirmary's, added (`medicPointsOf`). The raw channel on `effects` is
+   * the people alone, which is what the medic card used to print.
+   */
+  medicPoints: z.number().default(0),
+  /** ...and the share of the dead they walk home, through the recovery curve. */
+  medicSharePercent: z.number().default(0),
   marks: z.record(z.string(), z.array(z.string()).readonly()).default({}),
   /**
    * What a haul is **actually** multiplied by, which `effects` above cannot say.
@@ -2058,6 +2168,13 @@ export const CrewStandingResponseSchema = z.object({
    * same reason: the return pays it, and a crew that is out is quoted what it will bring home.
    */
   missionCapsPercent: z.number().default(0),
+  /**
+   * The payroll book's bonus, people and ground together (the Printworks held whole), for the
+   * Quarters' line and the ledger drawn before the served one lands. `effects` is people-only,
+   * so a reader of it never saw the ground's share (2026-10-13). Optional out of the parser like
+   * `homeCostReduction`, read as `?? 0`.
+   */
+  payrollPercent: z.number().optional(),
   /** The crew's own spy points, for the Master of Whispers' seat. See `SpyPointsSchema`. */
   spyPoints: SpyPointsSchema.optional(),
 });
@@ -2156,6 +2273,11 @@ export const MarketResponseSchema = z.object({
    * Optional out of the parser; read it as `?? null`.
    */
   traderPoints: z.number().nullable().optional(),
+  /**
+   * The ground's cut off the supply run alone (the Long Bond, 2026-10-09), which every shared
+   * supply price function takes last. Optional out of the parser; read it as `?? 0`.
+   */
+  supplyCutPercent: z.number().optional(),
 });
 export type MarketResponse = z.infer<typeof MarketResponseSchema>;
 

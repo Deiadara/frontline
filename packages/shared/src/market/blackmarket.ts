@@ -325,7 +325,7 @@ const SPECS: readonly BlackMarketGoodSpec[] = [
     name: 'Stolen Cybernetics Plans',
     description: 'A drum of microfiche and a reader that only works if you hold it level.',
     effect:
-      'The Black Clinic Chrome blueprint, whole and unlocked: +40 offense, +14 evasion, +10 speed and +10 armour on any unit. Only the fence has it.',
+      'The Black Clinic Chrome blueprint, whole and unlocked: +40 damage, +14 evasion, +10 speed and +10 armour on any unit. Only the fence has it.',
     infamy: 520,
     minNotoriety: 7,
     grants: { bp_fence_black_clinic_chrome: 1 },
@@ -336,7 +336,7 @@ const SPECS: readonly BlackMarketGoodSpec[] = [
     name: 'Munitions Schematics',
     description: 'Hand-copied, in three different hands, and the last page is missing.',
     effect:
-      'The Hollowpoint Munitions blueprint, whole and unlocked: +64 offense, +20 penetration and +8 intimidation on a shooter. Only the fence has it.',
+      'The Hollowpoint Munitions blueprint, whole and unlocked: +64 damage, +20 penetration and +8 intimidation on a shooter. Only the fence has it.',
     infamy: 480,
     minNotoriety: 6,
     grants: { bp_fence_hollowpoint_munitions: 1 },
@@ -347,7 +347,7 @@ const SPECS: readonly BlackMarketGoodSpec[] = [
     name: 'Rotorcraft Plans',
     description: 'A full airframe set, rolled in a length of pipe.',
     effect:
-      'The Rotor Drop Rig blueprint, whole and unlocked: +20 speed, +10 evasion, +40 carry and +4 stealth on a carrier or a runner. Only the fence has it.',
+      'The Rotor Drop Rig blueprint, whole and unlocked: +20 speed, +10 evasion, +40 loot and +4 stealth on a carrier or a runner. Only the fence has it.',
     infamy: 560,
     minNotoriety: 8,
     grants: { bp_fence_rotor_drop_rig: 1 },

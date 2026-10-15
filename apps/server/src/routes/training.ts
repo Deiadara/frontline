@@ -16,6 +16,9 @@ import {
   cancelDrill,
   drillCancellable,
   drillHoldBlocker,
+  casualtyRecoveryShare,
+  heldDefense,
+  medicPointsOf,
 } from '@frontline/shared';
 import type { FastifyInstance } from 'fastify';
 import { requireArea } from '../progression/doors.js';
@@ -29,7 +32,7 @@ import {
 import { tallyDrillThirdInLine } from '../feats/tally.js';
 import { chairLinesFor, crewEffectsFor, officerFitReader } from '../crew/standing.js';
 import { chairLineContext } from '../crew/roster.js';
-import { ledgerFor } from '../bar/hire.js';
+import { heldByBidsFor, ledgerFor } from '../bar/hire.js';
 import { AppError, parseBody } from '../errors.js';
 import { standingEffectsFor } from '../crew/standing.js';
 import { spyPointsFor } from '../spying/spying.js';
@@ -213,7 +216,11 @@ export function registerTrainingRoutes(app: FastifyInstance): void {
       overseer: settled.overseer,
       chairs,
       overseerGrade,
-      payroll: ledgerFor(settled.base, standing),
+      payroll: ledgerFor(
+        settled.base,
+        standing,
+        heldByBidsFor(app.repos, settled.base, new Date(now), standing),
+      ),
       // Every numeric channel of the fold, not the `EFFECT_CHANNELS` list: that list is the sheet's
       // twenty-two, and the perk-only channels (`payrollStepDiscountPercent` among them) are not on
       // it, so filtering by it dropped exactly the figures this response exists to carry. `perHour`
@@ -228,12 +235,25 @@ export function registerTrainingRoutes(app: FastifyInstance): void {
       // Beside the numbers rather than inside them: the screens that quote a haul need to know
       // which sheets have been granted `picker`, and a record of arrays cannot ride on `effects`.
       marks: effects.unitMarks,
+      // The defence figure the fight spends: ground and people, the Gate on top, then the taper.
+      heldDefensePercent:
+        Math.round(heldDefense(standing.defensePercent + standing.gatePercent) * 10) / 10,
+      // ...and the medics the same way (maintainer, 2026-10-15): every point a won fight is
+      // recovered on, and the share it walks home (`medicPointsOf`, `casualtyRecoveryShare`).
+      medicPoints: medicPointsOf(standing.casualtyRecoveryPercent, settled.base.buildings),
+      medicSharePercent:
+        Math.round(
+          casualtyRecoveryShare(
+            medicPointsOf(standing.casualtyRecoveryPercent, settled.base.buildings),
+          ) * 10,
+        ) / 10,
       // ...and the bag the settle actually pays, off the standing fold. See the note on the
       // schema: `effects` is people-only on purpose, and a held Pawn Shop and the three raid
       // modifications are worth up to 83 points that a board reading `effects` never quoted.
       haulPercent: standing.lootCapacityPercent,
       carrierFlat: standing.carrierLootFlat,
       missionCapsPercent: standing.missionCapsPercent,
+      payrollPercent: standing.payrollPercent,
       // The crew's own spy totals, for the Master of Whispers' seat (2026-10-07).
       spyPoints: spyPointsFor(app.repos, settled.base, new Date(now)),
     };

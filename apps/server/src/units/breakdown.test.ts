@@ -302,7 +302,7 @@ describe('where a muster percentage comes from', () => {
         upgradingUntil: null,
         garrison: {},
       });
-    hold(EVERY_LOCATION.find((location) => location.kind === 'armory')!.id, 10);
+    hold(EVERY_LOCATION.find((location) => location.id === 'blacksite-armory')!.id, 10);
     // The Cyberhounds' own ground, to be quoted on top of a crew already past the knee.
     hold('steelbelt-kennels', 6);
 

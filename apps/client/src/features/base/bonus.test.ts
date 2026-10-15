@@ -89,15 +89,15 @@ describe('what a structure is worth', () => {
    * to the *smallest* shelf rather than the bulk, because that is the one a player loses goods to.
    */
   /**
-   * The two muster lines quote what the bench does with them (bug pass, 2026-10-01).
+   * The two muster lines quote their raw points (maintainer, 2026-10-15).
    *
-   * The Gauntlet's figure is a speed: `musterSecondsFor` divides the clock by `1 + speed`, so a
-   * maxed Gauntlet's 40 takes 29% off, and the line printed 40. The Greenhouse and its cards taper
-   * toward 70% off the supplies line (`suppliesLineCut`, 2026-10-01), and the line prints the
-   * curve rather than the raw sum.
+   * The Gauntlet's figure is a speed the bench adds to the crew's and tapers; the Greenhouse's and
+   * its cards' are added to the crew's supplies cut and tapered toward 70% off the line
+   * (`suppliesLineCut`). A share of either curve on its own is not what a muster spends beside the
+   * crew's, so a structure line prints what it adds and the Crew page prints the spent figure.
    */
-  it('quotes the muster clock and the supplies cut as the bench charges them', () => {
-    expect(structureBonus('gauntlet', DISTRICT, 20).value).toBe('29%');
+  it('quotes the muster speed and the supplies points the structures add', () => {
+    expect(structureBonus('gauntlet', DISTRICT, 20).value).toBe('+40 points');
 
     const fed: Building[] = [
       ...DISTRICT.filter((building) => building.kind !== 'greenhouse'),
@@ -108,15 +108,14 @@ describe('what a structure is worth', () => {
         modifications: ['greenhouse_sealed_growrooms', 'greenhouse_grey_water_loop'],
       },
     ];
-    // 10 from the Greenhouse (half a point a level), 7 and 3 from the cards: 20 raw, 17.4 on the
-    // curve. Before the nerf the same district was 51 raw.
+    // 10 from the Greenhouse (half a point a level), 7 and 3 from the cards: 20 raw.
     expect(musterSuppliesReduction(fed)).toBe(20);
-    expect(structureBonus('greenhouse', fed, 20).value.split(' · ').at(-1)).toBe('-17%');
+    expect(structureBonus('greenhouse', fed, 20).value.split(' · ').at(-1)).toBe('20 points');
   });
 
-  it('tapers the Gauntlet line past the knee rather than stopping it', () => {
-    // A Gauntlet at 20 with a card in four structures: 40 + 14 + 8 + 8 + 7 = 77 speed. The curve
-    // makes it 69.6, which is 41% off the clock; the raw sum would print 43% and the old stop 38%.
+  it('adds the Gauntlet`s cards past the knee, untapered', () => {
+    // A Gauntlet at 20 with a card in four structures: 40 + 14 + 8 + 8 + 7 = 77 speed, past the
+    // knee the bench tapers at, and the line prints all 77.
     const drilled: Building[] = [
       ...DISTRICT,
       {
@@ -136,7 +135,7 @@ describe('what a structure is worth', () => {
     ];
     expect(musterTimeReduction(drilled)).toBe(77);
     expect(musterTimeReduction(drilled)).toBeGreaterThan(MUSTER_SPEED_KNEE);
-    expect(structureBonus('gauntlet', drilled, 20).value).toBe('41%');
+    expect(structureBonus('gauntlet', drilled, 20).value).toBe('+77 points');
   });
 
   it('quotes the metal shelf, not the bulk one, as the low figure', () => {

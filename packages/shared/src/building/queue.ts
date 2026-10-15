@@ -43,11 +43,14 @@ import {
  */
 export const BASE_BUILD_QUEUE = 4;
 
-/** What Batch Runs adds. Two, so the earned queue is the six the game shipped with. */
-export const BUILD_QUEUE_RESEARCH_BONUS = 2;
+/**
+ * What Batch Runs adds. One, so the earned queue is five: every queue in the game tops out at five
+ * places, which is what the queue boxes on screen are drawn for (maintainer, 2026-10-08).
+ */
+export const BUILD_QUEUE_RESEARCH_BONUS = 1;
 
 /**
- * The rung that buys the other two slots: the Engineer track's third, `Batch Runs`.
+ * The rung that buys the fifth slot: the Engineer track's third, `Batch Runs`.
  *
  * Declared here rather than in `research/tracks.ts`, which is the pattern the other earned
  * unlocks follow (the five spy rungs): the id lives beside the rule that reads it, so a rename has
@@ -126,6 +129,22 @@ export function queueRemainingMs(entry: BuildQueueEntry, now: Date): number {
   return Math.max(0, queueCompletesAt(entry).getTime() - now.getTime());
 }
 
+/** Whether the order is still waiting its turn behind the one being worked. */
+export function queueWaiting(entry: BuildQueueEntry, now: Date): boolean {
+  return Date.parse(entry.startedAt) > now.getTime();
+}
+
+/**
+ * The time a queue row shows (maintainer, 2026-10-08): what is left while the order is worked, and
+ * its whole duration, holding still, while it waits its turn. Counting a waiting order down from
+ * the end of everything in front of it read as two things being built at once.
+ */
+export function queueClockMs(entry: BuildQueueEntry, now: Date): number {
+  return queueWaiting(entry, now)
+    ? entry.durationSeconds * SECOND_MS
+    : queueRemainingMs(entry, now);
+}
+
 /** Fraction complete, clamped to 0..1: the progress bar on a queue row. */
 /** Whether the order can still be called off: not yet started, or inside its first tenth. */
 export function queueCancellable(entry: BuildQueueEntry, now: Date): boolean {
@@ -145,44 +164,32 @@ export function queueCancelWindowMs(entry: BuildQueueEntry, now: Date): number {
 }
 
 /**
- * Whether calling off `orderId` leaves every order behind it standing: each still the next level of
- * its structure, and each still unlocked by the district the rest of the queue would build (bug
- * pass, 2026-09-27).
+ * The orders that fall with `orderId` when it is called off (maintainer, 2026-10-08).
  *
- * Each order was judged against the queue in front of it, and nothing re-asks that when the later
- * order lands, so a Gate queued 1 to 2 and 2 to 3 with the first cancelled jumped from 1 to 3 for a
- * tenth of level 2's price. The server refuses such a cancel rather than cancelling the tail too:
- * those orders are the player's to call off.
- *
- * Shared so the screens ask the server's question (bug pass, 2026-10-02): a cancel mark counted down
- * on an order with another built on it behind, and the press came back refused.
+ * Each order was judged against the queue in front of it, and nothing re-asks that when an order
+ * ahead of it goes, so a Gate queued 1 to 2 and 2 to 3 with the first cancelled would jump from 1
+ * to 3 for one level's price (bug pass, 2026-09-27). It used to refuse that cancel outright; now
+ * the orders built on it go with it, each refunded the same way. Walked in order, so an order that
+ * falls is not counted as standing in front of the ones behind it.
  */
-export function queueTailStands(
+export function queueCancelCascade(
   queue: BuildQueue,
   buildings: readonly Building[],
   playerLevel: number,
   orderId: string,
-): boolean {
+): string[] {
   const at = queue.findIndex((queued) => queued.id === orderId);
-  const remaining = queue.filter((queued) => queued.id !== orderId);
-  return remaining.slice(at).every((later, offset) => {
-    const ahead = remaining.slice(0, at + offset);
-    return (
-      nextQueuedLevel(later.kind, buildings, ahead) === later.level &&
-      unmetForQueue(later.kind, buildings, ahead, playerLevel).length === 0
-    );
-  });
-}
-
-/** The cancel window a screen may offer: the order's first tenth, and none when it is built on. */
-export function buildCancelWindowMs(
-  entry: BuildQueueEntry,
-  district: { buildQueue: BuildQueue; buildings: readonly Building[]; level: number },
-  now: Date,
-): number {
-  return queueTailStands(district.buildQueue, district.buildings, district.level, entry.id)
-    ? queueCancelWindowMs(entry, now)
-    : 0;
+  if (at < 0) return [];
+  const kept = queue.slice(0, at);
+  const falls: string[] = [];
+  for (const later of queue.slice(at + 1)) {
+    const stands =
+      nextQueuedLevel(later.kind, buildings, kept) === later.level &&
+      unmetForQueue(later.kind, buildings, kept, playerLevel).length === 0;
+    if (stands) kept.push(later);
+    else falls.push(later.id);
+  }
+  return falls;
 }
 
 export function queueProgressAt(entry: BuildQueueEntry, now: Date): number {

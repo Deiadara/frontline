@@ -172,6 +172,16 @@ export const BuildAddonResponseSchema = z.object({
 export type BuildAddonResponse = z.infer<typeof BuildAddonResponseSchema>;
 
 /**
+ * `POST /scrapyard/breakdown`: one component out of the parts bin, broken down into HQ metal and
+ * scrap by its rarity (`COMPONENT_BREAKDOWN`, maintainer 2026-10-09). Answered like a build.
+ */
+export const BreakDownComponentRequestSchema = z.object({
+  itemId: z.string().min(1),
+  acceptWaste: AcceptWasteSchema,
+});
+export type BreakDownComponentRequest = z.infer<typeof BreakDownComponentRequestSchema>;
+
+/**
  * §B7: a gate on a district this crew has taken whole, as the city screen sees it.
  *
  * Sent for every district the crew holds outright, and for no others: the whole point of the

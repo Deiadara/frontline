@@ -27,6 +27,8 @@ export interface AffinityRow {
   /** The rate, in the roster's words: `+9% per tier`, or the immunity when there is one. */
   note: string;
   good: boolean;
+  /** What cancels it for a crew's unit; always null here, where no crew is reading the sheet. */
+  cancelledBy: string | null;
 }
 
 /**
@@ -54,6 +56,7 @@ export function unitAffinities(sheet: UnitSpec): AffinityRow[] {
       // that shrugs off the baseline and is still worse for being there has not been handed a
       // good place to stand.
       good: per === 0 ? immune : per > 0,
+      cancelledBy: null,
     });
   }
   return rows;

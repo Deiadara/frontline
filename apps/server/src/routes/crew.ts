@@ -8,7 +8,7 @@ import {
 } from '@frontline/shared';
 import { AppError, parseBody } from '../errors.js';
 import { projectCrew } from '../crew/roster.js';
-import { ownBase } from './own-base.js';
+import { ownBase, settledOwnBase } from './own-base.js';
 import { officerDuty } from '../crew/duty.js';
 import { settleAndResolveMissions } from '../missions/resolve.js';
 
@@ -21,7 +21,9 @@ import { settleAndResolveMissions } from '../missions/resolve.js';
  */
 export function registerCrewRoutes(app: FastifyInstance): void {
   app.get('/crew', { preHandler: app.authenticate }, (request): CrewResponse => {
-    return projectCrew(app.repos, ownBase(app, request.currentUser.id));
+    // Settled, like the Overseer's own page: a drill or a rung that landed unread moves the
+    // sheets and the chair lines this draws.
+    return projectCrew(app.repos, settledOwnBase(app, request.currentUser.id, new Date()));
   });
 
   /**

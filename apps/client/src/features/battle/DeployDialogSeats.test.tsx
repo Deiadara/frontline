@@ -1,6 +1,12 @@
-import { STARTING_RESOURCES, battlefieldFor, type Army, type BattleView } from '@frontline/shared';
+import {
+  STARTING_RESOURCES,
+  battlefieldFor,
+  type Army,
+  type BattleView,
+  findLocation,
+} from '@frontline/shared';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DeployDialog } from './DeployDialog';
 import { useSession } from '../../store/session';
@@ -45,7 +51,7 @@ const view: BattleView = {
   districtName: 'Steelbelt',
   battlefield: battlefieldFor({
     locationName: 'Kessler Press',
-    kind: 'scrap_press',
+    ground: findLocation('steelbelt-press')!,
     at: new Date(MARK),
     weather: 'normal',
   }),
@@ -71,7 +77,7 @@ const view: BattleView = {
 const fetchMock = vi.fn();
 
 /** Only `/units` is answered: nothing in this file presses a control that writes. */
-function stubApi(anyRide = false): void {
+function stubApi(): void {
   fetchMock.mockImplementation((path: string) => {
     if (String(path).endsWith('/units')) {
       return Promise.resolve({
@@ -97,7 +103,6 @@ function stubApi(anyRide = false): void {
             musterCostReduction: 0,
             musterSpeedBonus: 0,
             built: [],
-            anyRide,
           }),
       } as Response);
     }
@@ -221,57 +226,14 @@ describe('what the machines will seat', () => {
 });
 
 /**
- * §C3: the crew that can seat anything (`any_ride`, bug pass 2026-09-19).
+ * §C3: the Colossus walks for every crew (maintainer, 2026-10-15).
  *
- * `no_ride` is the one rule on a sheet that three different things in the game can *waive*: a
- * location bonus, a research rung and a perk all set `anyRide`, and the server reads it in both
- * places that matter. `ridingUnitSlots(muster, effects.anyRide)` is what `deploy.ts` refuses a
- * batch against, and `ridingGroups(fielded, anyRide)` is what the settle spends seats with.
- *
- * The window read neither. It asked the catalogue (`walksAlways`), which is a fact about the
- * sheet and not about this crew, so a crew holding the waiver got a Colossus that was charged no
- * seat on screen and twelve at the door: the stepper went to its Max, the footer said the yard
- * was empty, and the confirm came back `no_seats` with nothing on the window having said why.
+ * `no_ride` keeps a sheet off every machine, and the waiver that used to lift it (`any_ride`) left
+ * the game. The window charges it no seat, says it walks, and leaves every seat to the rest.
  */
-describe('a crew whose machines seat anything', () => {
-  /*
-   * The waiver rides on `/units`, so every assertion here is behind the fetch.
-   *
-   * `open` renders before the query has answered, and the first paint is the catalogue's reading
-   * by construction: `roster.data` is undefined and `anyRide` falls to `false`. Waiting for the
-   * row to change is the assertion, not a workaround for one, and the last test in this block is
-   * the control that proves the wait is not simply waiting for nothing.
-   */
-  it('charges the Colossus its twelve seats and stops the stepper there', async () => {
-    stubApi(true);
-    // An Armoured Car seats thirty. The Colossus is twelve of them for this crew, not nothing.
+describe('a Colossus beside a truck with room for it', () => {
+  it('says it walks and charges it no seat, once the roster has answered', async () => {
     open({ vehicles: { armoured_car: 1 } });
-    await waitFor(() => expect(screen.queryByTestId('walks-the_colossus')).toBeNull());
-    expect(field('line-the_colossus').max).toBe('1');
-    fireEvent.click(screen.getByTestId('deploy-max-the_colossus'));
-    expect(screen.getByTestId('deploy-seats')).toHaveTextContent('12 of 30 unit slots loaded');
-    // ...and the eighteen left are what the Razors may have, not the whole thirty.
-    fireEvent.click(screen.getByTestId('deploy-max-razors'));
-    expect(screen.getByTestId('deploy-seats')).toHaveTextContent('21 of 30 unit slots loaded');
-  });
-
-  it('stops offering the Colossus a seat it does not have', async () => {
-    stubApi(true);
-    // One Scrappy seats two. Twelve will not fit, so the stepper may not leave zero.
-    open({ vehicles: { motorcycle: 1 } });
-    await waitFor(() => expect(field('line-the_colossus').max).toBe('0'));
-  });
-
-  it('does not tell this crew the Colossus walks', async () => {
-    stubApi(true);
-    open({ vehicles: { armoured_car: 1 } });
-    await waitFor(() => expect(screen.queryByTestId('walks-the_colossus')).toBeNull());
-  });
-
-  it('still says it walks for a crew without the waiver', async () => {
-    open({ vehicles: { armoured_car: 1 } });
-    // Awaited the same way as the three above, so this is the same moment in the render and the
-    // difference between them is the payload and nothing else.
     await screen.findByTestId('deploy-seats');
     expect(screen.getByTestId('walks-the_colossus')).toBeInTheDocument();
     expect(field('line-the_colossus').max).toBe('1');

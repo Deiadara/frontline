@@ -182,6 +182,23 @@ export function tallyBenchTrade(repos: Repositories, baseId: string, paidXp: boo
   record(repos, baseId, [one('bench_trades'), ...(paidXp ? [one('bench_experience')] : [])]);
 }
 
+/** A unit type named RADIOACTIVE at a Reactor Shed (2026-10-14). */
+export function tallyReactorChosen(repos: Repositories, baseId: string): void {
+  record(repos, baseId, [one('reactor_choices')]);
+}
+
+/** Extra points the Technicians' Bunkroom paid off this crew's finished drills (2026-10-09). */
+export function tallyDrillBonusPoints(repos: Repositories, baseId: string, count: number): void {
+  if (count <= 0) return;
+  record(repos, baseId, [by('drill_bonus_points', count)]);
+}
+
+/** Robots this crew's Geppetto made in a fight, declared or on a job (AD HOC ARMY, 2026-10-09). */
+export function tallyRobotsMade(repos: Repositories, baseId: string, count: number): void {
+  if (count <= 0) return;
+  record(repos, baseId, [by('robots_made', count)]);
+}
+
 /** Enemy units this crew made run, in a declared fight or off a battle job (2026-09-23). */
 export function tallyUnitsRouted(repos: Repositories, baseId: string, count: number): void {
   if (count <= 0) return;
@@ -331,6 +348,28 @@ function foughtAbroad(
  */
 export function tallyRailJourney(repos: Repositories, baseId: string): void {
   record(repos, baseId, [one('rail_journeys')]);
+}
+
+/** Components broken down at the Scrapyard (`district/scrapyard.ts`, 2026-10-09). */
+export function tallyComponentBrokenDown(repos: Repositories, baseId: string): void {
+  record(repos, baseId, [one('components_broken_down')]);
+}
+
+/** Components the ground delivered at the day's turn (`city/daily.ts`, 2026-10-09). */
+export function tallyComponentsDelivered(repos: Repositories, baseId: string, count: number): void {
+  if (count <= 0) return;
+  record(repos, baseId, [by('components_delivered', count)]);
+}
+
+/** Blueprint pages the ground delivered at the day's turn (`city/daily.ts`, 2026-10-09). */
+export function tallyPagesDelivered(repos: Repositories, baseId: string, count: number): void {
+  if (count <= 0) return;
+  record(repos, baseId, [by('pages_delivered', count)]);
+}
+
+/** Lampman's Row's lamps lit or put out by the crew holding it (`city/ground.ts`, 2026-10-09). */
+export function tallyLampsThrown(repos: Repositories, baseId: string): void {
+  record(repos, baseId, [one('lamps_thrown')]);
 }
 
 /**

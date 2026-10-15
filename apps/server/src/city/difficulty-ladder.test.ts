@@ -55,7 +55,6 @@ import {
   ALL_DISTRICTS,
   isContested,
   COMBINE_LEADERS,
-  LOCATION_CATALOG,
   combineLeaderAt,
   defaultSkirmishEngine,
   emptyDeployment,
@@ -149,7 +148,7 @@ afterAll(() => {
   db.close();
 });
 
-const baseDefense = (location: Location) => LOCATION_CATALOG[location.kind].baseDefense;
+const baseDefense = (location: Location) => location.baseDefense;
 
 /** The hardest plot the district's own garrison stands on, leaving out a leader's. */
 function hardestPlot(district: District): Location | undefined {

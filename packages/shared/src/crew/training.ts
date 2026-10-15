@@ -9,6 +9,7 @@ import {
   type Attributes,
 } from '../attributes.js';
 import { IdSchema, IsoDateTimeSchema } from '../primitives.js';
+import { mulberry32, seedFrom } from '../rng.js';
 import { GAME_TIMEZONE, dayInZone } from '../time/zone.js';
 import type { LeaderHold } from '../missions.leading.js';
 
@@ -241,6 +242,16 @@ export function drillUnderway(session: TrainingSession, now: number): boolean {
   return Date.parse(session.startedAt) <= now;
 }
 
+/**
+ * The time a queue row shows for a drill (maintainer, 2026-10-08): what is left of the hour while
+ * it runs, and the whole hour, holding still, while it waits its turn.
+ */
+export function drillClockMs(session: TrainingSession, now: number): number {
+  return drillUnderway(session, now)
+    ? drillRemainingMs(session, now)
+    : session.durationSeconds * 1000;
+}
+
 /** When a drill joining the queue now would begin: as the last one in it ends, or now if it is empty. */
 export function nextDrillStart(state: TrainingState, now: string): string {
   const last = Math.max(Date.parse(now), ...state.sessions.map(drillEndsAt));
@@ -423,6 +434,20 @@ export function beginTraining(
 export interface TrainingGain {
   subjectId: string;
   attribute: AttributeName;
+  /** The session that paid it, which is what the Bunkroom's roll is seeded off. */
+  sessionId?: string;
+  /** Points on top of the session's own (the Technicians' Bunkroom, 2026-10-09). */
+  extra?: number;
+}
+
+/**
+ * The Technicians' Bunkroom (maintainer, 2026-10-09): whether this session pays one point more, at
+ * `percent` in a hundred. Seeded off the session's id, so reading a finished drill twice can never
+ * roll it twice.
+ */
+export function drillBonusRoll(sessionId: string, percent: number): boolean {
+  if (percent <= 0) return false;
+  return mulberry32(seedFrom(`drill-bonus:${sessionId}`))() * 100 < percent;
 }
 
 /**
@@ -447,6 +472,7 @@ export function settleTraining(
     gains: done.map((session) => ({
       subjectId: session.subjectId,
       attribute: session.attribute,
+      sessionId: session.id,
     })),
   };
 }
@@ -459,7 +485,10 @@ export function settleTraining(
  */
 export function applyGain(sheet: Attributes, gain: TrainingGain): Attributes {
   const current = sheet[gain.attribute];
-  return { ...sheet, [gain.attribute]: clampAttribute(current + trainingGainFor(current)) };
+  return {
+    ...sheet,
+    [gain.attribute]: clampAttribute(current + trainingGainFor(current) + (gain.extra ?? 0)),
+  };
 }
 
 /**

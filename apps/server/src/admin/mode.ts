@@ -92,11 +92,14 @@ export function adminInfamy(infamy: number, admin: boolean): number {
  * the afternoon buying those twelve levels is exactly the afternoon this mode exists to give back.
  *
  * What is waived is every gate that is a **rule about progress**: a structure the Nexus has not
- * authorised, a unit that is not unlocked, a queue that is full, a daily allowance that is spent, a
- * roster with no beds. What is *not* waived is anything that is a statement about **reality**: a
+ * authorised, a unit that is not unlocked, a daily allowance that is spent, a roster with no beds. What is *not* waived is anything that is a statement about **reality**: a
  * unit that does not exist, a level above the last one, a project already running, an officer
  * already hired, a role already filled. Waiving those does not open a door, it produces a district
  * that cannot be parsed on the next read, and a reviewer looking at a broken save learns nothing.
+ *
+ * A full queue is no longer waived (maintainer, 2026-10-08). Every queue is drawn as a fixed number
+ * of boxes, five at most, so an order past the last box is one the player cannot see: an admin
+ * bench reading 8/5 is the screen lying, not a door opening.
  *
  * Membership is stated once, here, rather than as an `if (admin)` beside each gate, so what admin
  * mode does is one list somebody can read, and a new refusal is closed by default.
@@ -109,7 +112,6 @@ export const WAIVED_REFUSALS: ReadonlySet<string> = new Set([
   /** §H7a: a recruit's doors, refused at the table rather than at the signature. */
   'not_interested',
   // Capacity gates: there is room for this, just not right now.
-  'queue_full',
   'no_slots',
   'no_unit_slots',
   /** §H7: the payroll book has no room for another fee. A ceiling, like the beds and the slots. */

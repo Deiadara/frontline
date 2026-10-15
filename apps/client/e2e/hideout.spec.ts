@@ -532,16 +532,16 @@ for (const size of VIEWPORTS) {
     /**
      * The rail, at both depths a queue comes in.
      *
-     * Three orders is what a crew usually has and six is the ceiling (`MAX_BUILD_QUEUE`), and they
-     * fail differently: three fits beside the picture at every viewport, six is 622px of rail and
+     * Three orders is what a crew usually has and five is the ceiling (`MAX_BUILD_QUEUE`), and they
+     * fail differently: three fits beside the picture at every viewport, a full queue is the tallest rail and
      * stood on the Scrapyard's plate at 1280x800 and 1440x900 while flattening three plates onto
      * one line at 1024x768. Down the left from `RAIL_COLUMN_MIN_WIDTH_PX` up, across the top under
      * it; either way every plate has to answer its own click.
      */
     /*
      * The denominator is the crew's own, not the ceiling (maintainer, 2026-09-22): the queue is
-     * four wide until `Batch Runs` and six after it. `lateGame` has not researched it and reads
-     * `3/4`; `fullQueue` has, which is the only way six orders is a state that exists.
+     * four wide until `Batch Runs` and five after it. `lateGame` has not researched it and reads
+     * `3/4`; `fullQueue` has, which is the only way five orders is a state that exists.
      */
     for (const [depth, queue, orders, slots] of [
       ['three orders', lateGame, 3, BASE_BUILD_QUEUE],
@@ -667,11 +667,11 @@ for (const size of VIEWPORTS) {
         if (kind === CENTRAL_BUILDING) {
           await page.screenshot({ path: `screenshots/hideout/dialog-played-${tag}.png` });
         }
-        // The Gate's line says what it is worth in a fight and nothing against spies
-        // (maintainer, 2026-10-01: spy strength is not public).
+        // The Gate's line says the raw points of defence it adds (maintainer, 2026-10-15) and
+        // nothing against spies (maintainer, 2026-10-01: spy strength is not public).
         if (kind === 'gate') {
-          await expect(page.getByTestId('structure-bonus')).toContainText('% defence');
-          await expect(page.getByTestId('structure-bonus')).not.toContainText(/points|spy/i);
+          await expect(page.getByTestId('structure-bonus')).toContainText('points of defence');
+          await expect(page.getByTestId('structure-bonus')).not.toContainText(/spy|%/i);
           await page.screenshot({ path: `screenshots/hideout/dialog-gate-${tag}.png` });
         }
 

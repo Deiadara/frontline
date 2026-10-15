@@ -7,6 +7,11 @@
  * a little for every one past it: the tail leaves the knee at the same slope (so nothing jumps) and
  * closes on the ceiling exponentially. Strictly increasing for every `x`, which is the property
  * the rule asks for.
+ *
+ * TODO(maintainer, 2026-10-15): bonuses are to stack as plain sums, not curve out ("if it says it
+ * cuts 10%, it cuts 10%"), with every bonus screen showing what it actually does. Deferred until
+ * every bonus source has been reworked; docs/LINEAR-BONUSES.md lists every curved channel, its
+ * sources and where a plain sum breaks, plus the decisions made and still open.
  */
 export function softCap(x: number, knee: number, ceiling: number): number {
   if (x <= knee) return x;

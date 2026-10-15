@@ -13,6 +13,7 @@ import {
   type DeployRequest,
   type MeResponse,
   type UnitsResponse,
+  findLocation,
 } from '@frontline/shared';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter, Route, Routes, Link } from 'react-router-dom';
@@ -84,7 +85,7 @@ const view = (id: string, targetName: string): BattleView => ({
   districtName: 'Steelbelt',
   battlefield: battlefieldFor({
     locationName: targetName,
-    kind: 'scrap_press',
+    ground: findLocation('steelbelt-press')!,
     at: new Date(MARK),
     weather: 'normal',
   }),
@@ -114,6 +115,8 @@ const battles: BattlesResponse = {
   spyReports: [],
   slots: [],
   infamy: 40,
+  callsPending: 0,
+  callsAllowed: 3,
   callPrices: { locations: {}, districts: {} },
   gates: [],
   structures: [],
@@ -138,7 +141,6 @@ const roster: UnitsResponse = {
   musterCostReduction: 0,
   musterSpeedBonus: 0,
   built: [],
-  ignoredLabels: [],
   antiCombineLevels: 0,
 };
 

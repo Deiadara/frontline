@@ -150,7 +150,11 @@ export function CrewEffectsPage() {
   const { effects } = data;
   const live = EFFECT_CHANNELS.filter(
     // The spy totals are never sent (`PRIVATE_CHANNELS`); this holds if one ever is.
-    (channel) => !PRIVATE_CHANNELS.has(channel) && (effects[channel] ?? 0) > 0,
+    (channel) =>
+      !PRIVATE_CHANNELS.has(channel) &&
+      // The medic card prints every point a win is recovered on, so an Infirmary alone shows it.
+      ((effects[channel] ?? 0) > 0 ||
+        (channel === 'casualtyRecoveryPercent' && data.medicPoints > 0)),
   );
 
   return (
@@ -175,7 +179,16 @@ export function CrewEffectsPage() {
             data-testid="crew-effects"
           >
             {live.map((channel) => (
-              <ChannelCard key={channel} channel={channel} amount={effects[channel] ?? 0} />
+              <ChannelCard
+                key={channel}
+                channel={channel}
+                amount={effects[channel] ?? 0}
+                spent={{
+                  heldDefensePercent: data.heldDefensePercent,
+                  medicPoints: data.medicPoints,
+                }}
+                medicSharePercent={data.medicSharePercent}
+              />
             ))}
           </ul>
 

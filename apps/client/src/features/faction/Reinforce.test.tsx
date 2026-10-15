@@ -52,7 +52,6 @@ const units: UnitsResponse = {
   musterCostReduction: 0,
   musterSpeedBonus: 0,
   built: [],
-  ignoredLabels: [],
   antiCombineLevels: 0,
 };
 

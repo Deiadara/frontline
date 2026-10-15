@@ -1,4 +1,9 @@
-import { findVehicle, type MusterOrder, type UnitsResponse } from '@frontline/shared';
+import {
+  MAX_MUSTER_QUEUE,
+  findVehicle,
+  type MusterOrder,
+  type UnitsResponse,
+} from '@frontline/shared';
 import { render, screen, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -83,7 +88,6 @@ function bench(queue: MusterOrder[]): {
       musterCostReduction: 0,
       musterSpeedBonus: 0,
       built: [],
-      ignoredLabels: [],
       antiCombineLevels: 0,
     },
     dataUpdatedAt: Date.parse(NOW),
@@ -109,7 +113,26 @@ beforeEach(() => {
  * batches appeared to be mustering at once. Deriving the display through `splitDueMuster`, which
  * is what the server settles with, is what makes the two agree.
  */
+/** The orders on the bench, without the free places drawn after them. */
+const orders = () =>
+  within(screen.getByTestId('muster-queue')).queryAllByTestId(/^bench-(?!free-)/);
+
 describe('the muster bench', () => {
+  /*
+   * Every place is drawn, taken or free (maintainer, 2026-10-08), so an order lands in a box that
+   * was already there and the roster under the bench never moves.
+   */
+  it('draws all its places whatever is on it, so mustering never moves the page', () => {
+    for (const queue of [[], [order('one', 'razors', 1, 600)]]) {
+      useUnits.mockReturnValue(bench(queue));
+      const { unmount } = render(<Page />);
+      const places = within(screen.getByTestId('muster-queue')).getAllByRole('listitem');
+      expect(places).toHaveLength(MAX_MUSTER_QUEUE);
+      expect(orders()).toHaveLength(queue.length);
+      unmount();
+    }
+  });
+
   it('drops an order that has already finished, leaving only the one still running', () => {
     // First order: a 10s batch started 14s ago, so it is done and gone.
     // Second: a 20s batch that started when the first finished, 4s in and still going.
@@ -118,7 +141,7 @@ describe('the muster bench', () => {
     );
 
     render(<Page />);
-    const rows = within(screen.getByTestId('muster-queue')).getAllByRole('listitem');
+    const rows = orders();
     expect(rows, 'a finished order is still on the bench').toHaveLength(1);
     expect(rows[0]).toHaveTextContent(/razors/i);
     expect(screen.getByTestId('muster-queue')).not.toHaveTextContent(/sparks/i);
@@ -158,7 +181,7 @@ describe('the muster bench', () => {
       bench([order('first', 'sparks', 4, 20), order('second', 'razors', 0, 20)]),
     );
     render(<Page />);
-    expect(within(screen.getByTestId('muster-queue')).getAllByRole('listitem')).toHaveLength(2);
+    expect(orders()).toHaveLength(2);
     expect(refetch, 'nothing settled, so nothing to re-read').not.toHaveBeenCalled();
     expect(refreshCrew, 'and no experience to announce').not.toHaveBeenCalled();
   });

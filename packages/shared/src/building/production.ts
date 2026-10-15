@@ -301,7 +301,7 @@ export interface CrewYield {
    * The Collection Plate (maintainer, 2026-10-07): this much more of a structure's output for
    * every modification fitted on it, on the same sum as its cards and the crew's rate.
    */
-  modificationOutputPercent?: number;
+  modificationOutputPercent?: number | undefined;
   /** §F2: the crew's storage bonus, off its perks and the Lab. */
   storageCapacityPercent: number;
   /**

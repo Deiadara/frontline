@@ -4,6 +4,7 @@ import {
   noCrewEffects,
   researchEffects,
   type Army,
+  findLocation,
 } from '@frontline/shared';
 import { describe, expect, it } from 'vitest';
 import { fightMissionBattle } from './battle.js';
@@ -33,7 +34,6 @@ function sweep(stims: number): { killed: number; lost: number } {
       force: FORCE,
       vehicles: {},
       grade: 'E',
-      anyRide: false,
       territory,
     });
     killed += total(fought.killed);
@@ -44,7 +44,11 @@ function sweep(stims: number): { killed: number; lost: number } {
 
 describe('stims on a battle job', () => {
   it('are what the Black Clinic pays, and no Lab rung any more', () => {
-    expect(bonusesAt('black_clinic', 1)).toContainEqual({ kind: 'battle_stims', flat: 2 });
+    // The Psychic Ward, the Blacksite's black clinic.
+    expect(bonusesAt(findLocation('blacksite-blackward')!, 1)).toContainEqual({
+      kind: 'battle_stims',
+      flat: 2,
+    });
     expect(researchEffects(RESEARCH_ITEMS.map((spec) => spec.id)).battleStims).toBe(0);
   });
 

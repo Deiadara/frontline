@@ -4,7 +4,6 @@ import {
   BENCH_LABEL,
   OFFICER_ROLE_LABELS,
   OVERSEER_SUBJECT,
-  TRAINING_GAIN,
   TRAINING_QUEUE_SLOTS,
   TRAINING_SECONDS,
   TRAININGS_PER_DAY,
@@ -25,9 +24,11 @@ import {
   type TrainingSession,
   type TrainingResponse,
   type TrainingSubject,
+  drillBonusRoll,
 } from '@frontline/shared';
 import type { Repositories } from '../db/repos/index.js';
 import { notifyBase } from '../social/notify.js';
+import { tallyDrillBonusPoints } from '../feats/tally.js';
 import { officerDuty } from './duty.js';
 import { projectCrewOfficer } from './roster.js';
 import {
@@ -74,7 +75,9 @@ export function settleTrainingFor(repos: Repositories, base: Base, now: string):
  */
 export function bankTrainingFor(repos: Repositories, base: Base, now: string): SettledTraining {
   const overseer = overseerOf(repos, base);
-  const { state, gains } = settleTraining(base.training, now);
+  const settled = settleTraining(base.training, now);
+  const { state } = settled;
+  const gains = withDrillBonus(repos, base, settled.gains, now);
   const finishedAt = lastDrillEnded(base.training.sessions, now);
 
   if (gains.length === 0) {
@@ -100,10 +103,36 @@ export function bankTrainingFor(repos: Repositories, base: Base, now: string): S
   }
 
   repos.bases.updateTraining(base.id, state, commanders);
+  tallyDrillBonusPoints(
+    repos,
+    base.id,
+    gains.reduce((total, gain) => total + (gain.extra ?? 0), 0),
+  );
   if (developed && developed !== overseer) {
     repos.overseers.updateAttributes(developed.id, developed.attributes);
   }
   return { base: { ...base, training: state, commanders }, overseer: developed, gains, finishedAt };
+}
+
+/**
+ * The Technicians' Bunkroom (maintainer, 2026-10-09): each finished session may pay one point
+ * more, at the chance the crew holds now. The roll is seeded off the session's own id
+ * (`drillBonusRoll`), so reading the same drill twice cannot roll it twice.
+ */
+function withDrillBonus(
+  repos: Repositories,
+  base: Base,
+  gains: readonly TrainingGain[],
+  now: string,
+): TrainingGain[] {
+  if (gains.length === 0) return [...gains];
+  const percent = standingEffectsFor(repos, base, new Date(now)).drillBonusPercent;
+  if (percent <= 0) return [...gains];
+  return gains.map((gain) =>
+    gain.sessionId !== undefined && drillBonusRoll(gain.sessionId, percent)
+      ? { ...gain, extra: 1 }
+      : gain,
+  );
 }
 
 /** The end of the latest session that is over by `now`, or null when none is. */
@@ -144,14 +173,24 @@ export function announceDrills(
       gains.length === 1
         ? `${first} finished an hour on ${ATTRIBUTE_LABELS[who.attribute]}`
         : `${gains.length} hours on the floor are done`,
-    body:
+    body: [
       gains.length === 1
         ? 'The sheet has moved.'
         : `Starting with ${first} on ${ATTRIBUTE_LABELS[who.attribute]}.`,
+      // The Bunkroom's extra points, said rather than only added (2026-10-09).
+      ...bunkroomLine(gains),
+    ].join(' '),
     link: '/game/training',
     // Dated when the last of them ended, not at the read that noticed.
     at: finishedAt,
   });
+}
+
+/** "The Bunkroom paid 2 extra points." when any drill here got one, and nothing otherwise. */
+function bunkroomLine(gains: readonly TrainingGain[]): string[] {
+  const extra = gains.reduce((total, gain) => total + (gain.extra ?? 0), 0);
+  if (extra <= 0) return [];
+  return [`The Bunkroom paid ${extra} extra point${extra === 1 ? '' : 's'}.`];
 }
 
 /** The Overseer behind a base, through the user who owns it. */
@@ -300,7 +339,6 @@ export function projectTraining(
     sessionsLeft: trainingsLeft(state, now, extraSessions),
     perDay: TRAININGS_PER_DAY + Math.max(0, extraSessions),
     queueSlots,
-    gainPerSession: TRAINING_GAIN,
     sessionSeconds: TRAINING_SECONDS,
     subjects,
   };
